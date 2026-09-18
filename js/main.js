@@ -227,8 +227,8 @@ class Game {
     }
     for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (cls.id === 'blackwatch' ? '79' : '7') : String(100 + b.id * 7), hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9], crewTint: b.id });
     this.hud.buildRig(player);
-    this.renderer.cam.mode = idle ? 'orbit' : 'helm'; // first person at the tiller, eye height, life size
-    this.renderer.cam.yaw = idle ? 0 : Math.PI; this.renderer.cam.pitch = idle ? 14 * DEG : 0.2; this.renderer.cam.dist = idle ? 26 : cls.id === 'dinghy' ? 8 : 10;
+    this.renderer.cam.mode = idle ? 'orbit' : 'chase';
+    this.renderer.cam.yaw = idle ? 0 : 200 * DEG; this.renderer.cam.pitch = 14 * DEG; this.renderer.cam.dist = idle ? 26 : cls.id === 'dinghy' ? 8 : 12;
     this.t = 0; this.acc = 0; this.timeWarp = 1;
     this.idle = idle;
     this.sharedRace = null;
@@ -435,7 +435,14 @@ class Game {
       if (drag && drag.grab && drag.grab.kind === 'click' && drag.clickDist < 8) this.onGrabClick(drag.grab, drag.shift);
       drag = null; cv.style.cursor = this.hoverGrab ? 'grab' : '';
     });
-    cv.addEventListener('wheel', (e) => { const c = this.renderer.cam; c.dist = clamp(c.dist * (e.deltaY > 0 ? 1.12 : 1 / 1.12), 5, 400); }, { passive: true });
+    cv.addEventListener('wheel', (e) => {
+      const c = this.renderer.cam, out = e.deltaY > 0;
+      if (c.mode === 'helm' || c.mode === 'bow' || c.mode === 'mast') { if (out) { c.mode = 'chase'; c.dist = 4.5; c.yaw = 200 * DEG; c.pitch = 0.12; } return; }
+      if (c.mode === 'top') { c.dist = clamp(c.dist * (out ? 1.12 : 1 / 1.12), 5, 400); return; }
+      const next = c.dist * (out ? 1.12 : 1 / 1.12);
+      if (!out && next < 3.5 && (c.mode === 'chase' || c.mode === 'deck')) { c.mode = 'helm'; c.yaw = Math.PI; c.pitch = 0.15; this.hud.toast('At the helm', 1); return; }
+      c.dist = clamp(next, 3.5, 600);
+    }, { passive: true });
   }
 
   // ---------------------------------------------------------------- deck handling
@@ -599,10 +606,19 @@ class Game {
     let steps = 0;
     const maxSteps = 12 * this.timeWarp;
     while (this.acc >= PHYS_DT && steps < maxSteps) {
+      for (const b of this.boats) b._prev = { x: b.x, z: b.z, psi: b.psi, heave: b.heave, pitch: b.pitch, phi: b.phi };
       this.step(PHYS_DT);
       this.acc -= PHYS_DT; steps++;
     }
     if (steps >= maxSteps) this.acc = 0;
+    // draw the boats between the last two physics states so motion is smooth at any refresh rate
+    const alpha = clamp(this.acc / PHYS_DT, 0, 1);
+    const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+    for (const b of this.boats) {
+      const p = b._prev || b;
+      b.pose = { x: lerp(p.x, b.x, alpha), z: lerp(p.z, b.z, alpha), psi: p.psi + wrapA(b.psi - p.psi) * alpha,
+        heave: lerp(p.heave, b.heave, alpha), pitch: lerp(p.pitch, b.pitch, alpha), phi: lerp(p.phi, b.phi, alpha) };
+    }
     if (this.env.tick(this.t)) this.renderer.setWaves(this.env.waves);
     this.shelterAcc = (this.shelterAcc || 0) + dt;
     if (this.shelterAcc > 10) { this.shelterAcc = 0; const mw = this.env.wind.mean(this.t); if (this.world.updateShelter(mw.dir)) {} }

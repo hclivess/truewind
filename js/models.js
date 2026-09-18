@@ -45,9 +45,9 @@ function mat(key, make) { return matCache[key] || (matCache[key] = make()); }
 const M = {
   gel: (c) => mat('gel' + c, () => new THREE.MeshStandardMaterial({ color: c, roughness: 0.28, metalness: 0.02 })),
   hull: () => mat('hullvc', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.02, side: THREE.DoubleSide })),
-  teak: () => mat('teak', () => new THREE.MeshStandardMaterial({ map: teakTex(), roughness: 0.75 })),
+  teak: () => mat('teak', () => new THREE.MeshStandardMaterial({ map: teakTex(), roughness: 0.75, side: THREE.DoubleSide })),
   varnish: () => mat('varnish', () => new THREE.MeshStandardMaterial({ map: teakTex(), roughness: 0.25, color: 0xd9b48a })),
-  deck: (tint) => mat('deck' + tint, () => new THREE.MeshStandardMaterial({ map: nonskidTex(tint), roughness: 0.85 })),
+  deck: (tint) => mat('deck' + tint, () => new THREE.MeshStandardMaterial({ map: nonskidTex(tint), roughness: 0.85, side: THREE.DoubleSide })),
   steel: () => mat('steel', () => new THREE.MeshStandardMaterial({ color: 0xd4d8dc, roughness: 0.22, metalness: 0.9 })),
   alu: () => mat('alu', () => new THREE.MeshStandardMaterial({ color: 0xbfc5cb, roughness: 0.4, metalness: 0.75 })),
   black: () => mat('black', () => new THREE.MeshStandardMaterial({ color: 0x1c1e22, roughness: 0.5, metalness: 0.2 })),
@@ -58,7 +58,7 @@ const M = {
   wire: () => mat('wire', () => new THREE.MeshStandardMaterial({ color: 0xc8ccd0, roughness: 0.3, metalness: 0.9 })),
   red: () => mat('navred', () => new THREE.MeshStandardMaterial({ color: 0xc81e1e, emissive: 0x400000, roughness: 0.3 })),
   green: () => mat('navgreen', () => new THREE.MeshStandardMaterial({ color: 0x1e9c3c, emissive: 0x003010, roughness: 0.3 })),
-  cream: () => mat('cream', () => new THREE.MeshStandardMaterial({ color: 0xece4d2, roughness: 0.4 })),
+  cream: () => mat('cream', () => new THREE.MeshStandardMaterial({ color: 0xece4d2, roughness: 0.4, side: THREE.DoubleSide })),
   cowlIn: () => mat('cowlin', () => new THREE.MeshStandardMaterial({ color: 0xb3261e, roughness: 0.5, side: THREE.DoubleSide })),
   foil: () => mat('foil', () => new THREE.MeshStandardMaterial({ color: 0xf2f2ef, roughness: 0.3 })),
   lead: () => mat('lead', () => new THREE.MeshStandardMaterial({ color: 0x2a2d31, roughness: 0.45, metalness: 0.4 })),
@@ -746,10 +746,10 @@ const tAtX = (C, x) => clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1);
 // ================================================================== per-frame
 const _v = new THREE.Vector3();
 export function updateBoatModel(vis, b, t) {
-  const C = b.cls;
-  vis.root.position.set(b.x, b.heave, b.z);
-  vis.root.rotation.set(0, -b.psi, 0);
-  vis.inner.rotation.set(b.pitch, 0, -b.phi, 'YXZ');
+  const C = b.cls, P = b.pose || b;
+  vis.root.position.set(P.x, P.heave, P.z);
+  vis.root.rotation.set(0, -P.psi, 0);
+  vis.inner.rotation.set(P.pitch, 0, -P.phi, 'YXZ');
   if (vis.rudderPivots && vis.rudderPivots.length) { for (const pv of vis.rudderPivots) pv.rotation.y = b.rudder; vis.rudderPivot.position.x = -Math.sin(b.rudder) * 0.6 * 0; }
   else vis.rudderPivot.rotation.y = b.rudder;
   if (C.keel.twin && vis.keelMesh) vis.keelMesh.position.y = C.freeboard - 0.05 + (1 - b.ctrl.board) * C.keel.span * 0.8;

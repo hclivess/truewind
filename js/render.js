@@ -557,12 +557,16 @@ export class Renderer {
   _updateCamera(dt, b, env, t) {
     const c = this.cam, cam = this.camera;
     if (!b) return;
-    const k = 1 - Math.exp(-dt * 6);
-    c.tx = lerp(c.tx, b.x, k); c.tz = lerp(c.tz, b.z, k);
-    const bh = b.heave || 0;
+    const P = b.pose || b;
+    const k = 1 - Math.exp(-dt * 8);
+    c.tx = lerp(c.tx, P.x, k); c.tz = lerp(c.tz, P.z, k);
+    const bh = P.heave || 0;
+    // hide the helmsman while we look through his eyes
+    const vis0 = this.boats.get(b);
+    if (vis0 && vis0.crew) vis0.crew.people[0].s.root.visible = c.mode !== 'helm';
     if (c.mode === 'chase' || c.mode === 'orbit') {
       if (c.mode === 'orbit') c.yaw += dt * 0.08;
-      const yaw = c.yaw + (c.mode === 'chase' ? b.psi : 0);
+      const yaw = c.yaw + (c.mode === 'chase' ? P.psi : 0);
       const d = c.dist;
       cam.position.set(c.tx - Math.sin(yaw) * Math.cos(c.pitch) * d, Math.max(1.2, bh + 2 + Math.sin(c.pitch) * d), c.tz + Math.cos(yaw) * Math.cos(c.pitch) * d);
       cam.up.set(0, 1, 0);
@@ -570,16 +574,21 @@ export class Renderer {
     } else if (c.mode === 'helm' || c.mode === 'bow' || c.mode === 'mast') {
       const vis = this.boats.get(b);
       const C = b.cls;
-      const local = c.mode === 'helm' ? new THREE.Vector3(b.crewY * 0.8 - Math.sign(b.crewY || 1) * 0.1, C.freeboard + 1.0, -(C.sternX + 0.9))
+      const helmHead = vis.crew && vis.crew.people[0] ? vis.inner.worldToLocal(vis.crew.people[0].s.head.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(0, 0.1, -0.05)) : null;
+      const local = c.mode === 'helm' ? (helmHead || new THREE.Vector3(0, C.freeboard + 1.0, -(C.sternX + 0.9)))
         : c.mode === 'bow' ? new THREE.Vector3(0, C.freeboard + 0.7, -(C.bowX - 0.3))
         : new THREE.Vector3(0.3, C.mastHeight + 0.4, -C.mastX + 0.5);
       vis.inner.updateMatrixWorld();
       const wp = local.applyMatrix4(vis.inner.matrixWorld);
-      cam.position.copy(wp);
+      // a sailor's head and eyes steady the view: follow the boat's motion with a little lag
+      const kk = 1 - Math.exp(-dt * 12);
+      cam.position.lerp(wp, cam.position.distanceTo(wp) > 3 ? 1 : kk);
       const look = new THREE.Vector3(Math.sin(c.yaw - Math.PI) * Math.cos(c.pitch - 0.2) * 20, c.mode === 'mast' ? -8 : Math.sin(c.pitch - 0.25) * 20, -Math.cos(c.yaw - Math.PI) * Math.cos(c.pitch - 0.2) * 20);
       const target = look.applyMatrix4(vis.inner.matrixWorld);
-      cam.up.set(0, 1, 0).applyQuaternion(vis.inner.getWorldQuaternion(new THREE.Quaternion()));
-      cam.lookAt(target);
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(vis.inner.getWorldQuaternion(new THREE.Quaternion()));
+      cam.up.lerp(up.lerp(new THREE.Vector3(0, 1, 0), 0.5), kk).normalize(); // the inner ear keeps the horizon half-level
+      this._look = this._look ? this._look.lerp(target, kk) : target.clone();
+      cam.lookAt(this._look);
     } else if (c.mode === 'deck') {
       // close orbit around the cockpit for handling lines
       const vis = this.boats.get(b), C = b.cls;

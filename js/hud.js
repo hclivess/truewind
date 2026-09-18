@@ -55,12 +55,12 @@ export class HUD {
     if (S.stay) h += `<div class="sl2"><span>Staysail</span>${tt('stay')}</div>`;
     if (S.jib) h += `<div class="sl2"><span id="hs-name">Jib</span>${tt('jib')}</div>`;
     if (S.gennaker) h += `<div class="sl2"><span>Gennaker</span>${tt('gennaker')}</div>`;
-    h += `</div><div class="rg"><h3>Lines</h3><p class="hint">Press 7 to go on deck, then grab a rope, car, winch or the tiller.</p><div class="lines">`;
+    h += `</div><div class="rg"><h3>Lines <span class="muted" style="font-weight:500;letter-spacing:.02em;text-transform:none">grab them on deck · 7</span></h3><div class="lines">`;
     h += rows.map(([k, label, col]) => `<div class="ln" data-k="${k}"><i style="background:${col}"></i><span>${label}</span><b id="o-${k}"></b><div class="bar" id="bar-${k}"></div></div>`).join('');
     h += `<div class="ln"><i style="background:#8a5a2b"></i><span>Helm</span><b id="o-helm"></b></div>`;
     if (S.main.reefs) h += `<div class="ln"><i style="background:#d24a3a"></i><span>Reef</span><b id="o-reef"></b></div>`;
     h += `</div><div class="toggles"><button class="chip" id="t-trim">Auto-trim</button><button class="chip" id="t-hike">Auto-hike</button></div></div>`;
-    h += `<div class="rg"><h3>Loads</h3><div class="loads" id="loads"></div></div>`;
+    h += `<div class="rg"><h3>Rig loads</h3><div class="loads" id="loads"></div></div>`;
     $('#rig-body').innerHTML = h;
     this.rows = rows.map(r => r[0]);
     $('#t-trim').addEventListener('click', () => this.g.toggleAutoTrim());

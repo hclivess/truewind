@@ -45,12 +45,12 @@ export class Audio {
     this.water = chain(nC, 1, 'lowpass', 900, 0.5);
     this.hiss = chain(nB, 1.3, 'highpass', 2500, 0.3);
     // flogging: band-limited noise amplitude-modulated by a smooth LFO (sine), no gating clicks
-    const fl = chain(nC, 1.2, 'bandpass', 700, 0.8);
+    const fl = chain(nC, 1.0, 'lowpass', 380, 0.5);
     this.flog = fl;
     const mod = ctx.createGain(); mod.gain.value = 0.55;
     fl.g.disconnect(); fl.g.connect(mod); mod.connect(this.master);
     const lfo = ctx.createOscillator(); lfo.frequency.value = 6;
-    const lfoDepth = ctx.createGain(); lfoDepth.gain.value = 0.45;
+    const lfoDepth = ctx.createGain(); lfoDepth.gain.value = 0.25;
     lfo.connect(lfoDepth); lfoDepth.connect(mod.gain); lfo.start();
     this.lfo = lfo;
   }
@@ -74,7 +74,8 @@ export class Audio {
     glide(this.hiss.g.gain, on * Math.min(0.25, Math.max(0, v - 3) ** 2 / 200), 0.5);
     let flog = 0;
     for (const k in d.strips) for (const s of d.strips[k]) flog = Math.max(flog, (s.flog || 0) * (d.strips[k].areaF ?? 1));
-    glide(this.flog.g.gain, on * flog * Math.min(1, aws / 7) * 0.8, 0.25);
+    const heavy = Math.max(0, flog - 0.35) / 0.65;          // only a properly flogging sail is heard
+    glide(this.flog.g.gain, on * heavy * heavy * Math.min(1, aws / 9) * 0.12, 0.6);
     glide(this.lfo.frequency, 4 + aws * 0.45, 1.0);
     if (b.slam > 1.2 && on) { this.thump(Math.min(1, b.slam / 3)); b.slam = 0; }
   }

@@ -63,11 +63,12 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px soli
 .inst .val small { font: 500 12px var(--cond); color: var(--muted); margin-left: 2px; }
 .inst.port .val { color: var(--port); } .inst.stbd .val { color: var(--stbd); } .inst.warn .val { color: var(--amber); } .inst.bad .val { color: var(--port); }
 
-#rig { position: absolute; left: 12px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); width: 262px; max-height: calc(100% - 290px); display: flex; flex-direction: column; }
+#rig { position: absolute; left: 12px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); width: 250px; max-height: calc(100% - 175px); display: flex; flex-direction: column; }
 #rig header, #polar-card header, #physics header { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px 6px; }
-#rig-body { overflow: auto; padding: 0 10px 8px; }
+#rig-body { overflow: hidden; padding: 0 10px 6px; }
+#rig-body::-webkit-scrollbar { display: none; }
 #rig.collapsed #rig-body { display: none; }
-.rg { border-top: 1px solid var(--line); padding: 6px 0 4px; }
+.rg { border-top: 1px solid var(--line); padding: 4px 0 3px; }
 .rg h3 { margin: 0 0 4px; font: 600 12px var(--cond); letter-spacing: .1em; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; }
 .tt { display: flex; gap: 3px; }
 .st { font: 600 10px/1 var(--cond); letter-spacing: .08em; padding: 3px 5px; border-radius: 2px; background: var(--ink-2); color: var(--muted); }
@@ -176,12 +177,12 @@ body.online .online-only { display: block; }
 #grab-tip b { font: 700 15px var(--display); letter-spacing: .03em; text-transform: uppercase; }
 #grab-tip span { font-variant-numeric: tabular-nums; }
 #grab-tip em { color: var(--muted); font-style: normal; }
-.lines { display: grid; gap: 3px; }
+.lines { display: grid; gap: 1px; }
 .ln { display: grid; grid-template-columns: 10px 1fr auto; gap: 7px; align-items: center; font: 500 12px var(--cond); letter-spacing: .03em; }
 .ln i { width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 2px rgba(0,0,0,.25); }
 .ln span { color: var(--muted); }
 .ln b { font-weight: 600; font-variant-numeric: tabular-nums; }
-.ln .bar { grid-column: 2 / 4; height: 2px; background: var(--line); position: relative; margin-top: -2px; }
+.ln .bar { display: none; }
 .ln .bar::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: var(--v, 0%); background: var(--muted); }
 .rg p.hint { margin: 2px 0 4px; font: 500 12px/1.35 var(--cond); color: var(--muted); }
 .sl2 { display: flex; justify-content: space-between; align-items: center; font: 500 12px var(--cond); color: var(--muted); padding: 1px 0; }
