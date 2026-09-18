@@ -115,21 +115,21 @@ export class HullSplash {
         // relative vertical velocity of water vs hull at this point
         const hullVz = b.heaveV + st.x * b.pitchV - y * b.p;
         const rise = b._etaDot(st.x) - hullVz;
-        const imp = Math.max(0, rise) + u * entry * (st.t > 0.5 ? 1 : 0.3);
+        const imp = Math.max(0, rise) * (st.t > 0.5 ? 1 : 0.5) + u * entry * (st.t > 0.5 ? 1 : 0.2);
         const w = 0.18 + 0.05 * u + 0.35 * Math.min(1, imp / 2);
         const out = sideSign * w;
         fp.set([y, z + 0.015, -st.x, y + out, z + 0.01, -st.x], slot * 6);
         const cov = Math.min(0.9, 0.25 + 0.1 * u + 0.3 * imp);
         fa[slot * 2] = cov; fa[slot * 2 + 1] = cov;
         // spray from hard impacts (squared excess over ~0.7 m/s)
-        const ex = imp - 1.0;
+        const ex = (st.t > 0.55 ? imp : 0) - 1.0;                       // spray comes off the bow and flare, not the transom
         if (ex > 0 && Math.random() < ex * ex * dt * 8) {
           const n = 1 + Math.floor(ex * 3);
           for (let q = 0; q < n; q++) {
             tmp.set(y, z + 0.03, -st.x).applyMatrix4(M);
-            nrm.set(sideSign, 0.9, -0.2).transformDirection(M);
+            nrm.set(sideSign, 0.45, 0.25).transformDirection(M);          // outward, low, and slightly aft
             const sp = imp * (0.6 + Math.random() * 0.9);
-            vel.set(bvx * 0.85 + nrm.x * sp + (Math.random() - 0.5) * 0.6, nrm.y * sp * 1.3 + Math.random() * 0.5, bvz * 0.85 + nrm.z * sp + (Math.random() - 0.5) * 0.6);
+            vel.set(bvx * 0.7 + nrm.x * sp + (Math.random() - 0.5) * 0.4, nrm.y * sp + Math.random() * 0.3, bvz * 0.7 + nrm.z * sp + (Math.random() - 0.5) * 0.4);
             this.emit(tmp, vel, 0.05 + Math.random() * 0.09);
           }
         }

@@ -56,7 +56,9 @@ export function hullSection(C, Lx, t) {
     pts.push([0.075, lk + 0.1]);
     pts.push([0.0, lk]);
   } else pts.push([0, zk]);
-  return catmull(pts, 4).map(([y, z]) => [Math.max(0, y), z]);
+  // underwater fullness (calibrated to the real displacement): pinch the bilge in, keep the profile
+  const k = C._fullness ?? 1;
+  return catmull(pts, 4).map(([y, z]) => [Math.max(0, z < 0 ? y * (k + (1 - k) * Math.max(0, 1 + z / 0.02) ) : y), z]);
 }
 
 // hull centre-line offsets (y) — one hull for monohulls, two for a catamaran
@@ -189,16 +191,19 @@ function clipArea(p, sp, cp, zw, sl) {
 // Scale the canoe-body depth so that the drawn hull floats at its drawn waterline with the boat's
 // real mass: displacement at z=0, level, equals mass / rho.
 export function calibrate(C) {
-  if (C._depthScale !== undefined) return C._depthScale;
+  if (C._fullness !== undefined) return C._fullness;
+  // share the correction between underwater fullness and canoe-body depth, keeping sections realistic
   const need = (C.massHull + C.crewN * C.crewEach) / 1025;
-  let s = 1;
-  for (let it = 0; it < 40; it++) {
-    C._depthScale = s;
+  let k = 1, d = 1;
+  for (let it = 0; it < 60; it++) {
+    C._fullness = k; C._depthScale = d;
     const V = immerseStations(buildStations(C, 26), 0, 0, 0, () => 0, () => 0, {}).V;
     const ratio = need / Math.max(1e-4, V);
     if (Math.abs(ratio - 1) < 0.004) break;
-    s = clamp(s * Math.pow(ratio, 0.85), 0.2, 5);
+    const s = Math.pow(ratio, 0.5);
+    k = clamp(k * s, 0.55, 1.3);
+    d = clamp(d * (k === 0.55 || k === 1.3 ? ratio : s), 0.3, 3);
   }
-  C._depthScale = s;
-  return s;
+  C._fullness = k; C._depthScale = d;
+  return k;
 }

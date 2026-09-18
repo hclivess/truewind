@@ -47,7 +47,7 @@ function interp(table, x) {
   const [xa, ya] = table[n - 1], [xb, yb] = table[n];
   return yb + (yb - ya) / (xb - xa) * (x - xb);
 }
-export const wrap = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+export const wrap = (a) => { if (!isFinite(a)) return 0; return a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI)); };
 
 // ---------------------------------------------------------------------------------------------
 // Boat classes. Geometry in metres from the centre of gravity (x fwd), heights above waterline.
@@ -63,19 +63,19 @@ export const CLASSES = {
     gm: 0.92, bmForm: 0.62, Ixx: 1150, Izz: 2250, amX: 0.07, amY: 0.9, amYaw: 0.6, amRoll: 0.3,
     rr: [[0.1, 0.0002], [0.15, 0.0006], [0.2, 0.0016], [0.25, 0.0035], [0.3, 0.0072], [0.35, 0.0145], [0.4, 0.031],
          [0.45, 0.058], [0.5, 0.085], [0.55, 0.101], [0.6, 0.11], [0.7, 0.12], [0.8, 0.125], [1.0, 0.13], [1.5, 0.14]],
-    keel: { x: 0.75, z: -0.3, area: 1.7, ARe: 0.95, stall: 26 * DEG, cd0: 0.013, span: 0.35, chord: 3.6, long: true },
+    keel: { x: 1.0, z: -0.3, area: 1.7, ARe: 0.95, stall: 26 * DEG, cd0: 0.013, span: 0.35, chord: 3.6, long: true },
     rudder: { x: -2.78, z: -0.28, area: 0.34, ARe: 2.4, stall: 22 * DEG, cd0: 0.014, max: 35 * DEG, span: 0.75, chord: 0.5, transom: true, loadRef: 900 },
     hullLat: { area: 0.9, cd: 0.9, z: -0.1 },
     windage: { area: 3.1, z: 2.1, cd: 0.95 },
-    mastX: 0.25, mastHeight: 8.4, boomZ: 1.4, keelBulb: false,
+    mastX: 0.25, mastHeight: 8.4, boomZ: 1.5, keelBulb: false,
     targetHeel: 18 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 900,
     sails: [
       { key: 'main', kind: 'boom', area: 10.4, luff: 6.5, foot: 3.0, head: 0.15, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
         cd0: 0.07, ARe: 3.2, min: 2 * DEG, max: 80 * DEG, trav: [-4 * DEG, 12 * DEG], Iboom: 42, boomMass: 18, reefs: 2,
         vangBend: 0.08, sheetBend: 0.05, color: 0x9c4f2e },
-      { key: 'stay', kind: 'boom', selfTacking: true, area: 4.2, tackX: 2.55, tackZ: 0.95, luff: 5.2, foot: 1.75, head: 0.05, rake: 0.55,
+      { key: 'stay', kind: 'boom', selfTacking: true, area: 4.2, tackX: 2.55, tackZ: 1.45, luff: 4.8, foot: 1.75, head: 0.05, rake: 0.55,
         depth: [0.12, 0.13, 0.11], twistMax: 14 * DEG, cd0: 0.05, ARe: 3.2, min: 5 * DEG, max: 55 * DEG, Iboom: 6, boomMass: 5, color: 0x9c4f2e },
-      { key: 'jib', kind: 'loose', area: 5.1, tackX: 4.2, tackZ: 1.05, luff: 7.0, foot: 2.05, head: 0.05, rake: 1.0,
+      { key: 'jib', kind: 'loose', area: 5.1, tackX: 4.2, tackZ: 1.05, luff: 7.0, foot: 2.05, head: 0.05, rake: 1.0, footRise: 0.9,
         depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 3.8, min: 12 * DEG, max: 55 * DEG, sagK: 1.6, color: 0x9c4f2e },
     ],
     hull: { color: 0x15171b, stripe: 0xb8902f, deck: 0xcdbf9f, boot: 0x7a1f1f, sectionN: 1.8, transom: 0.62, bowRake: 0.35, sheer: 0.18 },
@@ -90,17 +90,17 @@ export const CLASSES = {
     gm: 1.05, bmForm: 0.65, Ixx: 1400, Izz: 3600, amX: 0.06, amY: 0.7, amYaw: 0.4, amRoll: 0.25,
     rr: [[0.1, 0.0001], [0.15, 0.0004], [0.2, 0.0009], [0.25, 0.0018], [0.3, 0.0035], [0.35, 0.0065], [0.4, 0.013],
          [0.45, 0.025], [0.5, 0.037], [0.55, 0.045], [0.6, 0.049], [0.7, 0.051], [0.8, 0.05], [1.0, 0.048], [1.2, 0.049], [1.5, 0.055]],
-    keel: { x: 0.33, z: -0.85, area: 0.58, ARe: 5.0, stall: 14 * DEG, cd0: 0.009, span: 1.17, chord: 0.5 },
+    keel: { x: 0.65, z: -0.85, area: 0.58, ARe: 5.0, stall: 14 * DEG, cd0: 0.009, span: 1.17, chord: 0.5 },
     rudder: { x: -3.05, z: -0.45, area: 0.23, ARe: 3.6, stall: 15 * DEG, cd0: 0.01, max: 32 * DEG, span: 0.95, chord: 0.26, loadRef: 700 },
     hullLat: { area: 1.5, cd: 0.9, z: -0.1 },
     windage: { area: 2.8, z: 2.4, cd: 0.9 },
     mastX: 0.62, mastHeight: 10.2, boomZ: 1.55, keelBulb: true,
     targetHeel: 17 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 1400,
     sails: [
-      { key: 'main', kind: 'boom', area: 16.7, luff: 8.3, foot: 2.95, head: 0.75, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
+      { key: 'main', kind: 'boom', area: 16.7, luff: 8.3, foot: 2.95, head: 0.45, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
         cd0: 0.06, ARe: 4.8, min: 1.5 * DEG, max: 78 * DEG, trav: [-6 * DEG, 12 * DEG], Iboom: 38, boomMass: 14, reefs: 0,
         vangBend: 0.15, sheetBend: 0.1, color: 0xf2f0ea },
-      { key: 'jib', kind: 'loose', area: 9.1, tackX: 3.3, tackZ: 0.8, luff: 7.2, foot: 2.35, head: 0.08, rake: 0.32,
+      { key: 'jib', kind: 'loose', area: 9.1, tackX: 3.3, tackZ: 0.8, luff: 7.2, foot: 2.35, head: 0.08, rake: 0.32, footRise: 0.55,
         depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 4.2, min: 8.5 * DEG, max: 42 * DEG, sagK: 1.0, color: 0xf2f0ea },
       { key: 'gennaker', kind: 'spin', replaces: 'jib', area: 39.5, tackX: 4.55, tackZ: 0.85, luff: 9.0, foot: 4.3, head: 0.5, rake: 0.55,
         depth: [0.19, 0.21, 0.19], cd0: 0.09, ARe: 2.2, min: 16 * DEG, max: 100 * DEG, color: 0xd9412b },
@@ -139,7 +139,7 @@ export const CLASSES = {
     massHull: 160, zG: 0.42, crewN: 2, crewEach: 72, crewZ: 0.5, crewMaxOut: 2.0, crewLee: -0.4, hikeRate: 1.0,
     gm: 3, bmForm: 1, Ixx: 560, Izz: 520, amX: 0.04, amY: 0.35, amYaw: 0.4, amRoll: 0.4,
     rr: [[0.1, 0.0004], [0.2, 0.002], [0.3, 0.0055], [0.35, 0.009], [0.4, 0.0135], [0.45, 0.018], [0.5, 0.021], [0.6, 0.0225], [0.7, 0.022], [0.8, 0.021], [1.0, 0.0195], [1.2, 0.019], [1.5, 0.02]],
-    keel: { x: 0.35, z: -0.5, area: 0.36, ARe: 4.5, stall: 13 * DEG, cd0: 0.011, span: 0.75, chord: 0.26, board: true, twin: true },
+    keel: { x: 0.5, z: -0.5, area: 0.36, ARe: 4.5, stall: 13 * DEG, cd0: 0.011, span: 0.75, chord: 0.26, board: true, twin: true },
     rudder: { x: -2.4, z: -0.3, area: 0.18, ARe: 3.5, stall: 16 * DEG, cd0: 0.012, max: 30 * DEG, span: 0.6, chord: 0.2, loadRef: 250, twin: true },
     hullLat: { area: 0.6, cd: 0.9, z: -0.08 },
     windage: { area: 2.1, z: 1.1, cd: 1.0 },
@@ -384,7 +384,8 @@ export class Boat {
     let X = 0, Y = 0, K = 0, N = 0;
     let sailX = 0, sailY = 0, sailK = 0;
     const heaveH = this.heave;
-    const aeroOn = true;                     // strips that are under water are handled one by one below
+    const aeroOn = true;
+    this._cRollWet = 0;                     // strips that are under water are handled one by one below
 
     // mid-height apparent wind (drives headsail sides, trimming, crew)
     const M0 = this.sailBy.main;
@@ -475,7 +476,7 @@ export class Boat {
       } else for (let i = 0; i < 3; i++) {
         const f = STRIP_F[i], o = ds[i], shp = sh[i];
         const chord = s.foot * (1 - f) + s.head * f;
-        const zs = pivotZ + f * luff;
+        const zs = pivotZ + f * luff + (s.footRise || 0) * 0.4 * (1 - f);
         const lim = Math.max(Math.abs(baseAngle), 90 * DEG);  // the leech never twists past square
         const ang = clamp(baseAngle + side * shp.tw, -lim, lim);
         shp.ang = ang;
@@ -489,8 +490,10 @@ export class Boat {
         if (wet > 0.01) {
           const vlat = this.v + this.r * xce + this.p * zs;                 // strip moving through the water
           const Aw = s.area * STRIP_W[i] * areaF * wet;
-          const Fw = -0.5 * RHO_W * 1.2 * Aw * vlat * Math.abs(vlat) - Math.sign(this.p * zs) * RHO_W * G * 0.01 * Aw; // drag + water lying on the cloth
-          Y += Fw * cphi; K += Fw * zs; N += xce * Fw * cphi;
+          const cq = 0.5 * RHO_W * 1.2 * Aw * Math.abs(vlat);                // linearised drag coefficient
+          const Fvr = -cq * (this.v + this.r * xce) - Math.sign(this.p * zs) * RHO_W * G * 0.01 * Aw; // translation + water on the cloth
+          Y += Fvr * cphi; K += Fvr * zs; N += xce * Fvr * cphi;
+          this._cRollWet += cq * zs * zs;                                     // roll part: integrated implicitly (stiff)
           X -= 0.5 * RHO_W * 0.08 * Aw * this.u * Math.abs(this.u);
         }
         o.inWater = wet > 0.5;
@@ -723,7 +726,7 @@ export class Boat {
         if (hW >= 0) continue;
         const Fb = RHO_W * G * Math.PI * r0 * r0 * 1.25 * (L / nSeg) * 0.85; // pear section, 85% sealed
         K -= Fb * zseg * sphi;                                   // lifts the side the mast has fallen to
-        K -= 0.5 * RHO_W * 1.0 * 2 * r0 * (L / nSeg) * (this.p * zseg) * Math.abs(this.p * zseg) * zseg;
+        this._cRollWet += 0.5 * RHO_W * 1.0 * 2 * r0 * (L / nSeg) * Math.abs(this.p * zseg) * zseg * zseg;
       }
     }
     // capsized is a state you are in, not a script: past ~75 degrees on a boat that can capsize
@@ -738,7 +741,11 @@ export class Boat {
     const dp = K / this.Ixx;
     this._rdot = dr;
     this.u += du * dt; this.v += dv * dt; this.r += dr * dt;
-    this.p += dp * dt;
+    // explicit roll, then the stiff water damping of a wet rig implicitly (unconditionally stable)
+    this.p = (this.p + dp * dt) / (1 + (this._cRollWet || 0) * dt / this.Ixx);
+    // guards: a numerical blow-up must never take the game down
+    this.p = clamp(this.p, -8, 8); this.r = clamp(this.r, -4, 4); this.v = clamp(this.v, -15, 15); this.u = clamp(this.u, -8, 30);
+    for (const k of ['u', 'v', 'r', 'p', 'phi', 'heave', 'heaveV', 'pitch', 'pitchV']) if (!isFinite(this[k])) this[k] = 0;
     this.phi += this.p * dt;
     this.psi = wrap(this.psi + this.r * dt);
     this.x += (this.u * fx + this.v * sx + cur.x) * dt;
@@ -780,8 +787,14 @@ export class Boat {
       const W = disp * G;
       const Fz = Fb - W;
       const kz = RHO_W * G * this.Awp;
-      const cz = 2 * 0.35 * Math.sqrt(kz * this.m33);
-      this.heaveV += (Fz - cz * this.heaveV) / this.m33 * dt;
+      // added mass and radiation damping exist only for the part of the hull that is in the water:
+      // a hull that leaves the water free-falls (dropping off a wave)
+      const imf = clamp(imm.V / Math.max(1e-6, this.hydro.restV), 0, 1.5);
+      const mEff = disp * (1 + 0.8 * Math.min(1, imf));
+      const cz = 2 * 0.35 * Math.sqrt(kz * this.m33) * Math.min(1, imf);
+      // relative to the water surface moving under the hull (wave vertical velocity)
+      const wz = wv ? (wv.vy || 0) : 0;
+      this.heaveV += (Fz - cz * (this.heaveV - wz)) / mEff * dt;
       this.heave += this.heaveV * dt;
       const crewXm = this.crewX * 0.8 + (C.crewX0 ?? 0);
       let My = RHO_W * G * imm.Mx - W * this.xG - this.crewMass * G * crewXm;
@@ -790,8 +803,9 @@ export class Boat {
       My -= sailX * (C.boomZ + 2.3);                                            // drive high, drag low: bow down
       My += (this.u > 0 ? 1 : 0) * 0.5 * RHO_W * uw * uw * C.beam * C.lwl * 0.004 * sstep(0.35, 0.6, Fn); // bow lift near planing
       const kp = RHO_W * G * this.Awp * C.lwl * C.lwl / 16;
-      const cp2 = 2 * 0.3 * Math.sqrt(kp * this.Iyy);
-      this.pitchV += (My - cp2 * this.pitchV) / this.Iyy * dt;
+      const cp2 = 2 * 0.3 * Math.sqrt(kp * this.Iyy) * Math.min(1, imf);
+      const IyyEff = this.Iyy * (0.6 + 0.4 * Math.min(1, imf));
+      this.pitchV += (My - cp2 * this.pitchV) / IyyEff * dt;
       this.pitch = clamp(this.pitch + this.pitchV * dt, -0.6, 0.6);
       if (!isFinite(this.heave)) { this.heave = 0; this.heaveV = 0; }
     }

@@ -9,6 +9,21 @@ const ROPE_W = 1.4; // N/m, a little heavier than real so sag reads at a distanc
 const _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _w = new THREE.Vector3();
 
 // ------------------------------------------------------------------ rope: tube rebuilt in place
+let braidTex = null;
+function braid() {
+  if (braidTex) return braidTex;
+  const cv = document.createElement('canvas'); cv.width = 32; cv.height = 64;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, 32, 64);
+  // two sets of strands winding opposite ways, with a darker fleck: reads as braid when it moves
+  for (let i = -64; i < 96; i += 8) {
+    g.strokeStyle = 'rgba(0,0,0,0.22)'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(0, i); g.lineTo(32, i + 16); g.stroke();
+    g.strokeStyle = 'rgba(0,0,0,0.12)'; g.beginPath(); g.moveTo(0, i + 4); g.lineTo(32, i - 12); g.stroke();
+  }
+  g.fillStyle = 'rgba(20,40,90,0.35)'; for (let y = 3; y < 64; y += 16) g.fillRect(6, y, 4, 3);
+  braidTex = new THREE.CanvasTexture(cv); braidTex.wrapS = braidTex.wrapT = THREE.RepeatWrapping; braidTex.colorSpace = THREE.SRGBColorSpace;
+  return braidTex;
+}
 class Rope {
   constructor(parent, radius, color, maxPts = 64, radial = 6) {
     radius *= 1.7;                                   // drawn thicker than life so lines read on screen
@@ -16,15 +31,18 @@ class Rope {
     const g = new THREE.BufferGeometry();
     this.pos = new Float32Array(maxPts * radial * 3);
     this.nor = new Float32Array(maxPts * radial * 3);
+    this.uv = new Float32Array(maxPts * radial * 2);
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
     g.setAttribute('normal', new THREE.BufferAttribute(this.nor, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(this.uv, 2));
+    this.feed = 0;   // metres of line that have run through: scrolls the braid
     const idx = [];
     for (let i = 0; i < maxPts - 1; i++) for (let j = 0; j < radial; j++) {
       const a = i * radial + j, b = i * radial + (j + 1) % radial, c = a + radial, d = b + radial;
       idx.push(a, c, b, b, c, d);
     }
     g.setIndex(idx);
-    this.mat = new THREE.MeshStandardMaterial({ color, roughness: 0.6, emissive: color, emissiveIntensity: 0.18 });
+    this.mat = new THREE.MeshStandardMaterial({ color, map: braid(), roughness: 0.7, emissive: color, emissiveIntensity: 0.12 });
     this.mesh = new THREE.Mesh(g, this.mat);
     this.mesh.castShadow = true; this.mesh.frustumCulled = false;
     parent.add(this.mesh);
@@ -57,9 +75,12 @@ class Rope {
     }
     this.pts[budget].copy(path[n - 1]);
     for (let i = k + 1; i < budget; i++) this.pts[i].copy(path[n - 1]);
+    // a slack line lies on the deck / cabin roof instead of sagging through it
+    if (this.floor) for (let i = 1; i < budget; i++) this.floor(this.pts[i], this.radius);
     // tube frames
     const R = this.radius, rad = this.radial;
     let ref = new THREE.Vector3(0, 1, 0);
+    let arc = 0;
     const T = new THREE.Vector3(), N = new THREE.Vector3(), Bn = new THREE.Vector3();
     for (let i = 0; i < this.maxPts; i++) {
       const a = this.pts[Math.max(0, i - 1)], b = this.pts[Math.min(this.maxPts - 1, i + 1)];
@@ -67,16 +88,20 @@ class Rope {
       if (Math.abs(T.dot(ref)) > 0.95) ref = new THREE.Vector3(1, 0, 0);
       N.crossVectors(T, ref).normalize(); Bn.crossVectors(T, N);
       const p = this.pts[i];
+      if (i > 0) arc += p.distanceTo(this.pts[i - 1]);
+      const uAlong = (arc - this.feed) / 0.06;                      // one braid repeat every 6 cm
       for (let j = 0; j < rad; j++) {
         const th = j / rad * Math.PI * 2, c = Math.cos(th), s = Math.sin(th);
         const nx = N.x * c + Bn.x * s, ny = N.y * c + Bn.y * s, nz = N.z * c + Bn.z * s;
         const o = (i * rad + j) * 3;
         this.pos[o] = p.x + nx * R; this.pos[o + 1] = p.y + ny * R; this.pos[o + 2] = p.z + nz * R;
         this.nor[o] = nx; this.nor[o + 1] = ny; this.nor[o + 2] = nz;
+        const uo = (i * rad + j) * 2; this.uv[uo] = j / rad; this.uv[uo + 1] = uAlong;
       }
     }
     this.mesh.geometry.attributes.position.needsUpdate = true;
     this.mesh.geometry.attributes.normal.needsUpdate = true;
+    this.mesh.geometry.attributes.uv.needsUpdate = true;
   }
   hide() { this.mesh.visible = false; this.outline.visible = false; }
   // 0 = none, 1 = faint (a control you can grab), 2 = bright (the one you are pointing at)
@@ -146,7 +171,16 @@ export class Rigging {
     const bw = (x) => Lx.bDeck(clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1));
     const bronze = C.id === 'blackwatch';
     const col = bronze ? { main: 0xe3d6b8, jib: 0xd9c7a0, ctl: 0xcdb98e, hal: 0xeee6d2 } : { main: 0xe8eef4, jib: 0x2f6fd6, ctl: 0xf2b33d, hal: 0xf4f4f4 };
-    const rope = (r, c, n) => { const R = new Rope(inner, r, c, n); this.ropes.push(R); return R; };
+    const floorAt = (p, rad) => {
+      const x = -p.z, y = p.x;
+      if (x < C.sternX || x > C.bowX) return;
+      const t = clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1);
+      const inBeam = C.multihull ? Math.abs(Math.abs(y) - C.hullSpacing / 2) < Lx.bDeck(t) || Math.abs(y) < C.hullSpacing / 2 : Math.abs(y) < Lx.bDeck(t);
+      if (!inBeam) return;
+      const top = dH(x, y) + rad + 0.005;
+      if (p.y < top) p.y = top;
+    };
+    const rope = (r, c, n) => { const R = new Rope(inner, r, c, n); R.floor = floorAt; this.ropes.push(R); return R; };
     // ---------------- hardware layout (physics coordinates)
     const hw = this.hw = {};
     const M = boat.sailBy.main;
@@ -231,7 +265,7 @@ export class Rigging {
     const a = st.baseAngle ?? 0;
     const tx = s.tackX + (key === 'gennaker' && this.b.cls.bowsprit ? 0 : 0);
     const foot = s.foot * (key === 'gennaker' ? 0.95 : 1);
-    return V(tx - Math.cos(a) * foot, Math.sin(a) * foot, s.tackZ + 0.05);
+    return V(tx - Math.cos(a) * foot, Math.sin(a) * foot, s.tackZ + 0.05 + (s.footRise || 0));
   }
 
   update(t, active = true) {
@@ -242,6 +276,20 @@ export class Rigging {
     this.g.set(0, -1, 0).applyQuaternion(_q);
     if (!active) { for (const r of this.ropes) r.hide(); return; }
     const g = this.g, M = b.sailBy.main;
+    // line running through the blocks: sheets by how far they are eased, controls by their setting
+    const feedMain = b.lines.main * 3.5, feedJib = b.lines.jib * 2.2, feedStay = b.lines.stay * 1.5;
+    this.mainsheet.forEach((rp, i) => { rp.feed = (i % 2 ? -1 : 1) * feedMain * 0.25; });
+    this.mainTail.feed = -feedMain;
+    this.vang.forEach((rp, i) => { rp.feed = (i % 2 ? -1 : 1) * b.ctrl.vang * 0.3; }); this.vangTail.feed = -b.ctrl.vang * 1.2;
+    this.cunn.forEach((rp, i) => { rp.feed = (i % 2 ? -1 : 1) * b.ctrl.cunn * 0.2; }); this.cunnTail.feed = -b.ctrl.cunn * 0.4;
+    this.outhaul.feed = b.ctrl.outhaul * 0.3;
+    this.travLines[0].feed = b.ctrl.trav * 1.1; this.travLines[1].feed = -b.ctrl.trav * 1.1;
+    if (this.jibSheets) this.jibSheets.forEach(rp => { rp.feed = feedJib; });
+    if (this.genSheets) this.genSheets.forEach(rp => { rp.feed = feedJib * 1.6; });
+    if (this.staySheet) this.staySheet.forEach(rp => { rp.feed = feedStay; });
+    if (this.backstayTackle) this.backstayTackle.forEach((rp, i) => { rp.feed = (i === 2 ? -1 : 1) * b.ctrl.backstay * 0.5; });
+    this.halyards[2].feed = b.ctrl.jibHalyard * 0.2;
+    if (this.tackLine) this.tackLine.feed = b.ctrl.tackLine * 0.6;
     // --- mainsheet purchase: boom block <-> traveler car
     const bb = this.boomPt('main', hw.boomS, -0.1);
     this.boomBlock.position.copy(bb);

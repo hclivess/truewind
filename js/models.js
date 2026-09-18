@@ -396,7 +396,7 @@ export function buildBoatModel(boat, opts = {}) {
     for (const s of [-1, 1]) {
       kit.box(M.teak(), 0.34, 0.05, L * 0.92, V(xm, s * (cw - 0.2), soleZ + 0.38));         // benches
       kit.box(M.cream(), 0.03, 0.38, L * 0.92, V(xm, s * (cw - 0.37), soleZ + 0.19));       // bench fronts
-      kit.box(M.varnish(), 0.035, 0.22, L * 1.02, V(xm, s * (cw + 0.02), deckH(xm, s * (cw + 0.05)) + 0.08)); // coamings
+      kit.box(M.varnish(), 0.035, 0.22, L * 1.02, V(xm, s * (cw + 0.02), deckH0(xm, s * (cw + 0.05)) + 0.08)); // coamings
     }
     kit.box(M.teak(), cw * 2 - 0.7, 0.03, L * 0.9, V(xm, 0, soleZ + 0.015)); // teak grating sole
     for (let i = 0; i < 9; i++) kit.box(M.black(), cw * 2 - 0.72, 0.012, 0.012, V(xa + 0.1 + i * L * 0.1, 0, soleZ + 0.034));
@@ -408,7 +408,7 @@ export function buildBoatModel(boat, opts = {}) {
     kit.box(M.cream(), 0.06, 0.26, 0.42, V(C.keel.x + 0.02, 0, soleZ + 0.13));
   }
   // cabin trunk
-  if (C.id === 'blackwatch') buildCabin(kit, C, Lx, deckH, bx);
+  if (C.id === 'blackwatch') buildCabin(kit, C, Lx, deckH0, bx);
   if (C.id === 'sportboat') {
     const xa = bx(0.46), xf = bx(0.72), L = xf - xa;
     const w = 0.62;
@@ -416,11 +416,11 @@ export function buildBoatModel(boat, opts = {}) {
     const p = cab.attributes.position;
     for (let i = 0; i < p.count; i++) { if (p.getY(i) > 0) { p.setX(i, p.getX(i) * 0.9); if (p.getZ(i) < 0) p.setY(i, p.getY(i) - 0.04); } }
     cab.computeVertexNormals();
-    cab.translate(0, deckH((xa + xf) / 2, 0) + 0.06, -(xa + xf) / 2);
+    cab.translate(0, deckH0((xa + xf) / 2, 0) + 0.06, -(xa + xf) / 2);
     kit.add(M.deck('#dfe2e2'), cab);
-    kit.box(M.glass(), w * 1.6, 0.05, 0.02, V(xf - 0.02, 0, deckH(xf, 0) + 0.1)); // forward windows
-    for (const s of [-1, 1]) kit.box(M.glass(), 0.02, 0.05, L * 0.6, V((xa + xf) / 2, s * w * 0.96, deckH(xa, 0) + 0.1));
-    kit.box(M.black(), 0.5, 0.03, 0.5, V(xa + 0.3, 0, deckH(xa, 0) + 0.15)); // hatch
+    kit.box(M.glass(), w * 1.6, 0.05, 0.02, V(xf - 0.02, 0, deckH0(xf, 0) + 0.1)); // forward windows
+    for (const s of [-1, 1]) kit.box(M.glass(), 0.02, 0.05, L * 0.6, V((xa + xf) / 2, s * w * 0.96, deckH0(xa, 0) + 0.1));
+    kit.box(M.black(), 0.5, 0.03, 0.5, V(xa + 0.3, 0, deckH0(xa, 0) + 0.15)); // hatch
   }
   // stanchions, pulpit, pushpit, lifelines
   if (C.id !== 'dinghy' && !C.multihull) buildLifelines(kit, C, Lx, stations, deckH, bx);
@@ -716,14 +716,10 @@ function buildCabin(kit, C, Lx, deckH, bx) {
   kit.box(M.varnish(), 0.62, 0.38, 0.04, V(xa - 0.005, 0, zc + 0.2));                 // washboards
   kit.box(M.cream(), 0.66, 0.05, 0.6, V(xa + 0.25, 0, zc + 0.5));                       // sliding hatch
   for (const s of [-1, 1]) kit.box(M.varnish(), 0.03, 0.05, 0.62, V(xa + 0.25, s * 0.34, zc + 0.47));
-  for (const s of [-1, 1]) { // dorade cowl vents
-    const x = bx(t1 - 0.06), y = s * 0.35, z = deckH(x, 0) + 0.44;
-    kit.box(M.cream(), 0.22, 0.08, 0.28, V(x, y, z + 0.04));
-    const curve = new THREE.CatmullRomCurve3([V(x, y, z + 0.08), V(x, y, z + 0.22), V(x + 0.06, y, z + 0.3)]);
-    kit.add(M.cream(), new THREE.TubeGeometry(curve, 8, 0.045, 12));
-    const mouth = new THREE.CylinderGeometry(0.075, 0.05, 0.08, 14, 1, true);
-    mouth.rotateZ(Math.PI / 2); mouth.rotateY(Math.PI / 2); mouth.translate(y, z + 0.3, -(x + 0.1));
-    kit.add(M.cowlIn(), mouth);
+  for (const s of [-1, 1]) { // low mushroom vents: clear of the main boom and staysail club
+    const x = bx(t1 - 0.12), y = s * 0.3, z = deckH(x, 0) + 0.44;
+    const g = new THREE.CylinderGeometry(0.07, 0.08, 0.05, 16); g.translate(y, z + 0.025, -x);
+    kit.add(M.bronze(), g);
   }
 }
 
@@ -809,7 +805,7 @@ function updateSail(mesh, boat, s, t) {
     const si = fv < 0.33 ? 0 : fv < 0.66 ? 1 : 2;
     const flog = st[si].flog || 0, state = st[si].state;
     let chord = s.foot * (1 - fv) + s.head * fv;
-    if (s.key === 'main') chord += s.foot * 0.13 * Math.sin(Math.PI * fv) * (s.head / s.foot > 0.2 ? 1 : 0.55);
+    if (s.key === 'main') chord += s.foot * 0.07 * Math.sin(Math.PI * fv * 0.85);
     if (s.kind === 'spin') chord *= 0.9 + 0.25 * Math.sin(Math.PI * fv);
     const lx = px - rake * fv, lz = pz + footLift + fv * luff * (1 - 0.06 * slack);
     const ca = Math.cos(a), sa = Math.sin(a);
@@ -824,7 +820,7 @@ function updateSail(mesh, boat, s, t) {
       if (slack > 0.05) off += slack * 0.05 * Math.sin(fv * 20 + t * 6) * (1 - fu) * chord; // luff scallops with the halyard off
       const xb = lx + cx * chord * fu + nx * off, yb = cy * chord * fu + ny * off;
       const k = (v * (NU + 1) + u) * 3;
-      pos[k] = yb; pos[k + 1] = lz; pos[k + 2] = -xb;
+      pos[k] = yb; pos[k + 1] = lz + (s.footRise || 0) * fu * (1 - fv); pos[k + 2] = -xb;
     }
   }
   mesh.geometry.attributes.position.needsUpdate = true;

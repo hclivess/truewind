@@ -105,14 +105,29 @@ export class Renderer {
     const g = new THREE.SphereGeometry(20000, 32, 16);
     const m = new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false, fog: false,
-      uniforms: { uSunDir: { value: this.sunDir }, uOvercast: this.overcastU },
+      uniforms: { uSunDir: { value: this.sunDir }, uOvercast: this.overcastU, uCloudOff: { value: new THREE.Vector2() }, uCover: { value: 0.2 } },
       vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); vec4 p = modelViewMatrix*vec4(position,1.0); gl_Position = projectionMatrix*p; gl_Position.z = gl_Position.w; }`,
-      fragmentShader: `varying vec3 vDir; ${SKY_GLSL}
+      fragmentShader: `varying vec3 vDir; uniform vec2 uCloudOff; uniform float uCover; ${SKY_GLSL}
+        float h2(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+        float n2(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+          return mix(mix(h2(i), h2(i + vec2(1, 0)), u.x), mix(h2(i + vec2(0, 1)), h2(i + vec2(1, 1)), u.x), u.y); }
+        float fbm(vec2 p){ float a = 0.5, s = 0.0; mat2 r = mat2(0.8, -0.6, 0.6, 0.8); for (int i = 0; i < 6; i++) { s += a * n2(p); p = r * p * 2.03 + 11.7; a *= 0.5; } return s; }
         void main(){ vec3 d = normalize(vDir); vec3 c = skyColor(d);
-          float s = max(dot(d, uSunDir), 0.0); c += vec3(1.0,0.95,0.85) * smoothstep(0.9993, 0.9997, s) * 4.0;
-          // a few soft cumulus bands
-          float cl = sin(d.x*9.0+sin(d.z*7.0)*1.5)*sin(d.z*11.0+d.x*3.0);
-          c = mix(c, vec3(0.95), smoothstep(0.55, 0.95, cl) * smoothstep(0.02, 0.12, d.y) * (1.0 - smoothstep(0.25, 0.5, d.y)) * 0.55);
+          float s = max(dot(d, uSunDir), 0.0); c += vec3(1.0,0.95,0.85) * smoothstep(0.9993, 0.9997, s) * 4.0 * (1.0 - uCover);
+          if (d.y > 0.0) {
+            // intersect a cloud deck ~1500 m up; cumulus shapes from fbm, thicker with the weather
+            vec2 p = d.xz / max(d.y, 0.02) * 1.5 + uCloudOff;
+            float base = fbm(p * 0.9);
+            float dens = smoothstep(0.62 - 0.35 * uCover, 0.85 - 0.25 * uCover, base + 0.15 * fbm(p * 3.1));
+            float thick = smoothstep(0.55, 0.95, base);
+            // lighting: sunlit tops toward the sun, grey bases, silver lining on thin edges
+            float toward = pow(s, 6.0);
+            vec3 lit = mix(vec3(0.62, 0.66, 0.72), vec3(1.0, 0.98, 0.95), clamp(1.0 - thick * 0.8, 0.0, 1.0));
+            lit = mix(lit, vec3(0.45, 0.48, 0.53), uCover * 0.6);
+            lit += vec3(1.0, 0.9, 0.75) * toward * (1.0 - dens) * 0.6;
+            float fade = smoothstep(0.0, 0.12, d.y);
+            c = mix(c, lit, dens * fade * 0.95);
+          }
           gl_FragColor = vec4(c, 1.0); }`,
     });
     this.sky = new THREE.Mesh(g, m);
@@ -151,6 +166,7 @@ export class Renderer {
       uSdf: { value: this.sdfTex }, uWorldR: { value: 6000 }, uHasMap: { value: 0 }, uOvercast: this.overcastU,
       uPF: { value: this.pfTex }, uHasPF: { value: 0 }, uPFN: { value: 96 },
       uFlow: { value: new THREE.Vector2(0, 1) }, uWind: { value: 6 }, uFoamK: { value: 0 },
+      uHullA: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uHullB: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uHullN: { value: 0 },
       uDeep: { value: new THREE.Color(0x0a2f40) }, uShallow: { value: new THREE.Color(0x2e9c9a) },
       fogColor: { value: new THREE.Color(0xb7c8d4) }, fogDensity: { value: 0.00011 },
     };
@@ -191,10 +207,14 @@ export class Renderer {
         ${WAVE_GLSL}
         ${SKY_GLSL}
         uniform vec3 uCam; uniform sampler2D uGust; uniform vec2 uGustO; uniform float uGustS;
+        uniform vec4 uHullA[4]; uniform vec4 uHullB[4]; uniform int uHullN;   // A = (x, z, sinψ, cosψ), B = (halfL, halfB, xOff, n)
         uniform vec2 uFlow; uniform float uWind; uniform float uFoamK;
         uniform vec3 uDeep; uniform vec3 uShallow; uniform vec3 fogColor; uniform float fogDensity;
         varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore; varying float vBreak;
         float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float qn(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+          return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y); }
+        float sfbm(vec2 p){ float a = 0.55, s = 0.0; mat2 r = mat2(0.8, -0.6, 0.6, 0.8); for (int i = 0; i < 4; i++) { s += a * qn(p); p = r * p * 2.1 + 3.7; a *= 0.5; } return s; }
         float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
           return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
         void main(){
@@ -227,6 +247,7 @@ export class Renderer {
             float ph = kk * dot(d, x0) - om * uTime + hash(vec2(fk, 7.7)) * 6.28;
             rn += d * cos(ph) * (0.085 / (1.0 + fk * 0.35));
           }
+          vec3 nWave = normalize(n);                     // the wave surface alone (smooth)
           n.xz += rn * rip * mip;
           n = normalize(n);
           vec3 V = normalize(uCam - vPos);
@@ -235,8 +256,11 @@ export class Renderer {
           vec3 R = reflect(-V, n); R.y = abs(R.y);
           vec3 refl = skyColor(R);
           // sun glitter: many small sharp sparkles rather than broad white patches
-          float shin = mix(2400.0, 700.0, clamp(rip, 0.0, 1.0));
-          float spec = pow(max(dot(R, uSunDir), 0.0), shin) * (shin * 0.012 + 1.0) * (1.0 - 0.9 * uOvercast);
+          // sun highlight from the smooth wave surface, softened by the ripples (no aliased glitter blocks)
+          vec3 Rs = reflect(-V, normalize(mix(nWave, n, 0.2)));
+          float rough = clamp(rip, 0.0, 1.0);
+          float shin = mix(600.0, 90.0, rough);
+          float spec = pow(max(dot(Rs, uSunDir), 0.0), shin) * (shin * 0.004 + 0.3) * (1.0 - 0.9 * uOvercast);
           // water body colour: shallow sand shows through on real bathymetry
           float depth = 30.0;
           float sd = 999.0;
@@ -249,9 +273,14 @@ export class Renderer {
           body *= 1.0 - 0.18 * clamp(gw - 1.0, 0.0, 1.0);                      // puffs look darker
           vec3 col = mix(body, refl, F) + vec3(1.0, 0.92, 0.8) * spec * 0.9;
           // whitecaps where the trochoid crest folds (only in real breeze)
-          float fn = vnoise(x0 * 0.35 + uTime * 0.2) * vnoise(x0 * 1.3 - uTime * 0.3);
-          float cap = (smoothstep(0.62, 0.35, J) * uFoamK + vBreak * 0.9) * smoothstep(0.15, 0.5, fn) * vFade;
-          col = mix(col, vec3(0.93, 0.96, 0.98), clamp(cap, 0.0, 0.9));
+          // whitecaps: foam where crests fold (Jacobian), streaked downwind, feathered — no grid artefacts
+          vec2 sw = vec2(dot(x0, uFlow), dot(x0, vec2(-uFlow.y, uFlow.x)));
+          vec2 q = vec2(sw.x * 0.22, sw.y * 0.8) - vec2(uTime * 0.12, 0.0);
+          float f1 = sfbm(q), f2 = sfbm(q * 3.3 + 7.1);
+          float crest = smoothstep(0.7, 0.3, J) * uFoamK + vBreak * 0.9;
+          float cov = clamp(crest, 0.0, 0.95);
+          float cap = smoothstep(1.0 - cov, 1.25 - cov, f1 * 0.7 + f2 * 0.3) * vFade;
+          col = mix(col, vec3(0.9, 0.94, 0.96), clamp(cap, 0.0, 0.85) * (0.6 + 0.4 * f2));
           // shoreline surf
           if (uHasMap > 0.5) {
             float band = smoothstep(9.0, 0.0, sd) * (0.55 + 0.45 * sin(sd * 1.2 - uTime * 1.6 + vnoise(x0 * 0.1) * 6.0));
@@ -313,6 +342,10 @@ export class Renderer {
     const W = env.weather; if (!W) return;
     const sky = W.sky(cam.x, cam.z, t, this._sky || (this._sky = {}));
     const oc = sky.overcast;
+    // clouds drift with the gradient wind and thicken with the weather
+    const mw = env.wind.mean(t), su = this.sky.material.uniforms;
+    su.uCloudOff.value.set(-Math.sin(mw.dir) * mw.speed * t / 1500, Math.cos(mw.dir) * mw.speed * t / 1500);
+    su.uCover.value += (Math.min(1, 0.25 + 0.9 * oc) - su.uCover.value) * 0.05;
     this.overcastU.value += (oc - this.overcastU.value) * 0.05;
     const o = this.overcastU.value;
     this.sun.intensity = 2.4 * (1 - 0.75 * o); this.hemi.intensity = 0.9 * (1 - 0.3 * o);
@@ -559,6 +592,17 @@ export class Renderer {
     if (player) {
       this.sun.position.set(player.x + this.sunDir.x * 60, this.sunDir.y * 60, player.z + this.sunDir.z * 60);
       this.sun.target.position.set(player.x, 0, player.z);
+    }
+    // hull footprints for the water cut-out: the four boats nearest the camera
+    {
+      const U = this.waterU, list = [...this.boats.keys()].sort((a, c) => Math.hypot(a.x - cam.x, a.z - cam.z) - Math.hypot(c.x - cam.x, c.z - cam.z)).slice(0, 4);
+      list.forEach((b, i) => {
+        const C = b.cls, P = b.pose || b, cx = (C.bowX + C.sternX) / 2;
+        const fx = Math.sin(P.psi), fz = -Math.cos(P.psi);
+        U.uHullA.value[i].set(P.x + fx * cx, P.z + fz * cx, fx, -fz);
+        U.uHullB.value[i].set((C.bowX - C.sternX) / 2 * 0.97, (C.hullBeam ?? C.beam) / 2 * 0.9 * Math.abs(Math.cos(P.phi)) + 0.02, C.multihull ? C.hullSpacing / 2 : 0, C.multihull ? 2 : 1);
+      });
+      U.uHullN.value = 0; // cut-out disabled
     }
     for (const [b, vis] of this.boats) {
       updateBoatModel(vis, b, t);
