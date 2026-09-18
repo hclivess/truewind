@@ -7,6 +7,7 @@ import { buildBoatModel, updateBoatModel } from './models.js';
 import { Rigging, tickGlow } from './rigging.js';
 import { buildStructures, indexFeatures, structureMask } from './structures.js';
 import { HullSplash } from './splash.js';
+import { loadLand, buildTerrain, buildScenery, setSceneryNight, tickScenery } from './scenery.js';
 import { SkySystem, SKY_LUT_GLSL, CLOUD_GLSL, withCloudShadows } from './sky.js';
 
 const MAXW = 20;
@@ -124,7 +125,7 @@ export class Renderer {
       uHullA: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uHullB: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uHullN: { value: 0 },
       uDeep: { value: new THREE.Color(0x0a2f40) }, uShallow: { value: new THREE.Color(0x2e9c9a) },
       fogColor: { value: new THREE.Color(0xb7c8d4) }, fogDensity: { value: 0.00011 },
-      uEnv: { value: this.skySys.cubeRT.texture }, uAmbF: { value: 1 }, uLightDir: { value: this.skySys.lightV },
+      uEnv: { value: this.skySys.cubeRT.texture }, uAmbF: { value: 1 }, uLightDir: { value: this.skySys.lightV }, uSkyRT: this.skySys.compU.uSkyTex, uSkyVP: this.skySys.marchDome.material.uniforms.uPrevVP,
     };
     // the sky's shared uniforms (table, clouds, sun colour) are the same objects
     for (const k of ['uSkyLUT', 'uLutDir', 'uNoise', 'uWeather', 'uWOff', 'uCover', 'uCloudBase', 'uCloudThick', 'uCloudTime', 'uCells', 'uSunCol']) uniforms[k] = this.skySys.U[k];
@@ -165,7 +166,7 @@ export class Renderer {
         ${WAVE_GLSL}
         ${SKY_LUT_GLSL}
         ${CLOUD_GLSL}
-        uniform vec3 uSunDir; uniform vec3 uSunCol; uniform samplerCube uEnv; uniform float uAmbF; uniform vec3 uLightDir;
+        uniform vec3 uSunDir; uniform vec3 uSunCol; uniform samplerCube uEnv; uniform float uAmbF; uniform vec3 uLightDir; uniform sampler2D uSkyRT; uniform mat4 uSkyVP;
         uniform vec3 uCam; uniform sampler2D uGust; uniform vec2 uGustO; uniform float uGustS;
         uniform vec4 uHullA[4]; uniform vec4 uHullB[4]; uniform int uHullN;   // A = (x, z, sinψ, cosψ), B = (halfL, halfB, xOff, n)
         uniform vec2 uFlow; uniform float uWind; uniform float uFoamK;
@@ -230,6 +231,14 @@ export class Renderer {
           float sig = sqrt(lost);                                   // rms slope of the filtered-out waves
           float gloss = clamp(log2(1.0 + sig * 90.0), 0.0, 6.0);
           vec3 refl = texture(uEnv, R, gloss).rgb;
+          // where the reflected direction is on screen, use the full-quality sky and clouds rendered this
+          // frame (a sky at infinity reprojects exactly); the cube covers the rest and the rough water
+          vec4 rc = uSkyVP * vec4(R, 0.0);
+          if (rc.w > 0.0) {
+            vec2 ruv = rc.xy / rc.w * 0.5 + 0.5, re = min(ruv, 1.0 - ruv);
+            float rw = smoothstep(0.0, 0.1, min(re.x, re.y)) * (1.0 - smoothstep(1.5, 3.5, gloss));
+            if (rw > 0.0) refl = mix(refl, texture2D(uSkyRT, ruv).rgb, rw);
+          }
           float shadow = cloudShadow(vec3(x0.x, 0.0, x0.y), uLightDir);
           // sun glitter: many small sharp sparkles rather than broad white patches
           // sun highlight from the smooth wave surface, softened by the ripples (no aliased glitter blocks)
@@ -345,8 +354,8 @@ export class Renderer {
 
   // ---------------------------------------------------------------- terrain & piers from the real map
   setWorld(world, geo, manifest = null) {
-    if (this.land) { this.scene.remove(this.land); this.land.geometry.dispose(); }
-    if (this.town) { this.scene.remove(this.town); }
+    const drop = (o) => { if (!o) return; this.scene.remove(o); o.traverse(m => { if (m.geometry) m.geometry.dispose(); }); };
+    drop(this.land); drop(this.town); this.land = this.town = null;
     if (this.piersMesh) { this.scene.remove(this.piersMesh); }
     const byId = indexFeatures(geo, manifest), onStructure = structureMask(geo, byId);
     this.world = world;
@@ -359,67 +368,19 @@ export class Renderer {
     this.sdfTex.magFilter = THREE.LinearFilter; this.sdfTex.minFilter = THREE.LinearFilter; this.sdfTex.needsUpdate = true;
     U.uSdf.value = this.sdfTex;
     if (world.open) return;
-    // heightfield
-    const M = 300, R = world.R, c = 2 * R / M;
-    const pos = new Float32Array((M + 1) * (M + 1) * 3), col = new Float32Array((M + 1) * (M + 1) * 3);
-    // climate by latitude: dry tropical scrub (Yucatán: olive and khaki, pale limestone sand) vs temperate green
-    const tropical = Math.abs(world.venue?.lat ?? 45) < 30;
-    const sand = new THREE.Color(tropical ? 0xe6dcc0 : 0xd9c9a0), grass = new THREE.Color(tropical ? 0x6f7a45 : 0x5f7f42), scrub = new THREE.Color(tropical ? 0x8c8456 : 0x7d8a58), rock = new THREE.Color(0x8c877d), wet = new THREE.Color(0x6b6250);
-    const tmp = new THREE.Color();
-    let p = 0;
-    for (let j = 0; j <= M; j++) for (let i = 0; i <= M; i++) {
-      const x = -R + i * c, z = -R + j * c;
-      const s = world.sdfAt(x, z);
-      let h;
-      if (s > 0) h = -Math.min(world.depthAt(x, z), 6) - 0.3; else h = world.landHeight(x, z);
-      pos[p] = x; pos[p + 1] = h; pos[p + 2] = z;
-      if (h < 0.3) tmp.copy(wet);
-      else if (h < 2.5 || -s < 25) tmp.copy(sand);
-      else if (h > 120) tmp.copy(rock);
-      else tmp.copy(grass).lerp(scrub, clamp((h - 20) / 80, 0, 1) * 0.7 + 0.15 * Math.sin(x * 0.01 + z * 0.013));
-      col[p] = tmp.r; col[p + 1] = tmp.g; col[p + 2] = tmp.b;
-      p += 3;
-    }
-    const idx = [];
-    for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) {
-      const k = j * (M + 1) + i;
-      idx.push(k, k + M + 1, k + 1, k + 1, k + M + 1, k + M + 2);
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    g.setIndex(idx); g.computeVertexNormals();
-    this.land = new THREE.Mesh(g, withCloudShadows(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }), this.skySys, { ground: true }));
-    this.land.receiveShadow = true;
-    this.scene.add(this.land);
-    // settlements along the shore (instanced houses where the land is low and near the water)
-    const houses = [];
-    for (let k = 0; k < 9000 && houses.length < 2600; k++) {
-      const x = (Math.random() * 2 - 1) * R * 0.95, z = (Math.random() * 2 - 1) * R * 0.95;
-      const s = world.sdfAt(x, z);
-      if (s > -30 || s < -1400) continue;
-      if (onStructure(x, z)) continue;
-      // thin strips of land (causeways, spits, moles) are not where towns are
-      let thick = 0; for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { let k = 0; while (k < 12 && world.sdfAt(x + dx * k * 12, z + dz * k * 12) < 0) k++; thick += k; }
-      if (thick < 14) continue;
-      const h = world.landHeight(x, z);
-      if (h > 70) continue;
-      const dens = 0.5 + 0.5 * Math.sin(x * 0.004) * Math.cos(z * 0.0037);
-      if (Math.random() > dens * 0.9) continue;
-      houses.push([x, h, z]);
-    }
-    const hg = new THREE.BoxGeometry(1, 1, 1); hg.translate(0, 0.5, 0);
-    const town = new THREE.InstancedMesh(hg, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }), houses.length);
-    const mtx = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3();
-    const hc = [0xefe8da, 0xe3d6bf, 0xf4f1ea, 0xd8c3a5, 0xcfd6d9, 0xe8c9a8];
-    houses.forEach((hh, i) => {
-      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.random() * Math.PI);
-      sc.set(8 + Math.random() * 14, 5 + Math.random() * (Math.random() < 0.1 ? 25 : 6), 8 + Math.random() * 12);
-      ps.set(hh[0], hh[1] - 0.5, hh[2]);
-      mtx.compose(ps, q, sc); town.setMatrixAt(i, mtx);
-      town.setColorAt(i, tmp.setHex(hc[i % hc.length]));
-    });
-    this.town = town; this.scene.add(town);
+    // terrain, buildings, streets and trees from the venue's OSM land data (built once it has loaded;
+    // everything stands on the same height function, so buildings neither float nor sink)
+    loadLand(world.venue.id).then(land => {
+      if (this.world !== world) return;                       // the venue changed meanwhile
+      const T = buildTerrain(world, land, { lat: world.venue.lat, low: this.low });
+      const shadowed = new Set();
+      const shade = (g, ground) => g.traverse(o => { const ms = Array.isArray(o.material) ? o.material : [o.material]; for (const m of ms) if (m && m.isMeshStandardMaterial && !shadowed.has(m)) { shadowed.add(m); withCloudShadows(m, this.skySys, { ground }); } });
+      shade(T.group, true);
+      drop(this.land); this.land = T.group; this.land.traverse(o => { if (o.isMesh) o.receiveShadow = true; }); this.scene.add(this.land);
+      const town = buildScenery(world, land, { lat: world.venue.lat, onStructure, low: this.low, terrain: T });
+      shade(town, false);
+      drop(this.town); this.town = town; this.scene.add(town);
+    }).catch(e => console.error('scenery', e));
     // piers, breakwaters, viaducts, causeways and terminals (labelled ones drawn as what they are)
     const pierGroup = buildStructures(world, geo, byId);
     this.piersMesh = pierGroup; this.scene.add(pierGroup);
@@ -554,6 +515,10 @@ export class Renderer {
       this.waterU.uAmbF.value = Math.max(0.004, Math.min(1.6, (l(up) + 0.5 * l(sc) * Math.max(this.skySys.lightV.y, 0)) / 0.97));
     }
     const Ld = this.skySys.lightDir || this.sunDir;
+    if (this.town) {
+      setSceneryNight(this.town, clamp((-this.sunDir.y + 0.02) / 0.12, 0, 1));
+      const mw = env.wind.mean(t); tickScenery(this.town, t, mw.speed);
+    }
     if (player) {
       this.sun.position.set(player.x + Ld.x * 60, Math.max(Ld.y, 0.05) * 60, player.z + Ld.z * 60);
       this.sun.target.position.set(player.x, 0, player.z);

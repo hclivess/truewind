@@ -334,8 +334,9 @@ void main() {
 // patched material rescales the light by (shade here / shade at the player) — land and buildings get the
 // moving cloud shadows that sweep over the sea.
 export function withCloudShadows(mat, sky, opts = {}) {
-  const U = sky.U;
-  mat.onBeforeCompile = (sh) => {
+  const U = sky.U, prev = mat.onBeforeCompile, prevKey = mat.customProgramCacheKey;
+  mat.onBeforeCompile = (sh, rr) => {
+    if (prev) prev.call(mat, sh, rr);           // chain an existing patch (facades, trees)
     for (const k of ['uNoise', 'uWeather', 'uWOff', 'uCover', 'uCloudBase', 'uCloudThick', 'uCloudTime', 'uCells']) sh.uniforms[k] = U[k];
     sh.uniforms.uLightDirW = { value: sky.lightV }; sh.uniforms.uPlayerShade = sky.playerShadeU;
     sh.vertexShader = 'varying vec3 vCSWorld;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
@@ -360,7 +361,7 @@ export function withCloudShadows(mat, sky, opts = {}) {
     }
     sh.fragmentShader = fs;
   };
-  mat.customProgramCacheKey = () => 'cs' + (opts.ground ? 'g' : '');
+  mat.customProgramCacheKey = () => 'cs' + (opts.ground ? 'g' : '') + (prev ? prev.toString().length : '') + (prevKey ? prevKey.call(mat) : '');
   mat.needsUpdate = true;
   return mat;
 }
@@ -417,10 +418,10 @@ export class SkySystem {
     this.marchDome = new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), marchMat(this.low ? 28 : 56));
     this.marchDome.frustumCulled = false; this.marchScene.add(this.marchDome);
     // reflection / lighting cube
-    this.cubeRT = new THREE.WebGLCubeRenderTarget(this.low ? 64 : 128, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+    this.cubeRT = new THREE.WebGLCubeRenderTarget(this.low ? 128 : 256, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
     this.cubeCam = new THREE.CubeCamera(1, 100, this.cubeRT);
     this.cubeScene = new THREE.Scene();
-    const cd = new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), marchMat(this.low ? 16 : 28));
+    const cd = new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), marchMat(this.low ? 24 : 44));
     cd.frustumCulled = false; this.cubeScene.add(cd); this.cubeScene.add(this.cubeCam);
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.envRT = null;
@@ -566,12 +567,20 @@ export class SkySystem {
     const vr = (this._vr || (this._vr = new THREE.Matrix4())).copy(camera.matrixWorldInverse).setPosition(0, 0, 0);
     mu.uPrevVP.value.multiplyMatrices(camera.projectionMatrix, vr);
     this.cubeAge++; this.envAge++;
-    if (this.cubeAge > (this.low ? 30 : 12)) {
-      this.cubeAge = 0;
-      this.cubeCam.position.set(cp.x, Math.max(2, cp.y), cp.z);
-      this.cubeScene.children[0].position.copy(this.cubeCam.position);
-      this.cubeCam.update(r, this.cubeScene);
-      if (this.envAge > (this.low ? 240 : 90)) {
+    // reflection cube: a whole refresh after a jump, otherwise one face per frame (spreads the cost)
+    const full = this.cubeAge > 90;
+    if (full || !this.low || this.frame % 3 === 0) {
+      if (full || this.cubeFace === 5 || this.cubeFace === undefined) {
+        this.cubeCam.position.set(cp.x, Math.max(2, cp.y), cp.z);
+        this.cubeScene.children[0].position.copy(this.cubeCam.position);
+      }
+      if (full) { this.cubeCam.update(r, this.cubeScene); this.cubeFace = 5; this.cubeAge = 0; }
+      else {
+        this.cubeFace = ((this.cubeFace ?? 5) + 1) % 6;
+        this.cubeCam.updateMatrixWorld();
+        r.setRenderTarget(this.cubeRT, this.cubeFace); r.render(this.cubeScene, this.cubeCam.children[this.cubeFace]); r.setRenderTarget(prevRT);
+      }
+      if (this.cubeFace === 5 && this.envAge > (this.low ? 240 : 90)) {
         this.envAge = 0;
         const next = this.pmrem.fromCubemap(this.cubeRT.texture, this.envRT || undefined);
         this.envRT = next; this.scene.environment = next.texture;

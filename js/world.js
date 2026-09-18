@@ -409,3 +409,106 @@ export async function fetchLiveWind(lat, lon) {
   const c = j.current;
   return { kt: c.wind_speed_10m, dir: c.wind_direction_10m, gustKt: c.wind_gusts_10m, time: c.time };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Land scenery from OpenStreetMap: building footprints, roads, land use / land cover.
+// Baked by tools/fetch-venues.mjs --land into data/venues/<id>.land.json (compact delta-coded ints,
+// 0.5 m units) and turned into meshes by js/scenery.js.
+const HW_CLASSES = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street', 'service'];
+export const LAND_KINDS = ['', 'residential', 'commercial', 'industrial', 'retail', 'farmland', 'forest', 'grass', 'meadow', 'orchard',
+  'wood', 'scrub', 'beach', 'sand', 'wetland', 'grassland', 'park', 'parking'];
+export function landQueries(lat, lon, R) {
+  const dLat = R / 110540, dLon = R / (111320 * Math.cos(lat * Math.PI / 180));
+  const bb = `${(lat - dLat).toFixed(5)},${(lon - dLon).toFixed(5)},${(lat + dLat).toFixed(5)},${(lon + dLon).toFixed(5)}`;
+  const H = '[out:json][timeout:180];';
+  return {
+    buildings: `${H}(way["building"](${bb}););out tags geom;`,
+    roads: `${H}(way["highway"~"^(${HW_CLASSES.join('|')})$"](${bb}););out tags geom;`,
+    areas: `${H}(way["landuse"~"^(residential|commercial|industrial|retail|farmland|forest|grass|meadow|orchard)$"](${bb});relation["landuse"~"^(residential|commercial|industrial|retail|farmland|forest|grass|meadow|orchard)$"](${bb});` +
+      `way["natural"~"^(wood|scrub|beach|sand|wetland|grassland)$"](${bb});relation["natural"~"^(wood|scrub|beach|sand|wetland|grassland)$"](${bb});` +
+      `way["leisure"="park"](${bb});relation["leisure"="park"](${bb});way["amenity"="parking"](${bb}););out tags geom;`,
+  };
+}
+const BTYPE = (t) => {
+  const b = t.building;
+  if (/^(house|residential|detached|semidetached_house|terrace|bungalow|cabin|farm|hut|static_caravan)$/.test(b)) return 1;
+  if (/^(apartments|dormitory|hotel)$/.test(b)) return 2;
+  if (/^(commercial|retail|office|supermarket|kiosk|civic|public|government)$/.test(b)) return 3;
+  if (/^(industrial|warehouse|shed|hangar|manufacture|storage_tank|silo|service|transportation|hangar|boathouse)$/.test(b)) return 4;
+  if (/^(church|cathedral|chapel|mosque|temple|synagogue|religious)$/.test(b)) return 5;
+  if (/^(garage|garages|roof|carport|parking)$/.test(b)) return 6;
+  if (/^(school|university|college|hospital|train_station|stadium|sports_hall|fire_station)$/.test(b)) return 7;
+  return 0;
+};
+const ROOF = (s) => !s ? 0 : s === 'flat' ? 1 : /^(gabled|gambrel|saltbox|round)$/.test(s) ? 2 : /^(hipped|half-hipped|mansard)$/.test(s) ? 3 : /^(pyramidal|dome|onion|cone)$/.test(s) ? 4 : s === 'skillion' ? 5 : 0;
+function areaKind(t) {
+  const k = t.landuse || t.natural || (t.leisure === 'park' ? 'park' : t.amenity === 'parking' ? 'parking' : '');
+  const i = LAND_KINDS.indexOf(k);
+  return i > 0 ? i : 0;
+}
+// append a ring/polyline: absolute first point, then deltas (0.5 m units)
+function pushPts(out, pts) {
+  let px = 0, pz = 0;
+  for (let i = 0; i < pts.length; i += 2) {
+    const x = Math.round(pts[i] * 2), z = Math.round(pts[i + 1] * 2);
+    if (i === 0) out.push(x, z); else out.push(x - px, z - pz);
+    px = x; pz = z;
+  }
+}
+// osm: { buildings, roads, areas } Overpass JSON; world: World built from the venue's water geometry
+export function processLand(osm, lat0, lon0, world, opts = {}) {
+  const P = makeProjection(lat0, lon0), R = world.R;
+  const maxShore = opts.maxShore ?? 2500, maxB = opts.maxBuildings ?? 25000;
+  const toPts = (geom) => { const a = []; for (const g of geom) { if (!g) continue; const [x, z] = P.fwd(g.lat, g.lon); a.push(x, z); } return a; };
+  const inBox = (x, z, m = 1) => Math.abs(x) < R * m && Math.abs(z) < R * m;
+  const openRing = (p) => (p.length >= 4 && Math.abs(p[0] - p[p.length - 2]) < 0.01 && Math.abs(p[1] - p[p.length - 1]) < 0.01) ? p.slice(0, -2) : p;
+  // buildings: footprint rings on land near the water, nearest first
+  const bl = [];
+  for (const el of osm.buildings?.elements || []) {
+    if (el.type !== 'way' || !el.geometry) continue;
+    let pts = openRing(simplify(toPts(el.geometry), opts.tolB ?? 1.5));
+    if (pts.length < 6) continue;
+    let cx = 0, cz = 0; for (let i = 0; i < pts.length; i += 2) { cx += pts[i]; cz += pts[i + 1]; } cx /= pts.length / 2; cz /= pts.length / 2;
+    if (!inBox(cx, cz, 0.98)) continue;
+    const s = world.sdfAt(cx, cz);
+    if (s > -2 || s < -maxShore) continue;                     // on land, within reach of the shore
+    const t = el.tags || {};
+    const h = parseFloat(t.height), lv = parseInt(t['building:levels']);
+    bl.push({ d: -s, pts, h: isFinite(h) ? Math.min(400, h) : 0, lv: isFinite(lv) ? Math.min(99, lv) : 0, ty: BTYPE(t), rf: ROOF(t['roof:shape']) });
+  }
+  bl.sort((a, b) => a.d - b.d);
+  const B = [];
+  for (const b of bl.slice(0, maxB)) { B.push(b.pts.length / 2, Math.round(b.h * 10), b.lv, b.ty, b.rf); pushPts(B, b.pts); }
+  // roads: polylines clipped to the modelled box and to the shore band
+  const Rd = []; let nR = 0;
+  for (const el of osm.roads?.elements || []) {
+    if (el.type !== 'way' || !el.geometry) continue;
+    const cls = HW_CLASSES.indexOf(el.tags?.highway); if (cls < 0) continue;
+    const all = toPts(el.geometry);
+    let cur = [];
+    const flush = () => { if (cur.length >= 4) { const sp = simplify(cur, opts.tolR ?? 3); Rd.push(sp.length / 2, cls); pushPts(Rd, sp); nR++; } cur = []; };
+    for (let i = 0; i < all.length; i += 2) {
+      const x = all[i], z = all[i + 1];
+      if (inBox(x, z, 0.99) && world.sdfAt(x, z) > -maxShore - 300) cur.push(x, z); else flush();
+    }
+    flush();
+  }
+  // land use / cover: outer rings
+  const A = []; let nA = 0;
+  const addArea = (ring, kind) => {
+    ring = openRing(simplify(ring, opts.tolA ?? 8));
+    if (ring.length < 6) return;
+    let near = false; for (let i = 0; i < ring.length; i += 2) if (inBox(ring[i], ring[i + 1], 1.02)) { near = true; break; }
+    if (!near) return;
+    A.push(ring.length / 2, kind); pushPts(A, ring); nA++;
+  };
+  for (const el of osm.areas?.elements || []) {
+    const kind = areaKind(el.tags || {}); if (!kind) continue;
+    if (el.type === 'way' && el.geometry) addArea(toPts(el.geometry), kind);
+    else if (el.type === 'relation' && el.members) {
+      const outer = el.members.filter(m => m.type === 'way' && m.role !== 'inner' && m.geometry).map(m => toPts(m.geometry));
+      for (const r of joinRings(outer)) addArea(r, kind);
+    }
+  }
+  return { B, R: Rd, A, counts: { buildings: Math.min(bl.length, maxB), buildingsTotal: bl.length, roads: nR, areas: nA } };
+}
