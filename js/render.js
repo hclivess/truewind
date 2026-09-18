@@ -609,7 +609,7 @@ export class Renderer {
       // detail near the camera: ropes and crew IK only where they can be seen
       const dist = Math.hypot(b.x - cam.x, b.z - cam.z);
       const near = vis.player || dist < 150;
-      vis.rigging.update(t, near);
+      vis.rigging.update(t, near, dt, env);
       if (near) vis.splash.update(dt, t); else vis.splash.foam.visible = false;
       if (near) vis.splash.foam.visible = true;
       this.wakes.get(b).update(b, env, t, dt);

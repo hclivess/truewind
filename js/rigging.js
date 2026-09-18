@@ -58,6 +58,10 @@ class Rope {
     const n = path.length;
     if (n < 2) { this.mesh.visible = false; return; }
     this.mesh.visible = true;
+    // a loaded line is straight: only slack lines and free tails need the point-mass simulation
+    const tMin = Array.isArray(tension) ? Math.min(...tension) : tension;
+    if (this.sim && this.sim.M && (this.freeEnd || tMin < 150)) { this.simulate(path, tension); this.buildTube(); return; }
+    this._stale = true;
     const lens = []; let total = 0;
     for (let i = 0; i < n - 1; i++) { const L = path[i].distanceTo(path[i + 1]); lens.push(L); total += L; }
     let k = 0;
@@ -77,6 +81,91 @@ class Rope {
     for (let i = k + 1; i < budget; i++) this.pts[i].copy(path[n - 1]);
     // a slack line lies on the deck / cabin roof instead of sagging through it
     if (this.floor) for (let i = 1; i < budget; i++) this.floor(this.pts[i], this.radius);
+    this.buildTube();
+  }
+
+  // ---- a real rope: a chain of point masses (Verlet) simulated in world space between its anchors.
+  // Gravity, the boat's motion (roll, pitch, heave, acceleration) and drag in the apparent wind move it;
+  // each span's length comes from the line's tension (loaded = straight, eased = slack and swinging);
+  // a tail has a free end that spills onto the deck as line is hauled in and draws back as it is eased.
+  simulate(path, tension) {
+    const S = this.sim, M = S.M, Minv = S.Minv, dt = Math.min(1 / 30, Math.max(1 / 240, S.dt || 1 / 60));
+    const n = path.length, spans = n - 1, N = this.maxPts;
+    const anchors = path.map(p => p.clone().applyMatrix4(M));
+    // topology: particles per span in proportion to the span lengths (fixed once laid out)
+    if (!this._P || this._spans !== spans) {
+      const lens = []; let tot = 0;
+      for (let i = 0; i < spans; i++) { const L = path[i].distanceTo(path[i + 1]) + 0.05; lens.push(L); tot += L; }
+      const segs = lens.map(L => Math.max(2, Math.round((N - 1) * L / tot)));
+      let sum = segs.reduce((a, b) => a + b, 0);
+      while (sum > N - 1) { const i = segs.indexOf(Math.max(...segs)); segs[i]--; sum--; }
+      while (sum < N - 1) { segs[segs.length - 1]++; sum++; }
+      this._segs = segs; this._spans = spans; this._freeTopo = null;
+      this._start = []; let k = 0; for (const s of segs) { this._start.push(k); k += s; }
+      this._P = []; this._Pp = [];
+      for (let i = 0; i < spans; i++) for (let j = 0; j < segs[i]; j++) {
+        const p = anchors[i].clone().lerp(anchors[i + 1], j / segs[i]); this._P.push(p); this._Pp.push(p.clone());
+      }
+      const e = anchors[n - 1].clone(); this._P.push(e); this._Pp.push(e.clone());
+    }
+    const P = this._P, Pp = this._Pp, segs = this._segs, start = this._start;
+    // teleport (new session, respawn) or coming back from a taut / static spell: lay the rope out again
+    if (this._stale || P[0].distanceToSquared(anchors[0]) > 25) {
+      this._stale = false;
+      let k = 0; for (let i = 0; i < spans; i++) for (let j = 0; j < segs[i]; j++, k++) { P[k].lerpVectors(anchors[i], anchors[i + 1], j / segs[i]); Pp[k].copy(P[k]); }
+      P[k].copy(anchors[n - 1]); Pp[k].copy(P[k]);
+    }
+    // rest length of each span from the tension (catenary sag -> extra length); a free tail keeps its own length
+    const rest = [];
+    for (let i = 0; i < spans; i++) {
+      const L = anchors[i].distanceTo(anchors[i + 1]);
+      const T = Math.max(2, Array.isArray(tension) ? tension[i] : tension);
+      const sag = Math.min(0.4 * L, ROPE_W * L * L / (8 * T));
+      let R = L + 8 * sag * sag / (3 * Math.max(L, 0.05));
+      if (this.freeEnd && i === spans - 1 && this.tailRest) R = this.tailRest;
+      rest.push(R / segs[i]);
+    }
+    if (this._freeTopo !== this.freeEnd) {
+      this._freeTopo = this.freeEnd;
+      this._pin = new Int16Array(N).fill(-1);
+      for (let i = 0; i < spans; i++) this._pin[start[i]] = i;
+      if (!this.freeEnd) this._pin[N - 1] = n - 1;
+    }
+    const pin = this._pin, pinned = (k) => pin[k] >= 0 ? anchors[pin[k]] : null;
+    // integrate: gravity + drag in the apparent wind, light damping
+    const wind = S.wind, g = -9.81 * dt * dt, cd = 0.05 * dt * dt;
+    const v = this._v || (this._v = new THREE.Vector3()), rel = this._rel || (this._rel = new THREE.Vector3());
+    for (let k = 0; k < N; k++) {
+      const a = pinned(k);
+      if (a) { P[k].copy(a); Pp[k].copy(a); continue; }
+      v.subVectors(P[k], Pp[k]).multiplyScalar(0.985);
+      rel.copy(wind).addScaledVector(v, -1 / dt);
+      const sp = rel.length();
+      Pp[k].copy(P[k]);
+      P[k].add(v).addScaledVector(rel, cd * sp); P[k].y += g;
+    }
+    // constraints: segment lengths, pins, and the deck / cabin roof underneath (with friction)
+    const lp = this._lp || (this._lp = new THREE.Vector3()), d = this._d || (this._d = new THREE.Vector3());
+    for (let it = 0; it < 8; it++) {
+      for (let i = 0; i < spans; i++) for (let j = 0; j < segs[i]; j++) {
+        const k = start[i] + j, A = P[k], B = P[k + 1];
+        d.subVectors(B, A); const len = d.length() || 1e-6, diff = (len - rest[i]) / len;
+        const pa = pinned(k), pb = pinned(k + 1);
+        if (pa && pb) continue;
+        if (pa) B.addScaledVector(d, -diff); else if (pb) A.addScaledVector(d, diff); else { A.addScaledVector(d, diff * 0.5); B.addScaledVector(d, -diff * 0.5); }
+      }
+      if (this.floor && (it === 3 || it === 7)) for (let k = 1; k < N; k++) {
+        if (pinned(k)) continue;
+        lp.copy(P[k]).applyMatrix4(Minv); const y0 = lp.y, x0 = lp.x, z0 = lp.z;
+        this.floor(lp, this.radius);
+        if (this.contain) this.contain(lp);
+        if (lp.y !== y0 || lp.x !== x0 || lp.z !== z0) { P[k].copy(lp.applyMatrix4(M)); Pp[k].lerp(P[k], 0.6); } // resting on deck: friction
+      }
+    }
+    for (let k = 0; k < N; k++) this.pts[k].copy(P[k]).applyMatrix4(Minv);
+  }
+
+  buildTube() {
     // tube frames
     const R = this.radius, rad = this.radial;
     let ref = new THREE.Vector3(0, 1, 0);
@@ -180,7 +269,21 @@ export class Rigging {
       const top = dH(x, y) + rad + 0.005;
       if (p.y < top) p.y = top;
     };
-    const rope = (r, c, n) => { const R = new Rope(inner, r, c, n); R.floor = floorAt; this.ropes.push(R); return R; };
+    // toe rail / coaming and transom: a line lying on deck stays aboard instead of sliding over the side
+    const containAt = (p) => {
+      let x = -p.z; const y = p.x;
+      if (x < C.sternX - 0.3 || x > C.bowX) return;
+      const xc = clamp(x, C.sternX + 0.06, C.bowX - 0.1);
+      const t = clamp((xc - C.sternX) / (C.bowX - C.sternX), 0, 1), half = Lx.bDeck(t) - 0.05;
+      const top = dH(xc, clamp(y, -half, half));
+      if (p.y > top + 0.12) return;                    // above the rail: free to swing outboard
+      if (C.multihull) {
+        const c = C.hullSpacing / 2, hs = Math.sign(y) || 1, dy = Math.abs(y) - c;
+        if (Math.abs(dy) > half && Math.abs(y) > c) p.x = hs * (c + half);
+      } else if (Math.abs(y) > half) p.x = Math.sign(y) * half;
+      if (x !== xc) p.z = -xc;
+    };
+    const rope = (r, c, n) => { const R = new Rope(inner, r, c, n); R.floor = floorAt; R.contain = containAt; this.ropes.push(R); return R; };
     // ---------------- hardware layout (physics coordinates)
     const hw = this.hw = {};
     const M = boat.sailBy.main;
@@ -268,10 +371,20 @@ export class Rigging {
     return V(tx - Math.cos(a) * foot, Math.sin(a) * foot, s.tackZ + 0.05 + (s.footRise || 0));
   }
 
-  update(t, active = true) {
+  update(t, active = true, dt = 1 / 60, env = null) {
     const b = this.b, C = b.cls, vis = this.vis, hw = this.hw, d = b.diag, L = d.rig || {};
-    // gravity in the heeled boat frame
-    vis.inner.updateMatrixWorld();
+    // gravity in the heeled boat frame (refresh the parents too: the pose was just set on the root)
+    vis.inner.updateWorldMatrix(true, false);
+    // the player's ropes are simulated (world-space point masses); the others are drawn as static catenaries
+    let ctx = null;
+    if (active && vis.player && env) {
+      const S = this._ctx || (this._ctx = { M: new THREE.Matrix4(), Minv: new THREE.Matrix4(), wind: new THREE.Vector3(), dt: 1 / 60, w: {} });
+      S.M.copy(vis.inner.matrixWorld); S.Minv.copy(S.M).invert(); S.dt = dt;
+      const P = b.pose || b, w = env.wind.sample(P.x, P.z, t, S.w);
+      S.wind.set(-Math.sin(w.dir) * w.speed, 0, Math.cos(w.dir) * w.speed);
+      ctx = S;
+    }
+    for (const r of this.ropes) { r.sim = ctx; r.freeEnd = false; }
     vis.inner.getWorldQuaternion(_q).invert();
     this.g.set(0, -1, 0).applyQuaternion(_q);
     if (!active) { for (const r of this.ropes) r.hide(); return; }
@@ -310,6 +423,7 @@ export class Rigging {
       const rat = V(hw.ratchetX, 0, hw.ratchetZ);
       this.mainsheet[0].set([bb, car], mT, g); this.mainsheet[1].set([car, bb.clone().add(_v.set(0.02, 0, 0))], mT, g);
       this.mainsheet[2].set([bb, mid], mT, g); this.mainsheet[3].set([mid, rat], mT, g);
+      this.mainTail.freeEnd = !this.hands.main; this.mainTail.tailRest = 0.5 + (1 - b.lines.main) * 2.0;
       this.mainTail.set([rat, this.hands.main || rat.clone().add(_v.set(0.2, 0.05, 0.2))], this.hands.main ? mT : 3, g);
       this.travLines[0].set([V(hw.travX, -hw.travHalf, hw.travZ), car], 40, g); this.travLines[1].set([car, V(hw.travX, hw.travHalf, hw.travZ)], 40, g);
       this.strap.set([V(C.mastX - 1.1, 0, this.vis.ck.sole + 0.05), V(C.mastX - 2.1, 0, this.vis.ck.sole + 0.05)], 30, g);
@@ -319,6 +433,7 @@ export class Rigging {
         this.mainsheet[i].set([bb.clone().add(_v.set(o[0], 0, o[1])), car.clone().add(_w.set(o[0], 0.02, o[1]))], mT, g);
       }
       const tailEnd = this.hands.main || car.clone().add(_v.set(0.3, -0.02, 0.3));
+      this.mainTail.freeEnd = !this.hands.main; this.mainTail.tailRest = 0.5 + (1 - b.lines.main) * 2.5;
       this.mainTail.set([car.clone().add(_v.set(0, 0.03, 0)), tailEnd], this.hands.main ? mT : 2, g);
       const tl = Math.max(5, (L.mainLoad || 0) * 0.15);
       this.travLines[0].set([V(hw.travX, -hw.travHalf, hw.travZ), car], tl, g);
@@ -329,6 +444,7 @@ export class Rigging {
     const vBot = V(C.mastX - 0.1, 0, vis.mastBase + 0.12);
     const vt = 20 + 1800 * b.ctrl.vang * (C.id === 'dinghy' ? 0.6 : 1);
     for (let i = 0; i < 4; i++) { const o = off[i]; this.vang[i].set([vTop.clone().add(_v.set(o[0] * 0.6, 0, o[1])), vBot.clone().add(_w.set(o[0] * 0.6, 0, o[1]))], vt, g); }
+    this.vangTail.freeEnd = true; this.vangTail.tailRest = 0.4 + b.ctrl.vang * 1.0;
     this.vangTail.set([vBot, V(C.mastX - 0.35, 0.12, vis.mastBase + 0.03), V(C.mastX - 0.9, 0.2, vis.deckH(C.mastX - 0.9, 0.2) + 0.03)], vt / 4, g);
     // --- cunningham, outhaul, halyards
     const rf = reefAt(b.reefPos);
@@ -336,6 +452,7 @@ export class Rigging {
     const cDeck = V(C.mastX - 0.12, 0.05, vis.mastBase + 0.05);
     const ct = 10 + 600 * b.ctrl.cunn;
     this.cunn[0].set([tack, cDeck], ct, g); this.cunn[1].set([tack.clone().add(_v.set(0.02, 0, 0)), cDeck.clone().add(_w.set(0.02, 0, 0))], ct, g);
+    this.cunnTail.freeEnd = true; this.cunnTail.tailRest = 0.3 + b.ctrl.cunn * 0.6;
     this.cunnTail.set([cDeck, V(C.mastX - 0.6, -0.18, vis.deckH(C.mastX - 0.6, -0.18) + 0.03)], ct / 2, g);
     const clewB = this.boomPt('main', M.foot * (0.92 + 0.05 * b.ctrl.outhaul), -0.02);
     this.outhaul.set([clewB, this.boomPt('main', M.foot + 0.02, -0.04), this.boomPt('main', M.foot * 0.5, -0.1)], 50 + 400 * b.ctrl.outhaul, g);
@@ -385,6 +502,7 @@ export class Rigging {
         const tailHand = active ? this.hands.jib : null;
         const tailEnd = tailHand || w.position.clone().add(_w.set(-s * 0.35, -0.12, 0.25));
         if (!jibOn) { this.jibSheets[k].hide(); continue; }
+        this.jibSheets[k].freeEnd = !tailHand; this.jibSheets[k].tailRest = active ? 0.5 + (1 - b.lines.jib) * 2.2 : 0.9;
         if (active) this.jibSheets[k].set([clew, carP, wp, w.position.clone().add(_v.set(0, 0.2, 0)), tailEnd], [jl, jl, jl, tailHand ? jl * 0.1 : 2], g);
         else this.jibSheets[k].set([clew, V(C.mastX + 0.35, 0, vis.deckH(C.mastX + 0.35, 0) + 0.35), carP, wp, tailEnd], [6, 6, 20, 3], g, 0.2, t);
       }
@@ -400,6 +518,7 @@ export class Rigging {
         for (let k = 0; k < 2; k++) {
           const s = k ? 1 : -1, bl = this.genBlocks[k].position, w = this.winches[k];
           const tailEnd = s === side && this.hands.jib ? this.hands.jib : w.position.clone().add(_w.set(-s * 0.3, -0.1, 0.3));
+          this.genSheets[k].freeEnd = s === side && !this.hands.jib; this.genSheets[k].tailRest = 0.6 + (1 - b.lines.jib) * 3;
           if (s === side) this.genSheets[k].set([clew, bl, w.position.clone().add(_v.set(0, 0.2, 0)), tailEnd], [gl, gl, 3], g);
           else this.genSheets[k].set([clew, V(G.tackX + 0.2, 0, G.tackZ + 0.5), bl, w.position.clone().add(_v.set(0, 0.2, 0))], [5, 5, 5], g, 0.3, t);
         }
