@@ -574,6 +574,7 @@ class Game {
         // clockwise is the fast gear, anticlockwise the low gear — a third of the speed, three times the power
         const low = da < 0, R = this.renderer.boats.get(b).rigging;
         R.lowGear = low;
+        R.handleCrank = (R.handleCrank || 0) - da; R.crankT = performance.now();   // the handle follows your hand, either way
         const gear = low ? 1 / 3 : 1;
         const ld = g.trim > 0 ? (c[g.key] || 0) * 1.3 * C.sheetPower : (load || 0);   // controls get harder as they come in
         const eff = 1 / (1 + (ld * gear / C.sheetPower) ** 2);

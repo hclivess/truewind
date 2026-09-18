@@ -555,8 +555,13 @@ export class Rigging {
       const dLine = role === 'work' ? (this.lastLines.jib - b.lines.jib) * (b.genDeploy > 0.5 ? 3.0 : 1.4)   // metres of sheet
         : role === 'lazy' ? (this.lastLines.lazy - b.lines.lazy) * 1.4
         : (b.ctrl[this.cabinLine] - (this.lastCabin ?? b.ctrl[this.cabinLine])) * 0.8;
-      w.userData.angle -= dLine / 0.06;
-      if (dLine > 0 && role === this.handleOn) w.userData.handleAngle -= dLine / 0.06 / (this.lowGear ? 1.2 : 3.5);
+      // the drum only ever turns one way (the ratchet): hauling turns it, easing lets line surge round it
+      if (dLine > 0) w.userData.angle -= dLine / 0.06;
+      // the handle: where your hand is when you wind it (either way — the two gears), otherwise geared to the drum
+      if (role === this.handleOn) {
+        if (this.handleCrank) { w.userData.handleAngle += this.handleCrank; this.handleCrank = 0; }
+        else if (dLine > 0 && performance.now() - (this.crankT || 0) > 300) w.userData.handleAngle -= dLine / 0.06 / 3.5;
+      }
       w.userData.spin.rotation.y = w.userData.angle;
       w.userData.handle.visible = role === this.handleOn && (role === 'cabin' || !!b.sailBy.jib);
       w.userData.handle.rotation.y = w.userData.handleAngle;
