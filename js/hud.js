@@ -61,8 +61,12 @@ export class HUD {
     const BTN = { main: ['Trim', 'Ease'], jib: ['Trim', 'Ease'], lazy: ['Haul', 'Ease'], pushBoom: ['Port', 'Stbd'], stay: ['Trim', 'Ease'], trav: ['Windward', 'Leeward'], vang: ['−', '+'], cunn: ['−', '+'],
       outhaul: ['−', '+'], backstay: ['−', '+'], jibHalyard: ['−', '+'], jibLead: ['Fwd', 'Aft'], tackLine: ['Down', 'Ease'], board: ['Up', 'Down'], hike: ['In', 'Out'] };
     const btns = (k) => `<span class="nb"><button class="nbtn" data-k="${k}" data-d="-1">${BTN[k][0]}</button><button class="nbtn" data-k="${k}" data-d="1">${BTN[k][1]}</button></span>`;
-    h += rows.map(([k, label, col]) => `<div class="ln" data-k="${k}"><i style="background:${col}"></i><span>${label}</span><b id="o-${k}"></b>${btns(k)}</div>`).join('');
-    h += `<div class="ln"><i style="background:#8a5a2b"></i><span>Helm</span><b id="o-helm"></b><span class="nb"><button class="nbtn" data-k="helm" data-d="-1">Port</button><button class="nbtn" data-k="helm" data-d="1">Stbd</button></span></div>`;
+    // lock: the line's cam cleat, clutch or self-tailer (released, a loaded line runs out by itself)
+    const lockable = new Set(b.locks ? Object.keys(b.locks) : []);
+    const hasCleat = (k) => lockable.has(k) && !(k === 'lazy' && C.noWinches) && !(k === 'jibHalyard' && C.id === 'dinghy') && !(k === 'trav' && !S.main.trav);
+    const lk = (k) => hasCleat(k) ? `<button class="lk" data-lock="${k}" title="Cleat / release this line">⊓</button>` : `<span class="lk-sp"></span>`;
+    h += rows.map(([k, label, col]) => `<div class="ln" data-k="${k}"><i style="background:${col}"></i><span>${label}</span><b id="o-${k}"></b>${lk(k)}${btns(k)}</div>`).join('');
+    h += `<div class="ln"><i style="background:#8a5a2b"></i><span>Helm</span><b id="o-helm"></b><span class="lk-sp"></span><span class="nb"><button class="nbtn" data-k="helm" data-d="-1">Port</button><button class="nbtn" data-k="helm" data-d="1">Stbd</button></span></div>`;
     h += `</div><div class="toggles acts">`;
     if (S.main.reefs) h += `<span class="muted small">Reef</span>` + [0, 1, 2].slice(0, S.main.reefs + 1).map(r => `<button class="chip" data-reef="${r}">${['Full', '1st', '2nd'][r]}</button>`).join('') + `<b id="o-reef" class="small"></b>`;
     h += `</div><div class="toggles acts">`;
@@ -91,6 +95,7 @@ export class HUD {
     document.querySelectorAll('#rig-body [data-reef]').forEach(btn => hover(btn, 'reef'));
     const ag = document.getElementById('a-gen'); if (ag) hover(ag, 'gen');
     const gen = $('#a-gen'); if (gen) gen.addEventListener('click', () => this.g.toggleGen());
+    document.querySelectorAll('#rig-body .lk').forEach(bt => { const k = bt.dataset.lock; hover(bt, 'lock:' + k); bt.addEventListener('click', () => this.g.toggleLock(k)); });
     const fly = $('#a-fly'); if (fly) { hover(fly, 'jibtail'); fly.addEventListener('click', () => this.g.letFly()); }
     const right = $('#a-right'); if (right) right.addEventListener('click', () => this.g.rightBoat());
     $('#a-center').addEventListener('click', () => { b.ctrl.helm = 0; });
@@ -165,6 +170,7 @@ export class HUD {
     document.querySelectorAll('#rig-body [data-reef]').forEach(btn => btn.classList.toggle('on', +btn.dataset.reef === (b.ctrl.reef | 0)));
     const gen = document.getElementById('a-gen'); if (gen) { gen.textContent = b.ctrl.gen ? 'Douse gennaker' : 'Hoist gennaker'; gen.classList.toggle('on', !!b.ctrl.gen); }
     const right = document.getElementById('a-right'); if (right) right.classList.toggle('on', !!b.capsized);
+    document.querySelectorAll('#rig-body .lk').forEach(bt => { const free = b.locks && b.locks[bt.dataset.lock] === false; bt.classList.toggle('free', free); bt.textContent = free ? 'FREE' : 'LOCK'; });
     const reefEl = document.getElementById('o-reef');
     if (reefEl) reefEl.textContent = b.reefing ? `working ${Math.round(d.reefProgress * 100)}%` : '';
     const setTT = (key) => {
@@ -371,7 +377,7 @@ export class HUD {
       const me = o2 === b;
       ctx.save(); ctx.translate(o2.x, o2.z); ctx.rotate(o2.psi);
       // your own boat: a big notched arrow with a dark outline so it reads at any zoom
-      const s = Math.max(o2.cls.loa, (me ? 22 : 9) * lw) / 2;
+      const s = Math.max(o2.cls.loa, (me ? 40 : 10) * lw) / 2;
       ctx.fillStyle = me ? '#ff7a1a' : 'rgba(233,238,242,.85)';
       ctx.beginPath();
       if (me) { ctx.moveTo(0, -s); ctx.lineTo(s * 0.7, s); ctx.lineTo(0, s * 0.45); ctx.lineTo(-s * 0.7, s); }

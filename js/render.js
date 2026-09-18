@@ -413,7 +413,7 @@ export class Renderer {
     const vis = buildBoatModel(boat, opts);
     vis.rigging = new Rigging(boat, vis, { player: !!opts.player });
     vis.player = !!opts.player;
-    vis.splash = new HullSplash(this.scene, vis, boat);
+    vis.splash = new HullSplash(this.scene, vis, boat, this.skySys);
     this.scene.add(vis.root);
     this.boats.set(boat, vis);
     const wake = new Wake(); this.scene.add(wake.mesh); this.wakes.set(boat, wake);
@@ -540,8 +540,9 @@ export class Renderer {
       const dist = Math.hypot(b.x - cam.x, b.z - cam.z);
       const near = vis.player || dist < 150;
       vis.rigging.update(t, near, dt, env);
-      if (near) vis.splash.update(dt, t); else vis.splash.foam.visible = false;
-      if (near) vis.splash.foam.visible = true;
+      const sp = vis.splash;
+      sp.foam.visible = sp.sheet.visible = sp.points.visible = sp.patches.visible = near;
+      if (near) sp.update(dt, t, env);
       this.wakes.get(b).update(b, env, t, dt);
     }
     const tmp = {};

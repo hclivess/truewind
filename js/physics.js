@@ -162,6 +162,9 @@ export const CLASSES = {
 for (const C of Object.values(CLASSES)) for (const s of C.sails) {
   if (s.kind === 'loose' || (s.kind === 'boom' && s.key !== 'main')) s.rake = s.tackX - (C.mastX + 0.07);
 }
+// lines that are held by a cleat, clutch or self-tailer (and which way they run when released)
+export const LOCKABLE = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibHalyard', 'tackLine'];
+const RUNS_UP = new Set(['main', 'jib', 'lazy', 'stay', 'trav', 'tackLine']);
 export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat'];
 
 export const STRIP_F = [0.17, 0.5, 0.82];
@@ -291,6 +294,10 @@ export class Boat {
     this.rudder = 0; this.crewY = 0; this.crewX = 0;
     this.lines = { main: this.ctrl.main, jib: this.ctrl.jib, stay: this.ctrl.stay, lazy: this.ctrl.lazy };
     this.backedByLazy = false;
+    // every line is held by something: a cam cleat, a clutch or a winch self-tailer. Released, a loaded line
+    // runs out by itself until it is cleated again (or held: the game marks lines the player is hauling)
+    this.locks = Object.fromEntries(LOCKABLE.map(k => [k, true]));
+    this.held = {};
     this.heave = 0; this.heaveV = 0; this.pitch = 0; this.pitchV = 0;
     this.capsized = false; this.capsizeT = 0; this.righting = false;
     this.aground = 0;
@@ -403,6 +410,17 @@ export class Boat {
     const qMid = 0.5 * RHO_A * (axm * axm + aym * aym);
     d.awaMid = awaMid; d.qMid = qMid;
 
+    // ---- released lines run out under their load (sheets ease, controls lose tension, the car slides) ----
+    for (const k of LOCKABLE) {
+      if (this.held[k] > 0) { this.held[k] -= dt; continue; }
+      if (this.locks[k] !== false || ctrl[k] === undefined) continue;
+      const ld = k === 'main' || k === 'jib' || k === 'stay' ? (d.rig[k + 'Load'] || 0) / C.sheetPower : k === 'lazy' ? (d.rig.lazyLoad || 0) / C.sheetPower : k === 'trav' ? (d.rig.mainLoad || 0) / C.sheetPower : 0.35 * (ctrl[k] || 0) + 0.1;
+      if (ld < 0.01) continue;
+      const rate = Math.min(2.5, 0.25 + 1.6 * ld) * dt;
+      if (RUNS_UP.has(k)) ctrl[k] = Math.min(1, ctrl[k] + rate);        // sheets and tack line ease, the car goes to leeward
+      else ctrl[k] = Math.max(0, ctrl[k] - rate);                        // vang, cunningham, outhaul, backstay, halyard go slack
+      if (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy') this.lines[k] = Math.max(this.lines[k], Math.min(ctrl[k], this.lines[k] + rate * 1.5));
+    }
     // ---- running rigging: lines move at crew/winch speed, slower under load ----
     for (const k of ['main', 'jib', 'stay', 'lazy']) {
       const target = ctrl[k] ?? (k === 'lazy' ? 1 : 0.3);
@@ -886,6 +904,7 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
     if (wantSide !== js && awa > hold && awa < 160 * DEG) letFly = true;
   }
   if (!boat.backedByLazy) c.lazy = 1;
+  if (boat.locks) for (const k in boat.locks) boat.locks[k] = true;   // automatic mode keeps every line cleated
   const sh = d.shape;
   for (const s of C.sails) {
     if (s.kind === 'spin' && boat.genDeploy < 0.5) continue;

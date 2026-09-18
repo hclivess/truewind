@@ -421,7 +421,16 @@ class Game {
   toggleAutoHike() { this.player.auto.hike = !this.player.auto.hike; this.hud.toast(this.player.auto.hike ? 'Automatic weight placement on' : 'Automatic weight off — you place your weight (Q/E)'); }
   // the side panel's buttons: same rates as the keys, loaded sheets come in slower
   // throw the working jib sheet off the winch: it runs out and the clew is free to cross
-  letFly() { const b = this.player; if (!b.sailBy.jib) return; this.userTouched('jib'); b.ctrl.jib = 1; this.audio.click && this.audio.click(); this.hud.toast('Jib sheet let fly', 1); }
+  letFly() { const b = this.player; if (!b.sailBy.jib) return; this.userTouched('jib'); b.locks.jib = false; this.audio.click && this.audio.click(); this.hud.toast('Jib sheet out of the self-tailer — it runs free', 1.4); }
+  // cleat / release a line (cam cleat, clutch or self-tailer)
+  toggleLock(k) {
+    const b = this.player; if (!b.locks || !(k in b.locks)) return;
+    this.userTouched(k); b.locks[k] = !b.locks[k]; this.audio.click && this.audio.click();
+    const names = { main: 'Mainsheet', jib: 'Jib sheet', lazy: 'Lazy jib sheet', stay: 'Staysail sheet', trav: 'Traveler', vang: 'Vang', cunn: 'Cunningham', outhaul: 'Outhaul', backstay: 'Backstay', jibHalyard: 'Jib halyard', tackLine: 'Tack line' };
+    this.hud.toast(`${names[k] || k} ${b.locks[k] ? 'cleated' : 'released — it runs under load'}`, 1.4);
+  }
+  // hauling a line seats it in its cleat or self-tailer; while the player works it, it does not run
+  working(k, trimming) { const b = this.player; if (!b.locks || !(k in b.locks)) return; b.held[k] = 0.3; if (trimming) b.locks[k] = true; }
   nudge(k, d, dt) {
     const b = this.player, c = b.ctrl, C = b.cls;
     if (k === 'helm') { c.helm = clamp(c.helm + d * 0.9 * dt, -1, 1); return; }
@@ -430,8 +439,9 @@ class Game {
     this.userTouched(k);
     let rate = 0.3 * dt;
     const load = k === 'main' ? b.diag.rig.mainLoad : k === 'jib' || k === 'lazy' ? b.diag.rig.jibLoad : k === 'stay' ? b.diag.rig.stayLoad : 0;
-    const trimming = (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy') && d < 0;
-    if (trimming) rate /= 1 + ((load || 0) / C.sheetPower) ** 2;
+    const trimming = (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy' || k === 'trav') ? d < 0 : k === 'tackLine' ? d < 0 : d > 0;
+    if (trimming && (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy')) rate /= 1 + ((load || 0) / C.sheetPower) ** 2;
+    this.working(k, trimming);
     c[k] = clamp(c[k] + d * rate, 0, 1);
   }
   grabIdForKey(k) { return Rigging.idForKey(k, this.player); }
@@ -472,9 +482,11 @@ class Game {
       cv.setPointerCapture(e.pointerId);
       const g = this.running && !this.idle ? this.hoverGrab : null;
       drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, grab: g, ang: null, clickDist: 0, shift: e.shiftKey };
+      this._dragging = true;
       if (g) { cv.style.cursor = 'grabbing'; this.onGrabStart(g); }
     });
     cv.addEventListener('pointermove', (e) => {
+      this.mouse = [e.clientX, e.clientY];
       if (!drag) { this.updateHover(e.clientX, e.clientY); return; }
       if (drag.grab) { this.onGrabDrag(drag, e.clientX, e.clientY); }
       else {
@@ -484,9 +496,10 @@ class Game {
       drag.clickDist += Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
       drag.x = e.clientX; drag.y = e.clientY;
     });
+    cv.addEventListener('pointerleave', () => { this.mouse = null; if (!drag) { this.hoverGrab = null; const tip = $('#grab-tip'); if (tip) tip.hidden = true; } });
     cv.addEventListener('pointerup', () => {
       if (drag && drag.grab && (drag.grab.kind === 'click' || drag.grab.onClick) && drag.clickDist < 8) this.onGrabClick(drag.grab, drag.shift);
-      drag = null; cv.style.cursor = this.hoverGrab ? 'grab' : '';
+      drag = null; this._dragging = false; cv.style.cursor = this.hoverGrab ? 'grab' : '';
     });
     cv.addEventListener('wheel', (e) => {
       const c = this.renderer.cam, out = e.deltaY > 0;
@@ -536,7 +549,8 @@ class Game {
   }
   onGrabClick(g, shift) {
     const b = this.player;
-    if (g.onClick === 'letFly') this.letFly();
+    if (g.action === 'lock') this.toggleLock(g.key);
+    else if (g.onClick === 'letFly') this.letFly();
     else if (g.onClick === 'cycleCabin') { const R = this.renderer.boats.get(b).rigging, k = R.cycleCabinLine(); this.hud.toast(`Cabin-top winch: ${R.constructor.lineName(k)} on the drum`, 1.5); }
     else if (g.action === 'gen') this.toggleGen();
     else if (g.action === 'reef') {
@@ -555,6 +569,8 @@ class Game {
       let delta = g.dir * dy;
       const trimming = (g.dir < 0 && dy > 0) || (g.dir > 0 && dy > 0);
       if (trimming) delta *= g.handTail ? effort * effort * 0.6 : effort;  // tailing by hand only works while the sheet is light
+      const tr = ['main', 'jib', 'stay', 'lazy', 'tackLine'].includes(g.key) ? delta < 0 : delta > 0;
+      this.working(g.key, tr);
       c[g.key] = clamp(c[g.key] + delta, 0, 1);
     } else if (g.kind === 'track') {
       const [ax, ay] = this.screenOf(g.A), [bx, by] = this.screenOf(g.B);
@@ -564,6 +580,7 @@ class Game {
         const lee = Math.sign(b.booms.main.a) || 1;
         t = lee > 0 ? t : 1 - t;
       }
+      this.working(g.key, true);
       c[g.key] = lerp(c[g.key], t, 0.5);
     } else if (g.kind === 'crank') {
       const [cx, cy] = [g.sx ?? drag.x0, g.sy ?? drag.y0];
@@ -572,15 +589,23 @@ class Game {
         let da = ang - drag.ang; if (da > Math.PI) da -= 2 * Math.PI; if (da < -Math.PI) da += 2 * Math.PI;
         // two-speed self-tailer: winding either way hauls line in (the ratchet stops it running back);
         // clockwise is the fast gear, anticlockwise the low gear — a third of the speed, three times the power
+        // a winch hauls a fixed length of line per turn of the handle (drum ~19 cm round, fast gear 1:1, slow
+        // gear 1:3); the load only decides whether you can turn it: in the fast gear a heavy sheet stalls it
         const low = da < 0, R = this.renderer.boats.get(b).rigging;
         R.lowGear = low;
-        R.handleCrank = (R.handleCrank || 0) - da; R.crankT = performance.now();   // the handle follows your hand, either way
         const gear = low ? 1 / 3 : 1;
-        const ld = g.trim > 0 ? (c[g.key] || 0) * 1.3 * C.sheetPower : (load || 0);   // controls get harder as they come in
-        const eff = 1 / (1 + (ld * gear / C.sheetPower) ** 2);
-        const perTurn = g.trim > 0 ? 0.06 : 0.045;
-        c[g.key] = clamp(c[g.key] + g.trim * Math.abs(da) / (2 * Math.PI) * perTurn * gear * eff * 2.2, 0, 1);
-        drag.clicks = (drag.clicks || 0) + Math.abs(da);
+        const ld = (g.trim > 0 ? (c[g.key] || 0) * 1.3 * C.sheetPower : (load || 0)) / C.sheetPower;
+        const stall = !low && ld > 0.7;
+        if (stall) { if (!drag.stallMsg) { drag.stallMsg = true; this.hud.toast('Too heavy for the fast gear — wind anticlockwise (slow gear)', 1.8); } }
+        else {
+          R.handleCrank = (R.handleCrank || 0) - da; R.crankT = performance.now();   // the handle follows your hand, either way
+          const travel = g.trim > 0 ? 0.8 : g.key === 'lazy' ? 1.4 : (b.genDeploy > 0.5 ? 3.0 : 1.4);   // metres of line over the control's range
+          const dl = Math.abs(da) / (2 * Math.PI) * 0.19 * gear / travel;
+          c[g.key] = clamp(c[g.key] + g.trim * dl, 0, 1);
+          if (g.key === 'jib' || g.key === 'lazy') b.lines[g.key] = clamp(Math.min(b.lines[g.key], c[g.key] + 0.002), 0, 1);  // the line comes in as the drum turns
+          this.working(g.key, true);
+        }
+        if (!stall) drag.clicks = (drag.clicks || 0) + Math.abs(da);
         if (drag.clicks > (low ? 0.25 : 0.5)) { drag.clicks = 0; this.audio.click(); }
       }
       drag.ang = ang;
@@ -636,7 +661,7 @@ class Game {
     if (steer) c.helm = clamp(c.helm + steer * 0.9 * dt, -1, 1);
     // the helmsman holds the tiller where it was put (Space centres it)
     const rate = 0.28 * dt;
-    const trim = (key, dir) => { this.userTouched(key); c[key] = clamp(c[key] + dir * rate, 0, 1); };
+    const trim = (key, dir) => { this.userTouched(key); const tr = ['main', 'jib', 'stay', 'lazy', 'trav', 'tackLine'].includes(key) ? dir < 0 : dir > 0; this.working(key, tr); c[key] = clamp(c[key] + dir * rate, 0, 1); };
     if (has('w')) trim('main', -1);
     if (has('s')) trim('main', +1);
     if (K.has('ArrowUp')) trim(shift && b.sailBy.stay ? 'stay' : 'jib', -1);
@@ -698,6 +723,8 @@ class Game {
     if (!this.idle && this.running && p) {
       const vis = this.renderer.boats.get(p);
       const show = vis && ['deck', 'chase', 'helm'].includes(this.renderer.cam.mode) && this.renderer.cam.dist < 25;
+      // what is under the pointer changes as the boat and camera move, not only when the mouse does
+      if (this.mouse && !this._dragging) this.updateHover(this.mouse[0], this.mouse[1]); else if (!this.mouse) this.hoverGrab = null;
       // the panel is rebuilt now and then, so a 'pointerleave' can go missing: check the hovered row is still hovered
       if (this.panelHoverEl && !(this.panelHoverEl.isConnected && this.panelHoverEl.matches(':hover'))) { this.panelHover = null; this.panelHoverEl = null; }
       const hid = (this.hoverGrab && this.hoverGrab.id) || this.panelHover || null;

@@ -223,6 +223,30 @@ const mBronze = () => hwMat('bz', () => new THREE.MeshStandardMaterial({ color: 
 const mBlack = () => hwMat('bk', () => new THREE.MeshStandardMaterial({ color: 0x1d1f23, roughness: 0.45, metalness: 0.3 }));
 const mTrack = () => hwMat('tr', () => new THREE.MeshStandardMaterial({ color: 0x9aa1a8, roughness: 0.35, metalness: 0.8 }));
 
+// a cam cleat / clutch: two toothed cams on a base; the jaws open and a red band shows when it is released
+function makeCleat(scale = 1) {
+  const g = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.1 * scale, 0.012, 0.045 * scale), new THREE.MeshStandardMaterial({ color: 0x1e2226, roughness: 0.6, metalness: 0.3 }));
+  base.position.y = 0.006; g.add(base);
+  const camMat = new THREE.MeshStandardMaterial({ color: 0x3a3f46, roughness: 0.5, metalness: 0.5 });
+  const cams = [];
+  for (const s of [-1, 1]) {
+    const pivot = new THREE.Group(); pivot.position.set(0, 0.012, s * 0.012 * scale);
+    const cam = new THREE.Mesh(new THREE.CylinderGeometry(0.011 * scale, 0.011 * scale, 0.022, 10), camMat);
+    cam.position.set(0.01 * scale, 0.011, 0); pivot.add(cam);
+    const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.018 * scale, 0.02, 0.004), camMat); tooth.position.set(0.012 * scale, 0.011, -s * 0.009 * scale); pivot.add(tooth);
+    g.add(pivot); cams.push({ pivot, s });
+  }
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.03 * scale, 0.004, 6, 16), new THREE.MeshStandardMaterial({ color: 0xe0413a, emissive: 0xe0413a, emissiveIntensity: 0.6 }));
+  band.rotation.x = Math.PI / 2; band.position.y = 0.026; band.visible = false; g.add(band);
+  g.userData = { cams, band };
+  return g;
+}
+function setCleat(c, locked) {
+  for (const { pivot, s } of c.userData.cams) pivot.rotation.y = locked ? 0 : s * 0.7;
+  c.userData.band.visible = !locked;
+}
+
 function makeBlock(size = 0.05) {
   const g = new THREE.Group();
   const cheek = new THREE.Mesh(new THREE.CylinderGeometry(size, size, size * 0.7, 14), mBlack());
@@ -366,6 +390,20 @@ export class Rigging {
       for (const x of hw2) x.traverse(o => { if (o.material && o.material.emissive) { o.material = o.material.clone(); o.userData.e0 = o.material.emissiveIntensity; o.userData.e0c = o.material.emissive.getHex(); } });
     }
     this.hands = {}; // no hands: tails lead to cleats and lie coiled on deck
+    // cleats, clutches and self-tailers (the player's boat): each line's lock
+    this.cleats = {};
+    if (this.player) {
+      const S = boat.sailBy;
+      const want = ['main', 'vang', 'cunn', 'outhaul'];
+      if (S.main.trav) want.push('trav');
+      if (S.jib && !C.noWinches) want.push('jib', 'lazy');
+      else if (S.jib) want.push('jib');
+      if (S.stay) want.push('stay');
+      if (C.hasBackstay) want.push('backstay');
+      if (S.jib && C.id !== 'dinghy') want.push('jibHalyard');
+      if (S.gennaker) want.push('tackLine');
+      for (const k of want) { const c = makeCleat(k === 'jib' || k === 'lazy' ? 1.1 : 1); inner.add(c); this.cleats[k] = c; }
+    }
   }
 
   // points on a boom (physics: distance s aft of the pivot, dz below)
@@ -556,7 +594,7 @@ export class Rigging {
         : role === 'lazy' ? (this.lastLines.lazy - b.lines.lazy) * 1.4
         : (b.ctrl[this.cabinLine] - (this.lastCabin ?? b.ctrl[this.cabinLine])) * 0.8;
       // the drum only ever turns one way (the ratchet): hauling turns it, easing lets line surge round it
-      if (dLine > 0) w.userData.angle -= dLine / 0.06;
+      if (dLine > 0) w.userData.angle -= dLine / 0.03;                  // ~19 cm of line per drum turn
       // the handle: where your hand is when you wind it (either way — the two gears), otherwise geared to the drum
       if (role === this.handleOn) {
         if (this.handleCrank) { w.userData.handleAngle += this.handleCrank; this.handleCrank = 0; }
@@ -568,7 +606,38 @@ export class Rigging {
     }
     this.lastLines = { ...b.lines };
     if (this.cabinWinch) this.lastCabin = b.ctrl[this.cabinLine];
+    this.placeCleats(cs);
     this.applyGlow();
+  }
+
+  // where each line is held: cam cleats on deck and on the car, clutches on the cabin, self-tailer jaws on the winches
+  cleatPos(k, cs) {
+    const b = this.b, C = b.cls, vis = this.vis, hw = this.hw, M = b.sailBy.main;
+    const dk = (x, y, dz = 0.01) => V(x, y, vis.deckH(x, y) + dz);
+    switch (k) {
+      case 'main': return C.id === 'dinghy' ? V(hw.ratchetX - 0.12, 0, hw.ratchetZ + 0.02) : (this.car ? this.car.position.clone().add(_v.set(0.1, 0.03, 0.12)) : null);
+      case 'jib': case 'lazy': { const w = this.winches.find(w => w.userData.side === (k === 'jib' ? cs : -cs)); return w ? w.position.clone().add(_v.set(0, 0.2, 0)) : null; }
+      case 'stay': return dk(C.mastX - 1.45, 0.3);
+      case 'trav': return V(hw.travX, (Math.sign(b.booms.main.a) || 1) * -(hw.travHalf + 0.08), hw.travZ);
+      case 'vang': return dk(C.mastX - 0.95, 0.22);
+      case 'cunn': return dk(C.mastX - 0.65, -0.2);
+      case 'outhaul': return this.boomPt('main', M.foot * 0.45, -0.1);
+      case 'backstay': return dk(C.sternX + 0.95, 0.28, 0.02);
+      case 'jibHalyard': { const cx0 = C.id === 'sportboat' ? C.mastX - 0.75 : C.mastX - 1.0; return V(cx0 - 0.07, 0.26, vis.deckH(cx0, 0.18) + 0.03); }
+      case 'tackLine': return dk(C.mastX - 0.95, 0.34);
+    }
+    return null;
+  }
+  placeCleats(cs) {
+    const b = this.b;
+    for (const [k, c] of Object.entries(this.cleats)) {
+      const p = this.cleatPos(k, cs);
+      c.visible = !!p && !(k === 'tackLine' && b.genDeploy < 0.3);
+      if (!p) continue;
+      c.position.copy(p);
+      if (k === 'jib' || k === 'lazy') c.position.y += 0.02;              // the self-tailer on top of the drum
+      setCleat(c, b.locks ? b.locks[k] !== false : true);
+    }
   }
 
   // the control on the cabin-top winch: from the mast base, along the deck, through its clutch, three turns on the drum, tail
@@ -614,6 +683,7 @@ export class Rigging {
       jibpull: [this.jibSheets?.[k]].filter(Boolean), jibLead: [this.jibSheets?.[k]].filter(Boolean), jibHalyard: [this.halyards[2]],
       gen: [this.halyards[1]], tackLine: [this.tackLine].filter(Boolean),
     };
+    if (id && id.startsWith('lock:')) { const k = id.slice(5); return k === 'jib' ? m.jibpull : k === 'lazy' ? m.lazyWinch : (m[k] || []); }
     return m[id] || [];
   }
   // every control carries a faint outline so you can see what can be handled; the hovered one glows
@@ -637,7 +707,8 @@ export class Rigging {
     if (!id) return;
     const cs = Math.sign((this.b.genDeploy > 0.5 ? this.b.side.gennaker : this.b.side.jib)) || 1;
     const objs = id === 'trav' ? [this.car] : id === 'jibLead' ? this.jibCars : id === 'winch' ? this.winches.filter(w => w.userData.side === cs)
-      : id === 'lazyWinch' ? this.winches.filter(w => w.userData.side === -cs) : id === 'cwinch' ? [this.cabinWinch] : id === 'tiller' ? [this.vis.rudderPivot] : [];
+      : id === 'lazyWinch' ? this.winches.filter(w => w.userData.side === -cs) : id === 'cwinch' ? [this.cabinWinch] : id === 'tiller' ? [this.vis.rudderPivot]
+      : id && id.startsWith('lock:') ? [this.cleats[id.slice(5)]] : [];
     for (const x of objs.filter(Boolean)) x.traverse(o => { if (o.material && o.material.emissive) { if (o.userData.e0 === undefined) { o.material = o.material.clone(); o.userData.e0 = o.material.emissiveIntensity; } if (o.userData.e0c === undefined) o.userData.e0c = o.material.emissive.getHex(); o.material.emissive.setHex(0xff8a2a); o.material.emissiveIntensity = 0.9; } });
     this._hlObjs = objs.filter(Boolean);
   }
@@ -690,6 +761,13 @@ export class Rigging {
       // grab the top of a board (for a catamaran, the one in the windward hull)
       const holder = C.keel.twin ? vis.keelMesh.children[(Math.sign(-b.phi || 1) + 1) / 2] || vis.keelMesh.children[0] : vis.keelMesh;
       list.push({ id: 'board', label: C.keel.twin ? 'Daggerboards' : 'Daggerboard', hint: 'drag up or down', kind: 'pull', key: 'board', dir: 1, pos: holder.localToWorld(new THREE.Vector3(0, 0.08, C.keel.chord * 0.4)), info: () => `${Math.round(b.ctrl.board * 100)}% down` });
+    }
+    // cleats / clutches / self-tailers: click to release or cleat the line
+    const names = { main: 'Mainsheet cam cleat', jib: 'Jib sheet self-tailer', lazy: 'Lazy sheet self-tailer', stay: 'Staysail sheet cleat', trav: 'Traveler control cleat', vang: 'Vang cleat', cunn: 'Cunningham cleat', outhaul: 'Outhaul cleat', backstay: 'Backstay cleat', jibHalyard: 'Jib halyard clutch', tackLine: 'Tack line cleat' };
+    for (const [k, c] of Object.entries(this.cleats)) {
+      if (!c.visible) continue;
+      const locked = b.locks ? b.locks[k] !== false : true;
+      list.push({ id: 'lock:' + k, label: names[k], hint: locked ? 'click to release — the line runs out under its load' : 'click to cleat (hauling the line cleats it too)', kind: 'click', action: 'lock', key: k, pos: toW(c.position.clone().add(_v.set(0, 0.03, 0))), info: () => (b.locks && b.locks[k] === false ? 'RELEASED' : 'cleated') });
     }
     // tiller: drag it sideways — the bow goes the other way
     const tp = vis.extension
