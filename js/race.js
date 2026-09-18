@@ -286,12 +286,20 @@ export class AIHelm {
     const kp = 2.4 * this.skill, kd = 1.6;
     let cmd = clamp(kp * err - kd * b.r, -0.8, 0.8);
     const twa = wrap(twd - b.psi);
-    // in irons / going astern: the rudder works backwards, and the crew backs the jib
+    // in irons / going astern: the rudder works backwards; the jib is backed by hauling the lazy sheet
+    // across on the other winch (a una-rig pushes the boom out by hand)
     if (b.u < 0.4 && Math.abs(twa) < 45 * DEG) {
       const wantTack = Math.sign(wrap(twd - desired)) || 1;
-      b.ctrl.backJib = wantTack;
+      if (b.sailBy.jib) {
+        const clew = Math.sign(b.side.jib) || 1;
+        if (clew !== wantTack) { b.ctrl.lazy = 0.15; b.ctrl.jib = 1; } else { b.ctrl.lazy = 1; b.ctrl.jib = Math.min(b.ctrl.jib, 0.35); }
+      } else b.ctrl.pushBoom = wantTack;
       cmd = b.u < 0 ? -wantTack * 0.8 * -1 : cmd;
-    } else b.ctrl.backJib = 0;
+      this.backing = true;
+    } else {
+      b.ctrl.pushBoom = 0;
+      if (this.backing) { this.backing = false; b.ctrl.lazy = 1; if (b.backedByLazy) { b.ctrl.jib = 1; b.backedByLazy = false; } }
+    }
     b.ctrl.helm = lerp(b.ctrl.helm, cmd, clamp(dt * 6, 0, 1));
   }
 }

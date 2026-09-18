@@ -683,6 +683,11 @@ export class Renderer {
       cam.up.set(-fl[0], 0, -fl[1]); // wind comes from the top of the screen
       cam.lookAt(c.tx, 0, c.tz);
     }
+    // depth precision: pull the near plane out as the camera backs off (a 5 cm near plane with a 30 km
+    // far plane leaves decimetre depth steps at a kilometre: shore and sea z-fight and flicker)
+    const camD = Math.hypot(cam.position.x - c.tx, cam.position.y - bh, cam.position.z - c.tz);
+    const near = c.mode === 'helm' || c.mode === 'bow' || c.mode === 'mast' || c.mode === 'deck' ? 0.05 : clamp(camD * 0.04, 0.05, 25);
+    if (Math.abs(near - cam.near) > 0.01 * cam.near) { cam.near = near; cam.updateProjectionMatrix(); }
   }
 
   _updateForces(b) {

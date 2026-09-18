@@ -46,7 +46,8 @@ export class HUD {
     rows.push(['vang', 'Vang', '#333840'], ['cunn', 'Cunningham', bw ? '#cdb98e' : '#f2b33d'], ['outhaul', 'Outhaul', '#7fbf3f']);
     if (C.hasBackstay) rows.push(['backstay', 'Backstay', '#9b5de5']);
     if (S.stay) rows.push(['stay', 'Staysail sheet', bw ? '#d9c7a0' : '#2f6fd6']);
-    if (S.jib) rows.push(['jib', S.gennaker ? 'Jib / genn. sheet' : 'Jib sheet', bw ? '#d9c7a0' : '#2f6fd6'], ['jibLead', 'Jib car', '#9aa1a8'], ['jibHalyard', 'Jib halyard', '#2f6fd6']);
+    if (S.jib) rows.push(['jib', S.gennaker ? 'Jib / genn. sheet' : 'Jib sheet', bw ? '#d9c7a0' : '#2f6fd6'], ['lazy', 'Lazy jib sheet', bw ? '#d9c7a0' : '#2f6fd6'], ['jibLead', 'Jib car', '#9aa1a8'], ['jibHalyard', 'Jib halyard', '#2f6fd6']);
+    else rows.push(['pushBoom', 'Push boom out', '#9aa1a8']);
     if (S.gennaker) rows.push(['tackLine', 'Tack line', '#ff7a1a']);
     if (C.hasBoard) rows.push(['board', 'Daggerboard', '#f2f2ef']);
     rows.push(['hike', 'Weight on rail', '#d33f49']);
@@ -57,7 +58,7 @@ export class HUD {
     if (S.gennaker) h += `<div class="sl2"><span>Gennaker</span>${tt('gennaker')}</div>`;
     h += `</div><div class="rg"><h3>Lines <span class="muted" style="font-weight:500;letter-spacing:.02em;text-transform:none">grab them on deck · 7</span></h3><div class="lines">`;
     // every control is here as press-and-hold buttons, and on deck as the real line / car / winch
-    const BTN = { main: ['Trim', 'Ease'], jib: ['Trim', 'Ease'], stay: ['Trim', 'Ease'], trav: ['Windward', 'Leeward'], vang: ['−', '+'], cunn: ['−', '+'],
+    const BTN = { main: ['Trim', 'Ease'], jib: ['Trim', 'Ease'], lazy: ['Haul', 'Ease'], pushBoom: ['Port', 'Stbd'], stay: ['Trim', 'Ease'], trav: ['Windward', 'Leeward'], vang: ['−', '+'], cunn: ['−', '+'],
       outhaul: ['−', '+'], backstay: ['−', '+'], jibHalyard: ['−', '+'], jibLead: ['Fwd', 'Aft'], tackLine: ['Down', 'Ease'], board: ['Up', 'Down'], hike: ['In', 'Out'] };
     const btns = (k) => `<span class="nb"><button class="nbtn" data-k="${k}" data-d="-1">${BTN[k][0]}</button><button class="nbtn" data-k="${k}" data-d="1">${BTN[k][1]}</button></span>`;
     h += rows.map(([k, label, col]) => `<div class="ln" data-k="${k}"><i style="background:${col}"></i><span>${label}</span><b id="o-${k}"></b>${btns(k)}</div>`).join('');
@@ -66,7 +67,7 @@ export class HUD {
     if (S.main.reefs) h += `<span class="muted small">Reef</span>` + [0, 1, 2].slice(0, S.main.reefs + 1).map(r => `<button class="chip" data-reef="${r}">${['Full', '1st', '2nd'][r]}</button>`).join('') + `<b id="o-reef" class="small"></b>`;
     h += `</div><div class="toggles acts">`;
     if (S.gennaker) h += `<button class="chip" id="a-gen">Hoist gennaker</button>`;
-    if (S.jib) h += `<button class="chip" id="a-back">Back jib (hold)</button>`;
+    if (S.jib) h += `<button class="chip" id="a-fly">Let jib sheet fly</button>`;
     if (C.canCapsize) h += `<button class="chip" id="a-right">Right the boat</button>`;
     h += `<button class="chip" id="a-center">Centre helm</button>`;
     h += `</div><div class="toggles"><button class="chip" id="t-trim">Automatic trim</button><button class="chip" id="t-hike">Automatic weight</button></div></div>`;
@@ -84,14 +85,13 @@ export class HUD {
     });
     document.querySelectorAll('#rig-body [data-reef]').forEach(btn => btn.addEventListener('click', () => this.g.setReef(+btn.dataset.reef)));
     // hovering a control's buttons lights that control up on the boat
-    const hover = (el, key) => { el.addEventListener('pointerenter', () => { this.g.panelHover = key; }); el.addEventListener('pointerleave', () => { if (this.g.panelHover === key) this.g.panelHover = null; }); };
+    const hover = (el, key) => { el.addEventListener('pointerenter', () => { this.g.panelHover = key; this.g.panelHoverEl = el; }); el.addEventListener('pointerleave', () => { if (this.g.panelHover === key) { this.g.panelHover = null; this.g.panelHoverEl = null; } }); };
     document.querySelectorAll('#rig-body .ln[data-k]').forEach(row => hover(row, this.g.grabIdForKey(row.dataset.k)));
     document.querySelectorAll('#rig-body .nbtn[data-k="helm"]').forEach(btn => hover(btn, 'tiller'));
     document.querySelectorAll('#rig-body [data-reef]').forEach(btn => hover(btn, 'reef'));
     const ag = document.getElementById('a-gen'); if (ag) hover(ag, 'gen');
     const gen = $('#a-gen'); if (gen) gen.addEventListener('click', () => this.g.toggleGen());
-    const back = $('#a-back');
-    if (back) { back.addEventListener('pointerdown', () => { this.g.backJib = true; }); for (const ev of ['pointerup', 'pointerleave']) back.addEventListener(ev, () => { this.g.backJib = false; }); }
+    const fly = $('#a-fly'); if (fly) { hover(fly, 'jibtail'); fly.addEventListener('click', () => this.g.letFly()); }
     const right = $('#a-right'); if (right) right.addEventListener('click', () => this.g.rightBoat());
     $('#a-center').addEventListener('click', () => { b.ctrl.helm = 0; });
   }
@@ -154,6 +154,8 @@ export class HUD {
       else if (k === 'trav') txt = `${deg(S.main.trav[0] + (S.main.trav[1] - S.main.trav[0]) * v)}°`;
       else if (k === 'jib') { const s2 = b.genDeploy > 0.5 ? S.gennaker : S.jib; txt = `${deg(s2.min + (s2.max - s2.min) * b.lines.jib)}° · ${Math.round(d.rig.jibLoad || 0)} N`; frac = 1 - v; }
       else if (k === 'hike') { txt = `${fmt(Math.abs(b.crewY), 1)} m ${b.auto.hike ? 'auto' : ''}`; frac = Math.abs(b.crewY) / b.cls.crewMaxOut; }
+      else if (k === 'lazy') { txt = b.backedByLazy ? `backed · ${Math.round((1 - b.lines.lazy) * 100)}%` : v > 0.95 ? 'slack' : `${Math.round((1 - v) * 100)}% in`; frac = 1 - v; }
+      else if (k === 'pushBoom') { txt = v ? (v < 0 ? 'to port' : 'to starboard') : '—'; frac = Math.abs(v); }
       else if (k === 'board') txt = `${Math.round(v * 100)}% down`;
       else if (k === 'jibLead') txt = `${Math.round(v * 100)}% aft`;
       else txt = `${Math.round(v * 100)}%`;
@@ -162,7 +164,6 @@ export class HUD {
     }
     document.querySelectorAll('#rig-body [data-reef]').forEach(btn => btn.classList.toggle('on', +btn.dataset.reef === (b.ctrl.reef | 0)));
     const gen = document.getElementById('a-gen'); if (gen) { gen.textContent = b.ctrl.gen ? 'Douse gennaker' : 'Hoist gennaker'; gen.classList.toggle('on', !!b.ctrl.gen); }
-    const back = document.getElementById('a-back'); if (back) back.classList.toggle('on', !!b.ctrl.backJib);
     const right = document.getElementById('a-right'); if (right) right.classList.toggle('on', !!b.capsized);
     const reefEl = document.getElementById('o-reef');
     if (reefEl) reefEl.textContent = b.reefing ? `working ${Math.round(d.reefProgress * 100)}%` : '';
@@ -369,9 +370,14 @@ export class HUD {
     for (const o2 of g.boats) {
       const me = o2 === b;
       ctx.save(); ctx.translate(o2.x, o2.z); ctx.rotate(o2.psi);
-      const s = Math.max(o2.cls.loa, 9 * lw) / 2;
+      // your own boat: a big notched arrow with a dark outline so it reads at any zoom
+      const s = Math.max(o2.cls.loa, (me ? 22 : 9) * lw) / 2;
       ctx.fillStyle = me ? '#ff7a1a' : 'rgba(233,238,242,.85)';
-      ctx.beginPath(); ctx.moveTo(0, -s); ctx.lineTo(s * 0.45, s); ctx.lineTo(-s * 0.45, s); ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      if (me) { ctx.moveTo(0, -s); ctx.lineTo(s * 0.7, s); ctx.lineTo(0, s * 0.45); ctx.lineTo(-s * 0.7, s); }
+      else { ctx.moveTo(0, -s); ctx.lineTo(s * 0.45, s); ctx.lineTo(-s * 0.45, s); }
+      ctx.closePath(); ctx.fill();
+      if (me) { ctx.strokeStyle = 'rgba(10,20,28,.9)'; ctx.lineWidth = lw * 1.6; ctx.stroke(); }
       ctx.restore();
     }
     ctx.restore();

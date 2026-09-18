@@ -37,7 +37,6 @@ class Game {
     this.t = 0;
     this.boats = [];
     this.showLaylines = true;
-    this.backJib = false;
     this.buildMenu();
     this.bindInput();
     window.addEventListener('resize', () => this.resize());
@@ -344,7 +343,7 @@ class Game {
     const keep = { x: b.x, z: b.z, psi: b.psi };
     for (let i = 0; i < 240; i++) { autoTrim(b, 1 / 60, 0, true); b.step(1 / 60, this.env, 0, this.world); b.psi = keep.psi; b.r = 0; }
     b.x = keep.x; b.z = keep.z;
-    b.lines.main = b.ctrl.main; b.lines.jib = b.ctrl.jib; b.lines.stay = b.ctrl.stay;
+    b.lines.main = b.ctrl.main; b.lines.jib = b.ctrl.jib; b.lines.stay = b.ctrl.stay; b.lines.lazy = b.ctrl.lazy = 1;
   }
 
   // VPP for the current wind, computed in a worker (falls back to slices on the main thread)
@@ -388,21 +387,24 @@ class Game {
   onWaypoint() { this.renderer.setMarks(this.waypoint ? [this.waypoint] : [], null); }
 
   userTouched(k) {
-    const trimKeys = ['main', 'jib', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibLead', 'jibHalyard', 'tackLine', 'board'];
+    const trimKeys = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibLead', 'jibHalyard', 'tackLine', 'board'];
     if (trimKeys.includes(k) && this.player.auto.trim) { this.player.auto.trim = false; this.hud.toast('Automatic trim off — you have the sheets'); }
     if ((k === 'hike' || k === 'crewAft') && this.player.auto.hike) { this.player.auto.hike = false; this.hud.toast('Automatic weight off — you place your weight'); }
   }
   toggleAutoTrim() { this.player.auto.trim = !this.player.auto.trim; this.hud.toast(this.player.auto.trim ? 'Automatic trim on' : 'Automatic trim off — you trim the sails'); }
   toggleAutoHike() { this.player.auto.hike = !this.player.auto.hike; this.hud.toast(this.player.auto.hike ? 'Automatic weight placement on' : 'Automatic weight off — you place your weight (Q/E)'); }
   // the side panel's buttons: same rates as the keys, loaded sheets come in slower
+  // throw the working jib sheet off the winch: it runs out and the clew is free to cross
+  letFly() { const b = this.player; if (!b.sailBy.jib) return; this.userTouched('jib'); b.ctrl.jib = 1; this.audio.click && this.audio.click(); this.hud.toast('Jib sheet let fly', 1); }
   nudge(k, d, dt) {
     const b = this.player, c = b.ctrl, C = b.cls;
     if (k === 'helm') { c.helm = clamp(c.helm + d * 0.9 * dt, -1, 1); return; }
+    if (k === 'pushBoom') { c.pushBoom = d; this.pushHeld = true; clearTimeout(this._pbT); this._pbT = setTimeout(() => { this.pushHeld = false; c.pushBoom = 0; }, 120); return; }
     if (k === 'hike') { this.userTouched('hike'); c.hike = clamp(c.hike + d * 1.2 * dt, -1, 1); return; }
     this.userTouched(k);
     let rate = 0.3 * dt;
-    const load = k === 'main' ? b.diag.rig.mainLoad : k === 'jib' ? b.diag.rig.jibLoad : k === 'stay' ? b.diag.rig.stayLoad : 0;
-    const trimming = (k === 'main' || k === 'jib' || k === 'stay') && d < 0;
+    const load = k === 'main' ? b.diag.rig.mainLoad : k === 'jib' || k === 'lazy' ? b.diag.rig.jibLoad : k === 'stay' ? b.diag.rig.stayLoad : 0;
+    const trimming = (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy') && d < 0;
     if (trimming) rate /= 1 + ((load || 0) / C.sheetPower) ** 2;
     c[k] = clamp(c[k] + d * rate, 0, 1);
   }
@@ -436,7 +438,6 @@ class Game {
     window.addEventListener('keyup', (e) => {
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       this.keys.delete(k); if (e.key === 'Shift') this.keys.delete('Shift');
-      if (k === 'j') this.backJib = false;
     });
     window.addEventListener('blur', () => this.keys.clear());
     const cv = $('#view');
@@ -458,7 +459,7 @@ class Game {
       drag.x = e.clientX; drag.y = e.clientY;
     });
     cv.addEventListener('pointerup', () => {
-      if (drag && drag.grab && drag.grab.kind === 'click' && drag.clickDist < 8) this.onGrabClick(drag.grab, drag.shift);
+      if (drag && drag.grab && (drag.grab.kind === 'click' || drag.grab.onClick) && drag.clickDist < 8) this.onGrabClick(drag.grab, drag.shift);
       drag = null; cv.style.cursor = this.hoverGrab ? 'grab' : '';
     });
     cv.addEventListener('wheel', (e) => {
@@ -501,11 +502,17 @@ class Game {
   onGrabStart(g) {
     const b = this.player;
     if (g.key) this.userTouched(g.key);
-    if (g.kind === 'crank') this.hud.toast('Crank clockwise to grind the sheet in', 1.5);
+    if (g.kind === 'crank') {
+      const R = this.renderer.boats.get(b).rigging;
+      if (R.handleOn !== g.role) { R.handleOn = g.role; this.audio.click && this.audio.click(); }
+      this.hud.toast('Wind the handle round: clockwise = fast gear, anticlockwise = slow powerful gear', 1.8);
+    }
   }
   onGrabClick(g, shift) {
     const b = this.player;
-    if (g.action === 'gen') this.toggleGen();
+    if (g.onClick === 'letFly') this.letFly();
+    else if (g.onClick === 'cycleCabin') { const R = this.renderer.boats.get(b).rigging, k = R.cycleCabinLine(); this.hud.toast(`Cabin-top winch: ${R.constructor.lineName(k)} on the drum`, 1.5); }
+    else if (g.action === 'gen') this.toggleGen();
     else if (g.action === 'reef') {
       const max = b.sailBy.main.reefs;
       b.ctrl.reef = clamp((b.ctrl.reef | 0) + (shift ? -1 : 1), 0, max);
@@ -514,14 +521,14 @@ class Game {
   }
   onGrabDrag(drag, mx, my) {
     const g = drag.grab, b = this.player, c = b.ctrl, C = b.cls;
-    const load = g.key === 'main' ? b.diag.rig.mainLoad : g.key === 'jib' ? b.diag.rig.jibLoad : g.key === 'stay' ? b.diag.rig.stayLoad : 0;
+    const load = g.key === 'main' ? b.diag.rig.mainLoad : g.key === 'jib' ? b.diag.rig.jibLoad : g.key === 'lazy' ? (b.backedByLazy ? b.diag.rig.jibLoad : (b.diag.rig.jibLoad || 0) * 0.3) : g.key === 'stay' ? b.diag.rig.stayLoad : 0;
     const effort = 1 / (1 + ((load || 0) / C.sheetPower) ** 2);   // heavy lines come in slowly
     if (g.kind === 'pull') {
       const dy = (drag.y - my) * 0.0035;                            // up = pull
       if (g.easeOnly && dy > 0) return;
       let delta = g.dir * dy;
       const trimming = (g.dir < 0 && dy > 0) || (g.dir > 0 && dy > 0);
-      if (trimming) delta *= effort;
+      if (trimming) delta *= g.handTail ? effort * effort * 0.6 : effort;  // tailing by hand only works while the sheet is light
       c[g.key] = clamp(c[g.key] + delta, 0, 1);
     } else if (g.kind === 'track') {
       const [ax, ay] = this.screenOf(g.A), [bx, by] = this.screenOf(g.B);
@@ -537,11 +544,17 @@ class Game {
       const ang = Math.atan2(my - cy, mx - cx);
       if (drag.ang !== null) {
         let da = ang - drag.ang; if (da > Math.PI) da -= 2 * Math.PI; if (da < -Math.PI) da += 2 * Math.PI;
-        if (da > 0) { // clockwise on screen = grinding in; the ratchet stops it running back
-          c.jib = clamp(c.jib - da / (2 * Math.PI) * 0.045 * effort, 0, 1);
-          drag.clicks = (drag.clicks || 0) + da;
-          if (drag.clicks > 0.5) { drag.clicks = 0; this.audio.click(); }
-        }
+        // two-speed self-tailer: winding either way hauls line in (the ratchet stops it running back);
+        // clockwise is the fast gear, anticlockwise the low gear — a third of the speed, three times the power
+        const low = da < 0, R = this.renderer.boats.get(b).rigging;
+        R.lowGear = low;
+        const gear = low ? 1 / 3 : 1;
+        const ld = g.trim > 0 ? (c[g.key] || 0) * 1.3 * C.sheetPower : (load || 0);   // controls get harder as they come in
+        const eff = 1 / (1 + (ld * gear / C.sheetPower) ** 2);
+        const perTurn = g.trim > 0 ? 0.06 : 0.045;
+        c[g.key] = clamp(c[g.key] + g.trim * Math.abs(da) / (2 * Math.PI) * perTurn * gear * eff * 2.2, 0, 1);
+        drag.clicks = (drag.clicks || 0) + Math.abs(da);
+        if (drag.clicks > (low ? 0.25 : 0.5)) { drag.clicks = 0; this.audio.click(); }
       }
       drag.ang = ang;
     } else if (g.kind === 'tiller') {
@@ -575,7 +588,7 @@ class Game {
       if (b.capsized) this.rightBoat();
       else if (b.sailBy.main.reefs) this.setReef(((b.ctrl.reef | 0) + 1) % (b.sailBy.main.reefs + 1));
     }
-    else if (k === 'j') this.backJib = true;
+    else if (k === 'f' && b.sailBy.jib) this.letFly();
     else if (k === ' ') b.ctrl.helm = 0;
     else if (k === '=' || k === '+') { if (!this.race) { this.timeWarp = Math.min(8, this.timeWarp * 2); this.hud.toast(`Time ×${this.timeWarp}`, 1); } }
     else if (k === '-') { this.timeWarp = Math.max(1, this.timeWarp / 2); this.hud.toast(`Time ×${this.timeWarp}`, 1); }
@@ -609,9 +622,11 @@ class Game {
     if (has('m')) trim('backstay', +1);
     if (has('q')) { this.userTouched('hike'); c.hike = clamp(c.hike - 1.2 * dt, -1, 1); }
     if (has('e')) { this.userTouched('hike'); c.hike = clamp(c.hike + 1.2 * dt, -1, 1); }
-    // backing the jib: hold the clew on the side the wind is coming from
-    if (this.backJib) { const twa = wrap((b.diag.twd ?? 0) - b.psi); c.backJib = c.backJib || (Math.sign(twa) || 1); }
-    else c.backJib = 0;
+    // the lazy jib sheet (J hauls, Shift+J eases); a una-rig pushes the boom out by hand (J / Shift+J = port / stbd)
+    if (has('j')) {
+      if (b.sailBy.jib) { this.userTouched('lazy'); const load = (b.diag.rig.jibLoad || 0) / C.sheetPower; c.lazy = clamp(c.lazy + (shift ? 1 : -1 / (1 + load * load)) * rate, 0, 1); }
+      else c.pushBoom = shift ? 1 : -1;
+    } else if (!this.pushHeld) c.pushBoom = 0;
   }
 
   // ------------------------------------------------------------ loop
@@ -656,8 +671,10 @@ class Game {
     if (!this.idle && this.running && p) {
       const vis = this.renderer.boats.get(p);
       const show = vis && ['deck', 'chase', 'helm'].includes(this.renderer.cam.mode) && this.renderer.cam.dist < 25;
+      // the panel is rebuilt now and then, so a 'pointerleave' can go missing: check the hovered row is still hovered
+      if (this.panelHoverEl && !(this.panelHoverEl.isConnected && this.panelHoverEl.matches(':hover'))) { this.panelHover = null; this.panelHoverEl = null; }
       const hid = (this.hoverGrab && this.hoverGrab.id) || this.panelHover || null;
-      if (this.panelHover && !this.hoverGrab) vis.rigging.highlight(this.panelHover);
+      vis.rigging.highlight(hid);
       this.renderer.updateGrabMarkers(show ? vis.rigging.grabs() : [], hid, GRAB_PX);
     }
     this.renderer.update(dt, this.t, { env: this.env, boats: this.boats, player: p });
@@ -723,7 +740,7 @@ class Game {
     else if (b.aground > 0.02) this.hud.alert(`Aground — ${this.world.depthAt(b.x, b.z).toFixed(1)} m of water`, true);
     else if (this.race && this.race.racers[0].ocs) this.hud.alert('OCS — dip back below the line', true);
     else if (Math.abs(b.phi) > C.targetHeel + 14 * 0.01745) this.hud.alert(b.sailBy.main.reefs ? 'Overpowered — ease, depower or reef' : 'Overpowered — ease the main');
-    else if (b.u < 0.3 && Math.abs(b.diag.twa || 0) < 35 * DEG) this.hud.alert(b.sailBy.jib ? 'In irons — ease the main, hold J to back the jib, reverse the tiller while going astern' : 'In irons — ease the main, push the boom out, reverse the tiller while going astern');
+    else if (b.u < 0.3 && Math.abs(b.diag.twa || 0) < 35 * DEG) this.hud.alert(b.sailBy.jib ? 'In irons — ease the main, let the jib sheet fly (F) and haul the lazy sheet (J) to back the jib, reverse the tiller while going astern' : 'In irons — ease the main, push the boom out (J / Shift+J), reverse the tiller while going astern');
     else this.hud.alert(null);
   }
 }

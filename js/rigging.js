@@ -199,7 +199,7 @@ class Rope {
     this.outline.visible = on;
     if (on) this.outline.material = level === 2 ? OUTLINE_MAT : FAINT_MAT;
     this.mat.emissive.setHex(level === 2 ? 0xff8a2a : this.mat.color.getHex());
-    this.mat.emissiveIntensity = level === 2 ? 0.8 : 0.18;
+    this.mat.emissiveIntensity = level === 2 ? 0.8 : 0.06;
   }
 }
 const OUTLINE_MAT = new THREE.ShaderMaterial({
@@ -335,6 +335,16 @@ export class Rigging {
       this.genSheets = [rope(0.006, 0xd9412b, 70), rope(0.006, 0xd9412b, 70)];
       this.tackLine = rope(0.004, 0xff7a1a, 20);
     }
+    // cabin-top winch: any control led aft through the clutches can be put on it and ground in
+    if (!C.noWinches && (C.id === 'blackwatch' || C.id === 'sportboat')) {
+      const x = C.id === 'blackwatch' ? C.mastX - 1.3 : C.mastX - 1.1, y = C.id === 'blackwatch' ? 0.36 : 0.42;
+      const w = makeWinch(bronze, 0.045); w.position.copy(V(x, y, vis.deckH(x, y))); inner.add(w);
+      w.userData.side = 0; this.cabinWinch = w; this.winches.push(w);
+      this.cabinLead = rope(0.0045, col.ctl, 40);
+      this.cabinLines = ['jibHalyard', 'cunn', 'outhaul', 'vang'].filter(k => k !== 'jibHalyard' || boat.sailBy.jib);
+      this.cabinLine = this.cabinLines[0];
+    }
+    this.handleOn = 'work'; // the one winch handle: on the working winch until you use another
     // blocks on the boom and at the mast base
     this.boomBlock = makeBlock(0.045); inner.add(this.boomBlock);
     this.mainsheet = [0, 1, 2, 3].map(() => rope(0.006, col.main, 16));
@@ -353,7 +363,7 @@ export class Rigging {
     this.lastLines = { ...boat.lines };
     if (this.player) {
       const hw2 = [this.car, ...(this.jibCars || []), ...this.winches, this.vis.rudderPivot].filter(Boolean);
-      for (const x of hw2) x.traverse(o => { if (o.material && o.material.emissive) { o.material = o.material.clone(); o.userData.e0 = o.material.emissiveIntensity; } });
+      for (const x of hw2) x.traverse(o => { if (o.material && o.material.emissive) { o.material = o.material.clone(); o.userData.e0 = o.material.emissiveIntensity; o.userData.e0c = o.material.emissive.getHex(); } });
     }
     this.hands = {}; // no hands: tails lead to cleats and lie coiled on deck
   }
@@ -504,6 +514,7 @@ export class Rigging {
         if (!jibOn) { this.jibSheets[k].hide(); continue; }
         this.jibSheets[k].freeEnd = !tailHand; this.jibSheets[k].tailRest = active ? 0.5 + (1 - b.lines.jib) * 2.2 : 0.9;
         if (active) this.jibSheets[k].set([clew, carP, wp, w.position.clone().add(_v.set(0, 0.2, 0)), tailEnd], [jl, jl, jl, tailHand ? jl * 0.1 : 2], g);
+        else if (b.lines.lazy < 0.6) { const ll = Math.max(20, jl * (b.backedByLazy ? 1 : 0.4)); this.jibSheets[k].set([clew, carP, wp, w.position.clone().add(_v.set(0, 0.2, 0)), tailEnd], [ll, ll, ll, 2], g); }
         else this.jibSheets[k].set([clew, V(C.mastX + 0.35, 0, vis.deckH(C.mastX + 0.35, 0) + 0.35), carP, wp, tailEnd], [6, 6, 20, 3], g, 0.2, t);
       }
     }
@@ -537,17 +548,42 @@ export class Rigging {
       this.staySheet[2].set([dk, V(C.mastX + 0.1, 0.08, vis.deckH(C.mastX + 0.1, 0.08) + 0.04), V(C.mastX - 1.1, 0.25, vis.deckH(C.mastX - 1.1, 0.25) + 0.04), this.hands.stay || V(C.mastX - 1.4, 0.3, vis.deckH(C.mastX - 1.4, 0.3) + 0.03)], [st, st, 3], g);
     }
     // --- winch drums turn with the line (trimming in turns them clockwise), handle on the working winch
+    const cs = Math.sign((b.genDeploy > 0.5 ? b.side.gennaker : b.side.jib)) || 1;
+    if (this.cabinWinch) this.updateCabinLead(g);
     for (const w of this.winches) {
-      const s = w.userData.side, active = s === (Math.sign((b.genDeploy > 0.5 ? b.side.gennaker : b.side.jib)) || 1);
-      const dLine = (this.lastLines.jib - b.lines.jib) * (b.genDeploy > 0.5 ? 3.0 : 1.4); // metres of sheet
-      if (active) { w.userData.angle -= dLine / 0.06; if (dLine > 0) w.userData.handleAngle -= dLine / 0.06 / 3.5; }
+      const s = w.userData.side, role = s === 0 ? 'cabin' : s === cs ? 'work' : 'lazy';
+      const dLine = role === 'work' ? (this.lastLines.jib - b.lines.jib) * (b.genDeploy > 0.5 ? 3.0 : 1.4)   // metres of sheet
+        : role === 'lazy' ? (this.lastLines.lazy - b.lines.lazy) * 1.4
+        : (b.ctrl[this.cabinLine] - (this.lastCabin ?? b.ctrl[this.cabinLine])) * 0.8;
+      w.userData.angle -= dLine / 0.06;
+      if (dLine > 0 && role === this.handleOn) w.userData.handleAngle -= dLine / 0.06 / (this.lowGear ? 1.2 : 3.5);
       w.userData.spin.rotation.y = w.userData.angle;
-      w.userData.handle.visible = active && !!b.sailBy.jib;
+      w.userData.handle.visible = role === this.handleOn && (role === 'cabin' || !!b.sailBy.jib);
       w.userData.handle.rotation.y = w.userData.handleAngle;
     }
     this.lastLines = { ...b.lines };
+    if (this.cabinWinch) this.lastCabin = b.ctrl[this.cabinLine];
     this.applyGlow();
   }
+
+  // the control on the cabin-top winch: from the mast base, along the deck, through its clutch, three turns on the drum, tail
+  updateCabinLead(g) {
+    const b = this.b, C = b.cls, vis = this.vis, w = this.cabinWinch, k = this.cabinLine;
+    const i = this.cabinLines.indexOf(k);
+    const cx0 = C.id === 'sportboat' ? C.mastX - 0.75 : C.mastX - 1.0;
+    const clutch = V(cx0 + 0.05, 0.12 + i * 0.05, vis.deckH(cx0, 0.18) + 0.035);
+    const base = V(C.mastX - 0.12, 0.08, vis.mastBase + 0.06);
+    const top = w.position.clone().add(_v.set(0, 0.12, 0));
+    const T = 30 + 900 * (b.ctrl[k] || 0);
+    this.cabinLead.freeEnd = true; this.cabinLead.tailRest = 0.4 + (b.ctrl[k] || 0) * 0.8;
+    this.cabinLead.set([base, clutch, top, top.clone().add(_w.set(0.3, -0.1, 0.25))], [T, T, 3], g);
+  }
+  cycleCabinLine() {
+    if (!this.cabinWinch) return null;
+    const L = this.cabinLines; this.cabinLine = L[(L.indexOf(this.cabinLine) + 1) % L.length];
+    this._hl = null; return this.cabinLine;
+  }
+  static lineName(k) { return { jibHalyard: 'jib halyard', cunn: 'cunningham', outhaul: 'outhaul', vang: 'vang' }[k] || k; }
 
   // world position of the working winch handle grip (for the grinder's hands)
   handleGrip(out = new THREE.Vector3()) {
@@ -568,6 +604,8 @@ export class Rigging {
       outhaul: [this.outhaul], backstay: this.backstayTackle || [], stay: this.staySheet || [], reef: this.reefLines || [],
       winch: b.genDeploy > 0.5 ? [this.genSheets?.[k]].filter(Boolean) : [this.jibSheets?.[k]].filter(Boolean),
       jibtail: b.genDeploy > 0.5 ? [this.genSheets?.[k]].filter(Boolean) : [this.jibSheets?.[k]].filter(Boolean),
+      lazyWinch: [this.jibSheets?.[1 - k]].filter(Boolean),
+      cwinch: this.cabinWinch ? [this.cabinLead, ...(this.cabinLine === 'jibHalyard' ? [this.halyards[2]] : this.cabinLine === 'cunn' ? [...this.cunn, this.cunnTail] : this.cabinLine === 'vang' ? [...this.vang, this.vangTail] : [this.outhaul])] : [],
       jibpull: [this.jibSheets?.[k]].filter(Boolean), jibLead: [this.jibSheets?.[k]].filter(Boolean), jibHalyard: [this.halyards[2]],
       gen: [this.halyards[1]], tackLine: [this.tackLine].filter(Boolean),
     };
@@ -588,12 +626,14 @@ export class Rigging {
   }
   highlight(id) {
     if (this._hl === id) return;
-    for (const x of this._hlObjs || []) x.traverse(o => { if (o.material && o.material.emissive) o.material.emissiveIntensity = o.userData.e0 ?? 0; });
+    for (const x of this._hlObjs || []) x.traverse(o => { if (o.material && o.material.emissive) { o.material.emissiveIntensity = o.userData.e0 ?? 0; if (o.userData.e0c !== undefined) o.material.emissive.setHex(o.userData.e0c); } });
     this._hl = id; this._hlObjs = [];
     this.applyGlow();
     if (!id) return;
-    const objs = id === 'trav' ? [this.car] : id === 'jibLead' ? this.jibCars : id === 'winch' ? this.winches : id === 'tiller' ? [this.vis.rudderPivot] : [];
-    for (const x of objs.filter(Boolean)) x.traverse(o => { if (o.material && o.material.emissive) { if (o.userData.e0 === undefined) { o.material = o.material.clone(); o.userData.e0 = o.material.emissiveIntensity; } o.material.emissive.setHex(0xff8a2a); o.material.emissiveIntensity = 0.9; } });
+    const cs = Math.sign((this.b.genDeploy > 0.5 ? this.b.side.gennaker : this.b.side.jib)) || 1;
+    const objs = id === 'trav' ? [this.car] : id === 'jibLead' ? this.jibCars : id === 'winch' ? this.winches.filter(w => w.userData.side === cs)
+      : id === 'lazyWinch' ? this.winches.filter(w => w.userData.side === -cs) : id === 'cwinch' ? [this.cabinWinch] : id === 'tiller' ? [this.vis.rudderPivot] : [];
+    for (const x of objs.filter(Boolean)) x.traverse(o => { if (o.material && o.material.emissive) { if (o.userData.e0 === undefined) { o.material = o.material.clone(); o.userData.e0 = o.material.emissiveIntensity; } if (o.userData.e0c === undefined) o.userData.e0c = o.material.emissive.getHex(); o.material.emissive.setHex(0xff8a2a); o.material.emissiveIntensity = 0.9; } });
     this._hlObjs = objs.filter(Boolean);
   }
 
@@ -618,14 +658,22 @@ export class Rigging {
       const w = this.winches.find(w => w.userData.side === side);
       const name = b.genDeploy > 0.5 ? 'Gennaker' : 'Jib';
       if (C.noWinches) list.push({ id: 'jibpull', label: `${name} sheet`, hint: 'pull up to trim, down to ease', kind: 'pull', key: 'jib', dir: -1, pos: toW(w.position.clone().add(_v.set(0, 0.05, 0))), info: () => `${Math.round(L.jibLoad || 0)} N` });
-      else list.push({ id: 'winch', label: `${name} winch`, hint: 'crank clockwise to trim', kind: 'crank', key: 'jib', pos: toW(w.position.clone().add(_v.set(0, 0.2, 0))), info: () => `${Math.round(L.jibLoad || 0)} N` });
+      else {
+        list.push({ id: 'winch', label: `${name} sheet winch`, hint: 'wind the handle round: clockwise fast gear, anticlockwise slow powerful gear', kind: 'crank', key: 'jib', trim: -1, role: 'work', pos: toW(w.position.clone().add(_v.set(0, 0.2, 0))), info: () => `${Math.round(L.jibLoad || 0)} N` });
+        const lw = this.winches.find(w => w.userData.side === -side);
+        if (S.jib && b.genDeploy < 0.5 && lw) list.push({ id: 'lazyWinch', label: 'Lazy jib sheet winch', hint: 'grind in to haul the clew across and back the jib; drag the tail down to ease', kind: 'crank', key: 'lazy', trim: -1, role: 'lazy', pos: toW(lw.position.clone().add(_v.set(0, 0.2, 0))), info: () => b.backedByLazy ? 'jib backed' : b.lines.lazy > 0.95 ? 'slack' : `${Math.round((1 - b.lines.lazy) * 100)}% in` });
+      }
       const tail = (b.genDeploy > 0.5 ? this.genSheets[(side + 1) / 2] : this.jibSheets[(side + 1) / 2]);
-      list.push({ id: 'jibtail', label: `${name} sheet tail`, hint: 'drag down to ease (let it surge round the drum)', kind: 'pull', key: 'jib', dir: -1, easeOnly: true, pos: toW(tail.pts[tail.maxPts - 6]), info: () => `${Math.round(L.jibLoad || 0)} N` });
+      list.push({ id: 'jibtail', label: `${name} sheet tail`, hint: 'drag down to ease, up to tail in by hand (light loads only); click to let it fly', kind: 'pull', key: 'jib', dir: -1, handTail: true, onClick: 'letFly', pos: toW(tail.pts[tail.maxPts - 6]), info: () => `${Math.round(L.jibLoad || 0)} N` });
       if (S.jib && b.genDeploy < 0.5) {
         const A = toW(V(hw.jibTrack[0], side * hw.jibTrackY, vis.deckH(hw.jibTrack[0], side * hw.jibTrackY))), B = toW(V(hw.jibTrack[1], side * hw.jibTrackY, vis.deckH(hw.jibTrack[1], side * hw.jibTrackY)));
         list.push({ id: 'jibLead', label: 'Jib car', hint: 'slide forward for a deeper foot, aft to open the leech', kind: 'track', key: 'jibLead', A, B, pos: toW(this.jibCars[(side + 1) / 2].position), info: () => `${Math.round(b.ctrl.jibLead * 100)}% aft` });
         list.push({ id: 'jibHalyard', label: 'Jib halyard', hint: 'pull to tension the luff', kind: 'pull', key: 'jibHalyard', dir: 1, pos: toW(this.halyards[2].pts[8]), info: () => `${Math.round(b.ctrl.jibHalyard * 100)}%` });
       }
+    }
+    if (this.cabinWinch) {
+      const cw = this.cabinWinch;
+      list.push({ id: 'cwinch', label: `Cabin-top winch — ${Rigging.lineName(this.cabinLine)}`, hint: 'wind the handle round to tension; click to take another line from the clutches', kind: 'crank', key: this.cabinLine, trim: 1, role: 'cabin', onClick: 'cycleCabin', pos: toW(cw.position.clone().add(_v.set(0, 0.16, 0))), info: () => `${Math.round((b.ctrl[this.cabinLine] || 0) * 100)}%` });
     }
     if (S.gennaker) {
       list.push({ id: 'gen', label: b.ctrl.gen ? 'Gennaker halyard — douse' : 'Gennaker halyard — hoist', hint: 'click', kind: 'click', action: 'gen', pos: toW(V(C.mastX - 0.1, -0.1, this.vis.mastBase + 0.3)), info: () => `${Math.round(b.genDeploy * 100)}% up` });

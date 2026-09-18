@@ -63,7 +63,7 @@ export const CLASSES = {
     gm: 0.92, bmForm: 0.62, Ixx: 1150, Izz: 2250, amX: 0.07, amY: 0.9, amYaw: 0.6, amRoll: 0.3,
     rr: [[0.1, 0.0002], [0.15, 0.0006], [0.2, 0.0016], [0.25, 0.0035], [0.3, 0.0072], [0.35, 0.0145], [0.4, 0.031],
          [0.45, 0.058], [0.5, 0.085], [0.55, 0.101], [0.6, 0.11], [0.7, 0.12], [0.8, 0.125], [1.0, 0.13], [1.5, 0.14]],
-    keel: { x: 1.0, z: -0.3, area: 1.7, ARe: 0.95, stall: 26 * DEG, cd0: 0.013, span: 0.35, chord: 3.6, long: true },
+    keel: { x: 0.42, z: -0.3, area: 1.7, ARe: 0.95, stall: 26 * DEG, cd0: 0.013, span: 0.35, chord: 3.6, long: true },
     rudder: { x: -2.78, z: -0.28, area: 0.34, ARe: 2.4, stall: 22 * DEG, cd0: 0.014, max: 35 * DEG, span: 0.75, chord: 0.5, transom: true, loadRef: 900 },
     hullLat: { area: 0.9, cd: 0.9, z: -0.1 },
     windage: { area: 3.1, z: 2.1, cd: 0.95 },
@@ -90,7 +90,7 @@ export const CLASSES = {
     gm: 1.05, bmForm: 0.65, Ixx: 1400, Izz: 3600, amX: 0.06, amY: 0.7, amYaw: 0.4, amRoll: 0.25,
     rr: [[0.1, 0.0001], [0.15, 0.0004], [0.2, 0.0009], [0.25, 0.0018], [0.3, 0.0035], [0.35, 0.0065], [0.4, 0.013],
          [0.45, 0.025], [0.5, 0.037], [0.55, 0.045], [0.6, 0.049], [0.7, 0.051], [0.8, 0.05], [1.0, 0.048], [1.2, 0.049], [1.5, 0.055]],
-    keel: { x: 0.65, z: -0.85, area: 0.58, ARe: 5.0, stall: 14 * DEG, cd0: 0.009, span: 1.17, chord: 0.5 },
+    keel: { x: 0.25, z: -0.85, area: 0.58, ARe: 5.0, stall: 14 * DEG, cd0: 0.009, span: 1.17, chord: 0.5 },
     rudder: { x: -3.05, z: -0.45, area: 0.23, ARe: 3.6, stall: 15 * DEG, cd0: 0.01, max: 32 * DEG, span: 0.95, chord: 0.26, loadRef: 700 },
     hullLat: { area: 1.5, cd: 0.9, z: -0.1 },
     windage: { area: 2.8, z: 2.4, cd: 0.9 },
@@ -139,7 +139,7 @@ export const CLASSES = {
     massHull: 160, zG: 0.42, crewN: 2, crewEach: 72, crewZ: 0.5, crewMaxOut: 2.0, crewLee: -0.4, hikeRate: 1.0,
     gm: 3, bmForm: 1, Ixx: 560, Izz: 520, amX: 0.04, amY: 0.35, amYaw: 0.4, amRoll: 0.4,
     rr: [[0.1, 0.0004], [0.2, 0.002], [0.3, 0.0055], [0.35, 0.009], [0.4, 0.0135], [0.45, 0.018], [0.5, 0.021], [0.6, 0.0225], [0.7, 0.022], [0.8, 0.021], [1.0, 0.0195], [1.2, 0.019], [1.5, 0.02]],
-    keel: { x: 0.5, z: -0.5, area: 0.36, ARe: 4.5, stall: 13 * DEG, cd0: 0.011, span: 0.75, chord: 0.26, board: true, twin: true },
+    keel: { x: 0.3, z: -0.5, area: 0.36, ARe: 4.5, stall: 13 * DEG, cd0: 0.011, span: 0.75, chord: 0.26, board: true, twin: true },
     rudder: { x: -2.4, z: -0.3, area: 0.18, ARe: 3.5, stall: 16 * DEG, cd0: 0.012, max: 30 * DEG, span: 0.6, chord: 0.2, loadRef: 250, twin: true },
     hullLat: { area: 0.6, cd: 0.9, z: -0.08 },
     windage: { area: 2.1, z: 1.1, cd: 1.0 },
@@ -157,6 +157,11 @@ export const CLASSES = {
     hull: { color: 0xf5f5f2, stripe: 0xd9412b, deck: 0xe8e8e4, boot: 0xd9412b, bootTop: 0xf5f5f2, sectionN: 2, transom: 0.35, bowRake: 0.05, sheer: 0.1 },
   },
 };
+// headsails are set on stays that run from the tack up to the mast: the head sits at the mast, so the
+// luff's rake is the horizontal distance from the tack to the mast (a free-flying gennaker keeps its own)
+for (const C of Object.values(CLASSES)) for (const s of C.sails) {
+  if (s.kind === 'loose' || (s.kind === 'boom' && s.key !== 'main')) s.rake = s.tackX - (C.mastX + 0.07);
+}
 export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat'];
 
 export const STRIP_F = [0.17, 0.5, 0.82];
@@ -233,7 +238,8 @@ export function defaultControls() {
     crewAft: 0,         // -1 forward .. 1 aft
     hike: 0,            // -1 (sit to leeward) .. 1 (full hike)
     gen: false,
-    backJib: 0,         // crew holding the jib clew to one side (-1 port / +1 starboard) to back it
+    lazy: 1,            // the other jib sheet (on the windward winch): 1 = slack; hauled in, it drags the clew across (backs the jib)
+    pushBoom: 0,        // una-rig: the sailor's hand pushing the boom out (-1 port / +1 starboard) to sail out of irons
   };
 }
 
@@ -283,7 +289,8 @@ export class Boat {
     this.side = { jib: 1, gennaker: 1 };
     this.genDeploy = 0; this.genFill = 0;
     this.rudder = 0; this.crewY = 0; this.crewX = 0;
-    this.lines = { main: this.ctrl.main, jib: this.ctrl.jib, stay: this.ctrl.stay };
+    this.lines = { main: this.ctrl.main, jib: this.ctrl.jib, stay: this.ctrl.stay, lazy: this.ctrl.lazy };
+    this.backedByLazy = false;
     this.heave = 0; this.heaveV = 0; this.pitch = 0; this.pitchV = 0;
     this.capsized = false; this.capsizeT = 0; this.righting = false;
     this.aground = 0;
@@ -397,9 +404,9 @@ export class Boat {
     d.awaMid = awaMid; d.qMid = qMid;
 
     // ---- running rigging: lines move at crew/winch speed, slower under load ----
-    for (const k of ['main', 'jib', 'stay']) {
-      const target = ctrl[k] ?? 0.3;
-      const load = (d.rig[k + 'Load'] || 0) / C.sheetPower;
+    for (const k of ['main', 'jib', 'stay', 'lazy']) {
+      const target = ctrl[k] ?? (k === 'lazy' ? 1 : 0.3);
+      const load = (d.rig[(k === 'lazy' ? 'lazy' : k) + 'Load'] || 0) / C.sheetPower;
       const rate = target > this.lines[k] ? 0.7 : 0.45 / (1 + load * load);
       this.lines[k] = clamp(this.lines[k] + clamp(target - this.lines[k], -rate * dt, rate * dt), 0, 1);
     }
@@ -414,20 +421,36 @@ export class Boat {
     const genWant = !!(ctrl.gen && genDef);
     this.genDeploy = clamp(this.genDeploy + (genWant ? 0.22 : -0.3) * dt, 0, 1);
 
-    // loose headsail sides (crew moves the clew across; hysteresis when running goose-winged)
+    // loose headsail sides. The jib has two sheets: the working sheet holds the clew on its side
+    // until it is let go; the lazy sheet, hauled in on the other winch, drags the clew across (backing
+    // the jib). When the clew crosses, the sheets swap roles — nothing is transferred by magic.
     const flipRate = 0.9 * clamp(Math.sqrt(qMid) / 2.5, 0.25, 1.6);
     for (const k of ['jib', 'gennaker']) {
-      const cs = this.side[k];
+      const cs = this.side[k], cur = Math.sign(cs) || 1;
       let want = -Math.sign(awaMid) || cs;
-      // tacking: the crew holds the jib aback until the bow is clearly through the wind, then lets
-      // it go — heavy long-keelers need it held longer to push the bow round
-      const hold = (k === 'jib' ? (C.id === 'blackwatch' ? 20 : 7) : 4) * DEG;
-      if (Math.sign(want) !== Math.sign(cs) && Math.abs(awaMid) < hold) want = Math.sign(cs) || want;
-      if (k === 'jib' && ctrl.backJib) want = ctrl.backJib; // crew holds the clew to windward
-      else if (Math.sign(want) !== Math.sign(cs) && Math.abs(awaMid) > (k === 'jib' ? 160 : 176) * DEG) want = Math.sign(cs) || want;
+      if (k === 'jib') {
+        const held = this.lines.jib < 0.7;                       // made fast on the winch: the clew stays put
+        if (want !== cur && held) want = cur;
+        if (this.lines.lazy < 0.45 && this.lines.lazy < this.lines.jib - 0.2) want = -cur; // hauled across
+        else if (want !== cur && Math.abs(awaMid) > 160 * DEG) want = cur; // running: the clew does not cross by itself
+      } else {
+        const hold = 4 * DEG;
+        if (want !== cur && Math.abs(awaMid) < hold) want = cur;
+        else if (want !== cur && Math.abs(awaMid) > 176 * DEG) want = cur;
+      }
       const rt = flipRate * dt * (k === 'jib' ? 2 : 1.2) * (C.id === 'blackwatch' ? 0.7 : 1);
       this.side[k] = clamp(cs + clamp(want - cs, -rt, rt), -1, 1);
+      if (k === 'jib' && Math.sign(this.side.jib) !== cur && this.side.jib !== 0) {
+        // the clew crossed: the sheet on the new side is now the working sheet
+        const byLazy = this.lines.lazy < this.lines.jib;
+        [ctrl.jib, ctrl.lazy] = [ctrl.lazy, ctrl.jib];
+        [this.lines.jib, this.lines.lazy] = [this.lines.lazy, this.lines.jib];
+        this.backedByLazy = byLazy && -Math.sign(awaMid) !== Math.sign(this.side.jib);
+      }
     }
+    // a backed jib that the boat has turned into filling normally is simply the working jib again
+    if (this.backedByLazy && -Math.sign(awaMid) === Math.sign(this.side.jib) && Math.abs(awaMid) > 25 * DEG) this.backedByLazy = false;
+    d.rig.lazyLoad = this.lines.lazy < 0.5 && this.backedByLazy ? (d.rig.jibLoad || 0) * 0.2 : 0;
 
     // ---- reefing procedure: ease halyard -> tack down + reef line -> re-tension halyard ----
     {
@@ -560,7 +583,7 @@ export class Boat {
         const inert = -s.Iboom * (this._rdot || 0);
         const damp = aeroOn ? 2.5 : 8;
         // una-rig in irons: the sailor pushes the boom out against the wind to sail backwards and turn
-        const push = (ctrl.backJib && !this.sailBy.jib && key === 'main') ? (ctrl.backJib * 0.8 - b.a) * s.Iboom * 20 : 0;
+        const push = (ctrl.pushBoom && !this.sailBy.jib && key === 'main') ? (ctrl.pushBoom * 0.8 - b.a) * s.Iboom * 20 : 0;
         const acc = (boomTorque + grav + inert + push - damp * b.rate) / s.Iboom;
         b.rate += acc * dt; b.a += b.rate * dt;
         let sheetLoad = 0;
@@ -854,6 +877,15 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
   }
   // slow and pinching (mid-tack or stalled head to wind): ease the main so the bow can fall off
   const pinched = awa < 32 * DEG && boat.u < 1.3;
+  // tacking: keep the old jib sheet made fast until the bow is through the wind (a long-keeler needs the
+  // backed jib to push the bow round), then let it fly; the new sheet is tailed in below
+  let letFly = false;
+  if (boat.sailBy.jib && boat.genDeploy < 0.5 && !boat.backedByLazy) {
+    const js = Math.sign(boat.side.jib) || 1, wantSide = -Math.sign(d.awaMid ?? 0) || js;
+    const hold = (C.id === 'blackwatch' ? 20 : 7) * DEG;
+    if (wantSide !== js && awa > hold && awa < 160 * DEG) letFly = true;
+  }
+  if (!boat.backedByLazy) c.lazy = 1;
   const sh = d.shape;
   for (const s of C.sails) {
     if (s.kind === 'spin' && boat.genDeploy < 0.5) continue;
@@ -874,6 +906,8 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
       c.main = lerp(c.main, clamp((want - travAng) / (s.max - s.trav[1]), pinched ? 0.35 : 0, 1), k * 2);
     } else {
       const key = s.kind === 'boom' ? s.key : 'jib';
+      if (key === 'jib' && s.kind === 'loose' && letFly) { c.jib = 1; continue; }
+      if (key === 'jib' && s.kind === 'loose' && boat.backedByLazy) continue; // hove-to on purpose: leave it
       c[key] = lerp(c[key] ?? 0.3, clamp((want - s.min) / (s.max - s.min), 0, 1), k * 2);
     }
   }

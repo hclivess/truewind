@@ -13,7 +13,7 @@ import { Boat, CLASSES, wrap, lerp, clamp } from './physics.js';
 
 const TRYSTERO = 'https://cdn.jsdelivr.net/npm/trystero@0.25.4/+esm';
 const APP_ID = 'truewind-sailing-sim-v1';
-const CTRL_KEYS = ['helm', 'main', 'jib', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibLead', 'jibHalyard', 'tackLine', 'board', 'reef', 'crewAft', 'backJib'];
+const CTRL_KEYS = ['helm', 'main', 'jib', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibLead', 'jibHalyard', 'tackLine', 'board', 'reef', 'crewAft', 'lazy', 'pushBoom'];
 
 export class Net {
   constructor(game) {
