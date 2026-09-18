@@ -194,3 +194,5 @@ body.online .online-only { display: block; }
 .sl2 { display: flex; justify-content: space-between; align-items: center; font: 500 12px var(--cond); color: var(--muted); padding: 1px 0; }
 .wseg { margin-top: 10px; }
 .wseg .seg-b { font-size: 13px; padding: 7px; }
+.tseg { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+.tseg .seg-b { font-size: 12px; padding: 6px 8px; flex: 1 1 22%; }

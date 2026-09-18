@@ -10,6 +10,7 @@ import { Audio } from './audio.js';
 import { Net } from './net.js';
 import { Vector3 as THREE_V } from 'three';
 import { Rigging } from './rigging.js';
+import { sunPosition } from './sky.js';
 
 const $ = (s) => document.querySelector(s);
 const PHYS_DT = 1 / 120;
@@ -29,7 +30,7 @@ class Game {
     this.keys = new Set();
     this.settings = {
       cls: 'blackwatch', venue: 'progreso', mode: 'free', tws: 14, twd: 70, gust: 0.5, shift: 7, swell: 0, current: 0.4,
-      fleet: 5, countdown: 120, laps: 1, weather: 'changing', autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true,
+      fleet: 5, countdown: 120, laps: 1, weather: 'changing', tod: 'afternoon', autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true,
     };
     this.venueTouched = false;
     this.running = false; this.paused = false;
@@ -67,6 +68,7 @@ class Game {
     vl.querySelectorAll('.card').forEach(c => c.addEventListener('click', () => { this.venueTouched = true; this.pickVenue(c.dataset.v, true); }));
     document.querySelectorAll('.seg-b[data-mode]').forEach(b => b.addEventListener('click', () => { this.settings.mode = b.dataset.mode; this.refreshMenu(); }));
     document.querySelectorAll('.seg-b[data-weather]').forEach(b => b.addEventListener('click', () => { this.settings.weather = b.dataset.weather; this.refreshMenu(); }));
+    document.querySelectorAll('.seg-b[data-tod]').forEach(b => b.addEventListener('click', () => { this.settings.tod = b.dataset.tod; this.refreshMenu(); if (this.idle) this.clockBase = this.clockFor(); }));
     const sliders = { tws: v => `${v} kn`, twd: v => `${String(v).padStart(3, '0')}°`, gust: v => `${Math.round(v * 100)}%`, shift: v => `±${v}°`, swell: v => v > 0 ? `${v} m` : 'none', current: v => v > 0 ? `${v} kn` : 'none', fleet: v => `${v}`, countdown: v => `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`, laps: v => `${v}` };
     for (const k in sliders) {
       const el = $('#' + k);
@@ -99,6 +101,7 @@ class Game {
     document.querySelectorAll('#venue-list .card').forEach(c => c.classList.toggle('on', c.dataset.v === this.settings.venue));
     document.querySelectorAll('.seg-b[data-mode]').forEach(b => { const on = b.dataset.mode === this.settings.mode; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
     document.querySelectorAll('.seg-b[data-weather]').forEach(b => { const on = b.dataset.weather === this.settings.weather; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
+    document.querySelectorAll('.seg-b[data-tod]').forEach(b => { const on = b.dataset.tod === this.settings.tod; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
     document.body.classList.toggle('racing', this.settings.mode === 'race');
     document.body.classList.toggle('online', this.settings.mode === 'online');
   }
@@ -130,6 +133,28 @@ class Game {
       st.textContent = `Loaded ${geo.coast.length} coastline pieces, ${geo.water.length} water areas. Press Cast off.`;
       this.refreshMenu();
     } catch (e) { st.textContent = 'Could not reach OpenStreetMap (offline or blocked). Try a built-in venue.'; }
+  }
+  // where on Earth we are (for the sun and moon); open water is somewhere in the North Atlantic
+  skyPlace() { const v = this.currentVenueDef(); return !v || v.open ? { lat: 32, lon: -40 } : { lat: v.lat, lon: v.lon }; }
+  // UTC time for the chosen time of day, today, in local solar time at the venue (Live = now)
+  clockFor() {
+    const tod = this.settings.tod || 'afternoon';
+    if (tod === 'live' || this.settings.mode === 'online') return Date.now();
+    const { lat, lon } = this.skyPlace(), now = new Date();
+    const day = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const at = (h) => day + (h - lon / 15) * 3600e3;
+    const fixed = { morning: 9, noon: 12.3, afternoon: 15.5, night: 23 };
+    if (fixed[tod] !== undefined) return at(fixed[tod]);
+    // events by the sun's elevation: dawn (rising through -4 deg), golden hour (+7 deg), dusk (-2.5 deg)
+    const [h0, h1, target] = tod === 'dawn' ? [2, 12, -4] : tod === 'golden' ? [12, 22, 7] : [12, 23.5, -2.5];
+    const rising = tod === 'dawn';
+    let prev = sunPosition(at(h0), lat, lon).el / DEG;
+    for (let h = h0 + 1 / 60; h <= h1; h += 1 / 60) {
+      const e = sunPosition(at(h), lat, lon).el / DEG;
+      if (rising ? prev < target && e >= target : prev > target && e <= target) return at(h);
+      prev = e;
+    }
+    return at(rising ? 6 : 18.5);
   }
   currentVenueDef() { return this.settings.venue === 'custom' ? this.customV : VENUES.find(v => v.id === this.settings.venue); }
 
@@ -233,6 +258,7 @@ class Game {
     this.renderer.cam.yaw = idle ? 0 : 200 * DEG; this.renderer.cam.pitch = 14 * DEG; this.renderer.cam.dist = idle ? 26 : cls.id === 'dinghy' ? 8 : 12;
     this.t = 0; this.acc = 0; this.timeWarp = 1;
     this.idle = idle;
+    this.clockBase = this.clockFor();
     this.sharedRace = null;
     if (this.net.connected) this.net.disconnect();
     this.netEpoch = null;
@@ -677,6 +703,7 @@ class Game {
       vis.rigging.highlight(hid);
       this.renderer.updateGrabMarkers(show ? vis.rigging.grabs() : [], hid, GRAB_PX);
     }
+    { const pl = this.skyPlace(); this.renderer.setClock(this.netEpoch !== null ? Date.now() : (this.clockBase ?? Date.now()) + this.t * 1000, pl.lat, pl.lon); }
     this.renderer.update(dt, this.t, { env: this.env, boats: this.boats, player: p });
     if (!this.idle && this.running) {
       const r0 = this.race && this.race.racers[0];

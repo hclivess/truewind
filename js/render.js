@@ -7,21 +7,9 @@ import { buildBoatModel, updateBoatModel } from './models.js';
 import { Rigging, tickGlow } from './rigging.js';
 import { buildStructures, indexFeatures, structureMask } from './structures.js';
 import { HullSplash } from './splash.js';
+import { SkySystem, SKY_LUT_GLSL, CLOUD_GLSL } from './sky.js';
 
 const MAXW = 20;
-const SKY_GLSL = /* glsl */`
-uniform vec3 uSunDir;
-uniform float uOvercast;
-vec3 skyColor(vec3 d) {
-  float h = max(d.y, 0.0);
-  vec3 zenith = mix(vec3(0.16, 0.36, 0.66), vec3(0.36, 0.40, 0.45), uOvercast);
-  vec3 horizon = mix(vec3(0.70, 0.80, 0.88), vec3(0.58, 0.62, 0.66), uOvercast);
-  vec3 c = mix(horizon, zenith, pow(h, 0.45));
-  float s = max(dot(d, uSunDir), 0.0);
-  c += vec3(1.0, 0.85, 0.6) * (pow(s, 8.0) * 0.25 + pow(s, 64.0) * 0.5) * (1.0 - 0.85 * uOvercast);
-  if (d.y < 0.0) c = mix(horizon, vec3(0.35, 0.45, 0.5) * (1.0 - 0.3 * uOvercast), clamp(-d.y * 4.0, 0.0, 1.0));
-  return c;
-}`;
 
 // Gerstner components (same data as the physics): Wa = (dx, dz, k_deep, omega_doppler), Wb = (A, Q, phase, omega)
 // Depth from the chart texture (G channel, metres*8): finite-depth wavenumber, shoaling, breaking cap;
@@ -71,7 +59,10 @@ export class Renderer {
     r.shadowMap.type = THREE.PCFSoftShadowMap;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.05, 30000); // human-like field of view
-    this.sunDir = new THREE.Vector3().setFromSphericalCoords(1, (90 - 38) * DEG, 200 * DEG).normalize();
+    this.overcastU = { value: 0 };
+    this.skySys = new SkySystem(r, this.scene, { low: this.low, overcastU: this.overcastU });
+    this.skySys.setTime(Date.UTC(2026, 8, 18, 21, 30), 21.3, -89.67);
+    this.sunDir = this.skySys.sunDir;
     this.scene.fog = new THREE.FogExp2(0xb7c8d4, 0.00011);
     const hemi = new THREE.HemisphereLight(0xcfe3f5, 0x3a5566, 0.9);
     this.scene.add(hemi);
@@ -86,9 +77,7 @@ export class Renderer {
     this.markMeshes = [];
     this.forceArrows = null;
     this.showForces = false;
-    this.overcastU = { value: 0 };
     this.hemi = hemi;
-    this._buildSky();
     this._buildWater();
     this._buildRain();
     this.cloudMeshes = [];
@@ -97,42 +86,8 @@ export class Renderer {
 
   resize(w, h) {
     this.r.setSize(w, h, false);
+    this.skySys.resize(w, h, this.r.getPixelRatio());
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
-  }
-
-  // ---------------------------------------------------------------- sky
-  _buildSky() {
-    const g = new THREE.SphereGeometry(20000, 32, 16);
-    const m = new THREE.ShaderMaterial({
-      side: THREE.BackSide, depthWrite: false, fog: false,
-      uniforms: { uSunDir: { value: this.sunDir }, uOvercast: this.overcastU, uCloudOff: { value: new THREE.Vector2() }, uCover: { value: 0.2 } },
-      vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); vec4 p = modelViewMatrix*vec4(position,1.0); gl_Position = projectionMatrix*p; gl_Position.z = gl_Position.w; }`,
-      fragmentShader: `varying vec3 vDir; uniform vec2 uCloudOff; uniform float uCover; ${SKY_GLSL}
-        float h2(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
-        float n2(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-          return mix(mix(h2(i), h2(i + vec2(1, 0)), u.x), mix(h2(i + vec2(0, 1)), h2(i + vec2(1, 1)), u.x), u.y); }
-        float fbm(vec2 p){ float a = 0.5, s = 0.0; mat2 r = mat2(0.8, -0.6, 0.6, 0.8); for (int i = 0; i < 6; i++) { s += a * n2(p); p = r * p * 2.03 + 11.7; a *= 0.5; } return s; }
-        void main(){ vec3 d = normalize(vDir); vec3 c = skyColor(d);
-          float s = max(dot(d, uSunDir), 0.0); c += vec3(1.0,0.95,0.85) * smoothstep(0.9993, 0.9997, s) * 4.0 * (1.0 - uCover);
-          if (d.y > 0.0) {
-            // intersect a cloud deck ~1500 m up; cumulus shapes from fbm, thicker with the weather
-            vec2 p = d.xz / max(d.y, 0.02) * 1.5 + uCloudOff;
-            float base = fbm(p * 0.9);
-            float dens = smoothstep(0.62 - 0.35 * uCover, 0.85 - 0.25 * uCover, base + 0.15 * fbm(p * 3.1));
-            float thick = smoothstep(0.55, 0.95, base);
-            // lighting: sunlit tops toward the sun, grey bases, silver lining on thin edges
-            float toward = pow(s, 6.0);
-            vec3 lit = mix(vec3(0.62, 0.66, 0.72), vec3(1.0, 0.98, 0.95), clamp(1.0 - thick * 0.8, 0.0, 1.0));
-            lit = mix(lit, vec3(0.45, 0.48, 0.53), uCover * 0.6);
-            lit += vec3(1.0, 0.9, 0.75) * toward * (1.0 - dens) * 0.6;
-            float fade = smoothstep(0.0, 0.12, d.y);
-            c = mix(c, lit, dens * fade * 0.95);
-          }
-          gl_FragColor = vec4(c, 1.0); }`,
-    });
-    this.sky = new THREE.Mesh(g, m);
-    this.sky.frustumCulled = false;
-    this.scene.add(this.sky);
   }
 
   // ---------------------------------------------------------------- water
@@ -169,7 +124,10 @@ export class Renderer {
       uHullA: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uHullB: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uHullN: { value: 0 },
       uDeep: { value: new THREE.Color(0x0a2f40) }, uShallow: { value: new THREE.Color(0x2e9c9a) },
       fogColor: { value: new THREE.Color(0xb7c8d4) }, fogDensity: { value: 0.00011 },
+      uEnv: { value: this.skySys.cubeRT.texture }, uAmbF: { value: 1 }, uLightDir: { value: this.skySys.lightV },
     };
+    // the sky's shared uniforms (table, clouds, sun colour) are the same objects
+    for (const k of ['uSkyLUT', 'uLutDir', 'uNoise', 'uWeather', 'uWOff', 'uCover', 'uCloudBase', 'uCloudThick', 'uCloudTime', 'uCells', 'uSunCol']) uniforms[k] = this.skySys.U[k];
     this.waterU = uniforms;
     const m = new THREE.ShaderMaterial({
       uniforms, fog: false,
@@ -205,7 +163,9 @@ export class Renderer {
         }`,
       fragmentShader: /* glsl */`
         ${WAVE_GLSL}
-        ${SKY_GLSL}
+        ${SKY_LUT_GLSL}
+        ${CLOUD_GLSL}
+        uniform vec3 uSunDir; uniform vec3 uSunCol; uniform samplerCube uEnv; uniform float uAmbF; uniform vec3 uLightDir;
         uniform vec3 uCam; uniform sampler2D uGust; uniform vec2 uGustO; uniform float uGustS;
         uniform vec4 uHullA[4]; uniform vec4 uHullB[4]; uniform int uHullN;   // A = (x, z, sinψ, cosψ), B = (halfL, halfB, xOff, n)
         uniform vec2 uFlow; uniform float uWind; uniform float uFoamK;
@@ -221,12 +181,22 @@ export class Renderer {
           vec2 x0 = vX0;
           float dist = length(vPos - uCam);
           float hd = depthAt(x0);
+          // the pixel's footprint on the water (long at grazing angles): waves shorter than a few footprints
+          // cannot be drawn as normals — they alias into moire — so they are filtered out and their slope
+          // becomes roughness (a glossier reflection and a wider sun glitter), as a real sea does at a distance
+          vec3 V0 = normalize(uCam - vPos);
+          float fp = dist * 0.0022 / max(abs(V0.y), 0.06);
+          float lost = 0.0;
           // analytic Gerstner normal + Jacobian (crest sharpness) for whitecaps
           vec3 n = vec3(0.0, 1.0, 0.0); float J = 1.0;
           for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break;
             vec4 a = uWa[i]; vec4 b = uWb[i];
             float th = a.z * dot(a.xy, x0) + phaseOff(i, x0) - a.w * uTime + b.z;
-            float WA = kDepth(b.w, hd) * b.x * shoal(b.w, hd) * vFade * vShore;
+            float kw = kDepth(b.w, hd);
+            float WA0 = kw * b.x * shoal(b.w, hd) * vFade * vShore;
+            float att = smoothstep(fp * 2.0, fp * 6.0, 6.2832 / kw);
+            lost += (1.0 - att) * WA0 * WA0 * 0.5;
+            float WA = WA0 * att;
             n.x -= a.x * WA * cos(th); n.z -= a.y * WA * cos(th); n.y -= b.y * WA * sin(th);
             J -= b.y * WA * sin(th);
           }
@@ -235,7 +205,7 @@ export class Renderer {
           float gw = texture2D(uGust, guv).r * 2.0;
           float lw = uWind * gw;
           float rip = clamp((lw - 1.0) / 7.0, 0.0, 1.4);
-          float mip = 1.0 - smoothstep(15.0, 260.0, dist);
+          float mip = 1.0;
           vec2 fl = uFlow, pr = vec2(-fl.y, fl.x);
           vec2 rn = vec2(0.0);
           for (int k = 0; k < 6; k++) {
@@ -245,7 +215,9 @@ export class Renderer {
             float wl = 0.45 + fk * 0.55;
             float kk = 6.2832 / wl, om = sqrt(9.81 * kk + 0.074 * kk * kk * kk / 1025.0);
             float ph = kk * dot(d, x0) - om * uTime + hash(vec2(fk, 7.7)) * 6.28;
-            rn += d * cos(ph) * (0.085 / (1.0 + fk * 0.35));
+            float amp = 0.085 / (1.0 + fk * 0.35) * rip, att = smoothstep(fp * 2.0, fp * 6.0, wl);
+            lost += (1.0 - att) * amp * amp * 0.5;
+            rn += d * cos(ph) * amp * att / max(rip, 1e-3);
           }
           vec3 nWave = normalize(n);                     // the wave surface alone (smooth)
           n.xz += rn * rip * mip;
@@ -254,13 +226,17 @@ export class Renderer {
           float cosT = max(dot(n, V), 0.0);
           float F = 0.02 + 0.98 * pow(1.0 - cosT, 5.0);
           vec3 R = reflect(-V, n); R.y = abs(R.y);
-          vec3 refl = skyColor(R);
+          // sky and clouds; many ripple facets share a pixel at distance, so the reflection is a glossy average
+          float sig = sqrt(lost);                                   // rms slope of the filtered-out waves
+          float gloss = clamp(log2(1.0 + sig * 90.0), 0.0, 6.0);
+          vec3 refl = texture(uEnv, R, gloss).rgb;
+          float shadow = cloudShadow(vec3(x0.x, 0.0, x0.y), uLightDir);
           // sun glitter: many small sharp sparkles rather than broad white patches
           // sun highlight from the smooth wave surface, softened by the ripples (no aliased glitter blocks)
           vec3 Rs = reflect(-V, normalize(mix(nWave, n, 0.2)));
-          float rough = clamp(rip, 0.0, 1.0);
-          float shin = mix(600.0, 90.0, rough);
-          float spec = pow(max(dot(Rs, uSunDir), 0.0), shin) * (shin * 0.004 + 0.3) * (1.0 - 0.9 * uOvercast);
+          float rough = clamp(rip * 0.6 + sig * 6.0, 0.0, 1.0);
+          float shin = mix(600.0, 40.0, rough);
+          float spec = pow(max(dot(Rs, uLightDir), 0.0), shin) * (shin * 0.004 + 0.3) * (1.0 - 0.9 * uOvercast) * shadow;
           // water body colour: shallow sand shows through on real bathymetry
           float depth = 30.0;
           float sd = 999.0;
@@ -268,10 +244,10 @@ export class Renderer {
             vec4 s = texture2D(uSdf, (x0 + uWorldR) / (2.0 * uWorldR));
             sd = s.r * 255.0 - 128.0; depth = s.g * 255.0 / 8.0;
           }
-          vec3 body = mix(uShallow, uDeep, smoothstep(0.5, 9.0, depth)) * (1.0 - 0.35 * uOvercast);
+          vec3 body = mix(uShallow, uDeep, smoothstep(0.5, 9.0, depth)) * (1.0 - 0.35 * uOvercast) * uAmbF * (0.75 + 0.25 * shadow);
           body *= 0.85 + 0.3 * clamp(vPos.y * 1.5 + 0.3, 0.0, 1.0);          // light through crests
           body *= 1.0 - 0.18 * clamp(gw - 1.0, 0.0, 1.0);                      // puffs look darker
-          vec3 col = mix(body, refl, F) + vec3(1.0, 0.92, 0.8) * spec * 0.9;
+          vec3 col = mix(body, refl, F) + uSunCol * spec * 1.4;
           // whitecaps where the trochoid crest folds (only in real breeze)
           // whitecaps: foam where crests fold (Jacobian), streaked downwind, feathered — no grid artefacts
           vec2 sw = vec2(dot(x0, uFlow), dot(x0, vec2(-uFlow.y, uFlow.x)));
@@ -280,11 +256,11 @@ export class Renderer {
           float crest = smoothstep(0.7, 0.3, J) * uFoamK + vBreak * 0.9;
           float cov = clamp(crest, 0.0, 0.95);
           float cap = smoothstep(1.0 - cov, 1.25 - cov, f1 * 0.7 + f2 * 0.3) * vFade;
-          col = mix(col, vec3(0.9, 0.94, 0.96), clamp(cap, 0.0, 0.85) * (0.6 + 0.4 * f2));
+          col = mix(col, vec3(0.9, 0.94, 0.96) * uAmbF * (0.8 + 0.2 * shadow), clamp(cap, 0.0, 0.85) * (0.6 + 0.4 * f2));
           // shoreline surf
           if (uHasMap > 0.5) {
             float band = smoothstep(9.0, 0.0, sd) * (0.55 + 0.45 * sin(sd * 1.2 - uTime * 1.6 + vnoise(x0 * 0.1) * 6.0));
-            col = mix(col, vec3(0.92, 0.95, 0.96), clamp(band * 0.8, 0.0, 0.85));
+            col = mix(col, vec3(0.92, 0.95, 0.96) * uAmbF, clamp(band * 0.8, 0.0, 0.85));
           }
           float fogF = 1.0 - exp(-pow(fogDensity * dist, 2.0));
           col = mix(col, skyColor(normalize(vec3(-V.x, 0.02, -V.z))), clamp(fogF, 0.0, 1.0));
@@ -342,13 +318,11 @@ export class Renderer {
     const W = env.weather; if (!W) return;
     const sky = W.sky(cam.x, cam.z, t, this._sky || (this._sky = {}));
     const oc = sky.overcast;
-    // clouds drift with the gradient wind and thicken with the weather
-    const mw = env.wind.mean(t), su = this.sky.material.uniforms;
-    su.uCloudOff.value.set(-Math.sin(mw.dir) * mw.speed * t / 1500, Math.cos(mw.dir) * mw.speed * t / 1500);
-    su.uCover.value += (Math.min(1, 0.25 + 0.9 * oc) - su.uCover.value) * 0.05;
+    // clouds drift with the wind aloft and thicken with the weather; squall cells tower
+    const mw = env.wind.mean(t);
     this.overcastU.value += (oc - this.overcastU.value) * 0.05;
-    const o = this.overcastU.value;
-    this.sun.intensity = 2.4 * (1 - 0.75 * o); this.hemi.intensity = 0.9 * (1 - 0.3 * o);
+    const drift = (this._drift || (this._drift = new THREE.Vector2())).set(Math.sin(mw.dir) * mw.speed * 1.3 * t, -Math.cos(mw.dir) * mw.speed * 1.3 * t);
+    this.skySys.setWeather(Math.min(1, 0.22 + 0.95 * oc), W.activeCells ? W.activeCells(t) : [], drift, t, mw.speed / 0.5144);
     this.scene.fog.density = 0.00011 + 0.0012 * sky.rain;
     this.waterU.fogDensity.value = this.scene.fog.density;
     // rain streaks around the camera, slanted by the wind
@@ -367,28 +341,6 @@ export class Renderer {
       }
       this.rain.geometry.attributes.position.needsUpdate = true;
     }
-    // squall clouds with rain curtains
-    const cells = W.cells || [];
-    if (!this.cloudMeshes.length && cells.length) {
-      for (let i = 0; i < 4; i++) {
-        const g = new THREE.Group();
-        const cl = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 1, transparent: true, opacity: 0.92 }));
-        cl.scale.set(1, 0.28, 1); g.add(cl);
-        const cu = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.9, 1, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0x7a838c, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false, fog: false }));
-        cu.position.y = -0.5; g.add(cu); g.userData = { cl, cu }; g.visible = false;
-        this.scene.add(g); this.cloudMeshes.push(g);
-      }
-    }
-    const act = W.activeCells ? W.activeCells(t) : [];
-    this.cloudMeshes.forEach((g, i) => {
-      const c = act[i];
-      if (!c) { g.visible = false; return; }
-      g.visible = true;
-      g.position.set(c.x, 900, c.z);
-      g.userData.cl.scale.set(c.R * 1.3, c.R * 0.35, c.R * 1.3);
-      g.userData.cu.scale.set(c.R * 0.8, 900, c.R * 0.8);
-      g.userData.cu.position.y = -450;
-    });
   }
 
   // ---------------------------------------------------------------- terrain & piers from the real map
@@ -576,6 +528,9 @@ export class Renderer {
     }
   }
 
+  // where the sun and moon are: venue position and the clock
+  setClock(ms, lat, lon) { this.skySys.setTime(ms, lat, lon); this.clockMs = ms; }
+
   // ---------------------------------------------------------------- per-frame update
   update(dt, t, sim) {
     const { env, boats, player } = sim;
@@ -587,10 +542,18 @@ export class Renderer {
     this.waterU.uOffset.value.set(Math.round(cam.x / snap) * snap, Math.round(cam.z / snap) * snap);
     this.waterU.uTime.value = t;
     tickGlow(performance.now() / 1000);
-    this.sky.position.copy(cam);
-    // sun shadow follows the player
+    // sky, sun or moon light, exposure, reflections; the shadow-casting light follows the player
+    if (player) { this.skySys._px = player.x; this.skySys._pz = player.z; }
+    const hz = this.skySys.update(this.camera, t, this.sun, this.hemi, this.overcastU.value);
+    this.scene.fog.color.setRGB(hz[0], hz[1], hz[2]); this.waterU.fogColor.value.copy(this.scene.fog.color);
+    {
+      const up = this.skySys.U.uAmbTop.value, sc = this.skySys.U.uSunCol.value;
+      const l = (v) => 0.2126 * v.x + 0.7152 * v.y + 0.0722 * v.z;
+      this.waterU.uAmbF.value = Math.max(0.004, Math.min(1.6, (l(up) + 0.5 * l(sc) * Math.max(this.skySys.lightV.y, 0)) / 0.97));
+    }
+    const Ld = this.skySys.lightDir || this.sunDir;
     if (player) {
-      this.sun.position.set(player.x + this.sunDir.x * 60, this.sunDir.y * 60, player.z + this.sunDir.z * 60);
+      this.sun.position.set(player.x + Ld.x * 60, Math.max(Ld.y, 0.05) * 60, player.z + Ld.z * 60);
       this.sun.target.position.set(player.x, 0, player.z);
     }
     // hull footprints for the water cut-out: the four boats nearest the camera
@@ -686,7 +649,8 @@ export class Renderer {
     // depth precision: pull the near plane out as the camera backs off (a 5 cm near plane with a 30 km
     // far plane leaves decimetre depth steps at a kilometre: shore and sea z-fight and flicker)
     const camD = Math.hypot(cam.position.x - c.tx, cam.position.y - bh, cam.position.z - c.tz);
-    const near = c.mode === 'helm' || c.mode === 'bow' || c.mode === 'mast' || c.mode === 'deck' ? 0.05 : clamp(camD * 0.04, 0.05, 25);
+    const aboveSea = Math.max(0.3, cam.position.y - bh);          // never clip the water in front of a low camera
+    const near = c.mode === 'helm' || c.mode === 'bow' || c.mode === 'mast' || c.mode === 'deck' ? 0.05 : clamp(Math.min(camD * 0.04, aboveSea * 0.3), 0.05, 25);
     if (Math.abs(near - cam.near) > 0.01 * cam.near) { cam.near = near; cam.updateProjectionMatrix(); }
   }
 

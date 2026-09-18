@@ -89,6 +89,16 @@
           <button class="seg-b on" data-weather="changing" role="radio" aria-checked="true">Changing</button>
           <button class="seg-b" data-weather="squally" role="radio" aria-checked="false">Squalls</button>
         </div>
+        <div class="seg tseg" role="radiogroup" aria-label="Time of day">
+          <button class="seg-b" data-tod="dawn" role="radio">Dawn</button>
+          <button class="seg-b" data-tod="morning" role="radio">Morning</button>
+          <button class="seg-b" data-tod="noon" role="radio">Noon</button>
+          <button class="seg-b on" data-tod="afternoon" role="radio">Afternoon</button>
+          <button class="seg-b" data-tod="golden" role="radio">Golden hour</button>
+          <button class="seg-b" data-tod="dusk" role="radio">Dusk</button>
+          <button class="seg-b" data-tod="night" role="radio">Night</button>
+          <button class="seg-b" data-tod="live" role="radio" title="The real sun and moon over the venue right now">Live</button>
+        </div>
         <div class="field"><label for="tws">True wind <b id="tws-v"></b></label><input type="range" id="tws" min="2" max="60" step="0.5" value="12"></div>
         <div class="field"><label for="twd">Wind from <b id="twd-v"></b></label><input type="range" id="twd" min="0" max="359" step="1" value="70"></div>
         <div class="row"><button id="live-wind" class="btn ghost">Use live wind here</button><span id="live-status" class="muted small"></span></div>
