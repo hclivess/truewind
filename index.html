@@ -25,6 +25,7 @@
   </section>
 
   <div id="toast" role="status" aria-live="polite"></div>
+  <div id="grab-tip" hidden></div>
   <div id="alert" role="alert"></div>
 
   <section id="map-card" class="panel">
@@ -49,7 +50,7 @@
 
   <section id="instruments" class="panel"></section>
 
-  <div id="keys" class="muted">H help · Esc menu · 1–6 cameras · I physics · L laylines · K forces</div>
+  <div id="keys" class="muted">H help · Esc menu · 1–7 cameras (7 = on deck) · I physics · L laylines · K forces</div>
 </div>
 
 <div id="menu" class="overlay">
@@ -82,6 +83,11 @@
         <div class="online-only">
           <p class="muted small">Everyone who picks the same venue and room sails in one world, peer to peer, with the same wind, puffs, shifts and waves. The first sailor in the room sets the conditions. Anyone can start a race for the whole room.</p>
           <div class="row"><input id="net-name" maxlength="20" placeholder="Your name" autocomplete="nickname"><input id="net-room" maxlength="24" placeholder="Room (public)" autocomplete="off"></div>
+        </div>
+        <div class="seg seg3 wseg" role="radiogroup" aria-label="Weather">
+          <button class="seg-b" data-weather="steady" role="radio" aria-checked="false">Steady</button>
+          <button class="seg-b on" data-weather="changing" role="radio" aria-checked="true">Changing</button>
+          <button class="seg-b" data-weather="squally" role="radio" aria-checked="false">Squalls</button>
         </div>
         <div class="field"><label for="tws">True wind <b id="tws-v"></b></label><input type="range" id="tws" min="2" max="32" step="0.5" value="12"></div>
         <div class="field"><label for="twd">Wind from <b id="twd-v"></b></label><input type="range" id="twd" min="0" max="359" step="1" value="70"></div>
@@ -127,7 +133,8 @@
       <div><kbd>R</kbd><span>Reef (cycles 0 → 1 → 2) · rights a capsized dinghy</span></div>
       <div><kbd>Y</kbd><span>Daggerboard up / down</span></div>
       <div><kbd>T</kbd> <kbd>H</kbd><span>Toggle auto-trim / auto-hike</span></div>
-      <div><kbd>1</kbd>–<kbd>6</kbd><span>Chase · Helm · Bow · Masthead · Overhead · Orbit</span></div>
+      <div><kbd>1</kbd>–<kbd>7</kbd><span>Chase · Helm · Bow · Masthead · Overhead · Orbit · On deck</span></div>
+      <div>On deck<span>Point at a rope, car, winch or the tiller: pull ropes up/down, slide cars along their tracks, crank winches clockwise, push the tiller sideways, click the reef line or gennaker halyard.</span></div>
       <div><kbd>L</kbd> <kbd>K</kbd> <kbd>I</kbd><span>Laylines · force vectors · physics readout</span></div>
       <div><kbd>-</kbd> <kbd>=</kbd><span>Time warp (free sail)</span></div>
       <div><kbd>P</kbd> <kbd>Esc</kbd><span>Pause · menu</span></div>

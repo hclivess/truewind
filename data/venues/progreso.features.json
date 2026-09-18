@@ -1,0 +1,11 @@
+{
+  "venue": "progreso",
+  "about": "Human-verified identification of map features. Each entry names OpenStreetMap way IDs and says what they are, so the simulator renders and collides with them correctly instead of guessing from geometry. Find IDs in game with M (map inspector) or on openstreetmap.org.",
+  "review": "draft by the developer from OSM tags (bridge=yes, natural=coastline, landuse=industrial); needs confirmation by someone who knows the port",
+  "features": [
+    { "osm": [218975990, 686733025], "type": "viaduct", "name": "Muelle de Progreso — viaduct section", "deck": 6.0, "width": 11 },
+    { "osm": [1207907818, 1207907819, 887779717], "type": "causeway", "name": "Muelle de Progreso — rock-fill causeway", "height": 3.2 },
+    { "osm": [982257443, 982257445, 1207907940], "type": "terminal", "name": "Puerto de Altura terminal", "height": 3.8 },
+    { "osm": [314667418], "type": "pier", "name": "Progreso Cruise Pier", "deck": 4.5 }
+  ]
+}

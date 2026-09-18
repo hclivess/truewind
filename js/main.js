@@ -8,6 +8,7 @@ import { Renderer } from './render.js';
 import { HUD } from './hud.js';
 import { Audio } from './audio.js';
 import { Net } from './net.js';
+import { Vector3 as THREE_V } from 'three';
 
 const $ = (s) => document.querySelector(s);
 const PHYS_DT = 1 / 120;
@@ -25,7 +26,7 @@ class Game {
     this.keys = new Set();
     this.settings = {
       cls: 'blackwatch', venue: 'progreso', mode: 'free', tws: 14, twd: 70, gust: 0.5, shift: 7, swell: 0, current: 0.4,
-      fleet: 5, countdown: 120, laps: 1, autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true,
+      fleet: 5, countdown: 120, laps: 1, weather: 'changing', autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true,
     };
     this.venueTouched = false;
     this.running = false; this.paused = false;
@@ -62,7 +63,8 @@ class Game {
     const vl = $('#venue-list');
     vl.innerHTML = VENUES.map(v => `<button class="card" data-v="${v.id}"><span class="t">${v.name}</span><span class="s">${v.place}</span><span class="d">${v.note}</span></button>`).join('');
     vl.querySelectorAll('.card').forEach(c => c.addEventListener('click', () => { this.venueTouched = true; this.pickVenue(c.dataset.v, true); }));
-    document.querySelectorAll('.seg-b').forEach(b => b.addEventListener('click', () => { this.settings.mode = b.dataset.mode; this.refreshMenu(); }));
+    document.querySelectorAll('.seg-b[data-mode]').forEach(b => b.addEventListener('click', () => { this.settings.mode = b.dataset.mode; this.refreshMenu(); }));
+    document.querySelectorAll('.seg-b[data-weather]').forEach(b => b.addEventListener('click', () => { this.settings.weather = b.dataset.weather; this.refreshMenu(); }));
     const sliders = { tws: v => `${v} kn`, twd: v => `${String(v).padStart(3, '0')}°`, gust: v => `${Math.round(v * 100)}%`, shift: v => `±${v}°`, swell: v => v > 0 ? `${v} m` : 'none', current: v => v > 0 ? `${v} kn` : 'none', fleet: v => `${v}`, countdown: v => `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`, laps: v => `${v}` };
     for (const k in sliders) {
       const el = $('#' + k);
@@ -93,7 +95,8 @@ class Game {
   refreshMenu() {
     document.querySelectorAll('#boat-list .card').forEach(c => c.classList.toggle('on', c.dataset.cls === this.settings.cls));
     document.querySelectorAll('#venue-list .card').forEach(c => c.classList.toggle('on', c.dataset.v === this.settings.venue));
-    document.querySelectorAll('.seg-b').forEach(b => { const on = b.dataset.mode === this.settings.mode; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
+    document.querySelectorAll('.seg-b[data-mode]').forEach(b => { const on = b.dataset.mode === this.settings.mode; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
+    document.querySelectorAll('.seg-b[data-weather]').forEach(b => { const on = b.dataset.weather === this.settings.weather; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
     document.body.classList.toggle('racing', this.settings.mode === 'race');
     document.body.classList.toggle('online', this.settings.mode === 'online');
   }
@@ -153,19 +156,22 @@ class Game {
     if (!idle) { $('#loading').hidden = false; $('#loading-text').textContent = `Loading chart: ${v.name}`; }
     await new Promise(r => setTimeout(r, 30));
     const geo = await this.loadGeo(v).catch(() => null);
-    this.venue = v; this.geo = geo;
+    const manifest = v.open ? null : await fetch(`data/venues/${v.id}.features.json`).then(r => r.ok ? r.json() : null).catch(() => null);
+    this.venue = v; this.geo = geo; this.manifest = manifest;
+    this.obstacles = null;
     const world = new World(v, geo);
     this.world = world;
+    this.obstacles = ((geo && geo.piers) || []).filter(p => p.kind !== 'bridge' || (() => { let wet = 0; for (let i = 0; i < p.pts.length; i += 2) if (world.sdfAt(p.pts[i], p.pts[i + 1]) > 0) wet++; return wet > 0; })());
     const online = S.mode === 'online' && !idle;
     const cond = {
       seed: Math.floor(Math.random() * 100000), epoch: Date.now() / 1000,
       tws: idle ? v.windKt : S.tws, twd: idle ? v.wind : S.twd, gust: S.gust, shift: S.shift, swell: S.swell,
-      current: idle ? 0 : S.current, currentDir: v.current?.dir ?? 90,
+      current: idle ? 0 : S.current, currentDir: v.current?.dir ?? 90, weather: idle ? 'steady' : S.weather,
     };
     this.cond = cond;
     const env = this.makeEnv(cond);
     const twd = cond.twd * DEG;
-    this.renderer.setWorld(world, geo);
+    this.renderer.setWorld(world, geo, manifest);
     this.renderer.setWaves(env.waves);
     this.hud.setWorld(world);
     // boats
@@ -219,10 +225,10 @@ class Game {
       this.renderer.setMarks([], null);
       if (idle) { player.auto.trim = true; }
     }
-    for (const b of this.boats) this.renderer.addBoat(b, { number: b === player ? (cls.id === 'blackwatch' ? '79' : '7') : String(100 + b.id * 7), hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9], crewTint: b.id });
+    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (cls.id === 'blackwatch' ? '79' : '7') : String(100 + b.id * 7), hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9], crewTint: b.id });
     this.hud.buildRig(player);
-    this.renderer.cam.mode = idle ? 'orbit' : 'chase';
-    this.renderer.cam.yaw = idle ? 0 : 200 * DEG; this.renderer.cam.dist = idle ? 26 : cls.id === 'dinghy' ? 14 : 20;
+    this.renderer.cam.mode = idle ? 'orbit' : 'helm'; // first person at the tiller, eye height, life size
+    this.renderer.cam.yaw = idle ? 0 : Math.PI; this.renderer.cam.pitch = idle ? 14 * DEG : 0.2; this.renderer.cam.dist = idle ? 26 : cls.id === 'dinghy' ? 8 : 10;
     this.t = 0; this.acc = 0; this.timeWarp = 1;
     this.idle = idle;
     this.sharedRace = null;
@@ -259,14 +265,17 @@ class Game {
     const fetchM = world.open ? 60000 : world.fetchAt(0, 0, twd, 6000);
     const fetchKm = world.open ? 60 : fetchM >= 6000 ? 25 : Math.max(0.4, fetchM / 1000);
     const env = new Environment({
-      tws: cond.tws * KT, twd: cond.twd, gust: cond.gust, shift: cond.shift, seed: cond.seed,
+      tws: cond.tws * KT, twd: cond.twd, gust: cond.gust, shift: cond.shift, seed: cond.seed, weather: cond.weather ?? 'changing',
       fetchKm, swellH: cond.swell, swellT: 9, currentKt: cond.current, currentDir: cond.currentDir,
     });
     // sheltering by land slows the wind near a weather shore
     const base = env.wind.sample.bind(env.wind);
     env.wind.sample = (x, z, t, o = {}) => { base(x, z, t, o); o.speed *= world.shelterAt(x, z); return o; };
     if (!world.open) env.waves.scaleFn = (x, z) => clamp(world.sdfAt(x, z) / 60, 0.08, 1);
+    env.waves.buildDepthField(world);              // finite-depth dispersion over the real bottom
+    env.tick(0);
     this.env = env;
+    if (this.renderer) this.renderer.setPhaseField(env.waves);
     return env;
   }
 
@@ -334,11 +343,20 @@ class Game {
     b.lines.main = b.ctrl.main; b.lines.jib = b.ctrl.jib; b.lines.stay = b.ctrl.stay;
   }
 
-  // VPP for the current wind, computed in slices so the frame loop keeps running
+  // VPP for the current wind, computed in a worker (falls back to slices on the main thread)
   computePolar(cls, tws) {
     const key = cls.id + ':' + Math.round(tws / KT);
     this.polarTws = tws;
+    this._polarKey = key;
     if (this.polarCache.has(key)) { this.setPolar(this.polarCache.get(key)); return; }
+    try {
+      if (!this.vppWorker) {
+        this.vppWorker = new Worker(new URL('./vpp-worker.js', import.meta.url), { type: 'module' });
+        this.vppWorker.onmessage = (e) => { this.polarCache.set(e.data.key, e.data.polar); if (e.data.key === this._polarKey) this.setPolar(e.data.polar); };
+      }
+      this.vppWorker.postMessage({ key, cls: cls.id, tws });
+      return;
+    } catch (e) { /* no module workers: compute in slices */ }
     const out = [];
     let i = 0;
     const token = this._polarToken = {};
@@ -397,23 +415,119 @@ class Game {
     window.addEventListener('blur', () => this.keys.clear());
     const cv = $('#view');
     let drag = null;
-    cv.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); });
-    cv.addEventListener('pointermove', (e) => {
-      if (!drag) return;
-      const c = this.renderer.cam;
-      c.yaw -= (e.clientX - drag.x) * 0.005; c.pitch = clamp(c.pitch + (e.clientY - drag.y) * 0.004, -0.2, 1.45);
-      drag = { x: e.clientX, y: e.clientY };
+    cv.addEventListener('pointerdown', (e) => {
+      cv.setPointerCapture(e.pointerId);
+      const g = this.running && !this.idle ? this.hoverGrab : null;
+      drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, grab: g, ang: null, clickDist: 0, shift: e.shiftKey };
+      if (g) { cv.style.cursor = 'grabbing'; this.onGrabStart(g); }
     });
-    cv.addEventListener('pointerup', () => { drag = null; });
+    cv.addEventListener('pointermove', (e) => {
+      if (!drag) { this.updateHover(e.clientX, e.clientY); return; }
+      if (drag.grab) { this.onGrabDrag(drag, e.clientX, e.clientY); }
+      else {
+        const c = this.renderer.cam;
+        c.yaw -= (e.clientX - drag.x) * 0.005; c.pitch = clamp(c.pitch + (e.clientY - drag.y) * 0.004, -0.2, 1.45);
+      }
+      drag.clickDist += Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
+      drag.x = e.clientX; drag.y = e.clientY;
+    });
+    cv.addEventListener('pointerup', () => {
+      if (drag && drag.grab && drag.grab.kind === 'click' && drag.clickDist < 8) this.onGrabClick(drag.grab, drag.shift);
+      drag = null; cv.style.cursor = this.hoverGrab ? 'grab' : '';
+    });
     cv.addEventListener('wheel', (e) => { const c = this.renderer.cam; c.dist = clamp(c.dist * (e.deltaY > 0 ? 1.12 : 1 / 1.12), 5, 400); }, { passive: true });
+  }
+
+  // ---------------------------------------------------------------- deck handling
+  updateHover(mx, my) {
+    const tip = $('#grab-tip');
+    this.hoverGrab = null;
+    if (!this.running || this.idle || !$('#menu').hidden) { tip.hidden = true; return; }
+    const vis = this.renderer.boats.get(this.player);
+    if (!vis) return;
+    const list = vis.rigging.grabs();
+    const cam = this.renderer.camera, W = window.innerWidth, H = window.innerHeight;
+    let best = null, bd = 34;
+    for (const g of list) {
+      const p = g.pos.clone().project(cam);
+      if (p.z > 1) continue;
+      const sx = (p.x + 1) / 2 * W, sy = (1 - p.y) / 2 * H;
+      const d = Math.hypot(sx - mx, sy - my);
+      if (d < bd) { bd = d; best = { ...g, sx, sy }; }
+    }
+    this.hoverGrab = best;
+    $('#view').style.cursor = best ? 'grab' : '';
+    if (best) {
+      tip.hidden = false;
+      tip.style.left = best.sx + 16 + 'px'; tip.style.top = best.sy - 10 + 'px';
+      tip.innerHTML = `<b>${best.label}</b><span>${best.info()}</span><em>${best.hint}</em>`;
+    } else tip.hidden = true;
+  }
+  screenOf(v) { const p = v.clone().project(this.renderer.camera); return [(p.x + 1) / 2 * window.innerWidth, (1 - p.y) / 2 * window.innerHeight]; }
+  onGrabStart(g) {
+    const b = this.player;
+    if (g.key) this.userTouched(g.key);
+    if (g.kind === 'crank') this.hud.toast('Crank clockwise to grind the sheet in', 1.5);
+  }
+  onGrabClick(g, shift) {
+    const b = this.player;
+    if (g.action === 'gen') this.toggleGen();
+    else if (g.action === 'reef') {
+      const max = b.sailBy.main.reefs;
+      b.ctrl.reef = clamp((b.ctrl.reef | 0) + (shift ? -1 : 1), 0, max);
+      this.hud.toast(shift ? 'Shaking out a reef' : `Reefing to ${b.ctrl.reef === 1 ? 'first' : 'second'} reef — halyard off, crew to the mast`);
+    }
+  }
+  onGrabDrag(drag, mx, my) {
+    const g = drag.grab, b = this.player, c = b.ctrl, C = b.cls;
+    const load = g.key === 'main' ? b.diag.rig.mainLoad : g.key === 'jib' ? b.diag.rig.jibLoad : g.key === 'stay' ? b.diag.rig.stayLoad : 0;
+    const effort = 1 / (1 + ((load || 0) / C.sheetPower) ** 2);   // heavy lines come in slowly
+    if (g.kind === 'pull') {
+      const dy = (drag.y - my) * 0.0035;                            // up = pull
+      if (g.easeOnly && dy > 0) return;
+      let delta = g.dir * dy;
+      const trimming = (g.dir < 0 && dy > 0) || (g.dir > 0 && dy > 0);
+      if (trimming) delta *= effort;
+      c[g.key] = clamp(c[g.key] + delta, 0, 1);
+    } else if (g.kind === 'track') {
+      const [ax, ay] = this.screenOf(g.A), [bx, by] = this.screenOf(g.B);
+      const vx = bx - ax, vy = by - ay, L2 = vx * vx + vy * vy || 1;
+      let t = clamp(((mx - ax) * vx + (my - ay) * vy) / L2, 0, 1);
+      if (g.key === 'trav') { // track A is port, B starboard; the control is windward -> leeward
+        const lee = Math.sign(b.booms.main.a) || 1;
+        t = lee > 0 ? t : 1 - t;
+      }
+      c[g.key] = lerp(c[g.key], t, 0.5);
+    } else if (g.kind === 'crank') {
+      const [cx, cy] = [g.sx ?? drag.x0, g.sy ?? drag.y0];
+      const ang = Math.atan2(my - cy, mx - cx);
+      if (drag.ang !== null) {
+        let da = ang - drag.ang; if (da > Math.PI) da -= 2 * Math.PI; if (da < -Math.PI) da += 2 * Math.PI;
+        if (da > 0) { // clockwise on screen = grinding in; the ratchet stops it running back
+          c.jib = clamp(c.jib - da / (2 * Math.PI) * 0.045 * effort, 0, 1);
+          drag.clicks = (drag.clicks || 0) + da;
+          if (drag.clicks > 0.5) { drag.clicks = 0; this.audio.click(); }
+        }
+      }
+      drag.ang = ang;
+    } else if (g.kind === 'tiller') {
+      // moving the tiller toward starboard turns the bow to port
+      const vis = this.renderer.boats.get(b);
+      const o = vis.inner.localToWorld(new THREE_V(0, 0, 0)), s = vis.inner.localToWorld(new THREE_V(1, 0, 0));
+      const [ox, oy] = this.screenOf(o), [sx, sy] = this.screenOf(s);
+      const ux = sx - ox, uy = sy - oy, ul = Math.hypot(ux, uy) || 1;
+      const along = ((mx - drag.x) * ux + (my - drag.y) * uy) / ul;
+      c.helm = clamp(c.helm - along * 0.006, -1, 1);
+      this.tillerHeld = performance.now();
+    }
   }
 
   onKey(k, e) {
     if (k === 'Escape') { if (!$('#help').hidden) { $('#help').hidden = true; return; } if ($('#menu').hidden) this.openMenu(); else if (this.running) this.closeMenu(); return; }
     if (!this.running || !$('#menu').hidden) return;
     const b = this.player, c = this.renderer.cam;
-    const cams = { '1': 'chase', '2': 'helm', '3': 'bow', '4': 'mast', '5': 'top', '6': 'orbit' };
-    if (cams[k]) { c.mode = cams[k]; if (k === '2' || k === '3' || k === '4') { c.yaw = Math.PI; c.pitch = 0.2; } else if (k === '1') { c.yaw = 200 * DEG; c.pitch = 14 * DEG; } this.hud.toast({ chase: 'Chase camera', helm: 'At the helm', bow: 'On the bow', mast: 'Masthead', top: 'Overhead, wind up', orbit: 'Orbit' }[cams[k]], 1.2); }
+    const cams = { '1': 'chase', '2': 'helm', '3': 'bow', '4': 'mast', '5': 'top', '6': 'orbit', '7': 'deck' };
+    if (cams[k]) { c.mode = cams[k]; if (k === '2' || k === '3' || k === '4') { c.yaw = Math.PI; c.pitch = 0.2; } else if (k === '7') { c.yaw = 200 * DEG; c.pitch = 0.45; c.dist = 6; } else if (k === '1') { c.yaw = 200 * DEG; c.pitch = 14 * DEG; c.dist = 10; } this.hud.toast({ chase: 'Chase camera', helm: 'At the helm', bow: 'On the bow', mast: 'Masthead', top: 'Overhead, wind up', orbit: 'Orbit', deck: 'On deck — grab the lines' }[cams[k]], 1.2); }
     else if (k === 'h') this.toggleAutoHike();
     else if (k === 't') this.toggleAutoTrim();
     else if (k === 'g') this.toggleGen();
@@ -425,7 +539,7 @@ class Game {
     else if (k === 'y' && b.cls.hasBoard) { this.userTouched('board'); b.ctrl.board = b.ctrl.board > 0.5 ? 0.25 : 1; this.hud.toast(b.ctrl.board > 0.5 ? 'Board down' : 'Board up', 1.2); }
     else if (k === 'r') {
       if (b.capsized) { b.righting = 4; this.hud.toast('Standing on the daggerboard…', 3); }
-      else if (b.sailBy.main.reefs) { b.ctrl.reef = ((b.ctrl.reef | 0) + 1) % (b.sailBy.main.reefs + 1); this.hud.toast(b.ctrl.reef ? `Reef ${b.ctrl.reef} tucked in` : 'Reefs shaken out'); }
+      else if (b.sailBy.main.reefs) { b.ctrl.reef = ((b.ctrl.reef | 0) + 1) % (b.sailBy.main.reefs + 1); this.hud.toast(b.ctrl.reef ? `Reefing to ${b.ctrl.reef === 1 ? 'first' : 'second'} reef — halyard off, crew to the mast` : 'Shaking out the reefs'); }
     }
     else if (k === 'j') this.backJib = true;
     else if (k === ' ') b.ctrl.helm = 0;
@@ -446,13 +560,7 @@ class Game {
     if (has('d', 'ArrowRight')) steer += 1;
     if (this.settings.tiller) steer = -steer; // push the tiller to port, the bow goes to starboard
     if (steer) c.helm = clamp(c.helm + steer * 0.9 * dt, -1, 1);
-    else {
-      // a tiller left alone follows the water: it trails toward the rudder's zero-load angle,
-      // so a boat with weather helm rounds up if you let go
-      const ul = Math.max(0.5, Math.abs(b.u));
-      const neutral = -((b.diag.leeway || 0) + b.r * C.rudder.x / ul) * 0.6;
-      c.helm += clamp(neutral / C.rudder.max - c.helm, -1, 1) * dt * 0.35 * clamp(Math.abs(b.u) / 2, 0, 1);
-    }
+    // the helmsman holds the tiller where it was put (Space centres it)
     const rate = 0.28 * dt;
     const trim = (key, dir) => { this.userTouched(key); c[key] = clamp(c[key] + dir * rate, 0, 1); };
     if (has('w')) trim('main', -1);
@@ -495,6 +603,10 @@ class Game {
       this.acc -= PHYS_DT; steps++;
     }
     if (steps >= maxSteps) this.acc = 0;
+    if (this.env.tick(this.t)) this.renderer.setWaves(this.env.waves);
+    this.shelterAcc = (this.shelterAcc || 0) + dt;
+    if (this.shelterAcc > 10) { this.shelterAcc = 0; const mw = this.env.wind.mean(this.t); if (this.world.updateShelter(mw.dir)) {} }
+    this.renderer.updateWeather(this.env, this.t, this.renderer.camera.position);
     this.gustAcc = (this.gustAcc || 0) + dt;
     const p = this.player;
     if (this.gustAcc > 0.25 && p) { this.gustAcc = 0; this.renderer.updateGust(this.env, this.world, this.t, p.x, p.z); }
@@ -524,7 +636,7 @@ class Game {
     for (const bb of this.boats) bb.step(dt, this.env, this.t, this.world);
     this.net.postStep(dt);
     const marks = this.course ? [...this.course.marks(), this.course.committee] : this.waypoint ? [this.waypoint] : [];
-    resolveCollisions(this.boats, marks, (this.geo && this.geo.piers) || [], (boat, other, v) => {
+    resolveCollisions(this.boats, marks, this.obstacles || [], (boat, other, v) => {
       if (boat === this.player && v > 0.6) { this.hud.toast(other && other.cls ? `Collision with ${other.name}!` : other && other.kind === 'pier' || other?.pts ? 'You hit the pier!' : 'Mark touched!', 2); this.audio.thump(Math.min(1, v / 2)); }
     });
     if (this.race) {
@@ -556,10 +668,11 @@ class Game {
   checkAlerts() {
     const b = this.player, C = b.cls;
     if (b.capsized) this.hud.alert('Capsized — press R to right the boat', true);
+    else if (b.reefing) this.hud.alert(`${(b.ctrl.reef | 0) > b.reefPos ? 'Reefing' : 'Shaking out'} · ${Math.round(b.diag.reefProgress * 100)}% · main depowered`);
     else if (b.aground > 0.02) this.hud.alert(`Aground — ${this.world.depthAt(b.x, b.z).toFixed(1)} m of water`, true);
     else if (this.race && this.race.racers[0].ocs) this.hud.alert('OCS — dip back below the line', true);
     else if (Math.abs(b.phi) > C.targetHeel + 14 * 0.01745) this.hud.alert(b.sailBy.main.reefs ? 'Overpowered — ease, depower or reef' : 'Overpowered — ease the main');
-    else if (b.u < 0.3 && Math.abs(b.diag.twa || 0) < 35 * DEG) this.hud.alert('In irons — hold J to back the jib, steer the other way');
+    else if (b.u < 0.3 && Math.abs(b.diag.twa || 0) < 35 * DEG) this.hud.alert(b.sailBy.jib ? 'In irons — ease the main, hold J to back the jib, reverse the tiller while going astern' : 'In irons — ease the main, push the boom out, reverse the tiller while going astern');
     else this.hud.alert(null);
   }
 }

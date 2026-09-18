@@ -5,8 +5,8 @@
 import { noise2 } from './env.js';
 
 export const VENUES = [
-  { id: 'progreso', name: 'Puerto Progreso', place: 'Progreso, Yucatán, Mexico', lat: 21.29, lon: -89.668, wind: 70, windKt: 14, depth: 6.5, shelf: 1400,
-    current: { kt: 0.4, dir: 270 }, spawn: { lat: 21.2915, lon: -89.6645, heading: 330 },
+  { id: 'progreso', name: 'Puerto Progreso', place: 'Progreso, Yucatán, Mexico', lat: 21.315, lon: -89.668, R: 8000, wind: 70, windKt: 14, depth: 6.5, shelf: 1400,
+    current: { kt: 0.4, dir: 270 }, spawn: { lat: 21.2925, lon: -89.6635, heading: 330 },
     note: 'Gulf of Mexico trade-wind sea breeze over the shallow Yucatán shelf, beside the 6.5 km Progreso pier — the longest in the world.' },
   { id: 'solent', name: 'The Solent', place: 'Cowes, Isle of Wight, UK', lat: 50.772, lon: -1.285, wind: 225, windKt: 13, depth: 14, current: { kt: 1.2, dir: 90 }, note: 'Home of Cowes Week. Strong tides along the shore, Bramble Bank shallows.' },
   { id: 'sfbay', name: 'San Francisco Bay', place: 'City Front, California, USA', lat: 37.822, lon: -122.425, wind: 255, windKt: 18, depth: 16, current: { kt: 1.5, dir: 80 }, note: 'The summer sea breeze pours through the Golden Gate. Alcatraz to leeward.' },
@@ -32,9 +32,10 @@ export function makeProjection(lat0, lon0) {
 }
 
 export function overpassQuery(lat, lon, R = MAP_RADIUS + 600) {
+  R = Math.max(R, 600);
   const dLat = R / 110540, dLon = R / (111320 * Math.cos(lat * Math.PI / 180));
   const bb = `${(lat - dLat).toFixed(5)},${(lon - dLon).toFixed(5)},${(lat + dLat).toFixed(5)},${(lon + dLon).toFixed(5)}`;
-  return `[out:json][timeout:90];(way["natural"="coastline"](${bb});way["natural"="water"](${bb});relation["natural"="water"](${bb});way["waterway"="riverbank"](${bb});relation["waterway"="riverbank"](${bb});way["man_made"~"^(pier|breakwater|groyne)$"](${bb}););out geom;`;
+  return `[out:json][timeout:90];(way["natural"="coastline"](${bb});way["natural"="water"](${bb});relation["natural"="water"](${bb});way["waterway"="riverbank"](${bb});relation["waterway"="riverbank"](${bb});way["man_made"~"^(pier|breakwater|groyne)$"](${bb});way["bridge"]["highway"](${bb});way["bridge"]["railway"](${bb}););out geom;`;
 }
 
 // Douglas-Peucker on flat [x,z,x,z,...]; closed rings are split at their farthest vertex first
@@ -97,6 +98,7 @@ function joinRings(pieces) {
 
 // Convert Overpass JSON into compact local geometry: { coast: [[x,z,...]], water: [[ring,...]] }
 export function processOSM(osm, lat0, lon0, R = MAP_RADIUS + 600) {
+  R = Math.max(R, 600);
   const P = makeProjection(lat0, lon0);
   const toPts = (geom) => { const a = []; for (const g of geom) { const [x, z] = P.fwd(g.lat, g.lon); a.push(Math.round(x * 2) / 2, Math.round(z * 2) / 2); } return a; };
   const coast = [], water = [], piers = [];
@@ -106,8 +108,9 @@ export function processOSM(osm, lat0, lon0, R = MAP_RADIUS + 600) {
     const tags = el.tags || {};
     if (el.type === 'way' && el.geometry) {
       const pts = toPts(el.geometry);
-      if (tags.natural === 'coastline') { if (near(pts)) coast.push(simplify(pts, 3)); }
-      else if (tags.man_made) { if (near(pts)) piers.push({ pts: simplify(pts, 1.5), w: tags.man_made === 'pier' ? 6 : 10, kind: tags.man_made }); }
+      if (tags.natural === 'coastline') { if (near(pts)) { const sp = simplify(pts, 3); sp.osm = el.id; coast.push(sp); } }
+      else if (tags.man_made) { if (near(pts)) piers.push({ id: el.id, pts: simplify(pts, 1.5), w: tags.man_made === 'pier' ? 6 : 10, kind: tags.man_made, name: tags.name }); }
+      else if (tags.bridge) { if (near(pts)) piers.push({ id: el.id, pts: simplify(pts, 1.5), w: 8, kind: 'bridge', name: tags.name }); }
       else if (pts.length >= 8 && pts[0] === pts[pts.length - 2] && pts[1] === pts[pts.length - 1]) {
         water.push([simplify(pts, 3)]);
       }
@@ -124,24 +127,25 @@ export function processOSM(osm, lat0, lon0, R = MAP_RADIUS + 600) {
   // clip coastline polylines to the area of interest (keep segments near the box)
   const clipped = [];
   for (const line of coast) {
-    let cur = [];
+    let cur = []; cur.osm = line.osm;
     for (let i = 0; i < line.length; i += 2) {
       const inside = Math.abs(line[i]) < lim && Math.abs(line[i + 1]) < lim;
       if (inside) cur.push(line[i], line[i + 1]);
-      else { if (cur.length) { cur.push(line[i], line[i + 1]); clipped.push(cur); cur = []; } }
+      else { if (cur.length) { cur.push(line[i], line[i + 1]); clipped.push(cur); cur = []; cur.osm = line.osm; } }
       if (!inside && i + 2 < line.length && Math.abs(line[i + 2]) < lim && Math.abs(line[i + 3]) < lim) cur.push(line[i], line[i + 1]);
     }
     if (cur.length >= 4) clipped.push(cur);
   }
-  return { coast: clipped.filter(l => l.length >= 4), water, piers };
+  const coastOut = clipped.filter(l => l.length >= 4).map(l => ({ id: l.osm, pts: Array.from(l) }));
+  return { coast: coastOut, water, piers };
 }
 
 // ---------------------------------------------------------------------------------------------
 export class World {
   constructor(venue, geo, opts = {}) {
     this.venue = venue;
-    this.R = opts.R ?? MAP_RADIUS;
-    this.N = opts.N ?? 640;
+    this.R = opts.R ?? venue.R ?? MAP_RADIUS;
+    this.N = opts.N ?? Math.round(1024 * this.R / MAP_RADIUS / 64) * 64;
     this.cs = 2 * this.R / this.N;
     this.maxDepth = venue.depth ?? 20;
     this.open = !!venue.open || !geo;
@@ -166,7 +170,8 @@ export class World {
       const k = j * N + i; if (arr[k] < 65000) arr[k]++;
     };
     if (hasCoast) {
-      for (const line of geo.coast) {
+      for (const entry of geo.coast) {
+        const line = entry.pts || entry;
         for (let s = 0; s + 3 < line.length; s += 2) {
           const ax = line[s], az = line[s + 1], bx = line[s + 2], bz = line[s + 3];
           const dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz);

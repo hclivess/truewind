@@ -3,26 +3,59 @@
 import * as THREE from 'three';
 import { DEG } from './env.js';
 import { STRIP_F, REEF, clamp, lerp } from './physics.js';
+import { buildBoatModel, updateBoatModel } from './models.js';
+import { Rigging } from './rigging.js';
+import { Crew } from './crew.js';
+import { buildStructures, indexFeatures, structureMask } from './structures.js';
 
-const MAXW = 14;
+const MAXW = 20;
 const SKY_GLSL = /* glsl */`
 uniform vec3 uSunDir;
+uniform float uOvercast;
 vec3 skyColor(vec3 d) {
   float h = max(d.y, 0.0);
-  vec3 zenith = vec3(0.16, 0.36, 0.66);
-  vec3 horizon = vec3(0.70, 0.80, 0.88);
+  vec3 zenith = mix(vec3(0.16, 0.36, 0.66), vec3(0.36, 0.40, 0.45), uOvercast);
+  vec3 horizon = mix(vec3(0.70, 0.80, 0.88), vec3(0.58, 0.62, 0.66), uOvercast);
   vec3 c = mix(horizon, zenith, pow(h, 0.45));
   float s = max(dot(d, uSunDir), 0.0);
-  c += vec3(1.0, 0.85, 0.6) * (pow(s, 8.0) * 0.25 + pow(s, 64.0) * 0.5);
-  if (d.y < 0.0) c = mix(horizon, vec3(0.35, 0.45, 0.5), clamp(-d.y * 4.0, 0.0, 1.0));
+  c += vec3(1.0, 0.85, 0.6) * (pow(s, 8.0) * 0.25 + pow(s, 64.0) * 0.5) * (1.0 - 0.85 * uOvercast);
+  if (d.y < 0.0) c = mix(horizon, vec3(0.35, 0.45, 0.5) * (1.0 - 0.3 * uOvercast), clamp(-d.y * 4.0, 0.0, 1.0));
   return c;
 }`;
 
+// Gerstner components (same data as the physics): Wa = (dx, dz, k_deep, omega_doppler), Wb = (A, Q, phase, omega)
+// Depth from the chart texture (G channel, metres*8): finite-depth wavenumber, shoaling, breaking cap;
+// the phase field texture holds the integrated (k(h) - k_deep) along each component's direction.
 const WAVE_GLSL = /* glsl */`
-uniform vec4 uWa[${MAXW}]; // dx, dz, k, omega
-uniform vec4 uWb[${MAXW}]; // A, Q, phase, 0
+uniform vec4 uWa[${MAXW}];
+uniform vec4 uWb[${MAXW}];
 uniform int uWn;
 uniform float uTime;
+uniform sampler2D uSdf; uniform float uWorldR; uniform float uHasMap;
+uniform sampler2D uPF; uniform float uHasPF; uniform float uPFN;
+// GLSL tanh/sinh overflow to NaN for large arguments on many GPUs: keep them bounded
+float tanhS(float x) { x = clamp(x, -9.0, 9.0); float e = exp(2.0 * x); return (e - 1.0) / (e + 1.0); }
+float kDepth(float w, float h) { float k0 = w * w / 9.81; if (h > 30.0 || k0 * h > 6.0) return k0; return k0 / sqrt(max(tanhS(k0 * h), 1e-3)); }
+float shoal(float w, float h) {
+  float kh = kDepth(w, h) * h;
+  if (h > 30.0 || kh > 6.0) return 1.0;
+  float x = max(2.0 * kh, 1e-4);
+  float n = 0.5 * (1.0 + x / (0.5 * (exp(x) - exp(-x))));
+  return min(2.2, 1.0 / sqrt(max(0.2, n * tanhS(kh) / 0.5)));
+}
+float depthAt(vec2 x) {
+  if (uHasMap < 0.5) return 99.0;
+  vec4 s = texture2D(uSdf, (x + uWorldR) / (2.0 * uWorldR));
+  return s.r * 255.0 - 128.0 > 0.0 ? max(0.05, s.g * 255.0 / 8.0) : 0.05;
+}
+float phaseOff(int i, vec2 x) {
+  if (uHasPF < 0.5) return 0.0;
+  vec2 uv = clamp((x + uWorldR) / (2.0 * uWorldR), 0.5 / uPFN, 1.0 - 0.5 / uPFN);
+  float tile = floor(float(i) / 4.0);
+  vec4 v = texture2D(uPF, vec2((tile + uv.x) / 5.0, uv.y));
+  int c = i - int(tile) * 4;
+  return c == 0 ? v.x : c == 1 ? v.y : c == 2 ? v.z : v.w;
+}
 `;
 
 export class Renderer {
@@ -37,7 +70,7 @@ export class Renderer {
     r.shadowMap.enabled = !this.low;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 30000);
+    this.camera = new THREE.PerspectiveCamera(70, 1, 0.05, 30000); // human-like field of view
     this.sunDir = new THREE.Vector3().setFromSphericalCoords(1, (90 - 38) * DEG, 200 * DEG).normalize();
     this.scene.fog = new THREE.FogExp2(0xb7c8d4, 0.00011);
     const hemi = new THREE.HemisphereLight(0xcfe3f5, 0x3a5566, 0.9);
@@ -53,8 +86,12 @@ export class Renderer {
     this.markMeshes = [];
     this.forceArrows = null;
     this.showForces = false;
+    this.overcastU = { value: 0 };
+    this.hemi = hemi;
     this._buildSky();
     this._buildWater();
+    this._buildRain();
+    this.cloudMeshes = [];
     this.wakes = new Map();
   }
 
@@ -68,7 +105,7 @@ export class Renderer {
     const g = new THREE.SphereGeometry(20000, 32, 16);
     const m = new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false, fog: false,
-      uniforms: { uSunDir: { value: this.sunDir } },
+      uniforms: { uSunDir: { value: this.sunDir }, uOvercast: this.overcastU },
       vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); vec4 p = modelViewMatrix*vec4(position,1.0); gl_Position = projectionMatrix*p; gl_Position.z = gl_Position.w; }`,
       fragmentShader: `varying vec3 vDir; ${SKY_GLSL}
         void main(){ vec3 d = normalize(vDir); vec3 c = skyColor(d);
@@ -106,11 +143,13 @@ export class Renderer {
     this.gustTex.magFilter = THREE.LinearFilter; this.gustTex.minFilter = THREE.LinearFilter; this.gustTex.needsUpdate = true;
     this.sdfTex = new THREE.DataTexture(new Uint8Array(4 * 4 * 4).fill(255), 4, 4, THREE.RGBAFormat);
     this.sdfTex.needsUpdate = true;
+    this.pfTex = new THREE.DataTexture(new Uint16Array(4 * 4 * 4), 4, 4, THREE.RGBAFormat, THREE.HalfFloatType); this.pfTex.needsUpdate = true;
     const uniforms = {
       uWa: { value: Wa }, uWb: { value: Wb }, uWn: { value: 0 }, uTime: { value: 0 },
       uSunDir: { value: this.sunDir }, uCam: { value: new THREE.Vector3() }, uOffset: { value: new THREE.Vector2() },
       uGust: { value: this.gustTex }, uGustO: { value: new THREE.Vector2() }, uGustS: { value: 2048 },
-      uSdf: { value: this.sdfTex }, uWorldR: { value: 6000 }, uHasMap: { value: 0 },
+      uSdf: { value: this.sdfTex }, uWorldR: { value: 6000 }, uHasMap: { value: 0 }, uOvercast: this.overcastU,
+      uPF: { value: this.pfTex }, uHasPF: { value: 0 }, uPFN: { value: 96 },
       uFlow: { value: new THREE.Vector2(0, 1) }, uWind: { value: 6 }, uFoamK: { value: 0 },
       uDeep: { value: new THREE.Color(0x0a2f40) }, uShallow: { value: new THREE.Color(0x2e9c9a) },
       fogColor: { value: new THREE.Color(0xb7c8d4) }, fogDensity: { value: 0.00011 },
@@ -120,23 +159,29 @@ export class Renderer {
       uniforms, fog: false,
       vertexShader: /* glsl */`
         ${WAVE_GLSL}
-        uniform vec2 uOffset; uniform vec3 uCam; uniform sampler2D uSdf; uniform float uWorldR; uniform float uHasMap;
-        varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore;
+        uniform vec2 uOffset; uniform vec3 uCam;
+        varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore; varying float vBreak;
         void main(){
           vec2 x0 = position.xz + uOffset;
           float dist = length(x0 - uCam.xz);
           float fade = 1.0 - smoothstep(700.0, 3200.0, dist);
+          float h = depthAt(x0);
           float shore = 1.0;
           if (uHasMap > 0.5) {
-            vec2 uv = (x0 + uWorldR) / (2.0 * uWorldR);
-            float s = (texture2D(uSdf, uv).r * 255.0 - 128.0);
+            float s = (texture2D(uSdf, (x0 + uWorldR) / (2.0 * uWorldR)).r * 255.0 - 128.0);
             shore = clamp(s / 60.0, 0.08, 1.0);
           }
+          // depth-limited breaking cap on the local significant height
+          float a2 = 0.0;
+          for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break; float A = uWb[i].x * shoal(uWb[i].w, h); a2 += A * A; }
+          float Hs = 4.0 * sqrt(a2 * 0.5);
+          float cap = uHasMap > 0.5 && Hs > 0.78 * h ? 0.78 * h / Hs : 1.0;
+          vBreak = clamp(Hs / (0.78 * h) - 0.7, 0.0, 1.0);
           vec3 P = vec3(x0.x, 0.0, x0.y);
           for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break;
             vec4 a = uWa[i]; vec4 b = uWb[i];
-            float th = a.z * dot(a.xy, x0) - a.w * uTime + b.z;
-            float A = b.x * fade * shore;
+            float th = a.z * dot(a.xy, x0) + phaseOff(i, x0) - a.w * uTime + b.z;
+            float A = b.x * shoal(b.w, h) * cap * fade * shore;
             P.x += b.y * A * a.x * cos(th); P.z += b.y * A * a.y * cos(th); P.y += A * sin(th);
           }
           vPos = P; vX0 = x0; vFade = fade; vShore = shore;
@@ -146,22 +191,22 @@ export class Renderer {
         ${WAVE_GLSL}
         ${SKY_GLSL}
         uniform vec3 uCam; uniform sampler2D uGust; uniform vec2 uGustO; uniform float uGustS;
-        uniform sampler2D uSdf; uniform float uWorldR; uniform float uHasMap;
         uniform vec2 uFlow; uniform float uWind; uniform float uFoamK;
         uniform vec3 uDeep; uniform vec3 uShallow; uniform vec3 fogColor; uniform float fogDensity;
-        varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore;
+        varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore; varying float vBreak;
         float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
         float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
           return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
         void main(){
           vec2 x0 = vX0;
           float dist = length(vPos - uCam);
+          float hd = depthAt(x0);
           // analytic Gerstner normal + Jacobian (crest sharpness) for whitecaps
           vec3 n = vec3(0.0, 1.0, 0.0); float J = 1.0;
           for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break;
             vec4 a = uWa[i]; vec4 b = uWb[i];
-            float th = a.z * dot(a.xy, x0) - a.w * uTime + b.z;
-            float WA = a.z * b.x * vFade * vShore;
+            float th = a.z * dot(a.xy, x0) + phaseOff(i, x0) - a.w * uTime + b.z;
+            float WA = kDepth(b.w, hd) * b.x * shoal(b.w, hd) * vFade * vShore;
             n.x -= a.x * WA * cos(th); n.z -= a.y * WA * cos(th); n.y -= b.y * WA * sin(th);
             J -= b.y * WA * sin(th);
           }
@@ -190,7 +235,7 @@ export class Renderer {
           vec3 R = reflect(-V, n); R.y = abs(R.y);
           vec3 refl = skyColor(R);
           float shin = mix(900.0, 120.0, clamp(rip, 0.0, 1.0));
-          float spec = pow(max(dot(R, uSunDir), 0.0), shin) * (shin * 0.025 + 1.0);
+          float spec = pow(max(dot(R, uSunDir), 0.0), shin) * (shin * 0.025 + 1.0) * (1.0 - 0.9 * uOvercast);
           // water body colour: shallow sand shows through on real bathymetry
           float depth = 30.0;
           float sd = 999.0;
@@ -198,13 +243,13 @@ export class Renderer {
             vec4 s = texture2D(uSdf, (x0 + uWorldR) / (2.0 * uWorldR));
             sd = s.r * 255.0 - 128.0; depth = s.g * 255.0 / 8.0;
           }
-          vec3 body = mix(uShallow, uDeep, smoothstep(0.5, 9.0, depth));
+          vec3 body = mix(uShallow, uDeep, smoothstep(0.5, 9.0, depth)) * (1.0 - 0.35 * uOvercast);
           body *= 0.85 + 0.3 * clamp(vPos.y * 1.5 + 0.3, 0.0, 1.0);          // light through crests
           body *= 1.0 - 0.18 * clamp(gw - 1.0, 0.0, 1.0);                      // puffs look darker
           vec3 col = mix(body, refl, F) + vec3(1.0, 0.92, 0.8) * spec * 0.9;
           // whitecaps where the trochoid crest folds (only in real breeze)
           float fn = vnoise(x0 * 0.35 + uTime * 0.2) * vnoise(x0 * 1.3 - uTime * 0.3);
-          float cap = smoothstep(0.62, 0.35, J) * uFoamK * smoothstep(0.15, 0.5, fn) * vFade;
+          float cap = (smoothstep(0.62, 0.35, J) * uFoamK + vBreak * 0.9) * smoothstep(0.15, 0.5, fn) * vFade;
           col = mix(col, vec3(0.93, 0.96, 0.98), clamp(cap, 0.0, 0.9));
           // shoreline surf
           if (uHasMap > 0.5) {
@@ -228,20 +273,96 @@ export class Renderer {
     const n = Math.min(MAXW, waves.comps.length);
     for (let i = 0; i < MAXW; i++) {
       const c = waves.comps[i];
-      if (i < n) { U.uWa.value[i].set(c.dx, c.dz, c.k, c.omega); U.uWb.value[i].set(c.A, c.Q, c.phase, 0); }
-      else { U.uWa.value[i].set(0, 0, 0, 0); U.uWb.value[i].set(0, 0, 0, 0); }
+      if (i < n) { U.uWa.value[i].set(c.dx, c.dz, c.kRef ?? c.k, c.omegaEff ?? c.omega); U.uWb.value[i].set(c.A * (c.curAmp ?? 1), c.Q, c.phase, c.omega); }
+      else { U.uWa.value[i].set(0, 0, 0, 0); U.uWb.value[i].set(0, 0, 0, 1); }
     }
     U.uWn.value = n;
   }
   setWavesEnabled(on, waves) {
     if (on) this.setWaves(waves); else this.waterU.uWn.value = 0;
   }
+  // finite-depth phase field -> half-float texture (5 tiles of 4 components)
+  setPhaseField(waves) {
+    const U = this.waterU;
+    if (!waves.phaseField) { U.uHasPF.value = 0; return; }
+    const N = waves.pfN, F = waves.phaseField;
+    const data = new Float32Array(N * 5 * N * 4);
+    for (let tile = 0; tile < 5; tile++) for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) for (let c = 0; c < 4; c++) {
+      const ci = tile * 4 + c;
+      data[((j * N * 5) + tile * N + i) * 4 + c] = ci < F.length ? F[ci][j * N + i] : 0;
+    }
+    this.pfTex.dispose();
+    this.pfTex = new THREE.DataTexture(data, N * 5, N, THREE.RGBAFormat, THREE.FloatType);
+    const lin = !!this.r.extensions.get('OES_texture_float_linear');
+    this.pfTex.magFilter = lin ? THREE.LinearFilter : THREE.NearestFilter; this.pfTex.minFilter = this.pfTex.magFilter; this.pfTex.needsUpdate = true;
+    U.uPF.value = this.pfTex; U.uHasPF.value = 1; U.uPFN.value = N;
+  }
+
+  // ---------------------------------------------------------------- weather: overcast, rain, squall clouds
+  _buildRain() {
+    const n = this.low ? 1500 : 4000;
+    const pos = new Float32Array(n * 6);
+    this.rainSeeds = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { this.rainSeeds[i * 3] = Math.random(); this.rainSeeds[i * 3 + 1] = Math.random(); this.rainSeeds[i * 3 + 2] = Math.random(); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    this.rain = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xc9d4dc, transparent: true, opacity: 0.0, depthWrite: false }));
+    this.rain.frustumCulled = false; this.scene.add(this.rain);
+  }
+  updateWeather(env, t, cam) {
+    const W = env.weather; if (!W) return;
+    const sky = W.sky(cam.x, cam.z, t, this._sky || (this._sky = {}));
+    const oc = sky.overcast;
+    this.overcastU.value += (oc - this.overcastU.value) * 0.05;
+    const o = this.overcastU.value;
+    this.sun.intensity = 2.4 * (1 - 0.75 * o); this.hemi.intensity = 0.9 * (1 - 0.3 * o);
+    this.scene.fog.density = 0.00011 + 0.0012 * sky.rain;
+    this.waterU.fogDensity.value = this.scene.fog.density;
+    // rain streaks around the camera, slanted by the wind
+    const rain = sky.rain;
+    this.rain.material.opacity = Math.min(0.55, rain * 0.8);
+    this.rain.visible = rain > 0.03;
+    if (this.rain.visible) {
+      const p = this.rain.geometry.attributes.position.array, sd = this.rainSeeds, n = sd.length / 3;
+      const w = env.wind.sample(cam.x, cam.z, t, this._rw || (this._rw = {}));
+      const wx = -Math.sin(w.dir) * w.speed, wz = Math.cos(w.dir) * w.speed, fall = 7;
+      for (let i = 0; i < n; i++) {
+        const R = 40, x = cam.x + (sd[i * 3] - 0.5) * 2 * R, z = cam.z + (sd[i * 3 + 1] - 0.5) * 2 * R;
+        const y = ((sd[i * 3 + 2] * 30 - t * fall) % 30 + 30) % 30 + cam.y - 12;
+        const L = 0.12;
+        p.set([x + wx * 0.02 * (y % 3), y, z + wz * 0.02 * (y % 3), x + wx * L * 0.1, y + fall * L, z + wz * L * 0.1], i * 6);
+      }
+      this.rain.geometry.attributes.position.needsUpdate = true;
+    }
+    // squall clouds with rain curtains
+    const cells = W.cells || [];
+    if (!this.cloudMeshes.length && cells.length) {
+      for (let i = 0; i < 4; i++) {
+        const g = new THREE.Group();
+        const cl = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 1, transparent: true, opacity: 0.92 }));
+        cl.scale.set(1, 0.28, 1); g.add(cl);
+        const cu = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.9, 1, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0x7a838c, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false, fog: false }));
+        cu.position.y = -0.5; g.add(cu); g.userData = { cl, cu }; g.visible = false;
+        this.scene.add(g); this.cloudMeshes.push(g);
+      }
+    }
+    const act = W.activeCells ? W.activeCells(t) : [];
+    this.cloudMeshes.forEach((g, i) => {
+      const c = act[i];
+      if (!c) { g.visible = false; return; }
+      g.visible = true;
+      g.position.set(c.x, 900, c.z);
+      g.userData.cl.scale.set(c.R * 1.3, c.R * 0.35, c.R * 1.3);
+      g.userData.cu.scale.set(c.R * 0.8, 900, c.R * 0.8);
+      g.userData.cu.position.y = -450;
+    });
+  }
 
   // ---------------------------------------------------------------- terrain & piers from the real map
-  setWorld(world, geo) {
+  setWorld(world, geo, manifest = null) {
     if (this.land) { this.scene.remove(this.land); this.land.geometry.dispose(); }
     if (this.town) { this.scene.remove(this.town); }
     if (this.piersMesh) { this.scene.remove(this.piersMesh); }
+    const byId = indexFeatures(geo, manifest), onStructure = structureMask(geo, byId);
     this.world = world;
     const U = this.waterU;
     U.uHasMap.value = world.open ? 0 : 1;
@@ -289,6 +410,10 @@ export class Renderer {
       const x = (Math.random() * 2 - 1) * R * 0.95, z = (Math.random() * 2 - 1) * R * 0.95;
       const s = world.sdfAt(x, z);
       if (s > -30 || s < -1400) continue;
+      if (onStructure(x, z)) continue;
+      // thin strips of land (causeways, spits, moles) are not where towns are
+      let thick = 0; for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { let k = 0; while (k < 12 && world.sdfAt(x + dx * k * 12, z + dz * k * 12) < 0) k++; thick += k; }
+      if (thick < 14) continue;
       const h = world.landHeight(x, z);
       if (h > 70) continue;
       const dens = 0.5 + 0.5 * Math.sin(x * 0.004) * Math.cos(z * 0.0037);
@@ -307,24 +432,8 @@ export class Renderer {
       town.setColorAt(i, tmp.setHex(hc[i % hc.length]));
     });
     this.town = town; this.scene.add(town);
-    // piers / breakwaters: merged into two meshes (deck/rock and wooden piles)
-    const pierGroup = new THREE.Group();
-    const stone = [], timber = [];
-    const addBox = (list, w, h, l, x, y, z, ry) => {
-      const bg = new THREE.BoxGeometry(w, h, l); bg.rotateY(ry); bg.translate(x, y, z); list.push(bg);
-    };
-    for (const pr of (geo && geo.piers) || []) {
-      const pts = pr.pts, isPier = pr.kind === 'pier';
-      for (let k = 0; k + 3 < pts.length; k += 2) {
-        const ax = pts[k], az = pts[k + 1], bx = pts[k + 2], bz = pts[k + 3];
-        const L = Math.hypot(bx - ax, bz - az); if (L < 0.5) continue;
-        const ry = Math.atan2(bx - ax, bz - az);
-        addBox(isPier ? timber : stone, pr.w, isPier ? 1.2 : 2.5, L + pr.w * 0.5, (ax + bx) / 2, isPier ? 2.6 : 0.9, (az + bz) / 2, ry);
-        if (isPier) for (let t = 0; t < L; t += 9) { const u = t / L; addBox(timber, 0.45, 4, 0.45, ax + (bx - ax) * u, 0.4, az + (bz - az) * u, ry); }
-      }
-    }
-    if (stone.length) pierGroup.add(new THREE.Mesh(mergeGeometries(stone), new THREE.MeshStandardMaterial({ color: 0x9a948a, roughness: 0.9 })));
-    if (timber.length) pierGroup.add(new THREE.Mesh(mergeGeometries(timber), new THREE.MeshStandardMaterial({ color: 0x7a6650, roughness: 0.9 })));
+    // piers, breakwaters, viaducts, causeways and terminals (labelled ones drawn as what they are)
+    const pierGroup = buildStructures(world, geo, byId);
     this.piersMesh = pierGroup; this.scene.add(pierGroup);
   }
 
@@ -352,7 +461,10 @@ export class Renderer {
 
   // ---------------------------------------------------------------- boats
   addBoat(boat, opts = {}) {
-    const vis = buildBoat(boat, opts);
+    const vis = buildBoatModel(boat, opts);
+    vis.rigging = new Rigging(boat, vis, { player: !!opts.player });
+    vis.crew = new Crew(boat, vis, vis.rigging, { tint: opts.crewTint || 0 });
+    vis.player = !!opts.player;
     this.scene.add(vis.root);
     this.boats.set(boat, vis);
     const wake = new Wake(); this.scene.add(wake.mesh); this.wakes.set(boat, wake);
@@ -418,7 +530,12 @@ export class Renderer {
       this.sun.target.position.set(player.x, 0, player.z);
     }
     for (const [b, vis] of this.boats) {
-      updateBoat(vis, b, env, t, this.camera);
+      updateBoatModel(vis, b, t);
+      // detail near the camera: ropes and crew IK only where they can be seen
+      const dist = Math.hypot(b.x - cam.x, b.z - cam.z);
+      const near = vis.player || dist < 150;
+      vis.crew.update(dt, t);
+      vis.rigging.update(t, near);
       this.wakes.get(b).update(b, env, t, dt);
     }
     const tmp = {};
@@ -463,6 +580,14 @@ export class Renderer {
       const target = look.applyMatrix4(vis.inner.matrixWorld);
       cam.up.set(0, 1, 0).applyQuaternion(vis.inner.getWorldQuaternion(new THREE.Quaternion()));
       cam.lookAt(target);
+    } else if (c.mode === 'deck') {
+      // close orbit around the cockpit for handling lines
+      const vis = this.boats.get(b), C = b.cls;
+      vis.inner.updateMatrixWorld();
+      const focus = new THREE.Vector3(0, C.freeboard + 0.4, -(C.sternX + C.lwl * 0.35)).applyMatrix4(vis.inner.matrixWorld);
+      const yaw = c.yaw + b.psi, d = Math.min(c.dist, 9);
+      cam.position.set(focus.x - Math.sin(yaw) * Math.cos(c.pitch) * d, focus.y + Math.sin(c.pitch) * d + 0.5, focus.z + Math.cos(yaw) * Math.cos(c.pitch) * d);
+      cam.up.set(0, 1, 0); cam.lookAt(focus);
     } else if (c.mode === 'top') {
       const fl = env.wind.flowDir();
       cam.position.set(c.tx - fl[0] * 0.01, 40 + c.dist * 3.5, c.tz - fl[1] * 0.01 + 0.01);
@@ -585,77 +710,6 @@ function hullGeometry(C) {
   return { hull: g, deck: dg, transom: tg, sheerAt: (x) => { const t = clamp((x - L0) / (L1 - L0), 0, 1); return stations[Math.round(t * NS)][0]; } };
 }
 
-function foilGeometry(chord, span, thick = 0.1, taper = 0.7) {
-  // NACA-00xx section extruded downward, tapering
-  const shape = new THREE.Shape();
-  const n = 16, pts = [];
-  for (let i = 0; i <= n; i++) {
-    const x = 1 - Math.cos(i / n * Math.PI / 2 * 2) / 2 - 0.5 + 0.5;
-    const xc = i / n;
-    const yt = 5 * thick * (0.2969 * Math.sqrt(xc) - 0.126 * xc - 0.3516 * xc * xc + 0.2843 * xc ** 3 - 0.1015 * xc ** 4);
-    pts.push([xc, yt]);
-  }
-  shape.moveTo(0, 0);
-  for (const [x, y] of pts) shape.lineTo(x * chord, y * chord);
-  for (let i = pts.length - 1; i >= 0; i--) shape.lineTo(pts[i][0] * chord, -pts[i][1] * chord);
-  const g = new THREE.ExtrudeGeometry(shape, { depth: span, bevelEnabled: false, steps: 1 });
-  // shape is in (x,y), extruded along +z: map to x=aft(chord), y=down(span)
-  g.rotateX(Math.PI / 2); // z(depth) -> -y
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    const depth = -p.getY(i) / span; // 0 top .. 1 tip
-    const s = lerp(1, taper, depth);
-    p.setX(i, p.getX(i) * s + depth * chord * (1 - taper) * 0.3);
-    const zz = p.getZ(i); p.setZ(i, zz * s);
-  }
-  g.computeVertexNormals();
-  // local frame: +x = aft along chord; we want local three z = aft, x = starboard
-  g.rotateY(-Math.PI / 2);
-  return g;
-}
-
-function makeSailTexture(C, number, color) {
-  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 512;
-  const g = cv.getContext('2d');
-  const base = new THREE.Color(color);
-  g.fillStyle = `#${base.getHexString()}`; g.fillRect(0, 0, 256, 512);
-  // panel seams
-  g.strokeStyle = 'rgba(0,0,0,0.08)'; g.lineWidth = 2;
-  for (let y = 40; y < 512; y += 46) { g.beginPath(); g.moveTo(0, y); g.lineTo(256, y + 24); g.stroke(); }
-  // battens
-  g.strokeStyle = 'rgba(0,0,0,0.12)'; g.lineWidth = 3;
-  for (const y of [120, 220, 320, 410]) { g.beginPath(); g.moveTo(256, y); g.lineTo(150, y + 8); g.stroke(); }
-  if (number) {
-    g.fillStyle = C.id === 'blackwatch' ? '#f1e6cf' : '#1d2a44';
-    g.font = 'bold 72px "Barlow Condensed", Arial Narrow, sans-serif';
-    g.textAlign = 'center';
-    g.fillText(number, 128, 210);
-    g.font = 'bold 34px "Barlow Condensed", Arial Narrow, sans-serif';
-    g.fillText(C.id === 'blackwatch' ? 'BW' : C.id === 'sportboat' ? 'S23' : 'S14', 128, 110);
-  }
-  const t = new THREE.CanvasTexture(cv);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
-const NU = 8, NV = 12;
-function sailMesh(tex, color) {
-  const g = new THREE.BufferGeometry();
-  const pos = new Float32Array((NU + 1) * (NV + 1) * 3), uv = new Float32Array((NU + 1) * (NV + 1) * 2);
-  const idx = [];
-  for (let v = 0; v <= NV; v++) for (let u = 0; u <= NU; u++) {
-    const k = v * (NU + 1) + u; uv[2 * k] = 1 - u / NU; uv[2 * k + 1] = v / NV;
-    if (u < NU && v < NV) idx.push(k, k + 1, k + NU + 1, k + 1, k + NU + 2, k + NU + 1);
-  }
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  g.setIndex(idx);
-  const m = new THREE.MeshStandardMaterial({ color: tex ? 0xffffff : color, map: tex || null, side: THREE.DoubleSide, roughness: 0.75, metalness: 0, transparent: false });
-  const mesh = new THREE.Mesh(g, m);
-  mesh.castShadow = true; mesh.frustumCulled = false;
-  return mesh;
-}
-
 function buildMotorBoat() {
   const C = { beam: 3.0, freeboard: 1.2, canoeDraft: 0.5, sternX: -5, bowX: 5, hull: { color: 0xe9ecef, boot: 0x223344, stripe: 0xff7a1a, sectionN: 2.4, transom: 0.85, bowRake: 0.6, sheer: 0.15 } };
   const h = hullGeometry(C);
@@ -678,296 +732,6 @@ function buildMotorBoat() {
   }
   g.traverse(o => { if (o.isMesh) o.castShadow = true; });
   return g;
-}
-
-// =============================================================================== boat assembly
-function buildBoat(boat, opts) {
-  const C = boat.cls, H = C.hull;
-  const root = new THREE.Group();
-  const inner = new THREE.Group(); root.add(inner);
-  const hg = hullGeometry(C);
-  const hullMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.05, side: THREE.DoubleSide });
-  const hull = new THREE.Mesh(hg.hull, hullMat); hull.castShadow = true; hull.receiveShadow = true;
-  if (opts.hullColor) { hullMat.vertexColors = false; hullMat.color.setHex(opts.hullColor); }
-  inner.add(hull);
-  const deckMat = new THREE.MeshStandardMaterial({ color: H.deck, roughness: 0.85 });
-  const deck = new THREE.Mesh(hg.deck, deckMat); deck.receiveShadow = true; inner.add(deck);
-  inner.add(new THREE.Mesh(hg.transom, new THREE.MeshStandardMaterial({ color: opts.hullColor ?? H.color, roughness: 0.4, side: THREE.DoubleSide })));
-  const wood = new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 0.6 });
-  const metal = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, roughness: 0.35, metalness: 0.7 });
-  const carbon = new THREE.MeshStandardMaterial({ color: 0x22252a, roughness: 0.4, metalness: 0.2 });
-  const black = new THREE.MeshStandardMaterial({ color: 0x1c1e22, roughness: 0.5 });
-  const cockpit = new THREE.Mesh(new THREE.BoxGeometry(C.beam * 0.55, 0.05, C.lwl * 0.28), new THREE.MeshStandardMaterial({ color: 0x9b978c, roughness: 0.9 }));
-  cockpit.position.set(0, C.freeboard * 0.72, -(C.sternX + C.lwl * 0.2)); inner.add(cockpit);
-  if (C.cabin) { // Blackwatch coachroof with teak trim and bronze portlights
-    const cab = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.42, 2.0), new THREE.MeshStandardMaterial({ color: 0xe9e1cf, roughness: 0.6 }));
-    cab.position.set(0, C.freeboard + 0.2, -0.55); cab.castShadow = true; inner.add(cab);
-    const trim = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 2.05), wood); trim.position.set(0, C.freeboard + 0.02, -0.55); inner.add(trim);
-    for (const s of [-1, 1]) for (let i = 0; i < 3; i++) {
-      const port = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.03, 12), new THREE.MeshStandardMaterial({ color: 0xb08d57, metalness: 0.8, roughness: 0.3 }));
-      port.rotation.z = Math.PI / 2; port.position.set(s * 0.73, C.freeboard + 0.22, -1.1 + i * 0.55); inner.add(port);
-    }
-    const hatch = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.08, 0.55), wood); hatch.position.set(0, C.freeboard + 0.45, -0.1); inner.add(hatch);
-  }
-  // bowsprit
-  if (C.bowsprit) {
-    const bs = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, C.bowsprit + 0.6, 10), C.id === 'blackwatch' ? wood : carbon);
-    bs.rotation.x = Math.PI / 2; bs.position.set(0, C.freeboard + 0.12, -(C.bowX + C.bowsprit / 2 - 0.3));
-    inner.add(bs);
-    if (C.id === 'blackwatch') { // bobstay
-      const bob = lineBetween([0, C.freeboard + 0.1, -(C.bowX + C.bowsprit)], [0, 0.05, -(C.bowX - 0.1)], 0x222222); inner.add(bob);
-    }
-  }
-  // keel / board
-  const K = C.keel;
-  let keelMesh;
-  if (K.long) {
-    const kg = new THREE.BoxGeometry(0.16, C.draft - C.canoeDraft + 0.05, 3.9, 1, 1, 6);
-    const p = kg.attributes.position;
-    for (let i = 0; i < p.count; i++) { // rounded forefoot, raked heel
-      const z = p.getZ(i), y = p.getY(i);
-      if (z < -1.2 && y < 0) p.setY(i, y + (-z - 1.2) * 0.25);
-      if (y < 0) p.setX(i, p.getX(i) * 0.7);
-    }
-    kg.computeVertexNormals();
-    keelMesh = new THREE.Mesh(kg, black);
-    keelMesh.position.set(0, -C.canoeDraft - (C.draft - C.canoeDraft) / 2 + 0.03, -(K.x + 0.1));
-  } else {
-    keelMesh = new THREE.Mesh(foilGeometry(K.chord, K.span, 0.11, 0.75), C.keelBulb ? carbon : new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.4 }));
-    keelMesh.position.set(0, -C.canoeDraft + 0.05, -(K.x + K.chord * 0.35));
-    if (C.keelBulb) {
-      const bulb = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 1.1, 6, 12), new THREE.MeshStandardMaterial({ color: 0x2a2d31, metalness: 0.4, roughness: 0.4 }));
-      bulb.rotation.x = Math.PI / 2; bulb.position.set(0, -K.span, 0.2); keelMesh.add(bulb);
-    }
-  }
-  keelMesh.castShadow = true;
-  inner.add(keelMesh);
-  // rudder + tiller
-  const Rd = C.rudder;
-  const rudderPivot = new THREE.Group();
-  rudderPivot.position.set(0, Rd.transom ? C.freeboard * 0.6 : -C.canoeDraft * 0.3, -(Rd.x + (Rd.transom ? -0.02 : Rd.chord * 0.25)));
-  const blade = new THREE.Mesh(foilGeometry(Rd.chord, Rd.span + (Rd.transom ? C.freeboard * 0.6 + 0.2 : 0.1), 0.12, Rd.transom ? 0.95 : 0.75), Rd.transom ? wood : new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.4 }));
-  blade.position.set(0, 0, -Rd.chord * 0.2);
-  rudderPivot.add(blade);
-  const tiller = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, 1.2, 8), wood);
-  tiller.rotation.x = Math.PI / 2 + 0.12; tiller.position.set(0, (Rd.transom ? 0.35 : C.canoeDraft * 0.3 + C.freeboard + 0.25), 0.6);
-  rudderPivot.add(tiller);
-  inner.add(rudderPivot);
-  // mast & rig
-  const rig = new THREE.Group(); inner.add(rig);
-  const mastH = C.mastHeight - C.freeboard;
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.065, mastH, 10), C.id === 'blackwatch' ? new THREE.MeshStandardMaterial({ color: 0xc9a46b, roughness: 0.5 }) : C.id === 'sportboat' ? carbon : metal);
-  mast.position.set(0, C.freeboard + mastH / 2, -C.mastX); mast.castShadow = true; rig.add(mast);
-  const hounds = C.freeboard + mastH * (C.id === 'sportboat' ? 0.82 : 0.88);
-  const head = C.mastHeight;
-  const lines = [];
-  if (C.id !== 'dinghy') {
-    const spr = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, C.beam * 0.62, 6), metal);
-    spr.rotation.z = Math.PI / 2; spr.position.set(0, C.freeboard + mastH * 0.5, -C.mastX); rig.add(spr);
-    for (const s of [-1, 1]) {
-      lines.push(lineBetween([s * C.beam * 0.46, C.freeboard, -(C.mastX - 0.25)], [s * C.beam * 0.31, C.freeboard + mastH * 0.5, -C.mastX], 0x888888));
-      lines.push(lineBetween([s * C.beam * 0.31, C.freeboard + mastH * 0.5, -C.mastX], [0, hounds, -C.mastX], 0x888888));
-    }
-    const jib = boat.sailBy.jib, stay = boat.sailBy.stay;
-    if (jib) lines.push(lineBetween([0, jib.tackZ, -jib.tackX], [0, jib.tackZ + jib.luff * 0.99, -(jib.tackX - jib.rake)], 0x999999));
-    if (stay) lines.push(lineBetween([0, stay.tackZ, -stay.tackX], [0, stay.tackZ + stay.luff, -(stay.tackX - stay.rake)], 0x999999));
-    lines.push(lineBetween([0, head, -C.mastX], [0, C.freeboard + 0.1, -(C.sternX + 0.1)], 0x999999)); // backstay
-  }
-  lines.forEach(l => rig.add(l));
-  // booms
-  const booms = {};
-  for (const s of boat.sails) {
-    if (s.kind !== 'boom') continue;
-    const piv = new THREE.Group();
-    const px = s.key === 'main' ? C.mastX : s.tackX, pz = s.key === 'main' ? C.boomZ : s.tackZ;
-    piv.position.set(0, pz, -px);
-    const bm = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, s.foot, 8), s.key === 'main' && C.id === 'blackwatch' ? wood : metal);
-    bm.rotation.x = Math.PI / 2; bm.position.set(0, -0.03, s.foot / 2);
-    bm.castShadow = true; piv.add(bm);
-    rig.add(piv); booms[s.key] = piv;
-  }
-  const mainsheet = lineBetween([0, 0, 0], [0, 1, 0], 0x333333); rig.add(mainsheet);
-  // sails
-  const sailMeshes = {};
-  for (const s of boat.sails) {
-    const tex = s.key === 'main' ? makeSailTexture(C, opts.number, s.color) : null;
-    const m = sailMesh(tex, s.color);
-    rig.add(m); sailMeshes[s.key] = m;
-  }
-  // telltales: pairs on the headsail luff (or main luff on a una-rig) + leech ribbons on the main
-  const ttPos = new Float32Array(2 * 3 * 12), ttCol = new Float32Array(2 * 3 * 12);
-  const ttg = new THREE.BufferGeometry();
-  ttg.setAttribute('position', new THREE.BufferAttribute(ttPos, 3));
-  ttg.setAttribute('color', new THREE.BufferAttribute(ttCol, 3));
-  const telltales = new THREE.LineSegments(ttg, new THREE.LineBasicMaterial({ vertexColors: true }));
-  telltales.frustumCulled = false; rig.add(telltales);
-  // windex
-  const windex = new THREE.Group(); windex.position.set(0, head + 0.12, -C.mastX);
-  const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.35, 6), black); arrow.rotation.x = -Math.PI / 2; arrow.position.z = -0.25; windex.add(arrow);
-  const vane = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.12, 0.2), black); vane.position.z = 0.15; windex.add(vane);
-  rig.add(windex);
-  // crew
-  const crew = [];
-  const jackets = [0xff7a1a, 0x1d4e89, 0xd33f49, 0x2a9d8f];
-  for (let i = 0; i < C.crewN; i++) {
-    const p = new THREE.Group();
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.45, 4, 8), new THREE.MeshStandardMaterial({ color: jackets[(i + (opts.crewTint || 0)) % 4], roughness: 0.8 }));
-    torso.position.y = 0.45; p.add(torso);
-    const headM = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), new THREE.MeshStandardMaterial({ color: 0xe0b48f, roughness: 0.7 }));
-    headM.position.y = 0.93; p.add(headM);
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.125, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xf2f2f2 }));
-    cap.position.y = 0.95; p.add(cap);
-    const legs = new THREE.Mesh(new THREE.CapsuleGeometry(0.12, 0.5, 4, 8), new THREE.MeshStandardMaterial({ color: 0x2b2f38 }));
-    legs.rotation.z = Math.PI / 2; legs.position.set(0.3, 0.12, 0); p.add(legs); p.userData.legs = legs;
-    p.traverse(o => { if (o.isMesh) o.castShadow = true; });
-    inner.add(p); crew.push(p);
-  }
-  // board visual for dinghy slides up
-  root.traverse(o => { if (o.isMesh && !o.material.transparent) o.castShadow = true; });
-  if (opts.label) { // floating name tag for other sailors
-    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
-    const g = cv.getContext('2d');
-    g.fillStyle = 'rgba(11,22,31,0.78)'; g.fillRect(0, 8, 256, 48);
-    g.fillStyle = '#ff7a1a'; g.fillRect(0, 8, 6, 48);
-    g.fillStyle = '#e9eef2'; g.font = '600 30px "Barlow Condensed", Arial Narrow, sans-serif'; g.textBaseline = 'middle';
-    g.fillText(opts.label.slice(0, 16), 16, 33);
-    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, sizeAttenuation: false }));
-    sp.scale.set(0.12, 0.03, 1); sp.position.set(0, C.mastHeight + 1.5, 0); sp.renderOrder = 10;
-    root.add(sp);
-  }
-  return { root, inner, hull, booms, sailMeshes, rudderPivot, keelMesh, telltales, windex, crew, mainsheet, hg };
-}
-
-function lineBetween(a, b, color) {
-  const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
-  return new THREE.Line(g, new THREE.LineBasicMaterial({ color }));
-}
-
-// sail surface from the physics' strip shapes
-const _tmp = {};
-function updateSail(mesh, boat, s, t) {
-  const C = boat.cls, d = boat.diag;
-  const sh = d.shape[s.key], st = d.strips[s.key];
-  const pos = mesh.geometry.attributes.position.array;
-  const areaF = st.areaF ?? 1;
-  mesh.visible = areaF > 0.03;
-  if (!mesh.visible) return;
-  let px, pz, luff, rake = s.rake || 0;
-  if (s.key === 'main') { px = C.mastX; pz = C.boomZ; luff = s.luff * REEF[clamp(boat.ctrl.reef | 0, 0, s.reefs || 0)].l; }
-  else { px = s.tackX; pz = s.tackZ; luff = s.luff; }
-  if (s.kind === 'spin' || s.kind === 'loose') luff *= Math.sqrt(areaF); // hoisting / furling
-  const side = Math.sign(st.baseAngle || 1);
-  const flogAmp = st.reduce ? 0 : 1;
-  for (let v = 0; v <= NV; v++) {
-    const fv = v / NV;
-    // interpolate strip shapes along the luff
-    let a, dd, ff;
-    const F = STRIP_F;
-    if (fv <= F[0]) { const k = fv / F[0]; a = lerp(st.baseAngle ?? 0, sh[0].ang, k); dd = sh[0].d; ff = sh[0].f; }
-    else if (fv <= F[1]) { const k = (fv - F[0]) / (F[1] - F[0]); a = lerp(sh[0].ang, sh[1].ang, k); dd = lerp(sh[0].d, sh[1].d, k); ff = lerp(sh[0].f, sh[1].f, k); }
-    else if (fv <= F[2]) { const k = (fv - F[1]) / (F[2] - F[1]); a = lerp(sh[1].ang, sh[2].ang, k); dd = lerp(sh[1].d, sh[2].d, k); ff = lerp(sh[1].f, sh[2].f, k); }
-    else { const k = (fv - F[2]) / (1 - F[2]); a = sh[2].ang + (sh[2].ang - sh[1].ang) * k * 0.5; dd = sh[2].d; ff = sh[2].f; }
-    const si = fv < 0.33 ? 0 : fv < 0.66 ? 1 : 2;
-    const flog = st[si].flog || 0;
-    const state = st[si].state;
-    let chord = s.foot * (1 - fv) + s.head * fv;
-    if (s.key === 'main') chord += s.foot * 0.12 * Math.sin(Math.PI * fv) * (s.head / s.foot > 0.2 ? 1 : 0.6); // roach
-    if (s.kind === 'spin') chord *= 0.9 + 0.25 * Math.sin(Math.PI * fv);
-    const lx = px - rake * fv, lz = pz + fv * luff;
-    const ca = Math.cos(a), sa = Math.sin(a);
-    const cx = -ca, cy = sa;            // chord dir in (fwd, stbd)
-    const nx = sa * side, ny = ca * side; // normal toward leeward
-    const depth = dd * (1 - 0.8 * flog);
-    for (let u = 0; u <= NU; u++) {
-      const fu = u / NU;
-      const camb = fu < ff ? 1 - (1 - fu / ff) ** 2 : 1 - ((fu - ff) / (1 - ff)) ** 2;
-      let off = depth * chord * camb;
-      if (flog > 0.05) off += flog * 0.12 * chord * Math.sin(fu * 9 - t * 22 + fv * 4) * fu * (0.5 + 0.5 * Math.sin(t * 7 + fv * 3));
-      if (state === 1 && s.kind !== 'spin') off -= 0.25 * flog * depth * chord * Math.max(0, 1 - fu * 3); // luff lifting
-      const xb = lx + cx * chord * fu + nx * off;
-      const yb = cy * chord * fu + ny * off;
-      const k = (v * (NU + 1) + u) * 3;
-      pos[k] = yb; pos[k + 1] = lz; pos[k + 2] = -xb;
-    }
-  }
-  mesh.geometry.attributes.position.needsUpdate = true;
-  mesh.geometry.computeVertexNormals();
-}
-
-function updateBoat(vis, b, env, t, camera) {
-  const C = b.cls;
-  vis.root.position.set(b.x, b.heave, b.z);
-  vis.root.rotation.set(0, -b.psi, 0);
-  vis.inner.rotation.set(b.pitch, 0, -b.phi, 'YXZ');
-  vis.rudderPivot.rotation.y = b.rudder;
-  if (C.keel.board) vis.keelMesh.position.y = -C.canoeDraft + 0.05 + (1 - b.ctrl.board) * C.keel.span * 0.8;
-  for (const k in vis.booms) vis.booms[k].rotation.y = b.booms[k].a;
-  // mainsheet from boom end to traveler
-  const M = b.sailBy.main;
-  const ba = b.booms.main.a;
-  const endX = C.mastX - M.foot * 0.92 * Math.cos(ba), endY = M.foot * 0.92 * Math.sin(ba);
-  const trav = M.trav ? lerp(M.trav[0], M.trav[1], b.ctrl.trav) * Math.sign(ba || 1) : 0;
-  const ms = vis.mainsheet.geometry.attributes.position;
-  ms.setXYZ(0, endY, C.boomZ, -endX);
-  ms.setXYZ(1, Math.sin(trav) * 0.9, C.freeboard + 0.05, -endX);
-  ms.needsUpdate = true;
-  for (const s of b.sails) updateSail(vis.sailMeshes[s.key], b, s, t);
-  // windex follows the masthead apparent wind
-  vis.windex.rotation.y = -b.diag.awa + Math.PI;
-  // crew positions: spread along the cockpit, lean out when hiking
-  const n = vis.crew.length;
-  for (let i = 0; i < n; i++) {
-    const p = vis.crew[i];
-    const xFwd = C.sternX + 0.7 + (n > 1 ? i / (n - 1) : 0) * Math.min(2.4, C.lwl * 0.4) + b.crewX * 0.4;
-    const yOff = b.crewY * (0.85 + 0.15 * (i % 2));
-    const hike = clamp(Math.abs(yOff) / C.crewMaxOut, 0, 1);
-    const sideS = Math.sign(yOff || 1);
-    const deckY = C.freeboard + (C.cabin ? 0.1 : 0);
-    p.position.set(yOff * (1 - 0.25 * hike) + sideS * 0.05, deckY - 0.1, -xFwd);
-    p.rotation.set(0, 0, -sideS * hike * 1.0);
-    p.userData.legs.position.x = -sideS * 0.3;
-    if (b.capsized) p.position.y = deckY - 0.6;
-  }
-  // telltales
-  updateTelltales(vis, b, t);
-}
-
-function updateTelltales(vis, b, t) {
-  const C = b.cls;
-  const pos = vis.telltales.geometry.attributes.position, col = vis.telltales.geometry.attributes.color;
-  const head = b.sailBy.jib && (b.diag.strips.jib.areaF ?? 1) > 0.3 ? b.sailBy.jib : b.sailBy.main;
-  const st = b.diag.strips[head.key], sh = b.diag.shape[head.key];
-  let n = 0;
-  const px = head.key === 'main' ? C.mastX : head.tackX, pz = head.key === 'main' ? C.boomZ : head.tackZ;
-  const luff = head.key === 'main' ? head.luff : head.luff;
-  const side = Math.sign(st.baseAngle || 1);
-  for (let i = 0; i < 3; i++) {
-    const fv = STRIP_F[i], s = st[i], a = sh[i].ang;
-    const chord = head.foot * (1 - fv) + head.head * fv;
-    const u = 0.12;
-    const cx = -Math.cos(a), cy = Math.sin(a);
-    const baseX = px - (head.rake || 0) * fv + cx * chord * u, baseY = cy * chord * u, baseZ = pz + fv * luff;
-    for (const ws of [-1, 1]) { // windward (-1 = toward windward side) / leeward ribbons
-      const nx = Math.sin(a) * side * ws * 0.02, ny = Math.cos(a) * side * ws * 0.02;
-      let dx = cx, dy = cy, dz = 0;
-      const wob = Math.sin(t * 13 + i * 2 + ws) * 0.15;
-      if (s.state === 3 && ws > 0) { // leeward stalled: lifts and spins
-        dx = cx * 0.2 + Math.sin(t * 9 + i) * 0.5; dy = cy * 0.2 + Math.cos(t * 7 + i) * 0.5; dz = 0.7;
-      } else if (s.state === 1 && ws < 0) { // windward lifts when pinching / luffing
-        dx = cx * 0.3 + Math.sin(t * 11) * 0.4; dy = cy * 0.3 - side * 0.5; dz = 0.6;
-      } else { dy += wob * 0.3; }
-      const L = 0.28;
-      const k = n * 2;
-      pos.setXYZ(k, baseY + ny, baseZ, -(baseX + nx));
-      pos.setXYZ(k + 1, baseY + ny + dy * L, baseZ + dz * L, -(baseX + nx + dx * L));
-      const green = ws * side > 0 ? [0.1, 0.8, 0.3] : [0.9, 0.15, 0.15];
-      col.setXYZ(k, ...green); col.setXYZ(k + 1, ...green);
-      n++;
-    }
-  }
-  pos.needsUpdate = true; col.needsUpdate = true;
-  vis.telltales.geometry.setDrawRange(0, n * 2);
 }
 
 // =============================================================================== wake

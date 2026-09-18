@@ -28,6 +28,7 @@
 //  * Waves: Froude-Krylov slope forces (surfing), roll/yaw forcing.
 
 import { G, DEG, KT } from './env.js';
+import { HullHydro } from './hull.js';
 
 export const RHO_A = 1.225, RHO_W = 1025, NU_W = 1.19e-6;
 
@@ -58,15 +59,15 @@ export const CLASSES = {
     specs: 'LOA 5.64 m (≈7.2 m incl. bowsprit) · LWL 5.33 m · Beam 2.29 m · Draft 0.61 m · 1,021 kg · 363 kg iron ballast · Sail area 19.7 m²',
     lwl: 5.33, loa: 5.64, beam: 2.29, bowX: 2.85, sternX: -2.79, freeboard: 0.78, canoeDraft: 0.42, wetted: 11.6, draft: 0.61,
     bowsprit: 1.45, cabin: true, longKeel: true,
-    massHull: 1021, crewN: 2, crewEach: 80, crewZ: 0.8, crewMaxOut: 0.92, crewLee: -0.5, hikeRate: 0.5,
-    gm: 0.92, bmForm: 0.62, Ixx: 1150, Izz: 2700, amX: 0.07, amY: 0.9, amYaw: 0.6, amRoll: 0.3,
+    massHull: 1021, zG: -0.08, crewN: 2, crewEach: 80, crewZ: 0.8, crewMaxOut: 0.92, crewLee: -0.5, hikeRate: 0.5,
+    gm: 0.92, bmForm: 0.62, Ixx: 1150, Izz: 2250, amX: 0.07, amY: 0.9, amYaw: 0.6, amRoll: 0.3,
     rr: [[0.1, 0.0002], [0.15, 0.0006], [0.2, 0.0016], [0.25, 0.0035], [0.3, 0.0072], [0.35, 0.0145], [0.4, 0.031],
          [0.45, 0.058], [0.5, 0.085], [0.55, 0.101], [0.6, 0.11], [0.7, 0.12], [0.8, 0.125], [1.0, 0.13], [1.5, 0.14]],
-    keel: { x: -0.25, z: -0.3, area: 1.7, ARe: 0.95, stall: 26 * DEG, cd0: 0.013, span: 0.35, chord: 3.6, long: true },
-    rudder: { x: -2.78, z: -0.28, area: 0.34, ARe: 1.6, stall: 22 * DEG, cd0: 0.014, max: 35 * DEG, span: 0.75, chord: 0.5, transom: true, loadRef: 900 },
+    keel: { x: 0.75, z: -0.3, area: 1.7, ARe: 0.95, stall: 26 * DEG, cd0: 0.013, span: 0.35, chord: 3.6, long: true },
+    rudder: { x: -2.78, z: -0.28, area: 0.34, ARe: 2.4, stall: 22 * DEG, cd0: 0.014, max: 35 * DEG, span: 0.75, chord: 0.5, transom: true, loadRef: 900 },
     hullLat: { area: 0.9, cd: 0.9, z: -0.1 },
     windage: { area: 3.1, z: 2.1, cd: 0.95 },
-    mastX: 0.35, mastHeight: 8.4, boomZ: 1.4, keelBulb: false,
+    mastX: 0.25, mastHeight: 8.4, boomZ: 1.4, keelBulb: false,
     targetHeel: 18 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 900,
     sails: [
       { key: 'main', kind: 'boom', area: 10.4, luff: 6.5, foot: 3.0, head: 0.15, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
@@ -85,15 +86,15 @@ export const CLASSES = {
     specs: 'LOA 6.93 m · LWL 6.10 m · Beam 2.25 m · Draft 1.45 m · 794 kg · Main 16.7 m² · Jib 9.1 m² · Gennaker 39.5 m²',
     lwl: 6.1, loa: 6.93, beam: 2.25, bowX: 3.55, sternX: -3.38, freeboard: 0.72, canoeDraft: 0.28, wetted: 10.2, draft: 1.45,
     bowsprit: 1.0,
-    massHull: 794, crewN: 4, crewEach: 80, crewZ: 0.6, crewMaxOut: 1.05, crewLee: -0.55, hikeRate: 0.55,
+    massHull: 794, zG: -0.22, crewN: 4, crewEach: 80, crewZ: 0.6, crewMaxOut: 1.05, crewLee: -0.55, hikeRate: 0.55,
     gm: 1.05, bmForm: 0.65, Ixx: 1400, Izz: 3600, amX: 0.06, amY: 0.7, amYaw: 0.4, amRoll: 0.25,
     rr: [[0.1, 0.0001], [0.15, 0.0004], [0.2, 0.0009], [0.25, 0.0018], [0.3, 0.0035], [0.35, 0.0065], [0.4, 0.013],
          [0.45, 0.025], [0.5, 0.037], [0.55, 0.045], [0.6, 0.049], [0.7, 0.051], [0.8, 0.05], [1.0, 0.048], [1.2, 0.049], [1.5, 0.055]],
-    keel: { x: 0.15, z: -0.85, area: 0.58, ARe: 5.0, stall: 14 * DEG, cd0: 0.009, span: 1.17, chord: 0.5 },
+    keel: { x: 0.33, z: -0.85, area: 0.58, ARe: 5.0, stall: 14 * DEG, cd0: 0.009, span: 1.17, chord: 0.5 },
     rudder: { x: -3.05, z: -0.45, area: 0.23, ARe: 3.6, stall: 15 * DEG, cd0: 0.01, max: 32 * DEG, span: 0.95, chord: 0.26, loadRef: 700 },
     hullLat: { area: 1.5, cd: 0.9, z: -0.1 },
     windage: { area: 2.8, z: 2.4, cd: 0.9 },
-    mastX: 0.75, mastHeight: 10.2, boomZ: 1.55, keelBulb: true,
+    mastX: 0.62, mastHeight: 10.2, boomZ: 1.55, keelBulb: true,
     targetHeel: 17 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 1400,
     sails: [
       { key: 'main', kind: 'boom', area: 16.7, luff: 8.3, foot: 2.95, head: 0.75, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
@@ -111,15 +112,15 @@ export const CLASSES = {
     blurb: '4.2 m una-rig Olympic-style dinghy. One sailor, unstayed bendy mast, daggerboard, vang-sheeting. Capsizes if you let it.',
     specs: 'LOA 4.23 m · LWL 3.81 m · Beam 1.37 m · Hull 59 kg · Sail 7.06 m²',
     lwl: 3.81, loa: 4.23, beam: 1.37, bowX: 2.2, sternX: -2.03, freeboard: 0.38, canoeDraft: 0.16, wetted: 3.3, draft: 0.9,
-    massHull: 59, crewN: 1, crewEach: 80, crewZ: 0.38, crewMaxOut: 1.08, crewLee: -0.3, hikeRate: 1.9,
+    massHull: 59, zG: 0.12, crewN: 1, crewEach: 80, crewZ: 0.38, crewMaxOut: 1.08, crewLee: -0.3, hikeRate: 1.9,
     gm: 0.36, bmForm: 0.56, Ixx: 110, Izz: 190, amX: 0.05, amY: 0.5, amYaw: 0.4, amRoll: 0.2,
     rr: [[0.1, 0.0001], [0.15, 0.0005], [0.2, 0.0012], [0.25, 0.0027], [0.3, 0.0055], [0.35, 0.011], [0.4, 0.021],
          [0.45, 0.035], [0.5, 0.048], [0.55, 0.055], [0.6, 0.057], [0.7, 0.055], [0.8, 0.052], [1.0, 0.049], [1.2, 0.05], [1.5, 0.056]],
-    keel: { x: 0.4, z: -0.55, area: 0.29, ARe: 5.0, stall: 13 * DEG, cd0: 0.01, span: 0.82, chord: 0.36, board: true },
+    keel: { x: 0.5, z: -0.55, area: 0.29, ARe: 5.0, stall: 13 * DEG, cd0: 0.01, span: 0.82, chord: 0.36, board: true },
     rudder: { x: -2.08, z: -0.35, area: 0.12, ARe: 3.8, stall: 15 * DEG, cd0: 0.011, max: 35 * DEG, span: 0.62, chord: 0.2, loadRef: 260 },
     hullLat: { area: 0.5, cd: 0.9, z: -0.05 },
     windage: { area: 0.75, z: 1.0, cd: 1.0 },
-    mastX: 1.25, mastHeight: 6.1, boomZ: 0.78, keelBulb: false,
+    mastX: 1.15, mastHeight: 6.1, boomZ: 0.78, keelBulb: false,
     targetHeel: 6 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 420,
     sails: [
       { key: 'main', kind: 'boom', area: 7.06, luff: 5.1, foot: 2.75, head: 0.25, depth: [0.12, 0.14, 0.12], twistMax: 24 * DEG,
@@ -128,12 +129,46 @@ export const CLASSES = {
     ],
     hull: { color: 0xf6f6f2, stripe: 0xc8412c, deck: 0xe6e3da, boot: 0xc8412c, sectionN: 2.2, transom: 0.72, bowRake: 0.15, sheer: 0.05 },
   },
+  cat: {
+    id: 'cat', name: 'Beach Cat 16',
+    blurb: '16 ft beach catamaran: twin slender hulls, trampoline, two daggerboards and two rudders, both crew on trapeze. Flies a hull from about 10 kn, and pitchpoles if you bury the bows.',
+    specs: 'LOA 5.04 m · Beam 2.41 m · Hull 160 kg · Main 13.7 m² (full battens) · Jib 5.2 m² · Spinnaker 17.5 m²',
+    multihull: true, hullBeam: 0.42, hullSpacing: 2.0, noWinches: true, trapeze: true,
+    lwl: 4.9, loa: 5.04, beam: 2.41, bowX: 2.52, sternX: -2.52, freeboard: 0.45, canoeDraft: 0.22, wetted: 4.8, draft: 0.85,
+    bowsprit: 0.9,
+    massHull: 160, zG: 0.42, crewN: 2, crewEach: 72, crewZ: 0.5, crewMaxOut: 2.0, crewLee: -0.4, hikeRate: 1.0,
+    gm: 3, bmForm: 1, Ixx: 560, Izz: 520, amX: 0.04, amY: 0.35, amYaw: 0.4, amRoll: 0.4,
+    rr: [[0.1, 0.0004], [0.2, 0.002], [0.3, 0.0055], [0.35, 0.009], [0.4, 0.0135], [0.45, 0.018], [0.5, 0.021], [0.6, 0.0225], [0.7, 0.022], [0.8, 0.021], [1.0, 0.0195], [1.2, 0.019], [1.5, 0.02]],
+    keel: { x: 0.35, z: -0.5, area: 0.36, ARe: 4.5, stall: 13 * DEG, cd0: 0.011, span: 0.75, chord: 0.26, board: true, twin: true },
+    rudder: { x: -2.4, z: -0.3, area: 0.18, ARe: 3.5, stall: 16 * DEG, cd0: 0.012, max: 30 * DEG, span: 0.6, chord: 0.2, loadRef: 250, twin: true },
+    hullLat: { area: 0.6, cd: 0.9, z: -0.08 },
+    windage: { area: 2.1, z: 1.1, cd: 1.0 },
+    mastX: 0.6, mastHeight: 8.9, boomZ: 1.25, keelBulb: false,
+    targetHeel: 7 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 700,
+    sails: [
+      { key: 'main', kind: 'boom', area: 13.7, luff: 7.2, foot: 2.6, head: 1.1, depth: [0.1, 0.12, 0.11], twistMax: 15 * DEG,
+        cd0: 0.06, ARe: 4.6, min: 1 * DEG, max: 75 * DEG, trav: [-4 * DEG, 24 * DEG], Iboom: 16, boomMass: 6, reefs: 0,
+        vangBend: 0.2, sheetBend: 0.25, color: 0xf2f4f6 },
+      { key: 'jib', kind: 'loose', area: 5.2, tackX: 2.3, tackZ: 0.55, luff: 6.2, foot: 1.7, head: 0.06, rake: 0.4,
+        depth: [0.12, 0.13, 0.11], cd0: 0.04, ARe: 4.5, min: 9 * DEG, max: 40 * DEG, sagK: 0.8, color: 0xf2f4f6 },
+      { key: 'gennaker', kind: 'spin', replaces: 'jib', area: 17.5, tackX: 3.35, tackZ: 0.5, luff: 7.4, foot: 3.3, head: 0.4, rake: 0.4,
+        depth: [0.18, 0.2, 0.18], cd0: 0.08, ARe: 2.4, min: 14 * DEG, max: 95 * DEG, color: 0x1d4e89 },
+    ],
+    hull: { color: 0xf5f5f2, stripe: 0xd9412b, deck: 0xe8e8e4, boot: 0xd9412b, bootTop: 0xf5f5f2, sectionN: 2, transom: 0.35, bowRake: 0.05, sheer: 0.1 },
+  },
 };
-export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy'];
+export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat'];
 
 export const STRIP_F = [0.17, 0.5, 0.82];
 const STRIP_W = [0.43, 0.34, 0.23];
 export const REEF = [{ a: 1, l: 1 }, { a: 0.76, l: 0.84 }, { a: 0.56, l: 0.69 }];
+// area / luff factors at a continuous reef position (reefing is a procedure, not a switch)
+export function reefAt(pos) {
+  const i = Math.max(0, Math.min(1, Math.floor(pos))), f = Math.max(0, Math.min(2, pos)) - i;
+  return { a: lerp(REEF[i].a, REEF[Math.min(2, i + 1)].a, f), l: lerp(REEF[i].l, REEF[Math.min(2, i + 1)].l, f) };
+}
+// seconds for the crew to put in (or shake out) one reef
+export function reefTime(C) { return C.id === 'blackwatch' ? 70 : 45; }
 
 // ---------------------------------------------------------------------------------------------
 // Section coefficients from sail shape. a = |alpha| (rad, 0..pi/2), d = camber depth / chord,
@@ -211,8 +246,17 @@ export class Boat {
     this.crewMass = C.crewN * C.crewEach;
     this.m11 = this.mass * (1 + C.amX); this.m22 = this.mass * (1 + C.amY);
     this.Izz = C.Izz * (1 + C.amYaw); this.Ixx = C.Ixx * (1 + C.amRoll);
-    this.kRoll = this.mass * G * C.gm;
-    this.cRoll = 2 * 0.07 * Math.sqrt(this.kRoll * this.Ixx);
+    // hydrostatics from the drawn hull (shared geometry with the renderer)
+    this.hydro = new HullHydro(C);
+    const h0 = this.hydro.immerse(0.02, 0, 0, () => 0, () => 0, {});
+    const h1 = this.hydro.immerse(-0.02, 0, 0, () => 0, () => 0, {});
+    this.Awp = Math.max(0.2, (h1.V - h0.V) / 0.04);                  // waterplane area
+    this.xG = this.hydro.immerse(0, 0, 0, () => 0, () => 0, {}).Mx / this.hydro.restV; // LCG over the LCB at rest
+    this.m33 = this.mass * 1.8;                                       // heave incl. added mass
+    this.Iyy = this.mass * (0.27 * C.loa) ** 2 * 1.7;                  // pitch incl. added inertia
+    this.kRoll = RHO_W * G * this.Awp * (C.beam * C.beam / 12);
+    this.cRoll = 2 * 0.07 * Math.sqrt(Math.max(1, this.mass * G * 0.6) * this.Ixx);
+    this._hy = {}; this._ws7 = []; for (let i = 0; i < 7; i++) this._ws7.push({});
     this.sails = C.sails;
     this.sailBy = {};
     for (const s of C.sails) this.sailBy[s.key] = s;
@@ -243,6 +287,7 @@ export class Boat {
     this.heave = 0; this.heaveV = 0; this.pitch = 0; this.pitchV = 0;
     this.capsized = false; this.capsizeT = 0; this.righting = 0;
     this.aground = 0;
+    this.reefPos = 0; this.reefSlack = 0; this.reefing = false;
     this.log = 0; this.t = 0; this.slam = 0;
     this._clHead = 0; this._clMain = 0;
   }
@@ -280,7 +325,8 @@ export class Boat {
         if (i > 0) d *= 1 - 0.38 * bend * (i === 2 ? 1.2 : 0.9);
         f = 0.5 - 0.2 * c.cunn + 0.12 * stretch;
         d *= (1 - 0.12 * c.cunn) * (1 + 0.1 * stretch);
-        if (c.reef > 0) d *= 1 - 0.1 * c.reef;
+        if (this.reefPos > 0) d *= 1 - 0.1 * this.reefPos;
+        d *= 1 + 0.9 * this.reefSlack; f += 0.12 * this.reefSlack;
       } else if (s.key === 'jib') {
         const ease = this.lines.jib;
         tw = (3 * DEG + 16 * DEG * (0.35 * ease + 0.6 * c.jibLead)) * Math.pow(fr, 1.2);
@@ -314,18 +360,16 @@ export class Boat {
     // ---- environment at the boat ----
     const cur = env.current.at(this.x, this.z, this._c);
     let wv = null, slopeAlong = 0, slopeLat = 0, slopeLatBow = 0, slopeLatStern = 0, orbU = 0, orbV = 0, waveH = 0;
+    // the sea along the hull: 7 samples from stern to bow (height, slopes, orbital velocity)
+    const W7 = this._ws7, xs7 = this._xs7 || (this._xs7 = [0, 1, 2, 3, 4, 5, 6].map(i => C.sternX + (C.bowX - C.sternX) * i / 6));
     if (env.wavesOn) {
-      wv = env.waves.sample(this.x, this.z, t, this._wv);
+      for (let i = 0; i < 7; i++) env.waves.sample(this.x + fx * xs7[i], this.z + fz * xs7[i], t, W7[i]);
+      wv = W7[3];
       waveH = wv.h;
       slopeAlong = wv.sx * fx + wv.sz * fz;
       slopeLat = wv.sx * sx + wv.sz * sz;
       orbU = wv.vx * fx + wv.vz * fz; orbV = wv.vx * sx + wv.vz * sz;
-      const L3 = C.lwl / 3;
-      const wb = env.waves.sample(this.x + fx * L3, this.z + fz * L3, t, this._wb || (this._wb = {}));
-      const ws = env.waves.sample(this.x - fx * L3, this.z - fz * L3, t, this._ws || (this._ws = {}));
-      slopeLatBow = wb.sx * sx + wb.sz * sz; slopeLatStern = ws.sx * sx + ws.sz * sz;
-      this._hb = wb.h; this._hs = ws.h;
-    } else { this._hb = this._hs = 0; }
+    } else for (let i = 0; i < 7; i++) { W7[i].h = 0; W7[i].sx = 0; W7[i].sz = 0; }
 
     const vgx = this.u * fx + this.v * sx + cur.x, vgz = this.u * fz + this.v * sz + cur.z;
     this.vgx = vgx; this.vgz = vgz;
@@ -374,16 +418,35 @@ export class Boat {
     for (const k of ['jib', 'gennaker']) {
       const cs = this.side[k];
       let want = -Math.sign(awaMid) || cs;
+      // tacking: the crew holds the jib aback until the bow is clearly through the wind, then lets
+      // it go — heavy long-keelers need it held longer to push the bow round
+      const hold = (k === 'jib' ? (C.id === 'blackwatch' ? 20 : 7) : 4) * DEG;
+      if (Math.sign(want) !== Math.sign(cs) && Math.abs(awaMid) < hold) want = Math.sign(cs) || want;
       if (k === 'jib' && ctrl.backJib) want = ctrl.backJib; // crew holds the clew to windward
       else if (Math.sign(want) !== Math.sign(cs) && Math.abs(awaMid) > (k === 'jib' ? 160 : 176) * DEG) want = Math.sign(cs) || want;
       const rt = flipRate * dt * (k === 'jib' ? 2 : 1.2) * (C.id === 'blackwatch' ? 0.7 : 1);
       this.side[k] = clamp(cs + clamp(want - cs, -rt, rt), -1, 1);
     }
 
+    // ---- reefing procedure: ease halyard -> tack down + reef line -> re-tension halyard ----
+    {
+      const target = clamp(ctrl.reef | 0, 0, M0.reefs || 0);
+      const T = reefTime(C);
+      if (Math.abs(target - this.reefPos) > 1e-3) {
+        const dir = Math.sign(target - this.reefPos);
+        this.reefPos = dir > 0 ? Math.min(target, this.reefPos + dt / T) : Math.max(target, this.reefPos - dt / (T * 0.7));
+        this.reefing = true;
+      } else { this.reefPos = target; this.reefing = false; }
+      const ph = this.reefPos - Math.floor(this.reefPos);
+      // halyard slack peaks in the middle of each reef: the main bags and flogs while the crew works
+      this.reefSlack = this.reefing ? Math.max(Math.sin(Math.PI * ph), 0.35) : Math.max(0, this.reefSlack - dt * 0.8);
+      d.reefing = this.reefing; d.reefProgress = ph;
+    }
+
     // ---- sails ----
     const sc = this._sc;
     let clHeadSum = 0, clMainMid = 0;
-    const reef = REEF[clamp(ctrl.reef | 0, 0, M0.reefs || 0)];
+    const reef = reefAt(this.reefPos);
     for (const s of this.sails) {
       const key = s.key;
       const ds = d.strips[key], sh = d.shape[key];
@@ -448,6 +511,7 @@ export class Boat {
           cl *= fill; cd = lerp(0.35, cd, fill);
           if (i === 1) genAlphaMid = a;
         }
+        if (key === 'main' && this.reefSlack > 0) flogging = Math.max(flogging, 0.75 * this.reefSlack);
         if (flogging > 0) { cl *= 1 - flogging; cd += 0.15 * flogging; }
         let lx = -(cx - dot * dx) * rev, ln = -(cn - dot * dn) * rev;
         const lm = Math.hypot(lx, ln) + 1e-9; lx /= lm; ln /= lm;
@@ -502,6 +566,7 @@ export class Boat {
     }
     this._clHead = lerp(this._clHead, clHeadSum, 0.2);
     this._clMain = lerp(this._clMain, clMainMid, 0.2);
+    d.Nsail = N;
     X += sailX; Y += sailY; K += sailK;
     this._sailKf = lerp(this._sailKf || 0, sailK, clamp(dt * 4, 0, 1));
 
@@ -516,13 +581,28 @@ export class Boat {
 
     // ---- hydrodynamics ----
     const uw = this.u - 0.6 * orbU, vw = this.v - 0.6 * orbV;
-    const Fn = Math.abs(uw) / Math.sqrt(G * C.lwl);
+    // immersion of the real hull in the local sea (heave, pitch and heel included)
+    const hy = this.hydro;
+    const interp7 = (arr, key, x) => { const f = clamp((x - C.sternX) / (C.bowX - C.sternX) * 6, 0, 5.999), i = Math.floor(f), w = f - i; return arr[i][key] * (1 - w) + arr[i + 1][key] * w; };
+    const etaAt = (x) => interp7(W7, 'h', x);
+    const slLat = (x) => (interp7(W7, 'sx', x) * sx + interp7(W7, 'sz', x) * sz);
+    const slAl = (x) => (interp7(W7, 'sx', x) * fx + interp7(W7, 'sz', x) * fz);
+    const imm = hy.immerse(this.heave, this.pitch, this.phi, etaAt, slLat, this._hy, slAl);
+    if (C.multihull) {
+      const vh = imm.Vh || [imm.V / 2, imm.V / 2];
+      this.flyIn = clamp(Math.min(vh[0], vh[1]) / Math.max(1e-6, Math.max(vh[0], vh[1])), 0, 1);
+    } else this.flyIn = 1;
+    d.flyIn = this.flyIn;
+    const lwlDyn = Math.max(0.3, imm.lwl) * (C.lwl / hy.restLwl);
+    const Fn = Math.abs(uw) / Math.sqrt(G * lwlDyn);
+    d.lwl = lwlDyn; d.wetted = imm.girthLen; d.displaced = imm.V * RHO_W;
     d.fn = Fn;
     const fc = this._fc;
     let keelCl = 0;
     {
       const F = C.keel;
-      const board = F.board ? clamp(ctrl.board, 0.05, 1) : 1;
+      let board = F.board ? clamp(ctrl.board, 0.05, 1) : 1;
+      if (F.twin) board *= 0.5 + 0.5 * this.flyIn;           // the windward board lifts out with its hull
       const area = F.area * board, ARe = F.ARe * Math.max(0.3, board), zk = F.z * (0.4 + 0.6 * board);
       const ul = this.u - 0.3 * orbU;
       const vl = (this.v - 0.3 * orbV + this.r * F.x + this.p * zk) * cphi;
@@ -532,6 +612,7 @@ export class Boat {
       const q = 0.5 * RHO_W * V2 * area * (this.capsized ? 0.4 : 1);
       const kx = q * (fc.cl * vl / V - fc.cd * ul / V), kn = q * (-fc.cl * ul / V - fc.cd * vl / V);
       X += kx; Y += kn * cphi; K += kn * zk; N += F.x * kn * cphi;
+      d.Nkeel = F.x * kn * cphi; d.keelCl = fc.cl;
       d.keelX = kx; d.keelY = kn * cphi; d.keelStall = fc.stalled; d.leeway = Math.atan2(this.v, Math.max(0.05, this.u));
       d.keelARe = ARe;
     }
@@ -540,23 +621,25 @@ export class Boat {
       const ul = this.u - 0.5 * orbU;
       const vl = (this.v - 0.5 * orbV + this.r * F.x + this.p * F.z) * cphi;
       const V2 = ul * ul + vl * vl, V = Math.sqrt(V2) + 1e-9;
-      const eps = 1.2 * keelCl / (Math.PI * d.keelARe) * (ul > 0 ? 1 : 0);
+      // keel downwash at the rudder; a rudder hung on the keel's trailing edge acts more like a flap
+      const eps = 1.2 * keelCl / (Math.PI * d.keelARe) * (ul > 0 ? 1 : 0) * (F.transom ? 0.35 : 1);
       foilCoef(wrap(Math.atan2(vl, ul) - eps + this.rudder), F, F.ARe, fc);
-      const vent = 1 - sstep(38 * DEG, 70 * DEG, Math.abs(this.phi));
+      const vent = (1 - sstep(38 * DEG, 70 * DEG, Math.abs(this.phi))) * (F.twin ? 0.5 + 0.5 * this.flyIn : 1);
       const q = 0.5 * RHO_W * V2 * F.area * vent;
       const rx = q * (fc.cl * vl / V - fc.cd * ul / V), rn = q * (-fc.cl * ul / V - fc.cd * vl / V);
       X += rx; Y += rn * cphi; K += rn * F.z; N += F.x * rn * cphi;
+      d.Nrud = F.x * rn * cphi; d.rudAlpha = wrap(Math.atan2(vl, ul) - eps + this.rudder); d.eps = eps;
       d.rudderY = rn * cphi; d.rudderStall = fc.stalled; d.rudderLoad = Math.abs(rn); d.rudderVent = vent;
       d.helmMoment = rn * F.chord * (F.transom ? 0.3 : 0.12); // tiller feel: an unbalanced transom rudder is heavy
     }
     {
       const planeLift = sstep(0.45, 0.95, Fn);
-      const Swet = C.wetted * (1 - 0.3 * planeLift);
-      const Rf = 0.5 * RHO_W * Swet * uw * uw * cfITTC(uw, C.lwl) * 1.08;
+      const Swet = imm.girthLen * (1 - 0.3 * planeLift);                 // wetted surface of the real hull
+      const Rf = 0.5 * RHO_W * Swet * uw * uw * cfITTC(uw, lwlDyn) * 1.08;
       // fore-aft crew weight: forward in light air (bury the bow, lift the transom), aft when planing
       const optTrim = lerp(-0.6, 0.8, sstep(0.3, 0.55, Fn));
       const trimPen = 1 + 0.09 * (this.crewX - optTrim) ** 2;
-      const Rr = disp * G * interp(C.rr, Fn) * (1 + 0.9 * this.phi * this.phi) * trimPen;
+      const Rr = disp * G * interp(C.rr, Fn) * (C.multihull ? 1 + 0.3 * (1 - this.flyIn) : 1 + 0.5 * this.phi * this.phi) * trimPen;
       let Raw = 0;
       if (wv) {
         const enc = Math.max(0, -(fx * env.waves.comps[0].dx + fz * env.waves.comps[0].dz));
@@ -568,9 +651,13 @@ export class Boat {
       const cf = 0.5 * RHO_W * H.area * H.cd * vw * Math.abs(vw);
       Y -= cf; K -= cf * H.z;
       const T = C.canoeDraft, L = C.lwl;
+      const N0 = N;
       N -= 0.5 * RHO_W * T * 0.9 * (L ** 4 / 32) * this.r * Math.abs(this.r);
       N -= 0.5 * RHO_W * T * L ** 3 * 0.03 * (Math.abs(uw) + 0.3) * this.r;
-      N -= 0.011 * 0.5 * RHO_W * uw * Math.abs(uw) * L * L * T * Math.sin(this.phi);
+      if (!C.multihull) N -= 0.011 * 0.5 * RHO_W * uw * Math.abs(uw) * L * L * T * Math.sin(this.phi);
+      // hull drag acts where the immersed volume is: a multihull on its leeward hull wants to bear away
+      if (imm.V > 1e-6) N += (Rf + Rr) * Math.sign(uw) * (imm.My / imm.V) * cphi * (C.multihull ? 1 : 0.3);
+      d.Nhull = N - N0;
       X -= 2 * uw;
     }
 
@@ -593,15 +680,16 @@ export class Boat {
     }
 
     // ---- hydrostatics & crew ----
-    const effPhi = this.phi + (wv ? 0.65 * Math.atan(slopeLat) : 0);
-    K -= disp * G * this.GZ(effPhi);
+    // buoyancy of the immersed hull: roll restoring moment from where the displaced volume actually is,
+    // hull + ballast weight at its real height, crew weight where the crew is
+    const Fb = RHO_W * G * imm.V;
+    K -= RHO_W * G * imm.My;
+    K += C.massHull * G * C.zG * sphi;
     K -= this.cRoll * this.p;
     K += this.crewMass * G * (this.crewY * cphi + C.crewZ * sphi);
-    if (wv) {
-      X -= disp * G * slopeAlong * 0.85;
-      Y -= disp * G * slopeLat * 0.4;
-      N += (C.lwl / 3) * (-disp * G * 0.2) * (slopeLatBow - slopeLatStern);
-    }
+    // Froude-Krylov wave forces on the immersed volume (surfing, wave roll/yaw)
+    if (wv) { X += RHO_W * G * imm.FKx; Y += RHO_W * G * imm.FKy * cphi; N += RHO_W * G * imm.FKn * cphi; }
+    d.Fb = Fb;
 
     // ---- integrate rigid body ----
     const m11 = this.m11, m22 = this.m22;
@@ -628,7 +716,11 @@ export class Boat {
     this.z += (this.u * fz + this.v * sz + cur.z) * dt;
     this.log += Math.abs(this.u) * dt;
     if (C.canCapsize && !this.capsized && this.righting <= 0 && Math.abs(this.phi) > 80 * DEG) {
-      this.capsized = true; this.capsizeT = t;
+      this.capsized = true; this.capsizeT = t; this.capsizeKind = 'capsize';
+    }
+    // a multihull driven too hard downwind buries its bows and trips over them
+    if (C.multihull && !this.capsized && this.pitch < -0.3 && this.u > 3) {
+      this.capsized = true; this.capsizeT = t; this.capsizeKind = 'pitchpole'; this.phi = Math.sign(this.phi || 1) * 0.5; this.p = Math.sign(this.phi) * 2;
     }
     if (!C.canCapsize) this.phi = clamp(this.phi, -115 * DEG, 115 * DEG);
 
@@ -655,29 +747,33 @@ export class Boat {
       const h = clamp(ctrl.hike, -1, 1);
       crewTarget = h >= 0 ? -windSide * h * lim : windSide * (-h) * -C.crewLee;
     }
+    if (this.reefing) crewTarget *= (C.crewN - 1) / C.crewN; // one crew is at the mast
     this.crewY += clamp(crewTarget - this.crewY, -C.hikeRate * dt, C.hikeRate * dt);
     this.crewX += clamp(ctrl.crewAft - this.crewX, -0.6 * dt, 0.6 * dt);
 
-    // ---- heave & pitch ----
+    // ---- heave & pitch: buoyancy of the real hull vs weight, drive couple and crew trim ----
     {
-      const wn = 2 * Math.PI / (0.9 + C.lwl * 0.12), z = 0.35;
-      const hMid = wv ? (this._hb + this._hs + 2 * waveH) / 4 : 0;
-      this.heaveV += (wn * wn * (hMid - this.heave) - 2 * z * wn * this.heaveV) * dt;
+      const W = disp * G;
+      const Fz = Fb - W;
+      const kz = RHO_W * G * this.Awp;
+      const cz = 2 * 0.35 * Math.sqrt(kz * this.m33);
+      this.heaveV += (Fz - cz * this.heaveV) / this.m33 * dt;
       this.heave += this.heaveV * dt;
-      const pt = wv ? Math.atan2(this._hb - this._hs, 2 * C.lwl / 3) : 0;
-      const squat = 0.035 * sstep(0.3, 0.5, Fn) * (1 - sstep(0.6, 1.0, Fn)) + 0.012 * sstep(0.5, 0.8, Fn);
-      const bowDown = -sailX * (C.boomZ + 2.5) / (disp * G * C.lwl * 1.2);
-      const trimCrew = this.crewX * this.crewMass * 0.9 / (disp * C.lwl * 0.6);
-      const tgt = pt + squat + bowDown + trimCrew;
-      const wp = wn * 1.1;
-      this.pitchV += (wp * wp * (tgt - this.pitch) - 2 * z * wp * this.pitchV) * dt;
-      this.pitch += this.pitchV * dt;
+      const crewXm = this.crewX * 0.8 + (C.crewX0 ?? 0);
+      let My = RHO_W * G * imm.Mx - W * this.xG - this.crewMass * G * crewXm;
+      My -= sailX * (C.boomZ + 2.3);                                            // drive high, drag low: bow down
+      My += (this.u > 0 ? 1 : 0) * 0.5 * RHO_W * uw * uw * C.beam * C.lwl * 0.004 * sstep(0.35, 0.6, Fn); // bow lift near planing
+      const kp = RHO_W * G * this.Awp * C.lwl * C.lwl / 16;
+      const cp2 = 2 * 0.3 * Math.sqrt(kp * this.Iyy);
+      this.pitchV += (My - cp2 * this.pitchV) / this.Iyy * dt;
+      this.pitch = clamp(this.pitch + this.pitchV * dt, -0.6, 0.6);
+      if (!isFinite(this.heave)) { this.heave = 0; this.heaveV = 0; }
     }
 
     // ---- diagnostics / instruments ----
     d.X = X; d.Y = Y; d.K = K; d.N = N;
     d.sailX = sailX; d.sailY = sailY; d.sailK = sailK;
-    d.RM = disp * G * this.GZ(this.phi) - this.crewMass * G * (this.crewY * cphi + C.crewZ * sphi);
+    d.RM = RHO_W * G * imm.My - C.massHull * G * C.zG * sphi - this.crewMass * G * (this.crewY * cphi + C.crewZ * sphi);
     d.rig.backstayLoad = (C.hasBackstay ? 350 + 5200 * ctrl.backstay ** 1.5 : 0) + 0.35 * (d.rig.mainLoad || 0);
     d.rig.bendMM = bend * M0.luff * 18;
     d.rig.sagMM = sag * (this.sailBy.jib ? this.sailBy.jib.luff * 12 * (this.sailBy.jib.sagK ?? 1) : 0);
@@ -716,6 +812,8 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
     c.tackLine = lerp(c.tackLine, lerp(0.15, 0.7, sstep(110 * DEG, 150 * DEG, awa)), k);
     if (C.hasBoard) c.board = lerp(c.board, lerp(0.3, 1, upwind), k);
   }
+  // slow and pinching (mid-tack or stalled head to wind): ease the main so the bow can fall off
+  const pinched = awa < 32 * DEG && boat.u < 1.3;
   const sh = d.shape;
   for (const s of C.sails) {
     if (s.kind === 'spin' && boat.genDeploy < 0.5) continue;
@@ -733,7 +831,7 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
       const tr = clamp((want - easeAngle - s.trav[0]) / (s.trav[1] - s.trav[0]), 0, 1);
       c.trav = lerp(c.trav, tr, k * 2);
       const travAng = lerp(s.trav[0], s.trav[1], c.trav);
-      c.main = lerp(c.main, clamp((want - travAng) / (s.max - s.trav[1]), 0, 1), k * 2);
+      c.main = lerp(c.main, clamp((want - travAng) / (s.max - s.trav[1]), pinched ? 0.35 : 0, 1), k * 2);
     } else {
       const key = s.kind === 'boom' ? s.key : 'jib';
       c[key] = lerp(c[key] ?? 0.3, clamp((want - s.min) / (s.max - s.min), 0, 1), k * 2);
