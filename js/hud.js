@@ -203,6 +203,8 @@ export class HUD {
     const g = this.g;
     const rc = document.getElementById('rc-clock');
     document.getElementById('rc-venue').textContent = g.venue.name;
+    const online = g.net && g.net.connected;
+    let actions = '';
     if (g.race) {
       const c = g.race.clock;
       const m = Math.floor(Math.abs(c) / 60), s = Math.floor(Math.abs(c) % 60);
@@ -210,23 +212,35 @@ export class HUD {
       rc.classList.toggle('pre', c < 0);
       const me = g.race.racers[0];
       const leg = g.course.legs[me.leg];
-      document.getElementById('rc-mode').textContent = 'Race';
+      document.getElementById('rc-mode').textContent = online ? 'Online race' : 'Race';
       let legTxt = me.finished ? `Finished · ${ordinal(me.place)}` : leg.type === 'start' ? (c < 0 ? 'Start sequence' : me.ocs ? 'OCS — return below the line' : 'Cross the line') : leg.name;
       if (!me.finished && leg.type !== 'start') {
         const tgt = g.course.target(leg, g.player);
         legTxt += ` · ${Math.round(Math.hypot(tgt.x - g.player.x, tgt.z - g.player.z))} m`;
       }
       document.getElementById('rc-leg').textContent = legTxt;
-      const st = g.race.standings();
-      document.getElementById('rc-standings').innerHTML = st.map((r, i) => `<li class="${r.boat === g.player ? 'me' : ''}"><span>${i + 1}</span><span>${r.boat.name}</span><span>${r.finished ? fmtT(r.finishTime) : legShort(g.course.legs[r.leg])}</span></li>`).join('');
+      const st = g.raceStandings();
+      document.getElementById('rc-standings').innerHTML = st.map((r, i) => `<li class="${r.me ? 'me' : ''}"><span>${i + 1}</span><span>${esc(r.name)}</span><span>${r.finished ? fmtT(r.time) : legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span></li>`).join('');
+      if (online && (me.finished || c > 1800)) actions = `<button class="chip" id="rc-newrace">Start another race</button>`;
     } else {
-      document.getElementById('rc-mode').textContent = 'Free sail';
+      document.getElementById('rc-mode').textContent = online ? 'Online' : 'Free sail';
       rc.classList.remove('pre');
-      const t = g.t;
-      rc.textContent = fmtT(t);
+      rc.textContent = fmtT(g.t);
       const wp = g.waypoint;
       document.getElementById('rc-leg').textContent = wp ? `Waypoint ${Math.round(Math.hypot(wp.x - g.player.x, wp.z - g.player.z))} m · ${pad3(deg(Math.atan2(wp.x - g.player.x, -(wp.z - g.player.z))))}°` : `Log ${fmt(g.player.log / 1852, 2)} nm · click the map for a waypoint`;
-      document.getElementById('rc-standings').innerHTML = g.timeWarp > 1 ? `<li><span></span><span>Time warp</span><span>${g.timeWarp}×</span></li>` : '';
+      if (online) {
+        const names = [...g.net.peers.values()].map(p => `<li><span></span><span>${esc(p.name)}</span><span>${p.boat ? Math.round(Math.hypot(p.boat.x - g.player.x, p.boat.z - g.player.z)) + ' m' : '…'}</span></li>`);
+        document.getElementById('rc-standings').innerHTML = names.join('');
+        actions = `<button class="chip" id="rc-newrace">Start a race for the room</button>`;
+      } else document.getElementById('rc-standings').innerHTML = g.timeWarp > 1 ? `<li><span></span><span>Time warp</span><span>${g.timeWarp}×</span></li>` : '';
+    }
+    if (online) actions = `<span class="muted small"><span class="net-dot"></span>${g.net.count} sailing</span>` + actions;
+    else if (g.net && g.net.status === 'connecting') actions = `<span class="muted small"><span class="net-dot off"></span>connecting…</span>`;
+    const box = document.getElementById('rc-actions');
+    if (box.dataset.html !== actions) {
+      box.dataset.html = actions; box.innerHTML = actions;
+      const b = document.getElementById('rc-newrace');
+      if (b) b.addEventListener('click', () => g.startSharedRace());
     }
   }
 
@@ -379,6 +393,7 @@ export class HUD {
   }
 }
 
+function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function ordinal(n) { return n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th'); }
 function fmtT(t) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; }
 function legShort(l) { return l.type === 'start' ? 'start' : l.type === 'mark' ? 'beat' : l.type === 'gate' ? 'run' : 'to finish'; }

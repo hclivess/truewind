@@ -37,6 +37,17 @@ You can also type any latitude and longitude on Earth. The game then downloads t
 - **Free sail.** You sail anywhere. Click the tactical map to drop a waypoint, and the instruments switch to VMC (velocity made good on course) with laylines. Time warp is available up to ×8.
 - **Race.** A windward–leeward course is laid automatically in open water on the real map. It has a start sequence with signals, an OCS (over the line early) call with a dip-back requirement, a windward mark rounded to port, a leeward gate and a finish. The AI fleet sails the same physics as you do.
 
+## Online: a shared world
+
+Pick **Online**, then type a name and a room (or leave it on `public`). Everyone who chooses the same venue and room sails in one world. Boats can be different classes: a Blackwatch can share Progreso with dinghies.
+
+- **No game server.** Browsers connect directly to each other over WebRTC. They find each other through public Nostr relays using [Trystero](https://github.com/dmotz/trystero), so the game still runs from static GitHub Pages.
+- **Same weather for everyone.** Wind puffs, shifts and waves are deterministic functions of a seed, position and time. The first sailor in a room sets the seed, the conditions and the clock, and later arrivals adopt them.
+- **Each browser owns its boat.** It simulates its own boat and streams the state 10 times a second. Other boats are re-simulated locally from their control inputs, so their sails, heel and trim look right, and are continuously pulled toward the received position.
+- **Shared races.** Anyone can press **Start a race for the room**. Every browser then builds the same windward–leeward course from the real map and the wind, with the same gun time, and standings include everyone.
+
+WebRTC needs a network that allows peer connections. Strict corporate firewalls can block them.
+
 ## The physics
 
 Everything is in `js/physics.js` (boat), `js/env.js` (wind, waves, current) and `js/world.js` (map, depth, shelter).
@@ -129,6 +140,10 @@ These are the honest limits:
 
 All other controls (cunningham, outhaul, jib car and halyard, tack line, crew fore-aft) are sliders in the rig panel. Menu options include tiller steering (push the tiller and the bow goes the other way).
 
+## Graphics
+
+On a weak GPU, add `?q=low` to the URL. It lowers the render resolution, turns off shadows and uses a coarser sea mesh; the physics is unchanged.
+
 ## Running locally
 
 ```
@@ -146,6 +161,6 @@ Development tools:
 
 - Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, available under the ODbL. It is fetched through the Overpass API.
 - Live weather is from [Open-Meteo](https://open-meteo.com).
-- 3D rendering uses [three.js](https://threejs.org) (MIT).
+- 3D rendering uses [three.js](https://threejs.org) (MIT). Peer-to-peer networking uses [Trystero](https://github.com/dmotz/trystero) (MIT).
 - Blackwatch 19/24 specifications come from [sailboatdata.com](https://sailboatdata.com/sailboat/blackwatch-1924/), [sailboat.guide](https://sailboat.guide/blackwatch-19) and owner listings.
 - The code is under the MIT licence (see `LICENSE`).

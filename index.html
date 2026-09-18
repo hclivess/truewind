@@ -21,6 +21,7 @@
     <div id="rc-clock" class="big">--:--</div>
     <div id="rc-leg" class="muted"></div>
     <ol id="rc-standings"></ol>
+    <div id="rc-actions"></div>
   </section>
 
   <div id="toast" role="status" aria-live="polite"></div>
@@ -73,9 +74,14 @@
       </section>
       <section>
         <h2>Conditions</h2>
-        <div class="seg" role="radiogroup" aria-label="Mode">
+        <div class="seg seg3" role="radiogroup" aria-label="Mode">
           <button class="seg-b on" data-mode="free" role="radio" aria-checked="true">Free sail</button>
           <button class="seg-b" data-mode="race" role="radio" aria-checked="false">Race</button>
+          <button class="seg-b" data-mode="online" role="radio" aria-checked="false">Online</button>
+        </div>
+        <div class="online-only">
+          <p class="muted small">Everyone who picks the same venue and room sails in one world, peer to peer, with the same wind, puffs, shifts and waves. The first sailor in the room sets the conditions. Anyone can start a race for the whole room.</p>
+          <div class="row"><input id="net-name" maxlength="20" placeholder="Your name" autocomplete="nickname"><input id="net-room" maxlength="24" placeholder="Room (public)" autocomplete="off"></div>
         </div>
         <div class="field"><label for="tws">True wind <b id="tws-v"></b></label><input type="range" id="tws" min="2" max="32" step="0.5" value="12"></div>
         <div class="field"><label for="twd">Wind from <b id="twd-v"></b></label><input type="range" id="twd" min="0" max="359" step="1" value="70"></div>

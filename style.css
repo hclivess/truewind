@@ -119,7 +119,7 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 .field { margin: 10px 0; }
 .field label { display: flex; justify-content: space-between; font: 600 12px var(--cond); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .field label b { color: var(--text); font-weight: 600; letter-spacing: .02em; text-transform: none; font-variant-numeric: tabular-nums; }
-.seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
 .seg-b { background: transparent; border: 0; padding: 9px; cursor: pointer; font: 600 15px var(--cond); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .seg-b.on { background: var(--accent); color: var(--ink); }
 .checks { display: grid; gap: 6px; margin-top: 12px; font-size: 13px; color: #c5d1da; }
@@ -130,6 +130,14 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 .btn.primary:hover { filter: brightness(1.08); }
 .btn.ghost:hover { border-color: rgba(233,238,242,.35); }
 body.racing .race-only { display: block; }
+body.online .online-only { display: block; }
+.online-only { display: none; margin-top: 8px; }
+.online-only p { margin: 0 0 6px; }
+#rc-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+#rc-actions:empty { display: none; }
+#rc-actions .chip { font-size: 13px; padding: 4px 10px; }
+.net-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--stbd); margin-right: 5px; }
+.net-dot.off { background: var(--amber); }
 .race-only { display: none; }
 
 #help { z-index: 20; align-items: center; }

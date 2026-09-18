@@ -7,6 +7,7 @@ import { Course, Race, AIHelm, applyWindShadow, resolveCollisions } from './race
 import { Renderer } from './render.js';
 import { HUD } from './hud.js';
 import { Audio } from './audio.js';
+import { Net } from './net.js';
 
 const $ = (s) => document.querySelector(s);
 const PHYS_DT = 1 / 120;
@@ -17,6 +18,8 @@ class Game {
     this.renderer = new Renderer($('#view'));
     this.hud = new HUD(this);
     this.audio = new Audio();
+    this.net = new Net(this);
+    this.netEpoch = null;
     this.geoCache = new Map();
     this.polarCache = new Map();
     this.keys = new Set();
@@ -76,6 +79,7 @@ class Game {
     $('#live-wind').addEventListener('click', () => this.liveWind());
     $('#custom-go').addEventListener('click', () => this.customVenue());
     $('#custom-latlon').addEventListener('keydown', (e) => { if (e.key === 'Enter') this.customVenue(); });
+    try { $('#net-name').value = localStorage.getItem('tw-name') || ''; $('#net-room').value = localStorage.getItem('tw-room') || ''; } catch (e) {}
     this.pickVenue(this.settings.venue, false);
     this.refreshMenu();
   }
@@ -91,6 +95,7 @@ class Game {
     document.querySelectorAll('#venue-list .card').forEach(c => c.classList.toggle('on', c.dataset.v === this.settings.venue));
     document.querySelectorAll('.seg-b').forEach(b => { const on = b.dataset.mode === this.settings.mode; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
     document.body.classList.toggle('racing', this.settings.mode === 'race');
+    document.body.classList.toggle('online', this.settings.mode === 'online');
   }
   async liveWind() {
     const v = this.currentVenueDef();
@@ -151,20 +156,15 @@ class Game {
     this.venue = v; this.geo = geo;
     const world = new World(v, geo);
     this.world = world;
-    const twd = (idle ? v.wind : S.twd) * DEG;
-    world.updateShelter(twd);
-    // waves: fetch-limited by the real coastline upwind of the sailing area
-    const fetchM = world.open ? 60000 : world.fetchAt(0, 0, twd, 6000);
-    const fetchKm = world.open ? 60 : fetchM >= 6000 ? 25 : Math.max(0.4, fetchM / 1000);
-    const env = new Environment({
-      tws: (idle ? v.windKt : S.tws) * KT, twd: twd / DEG, gust: S.gust, shift: S.shift, seed: Math.floor(Math.random() * 1000),
-      fetchKm, swellH: S.swell, swellT: 9, currentKt: idle ? 0 : S.current, currentDir: v.current?.dir ?? 90,
-    });
-    // sheltering by land slows the wind near a weather shore
-    const base = env.wind.sample.bind(env.wind);
-    env.wind.sample = (x, z, t, o = {}) => { base(x, z, t, o); o.speed *= world.shelterAt(x, z); return o; };
-    if (!world.open) env.waves.scaleFn = (x, z) => clamp(world.sdfAt(x, z) / 60, 0.08, 1);
-    this.env = env;
+    const online = S.mode === 'online' && !idle;
+    const cond = {
+      seed: Math.floor(Math.random() * 100000), epoch: Date.now() / 1000,
+      tws: idle ? v.windKt : S.tws, twd: idle ? v.wind : S.twd, gust: S.gust, shift: S.shift, swell: S.swell,
+      current: idle ? 0 : S.current, currentDir: v.current?.dir ?? 90,
+    };
+    this.cond = cond;
+    const env = this.makeEnv(cond);
+    const twd = cond.twd * DEG;
     this.renderer.setWorld(world, geo);
     this.renderer.setWaves(env.waves);
     this.hud.setWorld(world);
@@ -211,6 +211,7 @@ class Game {
       let x = 0, z = 0, hdg = twd + Math.PI / 2;
       if (v.spawn) { [x, z] = P.fwd(v.spawn.lat, v.spawn.lon); hdg = v.spawn.heading * DEG; }
       else if (!world.open) { const c = world.findCourse(twd, 400); x = c.x; z = c.z; }
+      if (online) { const a = Math.random() * 6.28, r = 40 + Math.random() * 120; x += Math.cos(a) * r; z += Math.sin(a) * r; }
       [x, z] = safe(x, z, cls.draft + 0.6);
       player.reset(x, z, hdg);
       player.u = 1.2;
@@ -224,6 +225,19 @@ class Game {
     this.renderer.cam.yaw = idle ? 0 : 200 * DEG; this.renderer.cam.dist = idle ? 26 : cls.id === 'dinghy' ? 14 : 20;
     this.t = 0; this.acc = 0; this.timeWarp = 1;
     this.idle = idle;
+    this.sharedRace = null;
+    if (this.net.connected) this.net.disconnect();
+    this.netEpoch = null;
+    if (online) {
+      const name = ($('#net-name').value || '').trim() || 'Sailor ' + Math.floor(Math.random() * 900 + 100);
+      const room = ($('#net-room').value || '').trim() || 'public';
+      try { localStorage.setItem('tw-name', name); localStorage.setItem('tw-room', room); } catch (e) {}
+      this.netEpoch = cond.epoch;
+      this.net.since = Date.now();
+      this.net.connect({ venueId: v.id === 'custom' ? `c${v.lat.toFixed(2)},${v.lon.toFixed(2)}` : v.id, room, name, cls: cls.id, cond })
+        .then(() => this.hud.toast(`Online in room “${room}” at ${v.name}`, 3))
+        .catch(() => { this.hud.toast('Could not reach the relays — sailing offline', 4); });
+    }
     this.showLaylines = S.laylines;
     this.polar = null; this.targets = null;
     this.computePolar(cls, env.wind.tws);
@@ -231,9 +245,85 @@ class Game {
     if (!idle) {
       $('#hud').hidden = false;
       this.running = true; this.paused = false;
-      this.hud.toast(S.mode === 'race' ? `Race at ${v.name} — gun in ${Math.floor(S.countdown / 60)}:${String(S.countdown % 60).padStart(2, '0')}` : `${cls.name} · ${v.name}`, 3.5);
+      if (!online) this.hud.toast(S.mode === 'race' ? `Race at ${v.name} — gun in ${Math.floor(S.countdown / 60)}:${String(S.countdown % 60).padStart(2, '0')}` : `${cls.name} · ${v.name}`, 3.5);
       if (this.race) this.audio.horn(true);
     }
+  }
+
+  // Environment from a conditions record (shared verbatim between online peers)
+  makeEnv(cond) {
+    const world = this.world, v = this.venue;
+    const twd = cond.twd * DEG;
+    world.updateShelter(twd);
+    // waves: fetch-limited by the real coastline upwind of the sailing area
+    const fetchM = world.open ? 60000 : world.fetchAt(0, 0, twd, 6000);
+    const fetchKm = world.open ? 60 : fetchM >= 6000 ? 25 : Math.max(0.4, fetchM / 1000);
+    const env = new Environment({
+      tws: cond.tws * KT, twd: cond.twd, gust: cond.gust, shift: cond.shift, seed: cond.seed,
+      fetchKm, swellH: cond.swell, swellT: 9, currentKt: cond.current, currentDir: cond.currentDir,
+    });
+    // sheltering by land slows the wind near a weather shore
+    const base = env.wind.sample.bind(env.wind);
+    env.wind.sample = (x, z, t, o = {}) => { base(x, z, t, o); o.speed *= world.shelterAt(x, z); return o; };
+    if (!world.open) env.waves.scaleFn = (x, z) => clamp(world.sdfAt(x, z) / 60, 0.08, 1);
+    this.env = env;
+    return env;
+  }
+
+  // another sailor in the room arrived first: take their wind, sea and clock
+  applySharedConditions(cond) {
+    this.cond = cond;
+    this.makeEnv(cond);
+    this.renderer.setWaves(this.env.waves);
+    this.netEpoch = cond.epoch;
+    this.t = Date.now() / 1000 - cond.epoch;
+    this.computePolar(this.player.cls, this.env.wind.tws);
+    this.hud.toast(`Room conditions: ${cond.tws} kn from ${String(Math.round(cond.twd)).padStart(3, '0')}°`, 3);
+  }
+
+  addRemoteBoat(b) {
+    this.boats.push(b);
+    const idx = this.boats.length;
+    this.renderer.addBoat(b, { number: String(200 + (idx * 37) % 700), hullColor: [0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc][idx % 7], crewTint: idx, label: b.name });
+  }
+  removeRemoteBoat(b) {
+    this.boats = this.boats.filter(x => x !== b);
+    this.renderer.removeBoat(b);
+  }
+
+  // one race for the whole room: same course (deterministic from the real map and wind), same gun
+  startSharedRace() {
+    const msg = { gun: Date.now() / 1000 + 120, laps: this.settings.laps, length: this.player.cls.id === 'dinghy' ? 600 : 800, twd: this.env.wind.twd, by: this.net.name, id: Math.random().toString(36).slice(2, 8) };
+    this.onNetRace(msg, null);
+    this.net.broadcastRace(msg);
+  }
+  onNetRace(msg, from) {
+    if (!msg || (this.sharedRace && this.sharedRace.id === msg.id)) return;
+    const countdown = msg.gun - Date.now() / 1000;
+    if (countdown < -600) return;
+    this.sharedRace = msg;
+    const course = new Course(this.world, msg.twd, { length: msg.length, laps: msg.laps, lineLength: 140 });
+    this.course = course;
+    this.race = new Race(course, [this.player], { countdown });
+    this.renderer.setMarks(course.marks(), course.committee);
+    this.waypoint = null;
+    this.hud.toast(`${from ? msg.by : 'You'} started a race — gun in ${Math.max(0, Math.round(countdown))} s`, 4);
+    this.audio.horn(true);
+  }
+  // standings for the race card: local fleet, plus remote sailors' reported progress
+  raceStandings() {
+    if (!this.race) return [];
+    const C = this.course;
+    const list = this.race.standings().map(r => ({ name: r.boat === this.player ? 'You' : r.boat.name, me: r.boat === this.player, finished: r.finished, time: r.finishTime, leg: r.leg, boat: r.boat }));
+    if (this.sharedRace) {
+      for (const b of this.boats) {
+        if (!b.remote || !b.netRace || b.netRace.id !== this.sharedRace.id) continue;
+        list.push({ name: b.name, me: false, finished: !!b.netRace.fin, time: b.netRace.fin, leg: b.netRace.leg, boat: b });
+      }
+      const score = (e) => e.finished ? 1e9 - e.time : e.leg * 1e5 - (() => { const t = C.target(C.legs[Math.min(e.leg, C.legs.length - 1)], e.boat); return Math.hypot(e.boat.x - t.x, e.boat.z - t.z); })();
+      list.sort((a, b) => score(b) - score(a));
+    }
+    return list;
   }
 
   // the crew sets the sails for the initial heading before handing over
@@ -330,6 +420,7 @@ class Game {
     else if (k === 'l') { this.showLaylines = !this.showLaylines; this.hud.toast(this.showLaylines ? 'Laylines on' : 'Laylines off', 1.2); }
     else if (k === 'k') { this.renderer.showForces = !this.renderer.showForces; this.hud.toast(this.renderer.showForces ? 'Force vectors: sails yellow, drive green, keel blue, rudder violet, wind white/teal' : 'Force vectors off', 3); }
     else if (k === 'i') { $('#physics').hidden = !$('#physics').hidden; }
+    else if (k === 'p' && this.netEpoch !== null) { this.hud.toast('No pausing in a shared world', 1.5); }
     else if (k === 'p') { this.paused = !this.paused; this.hud.toast(this.paused ? 'Paused' : 'Sailing', 1); }
     else if (k === 'y' && b.cls.hasBoard) { this.userTouched('board'); b.ctrl.board = b.ctrl.board > 0.5 ? 0.25 : 1; this.hud.toast(b.ctrl.board > 0.5 ? 'Board down' : 'Board up', 1.2); }
     else if (k === 'r') {
@@ -387,8 +478,16 @@ class Game {
     let dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
     if (!this.env) return;
-    const simDt = this.paused && !this.idle ? 0 : dt * (this.idle ? 1 : this.timeWarp);
-    this.acc += simDt;
+    if (this.netEpoch !== null) {
+      // shared clock: everyone evaluates the same wind and waves at the same instant
+      this.timeWarp = 1; this.paused = false;
+      const target = Date.now() / 1000 - this.netEpoch;
+      if (target - this.t > 2 || target < this.t - 2) { this.t = target; this.acc = 0; }
+      else this.acc = target - this.t;
+    } else {
+      const simDt = this.paused && !this.idle ? 0 : dt * (this.idle ? 1 : this.timeWarp);
+      this.acc += simDt;
+    }
     let steps = 0;
     const maxSteps = 12 * this.timeWarp;
     while (this.acc >= PHYS_DT && steps < maxSteps) {
@@ -401,6 +500,8 @@ class Game {
     if (this.gustAcc > 0.25 && p) { this.gustAcc = 0; this.renderer.updateGust(this.env, this.world, this.t, p.x, p.z); }
     this.renderer.update(dt, this.t, { env: this.env, boats: this.boats, player: p });
     if (!this.idle && this.running) {
+      const r0 = this.race && this.race.racers[0];
+      this.net.update(dt, p, this.sharedRace && r0 ? { id: this.sharedRace.id, leg: r0.leg, fin: r0.finished ? r0.finishTime : 0 } : null);
       this.hud.update(dt);
       this.audio.update(p, dt);
       this.checkAlerts();
@@ -417,9 +518,11 @@ class Game {
       const i = this.boats.indexOf(ai.b);
       ai.update(dt, this.t, this, this.race ? this.race.racers[i] : null, this.course, this.targets ? { up: this.targets.up.twa, dn: this.targets.dn.twa } : null);
     }
+    this.net.preStep();
     this._shadowN = (this._shadowN || 0) + 1;
     if (this._shadowN % 12 === 0) applyWindShadow(this.boats);
     for (const bb of this.boats) bb.step(dt, this.env, this.t, this.world);
+    this.net.postStep(dt);
     const marks = this.course ? [...this.course.marks(), this.course.committee] : this.waypoint ? [this.waypoint] : [];
     resolveCollisions(this.boats, marks, (this.geo && this.geo.piers) || [], (boat, other, v) => {
       if (boat === this.player && v > 0.6) { this.hud.toast(other && other.cls ? `Collision with ${other.name}!` : other && other.kind === 'pier' || other?.pts ? 'You hit the pier!' : 'Mark touched!', 2); this.audio.thump(Math.min(1, v / 2)); }

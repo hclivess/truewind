@@ -28,11 +28,13 @@ uniform float uTime;
 export class Renderer {
   constructor(canvas) {
     const r = this.r = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    r.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // ?q=low for weak GPUs: lower resolution, no shadows, coarser sea mesh
+    this.low = new URLSearchParams(location.search).get('q') === 'low';
+    r.setPixelRatio(this.low ? 0.6 : Math.min(window.devicePixelRatio, 2));
     r.toneMapping = THREE.ACESFilmicToneMapping;
     r.toneMappingExposure = 0.95;
     r.outputColorSpace = THREE.SRGBColorSpace;
-    r.shadowMap.enabled = true;
+    r.shadowMap.enabled = !this.low;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 30000);
@@ -83,7 +85,7 @@ export class Renderer {
 
   // ---------------------------------------------------------------- water
   _buildWater() {
-    const N = 360, R = 6500, a = 0.035;
+    const N = this.low ? 160 : 360, R = 6500, a = 0.035;
     const pos = new Float32Array((N + 1) * (N + 1) * 3);
     const map = (u) => R * Math.sign(u) * (a * Math.abs(u) + (1 - a) * Math.abs(u) ** 3);
     let p = 0;
@@ -355,6 +357,11 @@ export class Renderer {
     this.boats.set(boat, vis);
     const wake = new Wake(); this.scene.add(wake.mesh); this.wakes.set(boat, wake);
     return vis;
+  }
+  removeBoat(b) {
+    const v = this.boats.get(b); if (v) this.scene.remove(v.root);
+    const w = this.wakes.get(b); if (w) this.scene.remove(w.mesh);
+    this.boats.delete(b); this.wakes.delete(b);
   }
   removeAllBoats() {
     for (const [b, v] of this.boats) { this.scene.remove(v.root); }
@@ -817,6 +824,18 @@ function buildBoat(boat, opts) {
   }
   // board visual for dinghy slides up
   root.traverse(o => { if (o.isMesh && !o.material.transparent) o.castShadow = true; });
+  if (opts.label) { // floating name tag for other sailors
+    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
+    const g = cv.getContext('2d');
+    g.fillStyle = 'rgba(11,22,31,0.78)'; g.fillRect(0, 8, 256, 48);
+    g.fillStyle = '#ff7a1a'; g.fillRect(0, 8, 6, 48);
+    g.fillStyle = '#e9eef2'; g.font = '600 30px "Barlow Condensed", Arial Narrow, sans-serif'; g.textBaseline = 'middle';
+    g.fillText(opts.label.slice(0, 16), 16, 33);
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, sizeAttenuation: false }));
+    sp.scale.set(0.12, 0.03, 1); sp.position.set(0, C.mastHeight + 1.5, 0); sp.renderOrder = 10;
+    root.add(sp);
+  }
   return { root, inner, hull, booms, sailMeshes, rudderPivot, keelMesh, telltales, windex, crew, mainsheet, hg };
 }
 
