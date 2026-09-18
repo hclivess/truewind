@@ -165,6 +165,9 @@ export class AIHelm {
   update(dt, t, sim, racer, course, targets) {
     const b = this.b, d = b.diag;
     const twd = d.twd ?? 0;
+    // capsized: ease everything and stand on the board / hang on the righting line
+    if (b.capsized) { this.capT = (this.capT || 0) + dt; b.ctrl.main = 1; b.ctrl.jib = 1; if (this.capT > 5) b.righting = true; return; }
+    this.capT = 0;
     this.twdMean = this.twdMean === null ? twd : this.twdMean + wrap(twd - this.twdMean) * dt / 90;
     const up = (targets?.up ?? 42) * DEG, dn = (targets?.dn ?? 145) * DEG;
     this.upAngle = up;

@@ -80,7 +80,9 @@ function buildStations(C, nStations) {
       for (let k = half.length - 2; k >= 0; k--) p.push(off - half[k][0], half[k][1]);
       polys.push(p);
     }
-    stations.push({ t, x, polys, dx: (L1 - L0) / nStations });
+    let full = 0;
+    for (const p of polys) { for (let i = 0, n = p.length / 2; i < n; i++) { const j = (i + 1) % n; full += p[2 * i] * p[2 * j + 1] - p[2 * j] * p[2 * i + 1]; } }
+    stations.push({ t, x, polys, dx: (L1 - L0) / nStations, full: Math.abs(full) / 2 });
   }
   return stations;
 }
@@ -94,6 +96,7 @@ function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, sl
   const cp = Math.cos(phi), sp = Math.sin(phi);
   let V = 0, My = 0, Mx = 0, girthLen = 0, xmin = 1e9, xmax = -1e9, FKx = 0, FKy = 0, FKn = 0;
   const Vh = out.Vh || (out.Vh = [0, 0]); Vh[0] = 0; Vh[1] = 0;
+  let deckSub = 0;
   for (const st of stations) {
     const eta = etaAt(st.x), sl = slopeLatAt(st.x);
     const zw = eta - heave - st.x * pitch;
@@ -104,6 +107,7 @@ function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, sl
       Vh[q] += r.A * st.dx;
     }
     if (A <= 1e-6) continue;
+    if (st.t > 0.6 && st.full > 0) deckSub += Math.max(0, A / st.full - 0.88) / 0.12 / 10;  // foredeck under water
     const vol = A * st.dx;
     V += vol;
     const yc = Ay / A, zc = Az / A;
@@ -114,7 +118,7 @@ function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, sl
     if (slopeAlongAt) { const sa = slopeAlongAt(st.x); FKx -= vol * sa; FKy -= vol * sl; FKn -= vol * sl * st.x; }
   }
   out.V = V; out.My = My; out.Mx = Mx; out.girthLen = girthLen; out.lwl = xmax > xmin ? xmax - xmin : 0;
-  out.FKx = FKx; out.FKy = FKy; out.FKn = FKn;
+  out.FKx = FKx; out.FKy = FKy; out.FKn = FKn; out.deckSub = deckSub;
   return out;
 }
 

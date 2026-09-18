@@ -56,15 +56,38 @@ export class HUD {
     if (S.jib) h += `<div class="sl2"><span id="hs-name">Jib</span>${tt('jib')}</div>`;
     if (S.gennaker) h += `<div class="sl2"><span>Gennaker</span>${tt('gennaker')}</div>`;
     h += `</div><div class="rg"><h3>Lines <span class="muted" style="font-weight:500;letter-spacing:.02em;text-transform:none">grab them on deck · 7</span></h3><div class="lines">`;
-    h += rows.map(([k, label, col]) => `<div class="ln" data-k="${k}"><i style="background:${col}"></i><span>${label}</span><b id="o-${k}"></b><div class="bar" id="bar-${k}"></div></div>`).join('');
-    h += `<div class="ln"><i style="background:#8a5a2b"></i><span>Helm</span><b id="o-helm"></b></div>`;
-    if (S.main.reefs) h += `<div class="ln"><i style="background:#d24a3a"></i><span>Reef</span><b id="o-reef"></b></div>`;
+    // every control is here as press-and-hold buttons, and on deck as the real line / car / winch
+    const BTN = { main: ['Trim', 'Ease'], jib: ['Trim', 'Ease'], stay: ['Trim', 'Ease'], trav: ['Windward', 'Leeward'], vang: ['−', '+'], cunn: ['−', '+'],
+      outhaul: ['−', '+'], backstay: ['−', '+'], jibHalyard: ['−', '+'], jibLead: ['Fwd', 'Aft'], tackLine: ['Down', 'Ease'], board: ['Up', 'Down'], hike: ['In', 'Out'] };
+    const btns = (k) => `<span class="nb"><button class="nbtn" data-k="${k}" data-d="-1">${BTN[k][0]}</button><button class="nbtn" data-k="${k}" data-d="1">${BTN[k][1]}</button></span>`;
+    h += rows.map(([k, label, col]) => `<div class="ln" data-k="${k}"><i style="background:${col}"></i><span>${label}</span><b id="o-${k}"></b>${btns(k)}</div>`).join('');
+    h += `<div class="ln"><i style="background:#8a5a2b"></i><span>Helm</span><b id="o-helm"></b><span class="nb"><button class="nbtn" data-k="helm" data-d="-1">Port</button><button class="nbtn" data-k="helm" data-d="1">Stbd</button></span></div>`;
+    h += `</div><div class="toggles acts">`;
+    if (S.main.reefs) h += `<span class="muted small">Reef</span>` + [0, 1, 2].slice(0, S.main.reefs + 1).map(r => `<button class="chip" data-reef="${r}">${['Full', '1st', '2nd'][r]}</button>`).join('') + `<b id="o-reef" class="small"></b>`;
+    h += `</div><div class="toggles acts">`;
+    if (S.gennaker) h += `<button class="chip" id="a-gen">Hoist gennaker</button>`;
+    if (S.jib) h += `<button class="chip" id="a-back">Back jib (hold)</button>`;
+    if (C.canCapsize) h += `<button class="chip" id="a-right">Right the boat</button>`;
+    h += `<button class="chip" id="a-center">Centre helm</button>`;
     h += `</div><div class="toggles"><button class="chip" id="t-trim">Automatic trim</button><button class="chip" id="t-hike">Automatic weight</button></div></div>`;
     h += `<div class="rg"><h3>Rig loads</h3><div class="loads" id="loads"></div></div>`;
     $('#rig-body').innerHTML = h;
     this.rows = rows.map(r => r[0]);
     $('#t-trim').addEventListener('click', () => this.g.toggleAutoTrim());
     $('#t-hike').addEventListener('click', () => this.g.toggleAutoHike());
+    // press and hold: the line keeps moving while the button is held
+    document.querySelectorAll('#rig-body .nbtn').forEach(bt => {
+      let timer = null;
+      const stop = () => { clearInterval(timer); timer = null; bt.classList.remove('held'); };
+      bt.addEventListener('pointerdown', (e) => { e.preventDefault(); stop(); bt.classList.add('held'); const k = bt.dataset.k, d = +bt.dataset.d; this.g.nudge(k, d, 0.05); timer = setInterval(() => this.g.nudge(k, d, 0.05), 50); });
+      for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) bt.addEventListener(ev, stop);
+    });
+    document.querySelectorAll('#rig-body [data-reef]').forEach(btn => btn.addEventListener('click', () => this.g.setReef(+btn.dataset.reef)));
+    const gen = $('#a-gen'); if (gen) gen.addEventListener('click', () => this.g.toggleGen());
+    const back = $('#a-back');
+    if (back) { back.addEventListener('pointerdown', () => { this.g.backJib = true; }); for (const ev of ['pointerup', 'pointerleave']) back.addEventListener(ev, () => { this.g.backJib = false; }); }
+    const right = $('#a-right'); if (right) right.addEventListener('click', () => this.g.rightBoat());
+    $('#a-center').addEventListener('click', () => { b.ctrl.helm = 0; });
   }
 
   toast(msg, secs = 2.4) {
@@ -129,10 +152,14 @@ export class HUD {
       else if (k === 'jibLead') txt = `${Math.round(v * 100)}% aft`;
       else txt = `${Math.round(v * 100)}%`;
       o.textContent = txt;
-      bar.style.setProperty('--v', `${Math.round(clamp(frac, 0, 1) * 100)}%`);
+      if (bar) bar.style.setProperty('--v', `${Math.round(clamp(frac, 0, 1) * 100)}%`);
     }
+    document.querySelectorAll('#rig-body [data-reef]').forEach(btn => btn.classList.toggle('on', +btn.dataset.reef === (b.ctrl.reef | 0)));
+    const gen = document.getElementById('a-gen'); if (gen) { gen.textContent = b.ctrl.gen ? 'Douse gennaker' : 'Hoist gennaker'; gen.classList.toggle('on', !!b.ctrl.gen); }
+    const back = document.getElementById('a-back'); if (back) back.classList.toggle('on', !!b.ctrl.backJib);
+    const right = document.getElementById('a-right'); if (right) right.classList.toggle('on', !!b.capsized);
     const reefEl = document.getElementById('o-reef');
-    if (reefEl) reefEl.textContent = b.reefing ? `working ${Math.round(d.reefProgress * 100)}%` : ['full main', '1st reef', '2nd reef'][b.ctrl.reef | 0];
+    if (reefEl) reefEl.textContent = b.reefing ? `working ${Math.round(d.reefProgress * 100)}%` : '';
     const setTT = (key) => {
       const el = document.getElementById('tt-' + key); if (!el) return;
       const st = d.strips[key];

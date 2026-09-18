@@ -12,7 +12,8 @@ import { Vector3 as THREE_V } from 'three';
 
 const $ = (s) => document.querySelector(s);
 const PHYS_DT = 1 / 120;
-const GRAB_PX = 30; // grab radius on screen, also the size of the marker rings
+const GRAB_PX = 30;
+const C_RIGHT = (b) => (b.cls.multihull ? 8 : 4); // grab radius on screen, also the size of the marker rings
 const NAMES = ['Tern', 'Petrel', 'Skua', 'Gannet', 'Fulmar', 'Shearwater', 'Kittiwake', 'Albatross', 'Puffin', 'Cormorant'];
 
 class Game {
@@ -264,10 +265,11 @@ class Game {
     world.updateShelter(twd);
     // waves: fetch-limited by the real coastline upwind of the sailing area
     const fetchM = world.open ? 60000 : world.fetchAt(0, 0, twd, 6000);
-    const fetchKm = world.open ? 60 : fetchM >= 6000 ? 25 : Math.max(0.4, fetchM / 1000);
+    // open ocean: effectively unlimited fetch, the sea grows to fully developed (Pierson-Moskowitz)
+    const fetchKm = world.open ? 2000 : fetchM >= 6000 ? 25 : Math.max(0.4, fetchM / 1000);
     const env = new Environment({
       tws: cond.tws * KT, twd: cond.twd, gust: cond.gust, shift: cond.shift, seed: cond.seed, weather: cond.weather ?? 'changing',
-      fetchKm, swellH: cond.swell, swellT: 9, currentKt: cond.current, currentDir: cond.currentDir,
+      fetchKm, swellH: cond.swell, swellT: 5 + 3.2 * Math.sqrt(Math.max(0.1, cond.swell)),   // longer swell for bigger swell currentKt: cond.current, currentDir: cond.currentDir,
     });
     // sheltering by land slows the wind near a weather shore
     const base = env.wind.sample.bind(env.wind);
@@ -391,6 +393,27 @@ class Game {
   }
   toggleAutoTrim() { this.player.auto.trim = !this.player.auto.trim; this.hud.toast(this.player.auto.trim ? 'Automatic trim on' : 'Automatic trim off — you trim the sails'); }
   toggleAutoHike() { this.player.auto.hike = !this.player.auto.hike; this.hud.toast(this.player.auto.hike ? 'Automatic weight placement on' : 'Automatic weight off — you place your weight (Q/E)'); }
+  // the side panel's buttons: same rates as the keys, loaded sheets come in slower
+  nudge(k, d, dt) {
+    const b = this.player, c = b.ctrl, C = b.cls;
+    if (k === 'helm') { c.helm = clamp(c.helm + d * 0.9 * dt, -1, 1); return; }
+    if (k === 'hike') { this.userTouched('hike'); c.hike = clamp(c.hike + d * 1.2 * dt, -1, 1); return; }
+    this.userTouched(k);
+    let rate = 0.3 * dt;
+    const load = k === 'main' ? b.diag.rig.mainLoad : k === 'jib' ? b.diag.rig.jibLoad : k === 'stay' ? b.diag.rig.stayLoad : 0;
+    const trimming = (k === 'main' || k === 'jib' || k === 'stay') && d < 0;
+    if (trimming) rate /= 1 + ((load || 0) / C.sheetPower) ** 2;
+    c[k] = clamp(c[k] + d * rate, 0, 1);
+  }
+  setReef(r) {
+    const b = this.player, max = b.sailBy.main.reefs || 0;
+    b.ctrl.reef = clamp(r, 0, max);
+    this.hud.toast(b.ctrl.reef > b.reefPos ? `Reefing to ${['full', 'first', 'second'][b.ctrl.reef]} reef — halyard off` : b.ctrl.reef < b.reefPos ? 'Shaking out the reef' : 'Reef unchanged', 2);
+  }
+  rightBoat() {
+    const b = this.player;
+    if (b.capsized || Math.abs(b.phi) > 50 * DEG) { b.righting = true; this.hud.toast(b.cls.multihull ? 'On the righting line — lean back' : 'Standing on the daggerboard — lean back', 3); } else this.hud.toast('The boat is upright', 1.2);
+  }
   toggleGen() {
     const b = this.player; if (!b.sailBy.gennaker) return;
     b.ctrl.gen = !b.ctrl.gen; this.hud.toast(b.ctrl.gen ? 'Gennaker going up' : 'Dousing the gennaker');
@@ -547,8 +570,8 @@ class Game {
     else if (k === 'p') { this.paused = !this.paused; this.hud.toast(this.paused ? 'Paused' : 'Sailing', 1); }
     else if (k === 'y' && b.cls.hasBoard) { this.userTouched('board'); b.ctrl.board = b.ctrl.board > 0.5 ? 0.25 : 1; this.hud.toast(b.ctrl.board > 0.5 ? 'Board down' : 'Board up', 1.2); }
     else if (k === 'r') {
-      if (b.capsized) { b.righting = 4; this.hud.toast('Standing on the daggerboard…', 3); }
-      else if (b.sailBy.main.reefs) { b.ctrl.reef = ((b.ctrl.reef | 0) + 1) % (b.sailBy.main.reefs + 1); this.hud.toast(b.ctrl.reef ? `Reefing to ${b.ctrl.reef === 1 ? 'first' : 'second'} reef — halyard off` : 'Shaking out the reefs'); }
+      if (b.capsized) this.rightBoat();
+      else if (b.sailBy.main.reefs) this.setReef(((b.ctrl.reef | 0) + 1) % (b.sailBy.main.reefs + 1));
     }
     else if (k === 'j') this.backJib = true;
     else if (k === ' ') b.ctrl.helm = 0;
@@ -690,7 +713,8 @@ class Game {
 
   checkAlerts() {
     const b = this.player, C = b.cls;
-    if (b.capsized) this.hud.alert('Capsized — press R to right the boat', true);
+    if (b.capsized && b.righting) this.hud.alert(`Righting… ${Math.round(Math.abs(b.phi) * 57.3)}° — keep your weight out`, true);
+    else if (b.capsized) this.hud.alert('Capsized — press R to stand on the board and right her', true);
     else if (b.reefing) this.hud.alert(`${(b.ctrl.reef | 0) > b.reefPos ? 'Reefing' : 'Shaking out'} · ${Math.round(b.diag.reefProgress * 100)}% · main depowered`);
     else if (b.aground > 0.02) this.hud.alert(`Aground — ${this.world.depthAt(b.x, b.z).toFixed(1)} m of water`, true);
     else if (this.race && this.race.racers[0].ocs) this.hud.alert('OCS — dip back below the line', true);

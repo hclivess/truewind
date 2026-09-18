@@ -285,7 +285,7 @@ export class Boat {
     this.rudder = 0; this.crewY = 0; this.crewX = 0;
     this.lines = { main: this.ctrl.main, jib: this.ctrl.jib, stay: this.ctrl.stay };
     this.heave = 0; this.heaveV = 0; this.pitch = 0; this.pitchV = 0;
-    this.capsized = false; this.capsizeT = 0; this.righting = 0;
+    this.capsized = false; this.capsizeT = 0; this.righting = false;
     this.aground = 0;
     this.reefPos = 0; this.reefSlack = 0; this.reefing = false;
     this.log = 0; this.t = 0; this.slam = 0;
@@ -384,7 +384,7 @@ export class Boat {
     let X = 0, Y = 0, K = 0, N = 0;
     let sailX = 0, sailY = 0, sailK = 0;
     const heaveH = this.heave;
-    const aeroOn = !this.capsized && this.righting <= 0;
+    const aeroOn = true;                     // strips that are under water are handled one by one below
 
     // mid-height apparent wind (drives headsail sides, trimming, crew)
     const M0 = this.sailBy.main;
@@ -482,6 +482,19 @@ export class Boat {
         const ca = Math.cos(ang), sa = Math.sin(ang);
         const xce = pivotX - (s.rake || 0) * f - 0.4 * chord * ca;
         const yce = 0.4 * chord * sa;
+        // is this strip of sail in the water (knocked down / capsized)? a wet strip is a plate in water,
+        // not a wing: blend smoothly over the band where the cloth lies on the surface
+        const hStrip = zs * cphi - yce * sphi + heaveH - waveH;
+        const wet = sstep(0.45, -0.15, hStrip);
+        if (wet > 0.01) {
+          const vlat = this.v + this.r * xce + this.p * zs;                 // strip moving through the water
+          const Aw = s.area * STRIP_W[i] * areaF * wet;
+          const Fw = -0.5 * RHO_W * 1.2 * Aw * vlat * Math.abs(vlat) - Math.sign(this.p * zs) * RHO_W * G * 0.01 * Aw; // drag + water lying on the cloth
+          Y += Fw * cphi; K += Fw * zs; N += xce * Fw * cphi;
+          X -= 0.5 * RHO_W * 0.08 * Aw * this.u * Math.abs(this.u);
+        }
+        o.inWater = wet > 0.5;
+        if (wet > 0.99) { o.state = 0; o.cl = 0; o.flog = 0; continue; }
         const prof = env.wind.profile(zs * cphi - yce * sphi + 0.4 + heaveH);
         let axs = Wbx * prof - ug + this.r * yce;
         let ays = Wby * prof - vg - this.r * xce - this.p * zs;
@@ -516,7 +529,7 @@ export class Boat {
         let lx = -(cx - dot * dx) * rev, ln = -(cn - dot * dn) * rev;
         const lm = Math.hypot(lx, ln) + 1e-9; lx /= lm; ln /= lm;
         const blanket = key === 'main' ? 1 : 1 - 0.65 * sstep(140 * DEG, 178 * DEG, Math.abs(awaMid));
-        const q = 0.5 * RHO_A * V2 * s.area * STRIP_W[i] * areaF * blanket;
+        const q = 0.5 * RHO_A * V2 * s.area * STRIP_W[i] * areaF * blanket * (1 - wet);
         const Fx = q * (cl * lx + cd * dx), Fn = q * (cl * ln + cd * dn);
         const Fy = Fn * cphi;
         sailX += Fx; sailY += Fy; sailK += Fn * zs;
@@ -575,7 +588,7 @@ export class Boat {
       const wd = C.windage, prof = env.wind.profile(wd.z * cphi + 0.3);
       const ax = Wbx * prof - ug, ay = Wby * prof - vg - this.p * wd.z;
       const V = Math.hypot(ax, ay);
-      const q = 0.5 * RHO_A * wd.area * wd.cd * V * (this.capsized ? 0.5 : 1);
+      const q = 0.5 * RHO_A * wd.area * wd.cd * V * Math.max(0.3, Math.abs(cphi));
       X += q * ax; Y += q * ay * cphi; K += q * ay * cphi * wd.z;
     }
 
@@ -611,7 +624,7 @@ export class Boat {
       const V2 = ul * ul + vl * vl, V = Math.sqrt(V2) + 1e-9;
       foilCoef(Math.atan2(vl, ul), F, ARe, fc);
       keelCl = fc.cl;
-      const q = 0.5 * RHO_W * V2 * area * (this.capsized ? 0.4 : 1);
+      const q = 0.5 * RHO_W * V2 * area * Math.max(0, cphi) ** 1.5;   // the board comes out of the water as the boat lies over
       const kx = q * (fc.cl * vl / V - fc.cd * ul / V), kn = q * (-fc.cl * ul / V - fc.cd * vl / V);
       X += kx; Y += kn * cphi; K += kn * zk; N += F.x * kn * cphi;
       d.Nkeel = F.x * kn * cphi; d.keelCl = fc.cl;
@@ -647,7 +660,9 @@ export class Boat {
         const enc = Math.max(0, -(fx * env.waves.comps[0].dx + fz * env.waves.comps[0].dz));
         Raw = 0.12 * RHO_W * G * (env.waves.Hs / 2) ** 2 * C.beam * (0.3 + enc) * clamp(Math.abs(uw) / 2, 0, 1);
       }
-      X -= (Rf + Rr + Raw) * Math.sign(uw);
+      // going astern the flat transom leads: separated flow, several times the forward drag
+      const astern = uw < 0 ? 1 + 3.5 + 0.5 * RHO_W * uw * uw * C.beam * C.freeboard * 0.5 / Math.max(1, Rf + Rr) : 1;
+      X -= (Rf + Rr + Raw) * Math.sign(uw) * astern;
       d.Rf = Rf; d.Rr = Rr; d.Raw = Raw;
       const H = C.hullLat;
       const cf = 0.5 * RHO_W * H.area * H.cd * vw * Math.abs(vw);
@@ -688,10 +703,30 @@ export class Boat {
     K -= RHO_W * G * imm.My;
     K += C.massHull * G * C.zG * sphi;
     K -= this.cRoll * this.p;
-    K += this.crewMass * G * (this.crewY * cphi + C.crewZ * sphi);
+    if (this.righting) {
+      if (C.multihull) K -= (Math.sign(this.phi) || 1) * this.crewMass * G * (C.hullSpacing * 0.75) * Math.abs(cphi) ** 0.3; // hanging off the righting line
+      else K += this.crewMass * G * (-(C.keel.span * clamp(ctrl.board, 0.3, 1) + C.canoeDraft + 0.2)) * sphi; // standing on the board tip
+    } else K += this.crewMass * G * (this.crewY * cphi + C.crewZ * sphi);
     // Froude-Krylov wave forces on the immersed volume (surfing, wave roll/yaw)
     if (wv) { X += RHO_W * G * imm.FKx; Y += RHO_W * G * imm.FKy * cphi; N += RHO_W * G * imm.FKn * cphi; }
     d.Fb = Fb;
+
+    // ---- mast in the water: a sealed spar floats, which is what holds a capsized boat on its side ----
+    {
+      const r0 = C.id === 'dinghy' ? 0.032 : C.id === 'sportboat' ? 0.05 : 0.055;
+      const base = C.boomZ - 0.8, L = C.mastHeight - base, nSeg = 6;
+      for (let k = 0; k < nSeg; k++) {
+        const zseg = base + (k + 0.5) * L / nSeg;
+        const hW = zseg * cphi + heaveH - waveH;
+        if (hW >= 0) continue;
+        const Fb = RHO_W * G * Math.PI * r0 * r0 * 1.25 * (L / nSeg) * 0.85; // pear section, 85% sealed
+        K -= Fb * zseg * sphi;                                   // lifts the side the mast has fallen to
+        K -= 0.5 * RHO_W * 1.0 * 2 * r0 * (L / nSeg) * (this.p * zseg) * Math.abs(this.p * zseg) * zseg;
+      }
+    }
+    // capsized is a state you are in, not a script: past ~75 degrees on a boat that can capsize
+    this.capsized = !!(C.canCapsize && Math.abs(this.phi) > 75 * DEG);
+    if (this.righting && Math.abs(this.phi) < 20 * DEG) this.righting = false;
 
     // ---- integrate rigid body ----
     const m11 = this.m11, m22 = this.m22;
@@ -699,32 +734,18 @@ export class Boat {
     let dv = (Y - m11 * this.u * this.r) / m22;
     let dr = N / this.Izz;
     const dp = K / this.Ixx;
-    if (this.capsized) { du -= 1.5 * this.u; dv -= 1.5 * this.v; dr -= 2 * this.r; }
     this._rdot = dr;
     this.u += du * dt; this.v += dv * dt; this.r += dr * dt;
     this.p += dp * dt;
-    if (this.capsized) {
-      const target = Math.sign(this.phi || 1) * 88 * DEG;
-      this.p += (-(this.phi - target) * 8 - this.p * 6 - dp) * dt;
-    }
-    if (this.righting > 0) {
-      this.righting -= dt;
-      this.phi *= Math.exp(-dt * 1.5); this.p = 0; this.u *= 0.98; this.v *= 0.95;
-      if (this.righting <= 0) { this.capsized = false; this.phi = 0; this.p = 0; }
-    }
     this.phi += this.p * dt;
     this.psi = wrap(this.psi + this.r * dt);
     this.x += (this.u * fx + this.v * sx + cur.x) * dt;
     this.z += (this.u * fz + this.v * sz + cur.z) * dt;
     this.log += Math.abs(this.u) * dt;
-    if (C.canCapsize && !this.capsized && this.righting <= 0 && Math.abs(this.phi) > 80 * DEG) {
-      this.capsized = true; this.capsizeT = t; this.capsizeKind = 'capsize';
-    }
-    // a multihull driven too hard downwind buries its bows and trips over them
-    if (C.multihull && !this.capsized && this.pitch < -0.3 && this.u > 3) {
-      this.capsized = true; this.capsizeT = t; this.capsizeKind = 'pitchpole'; this.phi = Math.sign(this.phi || 1) * 0.5; this.p = Math.sign(this.phi) * 2;
-    }
-    if (!C.canCapsize) this.phi = clamp(this.phi, -115 * DEG, 115 * DEG);
+    // a bow driven under keeps going: past what this pitch model can represent, the boat trips over
+    // sideways (how a multihull pitchpole usually ends) — the angular momentum goes into roll
+    if (this.pitch <= -0.59 && this.pitchV < 0) { this.p += (Math.sign(this.phi) || 1) * Math.abs(this.pitchV) * 1.5; this.pitchV *= -0.2; }
+    if (this.phi > Math.PI) this.phi -= 2 * Math.PI; if (this.phi < -Math.PI) this.phi += 2 * Math.PI;
 
     // ---- rudder: slew rate limited by hydrodynamic load on the blade ----
     const target = clamp(ctrl.helm, -1, 1) * C.rudder.max;
@@ -762,6 +783,8 @@ export class Boat {
       this.heave += this.heaveV * dt;
       const crewXm = this.crewX * 0.8 + (C.crewX0 ?? 0);
       let My = RHO_W * G * imm.Mx - W * this.xG - this.crewMass * G * crewXm;
+      // bow driven under: green water on the foredeck pushes it down (moment = x * Fz)
+      if (imm.deckSub > 0 && uw > 0) { const Fz = -0.5 * RHO_W * uw * uw * C.beam * 0.4 * imm.deckSub; My += C.bowX * 0.6 * Fz; X -= 0.5 * RHO_W * uw * uw * C.beam * 0.15 * imm.deckSub; }
       My -= sailX * (C.boomZ + 2.3);                                            // drive high, drag low: bow down
       My += (this.u > 0 ? 1 : 0) * 0.5 * RHO_W * uw * uw * C.beam * C.lwl * 0.004 * sstep(0.35, 0.6, Fn); // bow lift near planing
       const kp = RHO_W * G * this.Awp * C.lwl * C.lwl / 16;
