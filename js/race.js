@@ -239,8 +239,8 @@ export class AIHelm {
       const tws = (d.tws ?? 0) / KT;
       b.ctrl.reef = tws > 24 ? 2 : tws > 17 ? 1 : 0;
     }
+    autoTrim(b, dt, this.bias);          // trim first: steering may override it (backing the jib in irons)
     this.steer(dt, desired);
-    autoTrim(b, dt, this.bias);
     this.mode = mode;
   }
 
@@ -265,8 +265,8 @@ export class AIHelm {
       desired = twd - up;
       if (distToLine < 8 && -clock > 4) luff = true;
     }
-    this.steer(dt, desired);
     autoTrim(b, dt, this.bias);
+    this.steer(dt, desired);
     if (luff) { b.ctrl.main = 1; b.ctrl.jib = 1; b.ctrl.stay = 1; }
     if (b.sailBy.gennaker) b.ctrl.gen = false;
     this.mode = 'prestart';

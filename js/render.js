@@ -7,7 +7,7 @@ import { buildBoatModel, updateBoatModel } from './models.js';
 import { Rigging, tickGlow } from './rigging.js';
 import { buildStructures, indexFeatures, structureMask } from './structures.js';
 import { HullSplash } from './splash.js';
-import { SkySystem, SKY_LUT_GLSL, CLOUD_GLSL } from './sky.js';
+import { SkySystem, SKY_LUT_GLSL, CLOUD_GLSL, withCloudShadows } from './sky.js';
 
 const MAXW = 20;
 
@@ -362,7 +362,9 @@ export class Renderer {
     // heightfield
     const M = 300, R = world.R, c = 2 * R / M;
     const pos = new Float32Array((M + 1) * (M + 1) * 3), col = new Float32Array((M + 1) * (M + 1) * 3);
-    const sand = new THREE.Color(0xd9c9a0), grass = new THREE.Color(0x6d8a4a), scrub = new THREE.Color(0x8a8a5c), rock = new THREE.Color(0x8c877d), wet = new THREE.Color(0x6b6250);
+    // climate by latitude: dry tropical scrub (Yucatán: olive and khaki, pale limestone sand) vs temperate green
+    const tropical = Math.abs(world.venue?.lat ?? 45) < 30;
+    const sand = new THREE.Color(tropical ? 0xe6dcc0 : 0xd9c9a0), grass = new THREE.Color(tropical ? 0x6f7a45 : 0x5f7f42), scrub = new THREE.Color(tropical ? 0x8c8456 : 0x7d8a58), rock = new THREE.Color(0x8c877d), wet = new THREE.Color(0x6b6250);
     const tmp = new THREE.Color();
     let p = 0;
     for (let j = 0; j <= M; j++) for (let i = 0; i <= M; i++) {
@@ -387,7 +389,7 @@ export class Renderer {
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     g.setIndex(idx); g.computeVertexNormals();
-    this.land = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }));
+    this.land = new THREE.Mesh(g, withCloudShadows(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }), this.skySys, { ground: true }));
     this.land.receiveShadow = true;
     this.scene.add(this.land);
     // settlements along the shore (instanced houses where the land is low and near the water)

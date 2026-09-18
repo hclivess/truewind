@@ -329,6 +329,42 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
+// ------------------------------------------------------------------ cloud shadows (and ground detail) on standard materials
+// The scene has one sun light; its intensity already carries the cloud shade over the player's boat, so a
+// patched material rescales the light by (shade here / shade at the player) — land and buildings get the
+// moving cloud shadows that sweep over the sea.
+export function withCloudShadows(mat, sky, opts = {}) {
+  const U = sky.U;
+  mat.onBeforeCompile = (sh) => {
+    for (const k of ['uNoise', 'uWeather', 'uWOff', 'uCover', 'uCloudBase', 'uCloudThick', 'uCloudTime', 'uCells']) sh.uniforms[k] = U[k];
+    sh.uniforms.uLightDirW = { value: sky.lightV }; sh.uniforms.uPlayerShade = sky.playerShadeU;
+    sh.vertexShader = 'varying vec3 vCSWorld;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+      vec4 cswp = vec4(transformed, 1.0);
+      #ifdef USE_INSTANCING
+        cswp = instanceMatrix * cswp;
+      #endif
+      vCSWorld = (modelMatrix * cswp).xyz;`);
+    const lights = THREE.ShaderChunk.lights_fragment_begin.replace('getDirectionalLightInfo( directionalLight, directLight );',
+      'getDirectionalLightInfo( directionalLight, directLight ); directLight.color *= csShade;');
+    let fs = 'varying vec3 vCSWorld; uniform vec3 uLightDirW; uniform float uPlayerShade;\n' + CLOUD_GLSL + '\n' + sh.fragmentShader;
+    fs = fs.replace('#include <lights_fragment_begin>', `float csShade = clamp(cloudShadow(vCSWorld, uLightDirW) / max(uPlayerShade, 0.1), 0.0, 1.0 / max(uPlayerShade, 0.1));\n` + lights);
+    if (opts.ground) {
+      // ground detail: fields, scrub and bare patches at several scales, so the land is not a flat green sheet
+      fs = fs.replace('#include <color_fragment>', `#include <color_fragment>
+        float g1 = texture(uNoise, vec3(vCSWorld.xz / 1800.0, 0.21)).r, g2 = texture(uNoise, vec3(vCSWorld.xz / 260.0, 0.63)).g, g3 = texture(uNoise, vec3(vCSWorld.xz / 38.0, 0.37)).g;
+        float lum0 = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
+        vec3 dry = vec3(0.55, 0.5, 0.36) * lum0 * 1.6, dark = diffuseColor.rgb * vec3(0.62, 0.72, 0.6);
+        float veg = smoothstep(0.2, 0.9, diffuseColor.g - diffuseColor.r + 0.35);
+        diffuseColor.rgb = mix(diffuseColor.rgb, mix(dark, dry, smoothstep(0.3, 0.7, g2)), veg * (0.35 + 0.55 * g1));
+        diffuseColor.rgb *= 0.78 + 0.4 * g3;`);
+    }
+    sh.fragmentShader = fs;
+  };
+  mat.customProgramCacheKey = () => 'cs' + (opts.ground ? 'g' : '');
+  mat.needsUpdate = true;
+  return mat;
+}
+
 // ------------------------------------------------------------------ the system
 const E_SUN = 3.6;          // top-of-atmosphere sun irradiance in scene units (a noon sun lights at ~3)
 const SKY_K = 3.2;          // sky radiance -> scene units
@@ -399,6 +435,7 @@ export class SkySystem {
     }));
     this.dome.frustumCulled = false; this.dome.renderOrder = -1000;
     scene.add(this.dome);
+    this.playerShadeU = { value: 1 };
     this.frame = 0; this.lutKey = null; this.cubeAge = 99; this.envAge = 99;
     this.sunT = [1, 1, 1];
     this.exposure = 0.95;
@@ -502,7 +539,9 @@ export class SkySystem {
     const L = useMoon ? this.moonDir : this.sunDir;
     this.lightDir = L; this.lightV.copy(L);
     const lum = (v) => 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
-    const shade = this.shadowAt(this._px ?? 0, this._pz ?? 0) * (1 - 0.7 * overcast);
+    const cs = this.shadowAt(this._px ?? 0, this._pz ?? 0);
+    this.playerShadeU.value = cs;
+    const shade = cs * (1 - 0.7 * overcast);
     if (!useMoon) {
       const l = lum(sT);
       light.color.setRGB(sT[0] / l, sT[1] / l, sT[2] / l);
