@@ -12,6 +12,7 @@ import { Vector3 as THREE_V } from 'three';
 
 const $ = (s) => document.querySelector(s);
 const PHYS_DT = 1 / 120;
+const GRAB_PX = 30; // grab radius on screen, also the size of the marker rings
 const NAMES = ['Tern', 'Petrel', 'Skua', 'Gannet', 'Fulmar', 'Shearwater', 'Kittiwake', 'Albatross', 'Puffin', 'Cormorant'];
 
 class Game {
@@ -385,11 +386,11 @@ class Game {
 
   userTouched(k) {
     const trimKeys = ['main', 'jib', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibLead', 'jibHalyard', 'tackLine', 'board'];
-    if (trimKeys.includes(k) && this.player.auto.trim) { this.player.auto.trim = false; this.hud.toast('Auto-trim off — you have the sheets'); }
-    if ((k === 'hike' || k === 'crewAft') && this.player.auto.hike) { this.player.auto.hike = false; this.hud.toast('Auto-hike off — you place the crew'); }
+    if (trimKeys.includes(k) && this.player.auto.trim) { this.player.auto.trim = false; this.hud.toast('Automatic trim off — you have the sheets'); }
+    if ((k === 'hike' || k === 'crewAft') && this.player.auto.hike) { this.player.auto.hike = false; this.hud.toast('Automatic weight off — you place your weight'); }
   }
-  toggleAutoTrim() { this.player.auto.trim = !this.player.auto.trim; this.hud.toast(this.player.auto.trim ? 'Crew trims the sails' : 'You trim the sails'); }
-  toggleAutoHike() { this.player.auto.hike = !this.player.auto.hike; this.hud.toast(this.player.auto.hike ? 'Crew hikes on their own' : 'You place the crew'); }
+  toggleAutoTrim() { this.player.auto.trim = !this.player.auto.trim; this.hud.toast(this.player.auto.trim ? 'Automatic trim on' : 'Automatic trim off — you trim the sails'); }
+  toggleAutoHike() { this.player.auto.hike = !this.player.auto.hike; this.hud.toast(this.player.auto.hike ? 'Automatic weight placement on' : 'Automatic weight off — you place your weight (Q/E)'); }
   toggleGen() {
     const b = this.player; if (!b.sailBy.gennaker) return;
     b.ctrl.gen = !b.ctrl.gen; this.hud.toast(b.ctrl.gen ? 'Gennaker going up' : 'Dousing the gennaker');
@@ -454,7 +455,7 @@ class Game {
     if (!vis) return;
     const list = vis.rigging.grabs();
     const cam = this.renderer.camera, W = window.innerWidth, H = window.innerHeight;
-    let best = null, bd = 34;
+    let best = null, bd = GRAB_PX;
     for (const g of list) {
       const p = g.pos.clone().project(cam);
       if (p.z > 1) continue;
@@ -463,6 +464,7 @@ class Game {
       if (d < bd) { bd = d; best = { ...g, sx, sy }; }
     }
     this.hoverGrab = best;
+    vis.rigging.highlight(best ? best.id : null);
     $('#view').style.cursor = best ? 'grab' : '';
     if (best) {
       tip.hidden = false;
@@ -482,7 +484,7 @@ class Game {
     else if (g.action === 'reef') {
       const max = b.sailBy.main.reefs;
       b.ctrl.reef = clamp((b.ctrl.reef | 0) + (shift ? -1 : 1), 0, max);
-      this.hud.toast(shift ? 'Shaking out a reef' : `Reefing to ${b.ctrl.reef === 1 ? 'first' : 'second'} reef — halyard off, crew to the mast`);
+      this.hud.toast(shift ? 'Shaking out a reef' : `Reefing to ${b.ctrl.reef === 1 ? 'first' : 'second'} reef — halyard off`);
     }
   }
   onGrabDrag(drag, mx, my) {
@@ -546,7 +548,7 @@ class Game {
     else if (k === 'y' && b.cls.hasBoard) { this.userTouched('board'); b.ctrl.board = b.ctrl.board > 0.5 ? 0.25 : 1; this.hud.toast(b.ctrl.board > 0.5 ? 'Board down' : 'Board up', 1.2); }
     else if (k === 'r') {
       if (b.capsized) { b.righting = 4; this.hud.toast('Standing on the daggerboard…', 3); }
-      else if (b.sailBy.main.reefs) { b.ctrl.reef = ((b.ctrl.reef | 0) + 1) % (b.sailBy.main.reefs + 1); this.hud.toast(b.ctrl.reef ? `Reefing to ${b.ctrl.reef === 1 ? 'first' : 'second'} reef — halyard off, crew to the mast` : 'Shaking out the reefs'); }
+      else if (b.sailBy.main.reefs) { b.ctrl.reef = ((b.ctrl.reef | 0) + 1) % (b.sailBy.main.reefs + 1); this.hud.toast(b.ctrl.reef ? `Reefing to ${b.ctrl.reef === 1 ? 'first' : 'second'} reef — halyard off` : 'Shaking out the reefs'); }
     }
     else if (k === 'j') this.backJib = true;
     else if (k === ' ') b.ctrl.helm = 0;
@@ -626,6 +628,11 @@ class Game {
     this.gustAcc = (this.gustAcc || 0) + dt;
     const p = this.player;
     if (this.gustAcc > 0.25 && p) { this.gustAcc = 0; this.renderer.updateGust(this.env, this.world, this.t, p.x, p.z); }
+    if (!this.idle && this.running && p) {
+      const vis = this.renderer.boats.get(p);
+      const show = vis && ['deck', 'chase', 'helm'].includes(this.renderer.cam.mode) && this.renderer.cam.dist < 25;
+      this.renderer.updateGrabMarkers(show ? vis.rigging.grabs() : [], this.hoverGrab && this.hoverGrab.id, GRAB_PX);
+    }
     this.renderer.update(dt, this.t, { env: this.env, boats: this.boats, player: p });
     if (!this.idle && this.running) {
       const r0 = this.race && this.race.racers[0];

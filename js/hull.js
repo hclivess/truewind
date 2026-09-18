@@ -118,6 +118,27 @@ function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, sl
   return out;
 }
 
+// Where the local water surface cuts each station's section: [x, y1, z1, y2, z2, ...] per station
+function waterlineStations(stations, heave, pitch, phi, etaAt, slopeLatAt) {
+  const cp = Math.cos(phi), sp = Math.sin(phi), out = [];
+  for (const st of stations) {
+    const zw = etaAt(st.x) - heave - st.x * pitch, sl = slopeLatAt(st.x);
+    const f = (y, z) => -y * sp + z * cp - zw - sl * (y * cp + z * sp);
+    const pts = [];
+    for (const p of st.polys) {
+      const n = p.length / 2;
+      let px = p[2 * (n - 1)], pz = p[2 * (n - 1) + 1], pf = f(px, pz);
+      for (let i = 0; i < n; i++) {
+        const cx = p[2 * i], cz = p[2 * i + 1], cf = f(cx, cz);
+        if ((pf < 0) !== (cf < 0)) { const t = pf / (pf - cf); pts.push(px + (cx - px) * t, pz + (cz - pz) * t); }
+        px = cx; pz = cz; pf = cf;
+      }
+    }
+    out.push({ x: st.x, t: st.t, pts });
+  }
+  return out;
+}
+
 export class HullHydro {
   constructor(C, nStations = 26) {
     this.C = C;
@@ -129,6 +150,7 @@ export class HullHydro {
   immerse(heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt = null) {
     return immerseStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt);
   }
+  waterline(heave, pitch, phi, etaAt, slopeLatAt) { return waterlineStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt); }
 }
 
 // Area, first moments and wetted girth of the part of a closed section polygon below the water line

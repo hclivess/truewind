@@ -4,9 +4,9 @@ import * as THREE from 'three';
 import { DEG } from './env.js';
 import { STRIP_F, REEF, clamp, lerp } from './physics.js';
 import { buildBoatModel, updateBoatModel } from './models.js';
-import { Rigging } from './rigging.js';
-import { Crew } from './crew.js';
+import { Rigging, tickGlow } from './rigging.js';
 import { buildStructures, indexFeatures, structureMask } from './structures.js';
+import { HullSplash } from './splash.js';
 
 const MAXW = 20;
 const SKY_GLSL = /* glsl */`
@@ -463,22 +463,50 @@ export class Renderer {
   addBoat(boat, opts = {}) {
     const vis = buildBoatModel(boat, opts);
     vis.rigging = new Rigging(boat, vis, { player: !!opts.player });
-    vis.crew = new Crew(boat, vis, vis.rigging, { tint: opts.crewTint || 0 });
     vis.player = !!opts.player;
+    vis.splash = new HullSplash(this.scene, vis, boat);
     this.scene.add(vis.root);
     this.boats.set(boat, vis);
     const wake = new Wake(); this.scene.add(wake.mesh); this.wakes.set(boat, wake);
     return vis;
   }
   removeBoat(b) {
-    const v = this.boats.get(b); if (v) this.scene.remove(v.root);
+    const v = this.boats.get(b); if (v) { this.scene.remove(v.root); v.splash.dispose(this.scene); }
     const w = this.wakes.get(b); if (w) this.scene.remove(w.mesh);
     this.boats.delete(b); this.wakes.delete(b);
   }
   removeAllBoats() {
-    for (const [b, v] of this.boats) { this.scene.remove(v.root); }
+    for (const [b, v] of this.boats) { this.scene.remove(v.root); v.splash.dispose(this.scene); }
     for (const [b, w] of this.wakes) { this.scene.remove(w.mesh); }
     this.boats.clear(); this.wakes.clear();
+  }
+
+  // ---------------------------------------------------------------- grab markers
+  // a ring on screen for every control of the player's boat, the size of its grab radius
+  updateGrabMarkers(list, hoverId, radiusPx) {
+    if (!this.grabRingTex) {
+      const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+      const g = cv.getContext('2d');
+      g.strokeStyle = 'rgba(255,170,90,1)'; g.lineWidth = 3; g.beginPath(); g.arc(32, 32, 29, 0, Math.PI * 2); g.stroke();
+      g.fillStyle = 'rgba(255,170,90,0.9)'; g.beginPath(); g.arc(32, 32, 4, 0, Math.PI * 2); g.fill();
+      this.grabRingTex = new THREE.CanvasTexture(cv);
+      this.grabRings = [];
+    }
+    while (this.grabRings.length < list.length) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.grabRingTex, depthTest: false, transparent: true, sizeAttenuation: false }));
+      sp.renderOrder = 20; this.scene.add(sp); this.grabRings.push(sp);
+    }
+    const h = this.r.domElement.clientHeight || window.innerHeight;
+    const size = 2 * radiusPx / h * Math.tan(this.camera.fov * Math.PI / 360) * 2; // screen-constant size
+    this.grabRings.forEach((sp, i) => {
+      const g = list[i];
+      sp.visible = !!g;
+      if (!g) return;
+      sp.position.copy(g.pos);
+      const on = g.id === hoverId;
+      sp.material.opacity = on ? 1 : 0.32;
+      sp.scale.set(size * (on ? 1.1 : 1), size * (on ? 1.1 : 1), 1);
+    });
   }
 
   // ---------------------------------------------------------------- marks
@@ -523,6 +551,7 @@ export class Renderer {
     const snap = 4;
     this.waterU.uOffset.value.set(Math.round(cam.x / snap) * snap, Math.round(cam.z / snap) * snap);
     this.waterU.uTime.value = t;
+    tickGlow(performance.now() / 1000);
     this.sky.position.copy(cam);
     // sun shadow follows the player
     if (player) {
@@ -534,8 +563,9 @@ export class Renderer {
       // detail near the camera: ropes and crew IK only where they can be seen
       const dist = Math.hypot(b.x - cam.x, b.z - cam.z);
       const near = vis.player || dist < 150;
-      vis.crew.update(dt, t);
       vis.rigging.update(t, near);
+      if (near) vis.splash.update(dt, t); else vis.splash.foam.visible = false;
+      if (near) vis.splash.foam.visible = true;
       this.wakes.get(b).update(b, env, t, dt);
     }
     const tmp = {};
@@ -559,23 +589,27 @@ export class Renderer {
     if (!b) return;
     const P = b.pose || b;
     const k = 1 - Math.exp(-dt * 8);
-    c.tx = lerp(c.tx, P.x, k); c.tz = lerp(c.tz, P.z, k);
+    // orbit the cockpit (tiller, sheets, winches), not the middle of the boat
+    const C0 = b.cls, ckx = C0.sternX + C0.lwl * 0.22;
+    const fx0 = Math.sin(P.psi), fz0 = -Math.cos(P.psi);
+    const gx = P.x + fx0 * ckx, gz = P.z + fz0 * ckx;
+    const far = Math.hypot(gx - c.tx, gz - c.tz) > 30;              // new session / teleport: snap, don't glide
+    c.tx = far ? gx : lerp(c.tx, gx, k); c.tz = far ? gz : lerp(c.tz, gz, k);
     const bh = P.heave || 0;
-    // hide the helmsman while we look through his eyes
-    const vis0 = this.boats.get(b);
-    if (vis0 && vis0.crew) vis0.crew.people[0].s.root.visible = c.mode !== 'helm';
+
     if (c.mode === 'chase' || c.mode === 'orbit') {
       if (c.mode === 'orbit') c.yaw += dt * 0.08;
       const yaw = c.yaw + (c.mode === 'chase' ? P.psi : 0);
       const d = c.dist;
       cam.position.set(c.tx - Math.sin(yaw) * Math.cos(c.pitch) * d, Math.max(1.2, bh + 2 + Math.sin(c.pitch) * d), c.tz + Math.cos(yaw) * Math.cos(c.pitch) * d);
       cam.up.set(0, 1, 0);
-      cam.lookAt(c.tx, bh + 2.2, c.tz);
+      cam.lookAt(c.tx, bh + C0.freeboard + 0.6, c.tz);
     } else if (c.mode === 'helm' || c.mode === 'bow' || c.mode === 'mast') {
       const vis = this.boats.get(b);
       const C = b.cls;
-      const helmHead = vis.crew && vis.crew.people[0] ? vis.inner.worldToLocal(vis.crew.people[0].s.head.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(0, 0.1, -0.05)) : null;
-      const local = c.mode === 'helm' ? (helmHead || new THREE.Vector3(0, C.freeboard + 1.0, -(C.sternX + 0.9)))
+      // helmsman's eye: seated on the windward side at the aft end of the cockpit
+      const sideW = Math.sign(b.crewY || 1), deckZ = vis.deckH(C.sternX + 0.9, sideW * 0.5);
+      const local = c.mode === 'helm' ? new THREE.Vector3(sideW * Math.min(Math.abs(b.crewY) * 0.8 + 0.3, C.beam * 0.42), (C.id === 'blackwatch' ? vis.ck.sole + 0.47 : deckZ) + 0.75, -(C.sternX + (C.multihull ? 1.0 : 0.9)))
         : c.mode === 'bow' ? new THREE.Vector3(0, C.freeboard + 0.7, -(C.bowX - 0.3))
         : new THREE.Vector3(0.3, C.mastHeight + 0.4, -C.mastX + 0.5);
       vis.inner.updateMatrixWorld();

@@ -10,7 +10,8 @@ const _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _w = new THREE.Vect
 
 // ------------------------------------------------------------------ rope: tube rebuilt in place
 class Rope {
-  constructor(parent, radius, color, maxPts = 64, radial = 5) {
+  constructor(parent, radius, color, maxPts = 64, radial = 6) {
+    radius *= 1.7;                                   // drawn thicker than life so lines read on screen
     this.maxPts = maxPts; this.radial = radial; this.radius = radius;
     const g = new THREE.BufferGeometry();
     this.pos = new Float32Array(maxPts * radial * 3);
@@ -23,9 +24,14 @@ class Rope {
       idx.push(a, c, b, b, c, d);
     }
     g.setIndex(idx);
-    this.mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color, roughness: 0.85 }));
+    this.mat = new THREE.MeshStandardMaterial({ color, roughness: 0.6, emissive: color, emissiveIntensity: 0.18 });
+    this.mesh = new THREE.Mesh(g, this.mat);
     this.mesh.castShadow = true; this.mesh.frustumCulled = false;
     parent.add(this.mesh);
+    // glowing outline: the same tube pushed out along its normals, drawn back-faced and additive
+    this.outline = new THREE.Mesh(g, FAINT_MAT);
+    this.outline.frustumCulled = false; this.outline.visible = false; this.outline.renderOrder = 5;
+    parent.add(this.outline);
     this.pts = [];
     for (let i = 0; i < maxPts; i++) this.pts.push(new THREE.Vector3());
   }
@@ -72,8 +78,28 @@ class Rope {
     this.mesh.geometry.attributes.position.needsUpdate = true;
     this.mesh.geometry.attributes.normal.needsUpdate = true;
   }
-  hide() { this.mesh.visible = false; }
+  hide() { this.mesh.visible = false; this.outline.visible = false; }
+  // 0 = none, 1 = faint (a control you can grab), 2 = bright (the one you are pointing at)
+  glow(level) {
+    const on = level > 0 && this.mesh.visible;
+    this.outline.visible = on;
+    if (on) this.outline.material = level === 2 ? OUTLINE_MAT : FAINT_MAT;
+    this.mat.emissive.setHex(level === 2 ? 0xff8a2a : this.mat.color.getHex());
+    this.mat.emissiveIntensity = level === 2 ? 0.8 : 0.18;
+  }
 }
+const OUTLINE_MAT = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 } },
+  vertexShader: `uniform float uTime; void main(){ vec3 p = position + normal * (0.022 + 0.008 * sin(uTime * 6.0)); gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }`,
+  fragmentShader: `uniform float uTime; void main(){ gl_FragColor = vec4(1.0, 0.62, 0.2, 0.75 + 0.25 * sin(uTime * 6.0)); }`,
+  side: THREE.BackSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+});
+const FAINT_MAT = new THREE.ShaderMaterial({
+  vertexShader: `void main(){ vec3 p = position + normal * 0.014; gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }`,
+  fragmentShader: `void main(){ gl_FragColor = vec4(1.0, 0.72, 0.35, 0.28); }`,
+  side: THREE.BackSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+});
+export function tickGlow(t) { OUTLINE_MAT.uniforms.uTime.value = t; }
 
 // ------------------------------------------------------------------ hardware meshes
 const HW = {};
@@ -188,7 +214,11 @@ export class Rigging {
     if (boat.sailBy.main.reefs) this.reefLines = [rope(0.004, 0xd24a3a, 20), rope(0.004, 0x3a8ad2, 20)];
     if (C.id === 'dinghy') { this.ratchet = makeBlock(0.05); this.ratchet.position.copy(V(hw.ratchetX, 0, hw.ratchetZ)); inner.add(this.ratchet); this.midBlock = makeBlock(0.04); inner.add(this.midBlock); this.strap = rope(0.012, 0x2a3140, 12); }
     this.lastLines = { ...boat.lines };
-    this.hands = {}; // hand targets supplied by the crew
+    if (this.player) {
+      const hw2 = [this.car, ...(this.jibCars || []), ...this.winches, this.vis.rudderPivot].filter(Boolean);
+      for (const x of hw2) x.traverse(o => { if (o.material && o.material.emissive) { o.material = o.material.clone(); o.material.emissive.setHex(0xff9a40); o.material.emissiveIntensity = 0.12; o.userData.e0 = 0.12; } });
+    }
+    this.hands = {}; // no hands: tails lead to cleats and lie coiled on deck
   }
 
   // points on a boom (physics: distance s aft of the pivot, dz below)
@@ -347,6 +377,7 @@ export class Rigging {
       w.userData.handle.rotation.y = w.userData.handleAngle;
     }
     this.lastLines = { ...b.lines };
+    this.applyGlow();
   }
 
   // world position of the working winch handle grip (for the grinder's hands)
@@ -358,6 +389,38 @@ export class Rigging {
     const a = w.userData.handleAngle;
     out.set(Math.cos(-a) * 0.23, 0.3, Math.sin(-a) * 0.23).add(w.position);
     return out;
+  }
+
+  // ropes belonging to a grab point, for the glow
+  ropesFor(id) {
+    const b = this.b, side = Math.sign((b.genDeploy > 0.5 ? b.side.gennaker : b.side.jib)) || 1, k = (side + 1) / 2;
+    const m = {
+      main: [...this.mainsheet, this.mainTail], trav: this.travLines, vang: [...this.vang, this.vangTail], cunn: [...this.cunn, this.cunnTail],
+      outhaul: [this.outhaul], backstay: this.backstayTackle || [], stay: this.staySheet || [], reef: this.reefLines || [],
+      winch: b.genDeploy > 0.5 ? [this.genSheets?.[k]].filter(Boolean) : [this.jibSheets?.[k]].filter(Boolean),
+      jibtail: b.genDeploy > 0.5 ? [this.genSheets?.[k]].filter(Boolean) : [this.jibSheets?.[k]].filter(Boolean),
+      jibpull: [this.jibSheets?.[k]].filter(Boolean), jibLead: [this.jibSheets?.[k]].filter(Boolean), jibHalyard: [this.halyards[2]],
+      gen: [this.halyards[1]], tackLine: [this.tackLine].filter(Boolean),
+    };
+    return m[id] || [];
+  }
+  // every control carries a faint outline so you can see what can be handled; the hovered one glows
+  controlIds() { return ['main', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'stay', 'reef', 'winch', 'jibLead', 'jibHalyard', 'gen', 'tackLine', 'jibpull']; }
+  applyGlow() {
+    if (!this.player) return;
+    for (const r of this.ropes) r.glow(0);
+    for (const id of this.controlIds()) for (const rp of this.ropesFor(id)) rp.glow(1);
+    if (this._hl) for (const rp of this.ropesFor(this._hl)) rp.glow(2);
+  }
+  highlight(id) {
+    if (this._hl === id) return;
+    for (const x of this._hlObjs || []) x.traverse(o => { if (o.material && o.material.emissive) o.material.emissiveIntensity = o.userData.e0 ?? 0; });
+    this._hl = id; this._hlObjs = [];
+    this.applyGlow();
+    if (!id) return;
+    const objs = id === 'trav' ? [this.car] : id === 'jibLead' ? this.jibCars : id === 'winch' ? this.winches : id === 'tiller' ? [this.vis.rudderPivot] : [];
+    for (const x of objs.filter(Boolean)) x.traverse(o => { if (o.material && o.material.emissive) { if (o.userData.e0 === undefined) { o.material = o.material.clone(); o.userData.e0 = o.material.emissiveIntensity; } o.material.emissive.setHex(0xff8a2a); o.material.emissiveIntensity = 0.9; } });
+    this._hlObjs = objs.filter(Boolean);
   }
 
   // ---------------------------------------------------------------- grab points for the player
@@ -398,8 +461,9 @@ export class Rigging {
     if (this.reefLines) list.push({ id: 'reef', label: 'Reef line', hint: 'click to put in the next reef, shift-click to shake out', kind: 'click', action: 'reef', pos: toW(this.reefLines[b.reefPos >= 1 ? 1 : 0].pts[6]), info: () => b.reefing ? `working… ${Math.round(b.diag.reefProgress * 100)}%` : `${b.ctrl.reef | 0} reef${(b.ctrl.reef | 0) === 1 ? '' : 's'} in` });
     if (C.hasBoard && vis.keelMesh) list.push({ id: 'board', label: 'Daggerboard', hint: 'drag up or down', kind: 'pull', key: 'board', dir: 1, pos: vis.keelMesh.localToWorld(new THREE.Vector3(0, 0.05, C.keel.chord * 0.4)), info: () => `${Math.round(b.ctrl.board * 100)}% down` });
     // tiller: drag it sideways — the bow goes the other way
-    const tip = vis.extension ? vis.extension.userData.tip : null;
-    const tp = tip ? tip.clone() : vis.rudderPivot.localToWorld(vis.tillerEnd.clone());
+    const tp = vis.extension
+      ? vis.extension.localToWorld(new THREE.Vector3(0, vis.extension.userData.len, 0).applyAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2 + 0.08))
+      : vis.rudderPivot.localToWorld(vis.tillerEnd.clone());
     list.push({ id: 'tiller', label: C.id === 'blackwatch' ? 'Tiller' : 'Tiller extension', hint: 'drag sideways; push it to port and the bow goes to starboard', kind: 'tiller', pos: tp, info: () => `rudder ${Math.round(b.rudder * 180 / Math.PI)}°` });
     return list;
   }

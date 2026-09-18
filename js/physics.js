@@ -369,7 +369,7 @@ export class Boat {
       slopeAlong = wv.sx * fx + wv.sz * fz;
       slopeLat = wv.sx * sx + wv.sz * sz;
       orbU = wv.vx * fx + wv.vz * fz; orbV = wv.vx * sx + wv.vz * sz;
-    } else for (let i = 0; i < 7; i++) { W7[i].h = 0; W7[i].sx = 0; W7[i].sz = 0; }
+    } else for (let i = 0; i < 7; i++) { W7[i].h = 0; W7[i].sx = 0; W7[i].sz = 0; W7[i].vy = 0; }
 
     const vgx = this.u * fx + this.v * sx + cur.x, vgz = this.u * fz + this.v * sz + cur.z;
     this.vgx = vgx; this.vgz = vgz;
@@ -596,6 +596,8 @@ export class Boat {
     const lwlDyn = Math.max(0.3, imm.lwl) * (C.lwl / hy.restLwl);
     const Fn = Math.abs(uw) / Math.sqrt(G * lwlDyn);
     d.lwl = lwlDyn; d.wetted = imm.girthLen; d.displaced = imm.V * RHO_W;
+    this._etaAt = etaAt; this._slLat = slLat;
+    this._etaDot = (x) => interp7(W7, 'vy', x) || 0;
     d.fn = Fn;
     const fc = this._fc;
     let keelCl = 0;
@@ -747,7 +749,6 @@ export class Boat {
       const h = clamp(ctrl.hike, -1, 1);
       crewTarget = h >= 0 ? -windSide * h * lim : windSide * (-h) * -C.crewLee;
     }
-    if (this.reefing) crewTarget *= (C.crewN - 1) / C.crewN; // one crew is at the mast
     this.crewY += clamp(crewTarget - this.crewY, -C.hikeRate * dt, C.hikeRate * dt);
     this.crewX += clamp(ctrl.crewAft - this.crewX, -0.6 * dt, 0.6 * dt);
 

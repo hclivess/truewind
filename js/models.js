@@ -365,13 +365,18 @@ export function buildBoatModel(boat, opts = {}) {
   }
   // transom lettering
   {
+    // sit the lettering on the actual transom surface: take its top (sheer) and the point near the
+    // boot top from the hull's own stern section, and lie the plate along that line
     const st = stations[0];
-    const [x0, , z0] = st[0];
-    const zm = (z0 + 0.12) / 2;
+    const [xt, , zt] = st[0];
+    let xb = xt, zb = 0.12;
+    for (let k = 1; k < st.length; k++) { const [xa, , za] = st[k - 1], [xc, , zc] = st[k]; if (za >= 0.12 && zc < 0.12) { xb = xa + (xc - xa) * (za - 0.12) / (za - zc); break; } }
+    const tilt = Math.atan2(xb - xt, zt - zb);          // rake: top of the transom further aft
+    const f = 0.55, xm = xb + (xt - xb) * f, zmid = zb + (zt - zb) * f;
     const w = Lx.bDeck(0) * 1.5;
     const dec = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), new THREE.MeshStandardMaterial({ map: transomDecal(C, C.id === 'blackwatch' ? 'Blackwatch' : C.id === 'sportboat' ? (opts.number ? '#' + opts.number : 'S23') : '', C.id === 'blackwatch' ? 'PROGRESO, YUC.' : ''), transparent: true, roughness: 0.4 }));
-    dec.position.set(0, zm + 0.1, -(x0 - Lx.H.transomRake * 0.55) + 0.012);
-    dec.rotation.x = -Math.atan2(Lx.H.transomRake, 1) * 0.9;
+    dec.position.set(0, zmid + Math.sin(tilt) * 0.012, -xm + Math.cos(tilt) * 0.012);
+    dec.rotation.x = tilt;
     if (C.id !== 'dinghy' && !C.multihull) inner.add(dec);
   }
   // cockpit furniture
@@ -518,12 +523,15 @@ export function buildBoatModel(boat, opts = {}) {
     tillerEnd.set(0, stockTop + 0.06, -tLen);
   }
   inner.add(rudderPivot);
-  // tiller extension (hiking stick) — oriented every frame toward the helm's hand
+  // tiller extension (hiking stick), hinged at the tiller end and lying forward along it
   let extension = null;
   if (C.id !== 'blackwatch') {
-    const g = new THREE.CylinderGeometry(0.012, 0.012, 1, 8); g.translate(0, 0.5, 0);
+    const L = C.id === 'dinghy' ? 1.0 : 1.2;
+    const g = new THREE.CylinderGeometry(0.012, 0.012, L, 8); g.translate(0, L / 2, 0); g.rotateX(-Math.PI / 2 + 0.08);
     extension = new THREE.Mesh(g, M.black()); extension.castShadow = true;
-    inner.add(extension);
+    extension.position.copy(tillerEnd);
+    rudderPivot.add(extension);
+    extension.userData.len = L;
   }
   // ---- spars and standing rigging
   const rig = new THREE.Group(); inner.add(rig);

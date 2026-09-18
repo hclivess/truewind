@@ -49,7 +49,7 @@ export class HUD {
     if (S.jib) rows.push(['jib', S.gennaker ? 'Jib / genn. sheet' : 'Jib sheet', bw ? '#d9c7a0' : '#2f6fd6'], ['jibLead', 'Jib car', '#9aa1a8'], ['jibHalyard', 'Jib halyard', '#2f6fd6']);
     if (S.gennaker) rows.push(['tackLine', 'Tack line', '#ff7a1a']);
     if (C.hasBoard) rows.push(['board', 'Daggerboard', '#f2f2ef']);
-    rows.push(['hike', 'Crew weight', '#d33f49']);
+    rows.push(['hike', 'Weight on rail', '#d33f49']);
     let h = `<div class="rg"><h3>Sails ${''}</h3>`;
     h += `<div class="sl2"><span>Main</span>${tt('main')}</div>`;
     if (S.stay) h += `<div class="sl2"><span>Staysail</span>${tt('stay')}</div>`;
@@ -59,7 +59,7 @@ export class HUD {
     h += rows.map(([k, label, col]) => `<div class="ln" data-k="${k}"><i style="background:${col}"></i><span>${label}</span><b id="o-${k}"></b><div class="bar" id="bar-${k}"></div></div>`).join('');
     h += `<div class="ln"><i style="background:#8a5a2b"></i><span>Helm</span><b id="o-helm"></b></div>`;
     if (S.main.reefs) h += `<div class="ln"><i style="background:#d24a3a"></i><span>Reef</span><b id="o-reef"></b></div>`;
-    h += `</div><div class="toggles"><button class="chip" id="t-trim">Auto-trim</button><button class="chip" id="t-hike">Auto-hike</button></div></div>`;
+    h += `</div><div class="toggles"><button class="chip" id="t-trim">Automatic trim</button><button class="chip" id="t-hike">Automatic weight</button></div></div>`;
     h += `<div class="rg"><h3>Rig loads</h3><div class="loads" id="loads"></div></div>`;
     $('#rig-body').innerHTML = h;
     this.rows = rows.map(r => r[0]);
@@ -176,7 +176,7 @@ export class HUD {
     h += kv('Rudder force', `${fmt(d.rudderY, 0)} N`) + kv('Rudder ventilation', `${Math.round((1 - (d.rudderVent ?? 1)) * 100)}%`);
     h += kv('Froude number', fmt(d.fn, 3)) + kv('Reynolds (hull)', `${(Math.abs(b.u) * C.lwl / 1.19e-6 / 1e6).toFixed(1)}e6`);
     h += kv('Heel moment', `${fmt(d.sailK, 0)} Nm`) + kv('Righting moment', `${fmt(d.RM, 0)} Nm`);
-    h += kv('Crew position', `${fmt(b.crewY, 2)} m / ${fmt(b.crewX, 2)}`);
+    h += kv('Weight position', `${fmt(b.crewY, 2)} m / ${fmt(b.crewX, 2)}`);
     h += kv('Yaw rate', `${fmt(b.r / DEG, 1)} °/s`) + kv('Roll rate', `${fmt(b.p / DEG, 1)} °/s`);
     h += kv('Heave / pitch', `${fmt(b.heave, 2)} m / ${fmt(b.pitch / DEG, 1)}°`);
     h += kv('Local wind / dirty air', `${fmt((d.tws ?? 0) / KT)} kn / ${Math.round((1 - b.shadow) * 100)}%`);
