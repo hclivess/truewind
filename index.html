@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>True Wind</title>
+<meta name="description" content="A browser sailing simulator built on real physics: per-strip sail aerodynamics, full running rigging, foils, hull resistance, waves, real OpenStreetMap coastlines and live weather.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=Barlow:wght@400;500;600&family=Big+Shoulders+Display:wght@600;800&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><path d='M30 6 L30 50 L10 50 Z' fill='%23ff7a1a'/><path d='M34 14 L34 50 L52 50 Z' fill='%23e9eef2'/><path d='M6 54 H58 L52 60 H12 Z' fill='%230e1a24'/></svg>">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }</script>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="hud" hidden>
+  <section id="race-card" class="panel">
+    <div class="rc-top"><span id="rc-mode" class="eyebrow">Free sail</span><span id="rc-venue" class="muted"></span></div>
+    <div id="rc-clock" class="big">--:--</div>
+    <div id="rc-leg" class="muted"></div>
+    <ol id="rc-standings"></ol>
+  </section>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="alert" role="alert"></div>
+
+  <section id="map-card" class="panel">
+    <canvas id="minimap" width="480" height="480" aria-label="Tactical map, wind at the top"></canvas>
+    <div class="map-foot"><span id="map-orient">Wind up</span><span class="muted" id="map-scale"></span></div>
+  </section>
+
+  <section id="rig" class="panel">
+    <header><span class="eyebrow">Rig</span><button id="rig-toggle" class="chip" aria-expanded="true">Hide</button></header>
+    <div id="rig-body"></div>
+  </section>
+
+  <section id="polar-card" class="panel">
+    <header><span class="eyebrow">Polar · VPP</span><span id="polar-pct" class="muted"></span></header>
+    <canvas id="polar" width="440" height="300" aria-label="Velocity prediction polar with live boat speed"></canvas>
+  </section>
+
+  <section id="physics" class="panel" hidden>
+    <header><span class="eyebrow">Physics</span><span class="muted">I to close</span></header>
+    <div id="phys-body"></div>
+  </section>
+
+  <section id="instruments" class="panel"></section>
+
+  <div id="keys" class="muted">H help · Esc menu · 1–6 cameras · I physics · L laylines · K forces</div>
+</div>
+
+<div id="menu" class="overlay">
+  <div class="menu-inner">
+    <header class="menu-head">
+      <h1>True&nbsp;Wind</h1>
+      <p class="lede">A sailing simulator that computes everything it can: apparent wind on every strip of every sail, the shape your strings give that sail, keel and rudder lift, hull resistance, heel, waves and tide — on real coastlines.</p>
+    </header>
+    <div class="menu-grid">
+      <section>
+        <h2>Boat</h2>
+        <div id="boat-list" class="cards"></div>
+      </section>
+      <section>
+        <h2>Venue</h2>
+        <div id="venue-list" class="cards venues"></div>
+        <div class="custom-loc">
+          <label for="custom-latlon">Anywhere on Earth</label>
+          <div class="row"><input id="custom-latlon" placeholder="lat, lon  e.g. 21.29, -89.67" autocomplete="off"><button id="custom-go" class="btn ghost">Load map</button></div>
+          <p id="custom-status" class="muted small"></p>
+        </div>
+      </section>
+      <section>
+        <h2>Conditions</h2>
+        <div class="seg" role="radiogroup" aria-label="Mode">
+          <button class="seg-b on" data-mode="free" role="radio" aria-checked="true">Free sail</button>
+          <button class="seg-b" data-mode="race" role="radio" aria-checked="false">Race</button>
+        </div>
+        <div class="field"><label for="tws">True wind <b id="tws-v"></b></label><input type="range" id="tws" min="2" max="32" step="0.5" value="12"></div>
+        <div class="field"><label for="twd">Wind from <b id="twd-v"></b></label><input type="range" id="twd" min="0" max="359" step="1" value="70"></div>
+        <div class="row"><button id="live-wind" class="btn ghost">Use live wind here</button><span id="live-status" class="muted small"></span></div>
+        <div class="field"><label for="gust">Puffs &amp; lulls <b id="gust-v"></b></label><input type="range" id="gust" min="0" max="1" step="0.05" value="0.5"></div>
+        <div class="field"><label for="shift">Oscillating shifts <b id="shift-v"></b></label><input type="range" id="shift" min="0" max="20" step="1" value="7"></div>
+        <div class="field"><label for="swell">Ocean swell <b id="swell-v"></b></label><input type="range" id="swell" min="0" max="2.5" step="0.1" value="0"></div>
+        <div class="field"><label for="current">Tidal current <b id="current-v"></b></label><input type="range" id="current" min="0" max="3" step="0.1" value="0.4"></div>
+        <div class="field race-only"><label for="fleet">AI boats <b id="fleet-v"></b></label><input type="range" id="fleet" min="0" max="9" step="1" value="5"></div>
+        <div class="field race-only"><label for="countdown">Start sequence <b id="countdown-v"></b></label><input type="range" id="countdown" min="30" max="300" step="30" value="120"></div>
+        <div class="field race-only"><label for="laps">Laps <b id="laps-v"></b></label><input type="range" id="laps" min="1" max="3" step="1" value="1"></div>
+        <div class="checks">
+          <label><input type="checkbox" id="opt-trim"> Auto-trim (crew trims all sails)</label>
+          <label><input type="checkbox" id="opt-hike" checked> Auto-hike (crew weight)</label>
+          <label><input type="checkbox" id="opt-tiller"> Tiller steering (push the tiller, bow goes the other way)</label>
+          <label><input type="checkbox" id="opt-laylines" checked> Show laylines</label>
+          <label><input type="checkbox" id="opt-sound" checked> Sound</label>
+        </div>
+      </section>
+    </div>
+    <footer class="menu-foot">
+      <button id="start" class="btn primary">Cast off</button>
+      <button id="resume" class="btn ghost" hidden>Resume</button>
+      <span class="muted small">Maps © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · Weather: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> · <a href="https://github.com/hclivess/truewind" target="_blank" rel="noopener">Source</a></span>
+    </footer>
+  </div>
+</div>
+
+<div id="help" class="overlay" hidden>
+  <div class="help-inner panel">
+    <h2>Helm &amp; crew</h2>
+    <div class="help-grid">
+      <div><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd><span>Steer (helm stays where you leave it; <kbd>Space</kbd> centres it)</span></div>
+      <div><kbd>W</kbd><kbd>S</kbd><span>Mainsheet trim / ease</span></div>
+      <div><kbd>↑</kbd><kbd>↓</kbd><span>Jib or gennaker sheet trim / ease</span></div>
+      <div><kbd>Shift</kbd>+<kbd>↑</kbd><kbd>↓</kbd><span>Staysail sheet (cutter)</span></div>
+      <div><kbd>Z</kbd><kbd>X</kbd><span>Traveler to windward / leeward</span></div>
+      <div><kbd>C</kbd><kbd>V</kbd><span>Vang ease / tension</span></div>
+      <div><kbd>N</kbd><kbd>M</kbd><span>Backstay ease / tension (bends mast, tightens forestay)</span></div>
+      <div><kbd>Q</kbd><kbd>E</kbd><span>Crew weight in / hike out (turns auto-hike off)</span></div>
+      <div><kbd>J</kbd> hold<span>Back the jib (get out of irons)</span></div>
+      <div><kbd>G</kbd><span>Hoist / douse gennaker</span></div>
+      <div><kbd>R</kbd><span>Reef (cycles 0 → 1 → 2) · rights a capsized dinghy</span></div>
+      <div><kbd>Y</kbd><span>Daggerboard up / down</span></div>
+      <div><kbd>T</kbd> <kbd>H</kbd><span>Toggle auto-trim / auto-hike</span></div>
+      <div><kbd>1</kbd>–<kbd>6</kbd><span>Chase · Helm · Bow · Masthead · Overhead · Orbit</span></div>
+      <div><kbd>L</kbd> <kbd>K</kbd> <kbd>I</kbd><span>Laylines · force vectors · physics readout</span></div>
+      <div><kbd>-</kbd> <kbd>=</kbd><span>Time warp (free sail)</span></div>
+      <div><kbd>P</kbd> <kbd>Esc</kbd><span>Pause · menu</span></div>
+      <div>Mouse<span>Drag to look around, wheel to zoom. Click the map to set a waypoint.</span></div>
+    </div>
+    <h2>Reading the boat</h2>
+    <p>Telltales in the rig panel show each third of the sail: <span class="st st-luff">LUFF</span> ease less or bear away, <span class="st st-ok">FLOW</span> right on, <span class="st st-stall">STALL</span> ease the sheet or head up. Upwind, twist is set by mainsheet tension and the jib lead; the angle by the traveler. When overpowered: backstay on, cunningham on, outhaul on, traveler down, then reef.</p>
+    <button id="help-close" class="btn primary">Back to the water</button>
+  </div>
+</div>
+
+<div id="loading" class="overlay" hidden><div class="panel"><div class="eyebrow">Preparing</div><div id="loading-text" class="big-ish">Loading chart…</div></div></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
