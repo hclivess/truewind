@@ -9,6 +9,7 @@ import { HUD } from './hud.js';
 import { Audio } from './audio.js';
 import { Net } from './net.js';
 import { Vector3 as THREE_V } from 'three';
+import { Rigging } from './rigging.js';
 
 const $ = (s) => document.querySelector(s);
 const PHYS_DT = 1 / 120;
@@ -405,6 +406,7 @@ class Game {
     if (trimming) rate /= 1 + ((load || 0) / C.sheetPower) ** 2;
     c[k] = clamp(c[k] + d * rate, 0, 1);
   }
+  grabIdForKey(k) { return Rigging.idForKey(k, this.player); }
   setReef(r) {
     const b = this.player, max = b.sailBy.main.reefs || 0;
     b.ctrl.reef = clamp(r, 0, max);
@@ -487,7 +489,7 @@ class Game {
       if (d < bd) { bd = d; best = { ...g, sx, sy }; }
     }
     this.hoverGrab = best;
-    vis.rigging.highlight(best ? best.id : null);
+    vis.rigging.highlight(best ? best.id : this.panelHover || null);
     $('#view').style.cursor = best ? 'grab' : '';
     if (best) {
       tip.hidden = false;
@@ -654,7 +656,9 @@ class Game {
     if (!this.idle && this.running && p) {
       const vis = this.renderer.boats.get(p);
       const show = vis && ['deck', 'chase', 'helm'].includes(this.renderer.cam.mode) && this.renderer.cam.dist < 25;
-      this.renderer.updateGrabMarkers(show ? vis.rigging.grabs() : [], this.hoverGrab && this.hoverGrab.id, GRAB_PX);
+      const hid = (this.hoverGrab && this.hoverGrab.id) || this.panelHover || null;
+      if (this.panelHover && !this.hoverGrab) vis.rigging.highlight(this.panelHover);
+      this.renderer.updateGrabMarkers(show ? vis.rigging.grabs() : [], hid, GRAB_PX);
     }
     this.renderer.update(dt, this.t, { env: this.env, boats: this.boats, player: p });
     if (!this.idle && this.running) {

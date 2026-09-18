@@ -346,7 +346,16 @@ export function buildBoatModel(boat, opts = {}) {
   const ck = C.id === 'blackwatch' ? { t0: 0.07, t1: 0.33, w: 0.5, sole: 0.38 }
     : C.id === 'sportboat' ? { t0: 0.0, t1: 0.44, w: 0.66, sole: 0.3 }
     : { t0: 0.12, t1: 0.66, w: 0.55, sole: 0.14 };
-  const deckH = deckHeightFn(C, Lx, ck);
+  const deckH0 = deckHeightFn(C, Lx, ck);
+  // top surface: the deck, or the cabin roof where there is a coachroof (fittings sit on whichever is on top)
+  const cab = C.id === 'blackwatch' ? { t0: 0.34, t1: 0.72, h: 0.44, w: (t) => 0.74 * (1 - 0.55 * sstep(0.55, 1, (t - 0.34) / 0.38) ** 1.5) }
+    : C.id === 'sportboat' ? { t0: 0.46, t1: 0.72, h: 0.16, w: () => 0.56 } : null;
+  const deckH = (x, y) => {
+    const z = deckH0(x, y);
+    if (!cab) return z;
+    const t = clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1);
+    return t > cab.t0 && t < cab.t1 && Math.abs(y) < cab.w(t) ? deckH0(x, 0) + cab.h : z;
+  };
   const deckTint = C.id === 'blackwatch' ? '#e6dcc4' : C.id === 'sportboat' ? '#dfe2e2' : '#eceae3';
   let deck;
   for (const off of offs) {
@@ -536,7 +545,7 @@ export function buildBoatModel(boat, opts = {}) {
   // ---- spars and standing rigging
   const rig = new THREE.Group(); inner.add(rig);
   const rigKit = new Kit();
-  const mastBase = C.id === 'blackwatch' ? deckH(C.mastX, 0) + 0.02 : deckH(C.mastX, 0);
+  const mastBase = deckH(C.mastX, 0) + 0.02;
   const mastLen = C.mastHeight - mastBase;
   const mastMat = C.id === 'sportboat' ? M.carbon() : M.alu();
   const r0 = C.id === 'dinghy' ? 0.032 : C.id === 'sportboat' ? 0.05 : 0.055;

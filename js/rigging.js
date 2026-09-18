@@ -216,7 +216,7 @@ export class Rigging {
     this.lastLines = { ...boat.lines };
     if (this.player) {
       const hw2 = [this.car, ...(this.jibCars || []), ...this.winches, this.vis.rudderPivot].filter(Boolean);
-      for (const x of hw2) x.traverse(o => { if (o.material && o.material.emissive) { o.material = o.material.clone(); o.material.emissive.setHex(0xff9a40); o.material.emissiveIntensity = 0.12; o.userData.e0 = 0.12; } });
+      for (const x of hw2) x.traverse(o => { if (o.material && o.material.emissive) { o.material = o.material.clone(); o.userData.e0 = o.material.emissiveIntensity; } });
     }
     this.hands = {}; // no hands: tails lead to cleats and lie coiled on deck
   }
@@ -293,7 +293,9 @@ export class Rigging {
     this.outhaul.set([clewB, this.boomPt('main', M.foot + 0.02, -0.04), this.boomPt('main', M.foot * 0.5, -0.1)], 50 + 400 * b.ctrl.outhaul, g);
     const exitZ = vis.mastBase + 0.5;
     const hals = [V(C.mastX - 0.07, 0.02, exitZ), V(C.mastX + 0.07, 0, exitZ + 0.2), V(C.mastX + 0.07, -0.02, exitZ + 0.1)];
-    const clutch = (i) => V(C.mastX - 1.0 - i * 0.02, (i - 1) * 0.08 + (C.id === 'dinghy' ? 0 : 0.18), vis.deckH(C.mastX - 1.0, 0.18) + 0.03);
+    // clutches on the aft end of the cabin roof (or the deck ahead of the cockpit), halyards run along the top
+    const cx0 = C.id === 'sportboat' ? C.mastX - 0.75 : C.mastX - 1.0;
+    const clutch = (i) => V(cx0 - i * 0.02, (i - 1) * 0.08 + (C.id === 'dinghy' ? 0 : 0.18), vis.deckH(cx0, 0.18) + 0.03);
     for (let i = 0; i < 3; i++) {
       const on = i === 0 || (i === 1 && b.sailBy.gennaker && b.genDeploy > 0.02) || (i === 2 && (b.sailBy.jib || b.sailBy.stay));
       if (!on || C.id === 'dinghy') { this.halyards[i].hide(); continue; }
@@ -409,8 +411,13 @@ export class Rigging {
   applyGlow() {
     if (!this.player) return;
     for (const r of this.ropes) r.glow(0);
-    for (const id of this.controlIds()) for (const rp of this.ropesFor(id)) rp.glow(1);
     if (this._hl) for (const rp of this.ropesFor(this._hl)) rp.glow(2);
+  }
+  // side-panel button keys -> the control on deck
+  static idForKey(k, b) {
+    const m = { main: 'main', trav: 'trav', vang: 'vang', cunn: 'cunn', outhaul: 'outhaul', backstay: 'backstay', stay: 'stay', jibLead: 'jibLead', jibHalyard: 'jibHalyard', tackLine: 'tackLine', helm: 'tiller', board: 'board', reef: 'reef', gen: 'gen' };
+    if (k === 'jib') return b.cls.noWinches ? 'jibpull' : 'winch';
+    return m[k] || null;
   }
   highlight(id) {
     if (this._hl === id) return;
@@ -459,7 +466,11 @@ export class Rigging {
     }
     if (this.staySheet) list.push({ id: 'stay', label: 'Staysail sheet', hint: 'pull up to trim, down to ease', kind: 'pull', key: 'stay', dir: -1, pos: toW(this.staySheet[2].pts[30]), info: () => `${Math.round(L.stayLoad || 0)} N · club ${deg(b.booms.stay.a)}°` });
     if (this.reefLines) list.push({ id: 'reef', label: 'Reef line', hint: 'click to put in the next reef, shift-click to shake out', kind: 'click', action: 'reef', pos: toW(this.reefLines[b.reefPos >= 1 ? 1 : 0].pts[6]), info: () => b.reefing ? `working… ${Math.round(b.diag.reefProgress * 100)}%` : `${b.ctrl.reef | 0} reef${(b.ctrl.reef | 0) === 1 ? '' : 's'} in` });
-    if (C.hasBoard && vis.keelMesh) list.push({ id: 'board', label: 'Daggerboard', hint: 'drag up or down', kind: 'pull', key: 'board', dir: 1, pos: vis.keelMesh.localToWorld(new THREE.Vector3(0, 0.05, C.keel.chord * 0.4)), info: () => `${Math.round(b.ctrl.board * 100)}% down` });
+    if (C.hasBoard && vis.keelMesh) {
+      // grab the top of a board (for a catamaran, the one in the windward hull)
+      const holder = C.keel.twin ? vis.keelMesh.children[(Math.sign(-b.phi || 1) + 1) / 2] || vis.keelMesh.children[0] : vis.keelMesh;
+      list.push({ id: 'board', label: C.keel.twin ? 'Daggerboards' : 'Daggerboard', hint: 'drag up or down', kind: 'pull', key: 'board', dir: 1, pos: holder.localToWorld(new THREE.Vector3(0, 0.08, C.keel.chord * 0.4)), info: () => `${Math.round(b.ctrl.board * 100)}% down` });
+    }
     // tiller: drag it sideways — the bow goes the other way
     const tp = vis.extension
       ? vis.extension.localToWorld(new THREE.Vector3(0, vis.extension.userData.len, 0).applyAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2 + 0.08))

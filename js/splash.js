@@ -14,11 +14,29 @@ const dropMat = new THREE.ShaderMaterial({
   fragmentShader: `varying float vL; void main(){ vec2 c = gl_PointCoord - 0.5; float r = dot(c, c); if (r > 0.25) discard;
     gl_FragColor = vec4(0.94, 0.97, 1.0, clamp(vL, 0.0, 1.0) * (1.0 - r * 3.0) * 0.85); }`,
 });
+const FOAM_GLSL = `
+float fh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float fn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(fh(i), fh(i + vec2(1, 0)), f.x), mix(fh(i + vec2(0, 1)), fh(i + vec2(1, 1)), f.x), f.y); }
+// soft bubbly foam: cells of bubbles over a streaky base, sharpened by coverage
+float foam(vec2 p, float t, float cover) {
+  float n = fn(p * 3.0 + vec2(t * 0.3, 0.0)) * 0.5 + fn(p * 7.0 - vec2(0.0, t * 0.5)) * 0.3 + fn(p * 17.0 + t) * 0.2;
+  float bub = smoothstep(0.35, 0.6, fn(p * 26.0 - t * 0.4)) * smoothstep(0.2, 0.5, fn(p * 9.0));
+  float v = n * 0.75 + bub * 0.35;
+  return smoothstep(1.0 - cover, 1.0 - cover + 0.35, v);
+}
+`;
 const foamMat = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false, side: THREE.DoubleSide,
-  vertexShader: `attribute float a; varying float vA; varying vec2 vP; void main(){ vA = a; vP = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-  fragmentShader: `uniform float uT; varying float vA; varying vec2 vP; float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
-    void main(){ float n = h(floor(vP * 14.0 + uT * 3.0)); gl_FragColor = vec4(0.95, 0.97, 1.0, vA * (0.45 + 0.55 * n)); }`,
+  vertexShader: `attribute float a; attribute float across; varying float vA; varying float vX; varying vec3 vW;
+    void main(){ vA = a; vX = across; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+  fragmentShader: `uniform float uT; varying float vA; varying float vX; varying vec3 vW; ${FOAM_GLSL}
+    void main(){
+      float edge = smoothstep(0.0, 0.12, vX) * (1.0 - smoothstep(0.35, 1.0, vX));   // tight to the hull, feathered outward
+      float f = foam(vW.xz, uT, clamp(vA * 0.9, 0.0, 0.9)) * edge;
+      if (f < 0.01) discard;
+      gl_FragColor = vec4(vec3(0.93, 0.96, 0.98), f * 0.9);
+    }`,
   uniforms: { uT: { value: 0 } },
 });
 
@@ -39,8 +57,10 @@ export class HullSplash {
     this.maxSt = 32;
     const fg = new THREE.BufferGeometry();
     this.fpos = new Float32Array(this.maxSt * 4 * 2 * 3); this.fa = new Float32Array(this.maxSt * 4 * 2);
+    const across = new Float32Array(this.maxSt * 4 * 2); for (let i = 0; i < across.length; i += 2) { across[i] = 0; across[i + 1] = 1; }
     fg.setAttribute('position', new THREE.BufferAttribute(this.fpos, 3));
     fg.setAttribute('a', new THREE.BufferAttribute(this.fa, 1));
+    fg.setAttribute('across', new THREE.BufferAttribute(across, 1));
     const idx = [];
     for (let side = 0; side < 4; side++) for (let i = 0; i < this.maxSt - 1; i++) {
       const a = (side * this.maxSt + i) * 2;
@@ -96,10 +116,11 @@ export class HullSplash {
         const hullVz = b.heaveV + st.x * b.pitchV - y * b.p;
         const rise = b._etaDot(st.x) - hullVz;
         const imp = Math.max(0, rise) + u * entry * (st.t > 0.5 ? 1 : 0.3);
-        const w = 0.07 + 0.02 * u + 0.25 * Math.min(1, imp / 2);
+        const w = 0.18 + 0.05 * u + 0.35 * Math.min(1, imp / 2);
         const out = sideSign * w;
         fp.set([y, z + 0.015, -st.x, y + out, z + 0.01, -st.x], slot * 6);
-        fa[slot * 2] = Math.min(0.9, 0.35 + 0.12 * u + 0.3 * imp); fa[slot * 2 + 1] = 0;
+        const cov = Math.min(0.9, 0.25 + 0.1 * u + 0.3 * imp);
+        fa[slot * 2] = cov; fa[slot * 2 + 1] = cov;
         // spray from hard impacts (squared excess over ~0.7 m/s)
         const ex = imp - 1.0;
         if (ex > 0 && Math.random() < ex * ex * dt * 8) {

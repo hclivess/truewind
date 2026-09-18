@@ -234,8 +234,9 @@ export class Renderer {
           float F = 0.02 + 0.98 * pow(1.0 - cosT, 5.0);
           vec3 R = reflect(-V, n); R.y = abs(R.y);
           vec3 refl = skyColor(R);
-          float shin = mix(900.0, 120.0, clamp(rip, 0.0, 1.0));
-          float spec = pow(max(dot(R, uSunDir), 0.0), shin) * (shin * 0.025 + 1.0) * (1.0 - 0.9 * uOvercast);
+          // sun glitter: many small sharp sparkles rather than broad white patches
+          float shin = mix(2400.0, 700.0, clamp(rip, 0.0, 1.0));
+          float spec = pow(max(dot(R, uSunDir), 0.0), shin) * (shin * 0.012 + 1.0) * (1.0 - 0.9 * uOvercast);
           // water body colour: shallow sand shows through on real bathymetry
           float depth = 30.0;
           float sd = 999.0;
@@ -504,7 +505,8 @@ export class Renderer {
       if (!g) return;
       sp.position.copy(g.pos);
       const on = g.id === hoverId;
-      sp.material.opacity = on ? 1 : 0.32;
+      sp.visible = on;                     // a ring only on the control you are pointing at
+      sp.material.opacity = 1;
       sp.scale.set(size * (on ? 1.1 : 1), size * (on ? 1.1 : 1), 1);
     });
   }
@@ -789,17 +791,39 @@ class Wake {
     const idx = [];
     for (let i = 0; i < this.N - 1; i++) { const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
     g.setIndex(idx);
+    const across = new Float32Array(this.N * 2); for (let i = 0; i < this.N; i++) { across[2 * i] = 0; across[2 * i + 1] = 1; }
+    g.setAttribute('across', new THREE.BufferAttribute(across, 1));
     const m = new THREE.ShaderMaterial({
-      transparent: true, depthWrite: false,
-      vertexShader: `attribute float alpha; varying float vA; varying vec2 vW; void main(){ vA = alpha; vW = position.xz; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-      fragmentShader: `varying float vA; varying vec2 vW; float h(vec2 p){return fract(sin(dot(p,vec2(12.9,78.2)))*43758.5);} void main(){ float n = h(floor(vW*3.0)); gl_FragColor = vec4(0.95,0.97,1.0, vA*(0.55+0.45*n)); }`,
+      transparent: true, depthWrite: false, uniforms: { uT: { value: 0 } },
+      vertexShader: `attribute float alpha; attribute float across; varying float vA; varying float vX; varying vec2 vW;
+        void main(){ vA = alpha; vX = across; vW = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: `uniform float uT; varying float vA; varying float vX; varying vec2 vW; 
+float fh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float fn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(fh(i), fh(i + vec2(1, 0)), f.x), mix(fh(i + vec2(0, 1)), fh(i + vec2(1, 1)), f.x), f.y); }
+// soft bubbly foam: cells of bubbles over a streaky base, sharpened by coverage
+float foam(vec2 p, float t, float cover) {
+  float n = fn(p * 3.0 + vec2(t * 0.3, 0.0)) * 0.5 + fn(p * 7.0 - vec2(0.0, t * 0.5)) * 0.3 + fn(p * 17.0 + t) * 0.2;
+  float bub = smoothstep(0.35, 0.6, fn(p * 26.0 - t * 0.4)) * smoothstep(0.2, 0.5, fn(p * 9.0));
+  float v = n * 0.75 + bub * 0.35;
+  return smoothstep(1.0 - cover, 1.0 - cover + 0.35, v);
+}
+
+        void main(){
+          float mid = 1.0 - abs(vX * 2.0 - 1.0);                 // denser in the middle of the wake, frayed edges
+          float f = foam(vW * 0.8, uT, clamp(vA * 1.4 * (0.4 + 0.6 * mid), 0.0, 0.85));
+          if (f < 0.01) discard;
+          gl_FragColor = vec4(0.93, 0.96, 0.98, f * 0.8);
+        }`,
     });
+    this.mat = m;
     this.mesh = new THREE.Mesh(g, m);
     this.mesh.frustumCulled = false;
     this.acc = 0;
     this._s = {};
   }
   update(b, env, t, dt) {
+    this.mat.uniforms.uT.value = t;
     this.acc += dt;
     const C = b.cls;
     if (this.acc > 0.12) {

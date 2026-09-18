@@ -556,7 +556,9 @@ export class Boat {
         const grav = s.boomMass * G * (s.foot * 0.45) * Math.sin(this.phi) * Math.cos(b.a);
         const inert = -s.Iboom * (this._rdot || 0);
         const damp = aeroOn ? 2.5 : 8;
-        const acc = (boomTorque + grav + inert - damp * b.rate) / s.Iboom;
+        // una-rig in irons: the sailor pushes the boom out against the wind to sail backwards and turn
+        const push = (ctrl.backJib && !this.sailBy.jib && key === 'main') ? (ctrl.backJib * 0.8 - b.a) * s.Iboom * 20 : 0;
+        const acc = (boomTorque + grav + inert + push - damp * b.rate) / s.Iboom;
         b.rate += acc * dt; b.a += b.rate * dt;
         let sheetLoad = 0;
         if (Math.abs(b.a) >= limit) {

@@ -83,6 +83,12 @@ export class HUD {
       for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) bt.addEventListener(ev, stop);
     });
     document.querySelectorAll('#rig-body [data-reef]').forEach(btn => btn.addEventListener('click', () => this.g.setReef(+btn.dataset.reef)));
+    // hovering a control's buttons lights that control up on the boat
+    const hover = (el, key) => { el.addEventListener('pointerenter', () => { this.g.panelHover = key; }); el.addEventListener('pointerleave', () => { if (this.g.panelHover === key) this.g.panelHover = null; }); };
+    document.querySelectorAll('#rig-body .ln[data-k]').forEach(row => hover(row, this.g.grabIdForKey(row.dataset.k)));
+    document.querySelectorAll('#rig-body .nbtn[data-k="helm"]').forEach(btn => hover(btn, 'tiller'));
+    document.querySelectorAll('#rig-body [data-reef]').forEach(btn => hover(btn, 'reef'));
+    const ag = document.getElementById('a-gen'); if (ag) hover(ag, 'gen');
     const gen = $('#a-gen'); if (gen) gen.addEventListener('click', () => this.g.toggleGen());
     const back = $('#a-back');
     if (back) { back.addEventListener('pointerdown', () => { this.g.backJib = true; }); for (const ev of ['pointerup', 'pointerleave']) back.addEventListener(ev, () => { this.g.backJib = false; }); }

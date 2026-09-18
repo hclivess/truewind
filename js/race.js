@@ -279,6 +279,9 @@ export class AIHelm {
     // never aim into the no-go zone: pinch at most to close-hauled on the nearer tack
     let rel = wrap(twd - desired);
     if (Math.abs(rel) < up) desired = twd - (Math.sign(wrap(twd - b.psi)) || 1) * up;
+    // no tacking from a standstill: bear away on the present tack and build speed first
+    const tackNow = Math.sign(wrap(twd - b.psi)) || 1;
+    if ((Math.sign(wrap(twd - desired)) || 1) !== tackNow && b.u < 1.2 && Math.abs(wrap(twd - b.psi)) > 25 * DEG) desired = twd - tackNow * (up + 30 * DEG);
     let err = wrap(desired - b.psi);
     const kp = 2.4 * this.skill, kd = 1.6;
     let cmd = clamp(kp * err - kd * b.r, -0.8, 0.8);
