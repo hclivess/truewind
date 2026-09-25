@@ -3,6 +3,8 @@ import { Boat, solvePolar, vmgTargets } from '../js/physics.js';
 import { VENUES, World } from '../js/world.js';
 import { Course, Race, AIHelm, applyWindShadow, resolveCollisions } from '../js/race.js';
 import { readFileSync } from 'node:fs';
+// SEED=n makes the AI personalities (Math.random) repeatable
+if (process.env.SEED) { let a = +process.env.SEED >>> 0; Math.random = () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 const [vid='solent', cls='sportboat', nb='6', mins='25'] = process.argv.slice(2);
 const v = VENUES.find(x=>x.id===vid);
 const geo = v.open ? null : JSON.parse(readFileSync(`data/venues/${vid}.json`));

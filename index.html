@@ -31,10 +31,18 @@
   <section id="map-card" class="panel">
     <canvas id="minimap" width="480" height="480" aria-label="Tactical map, wind at the top"></canvas>
     <div class="map-foot"><span id="map-orient">Wind up</span><span class="muted" id="map-scale"></span></div>
+    <div class="tools" role="toolbar" aria-label="Game">
+      <button class="chip" id="tb-menu" title="Menu (Esc)" aria-label="Menu">Menu</button>
+      <button class="chip" id="tb-pause" title="Pause (P)" aria-label="Pause" aria-pressed="false">Pause</button>
+      <button class="chip" id="tb-cam" title="Next camera (keys 1–7)" aria-label="Next camera">Cam</button>
+      <button class="chip" id="tb-rig" title="Rig panel" aria-label="Rig panel" aria-pressed="true">Rig</button>
+      <button class="chip" id="tb-sound" title="Sound (O)" aria-label="Sound" aria-pressed="true">Snd</button>
+      <button class="chip" id="tb-help" title="Help (?)" aria-label="Help">?</button>
+    </div>
   </section>
 
   <section id="rig" class="panel">
-    <header><span class="eyebrow">Rig</span><button id="rig-toggle" class="chip" aria-expanded="true">Hide</button></header>
+    <header><span class="eyebrow">Rig</span><span><button id="rig-adv" class="chip" aria-pressed="false" title="Show every string: vang, cunningham, outhaul, backstay, jib car and halyard, lazy sheet, loads">All strings</button><button id="rig-toggle" class="chip" aria-expanded="true">Hide</button></span></header>
     <div id="rig-body"></div>
   </section>
 
@@ -50,7 +58,34 @@
 
   <section id="instruments" class="panel"></section>
 
-  <div id="keys" class="muted">H help · Esc menu · 1–7 cameras (7 = on deck) · I physics · L laylines · K forces</div>
+  <div id="keys" class="muted"></div>
+  <div id="paused-badge" hidden>Paused<small>P or Play to resume</small></div>
+
+  <div id="touch" aria-hidden="true">
+    <div class="tp tp-helm">
+      <button class="tbtn" data-k="helm" data-d="-1">◀<small>Port</small></button>
+      <button class="tbtn tsm" id="tp-centre">Centre</button>
+      <button class="tbtn" data-k="helm" data-d="1">▶<small>Stbd</small></button>
+    </div>
+    <div class="tp tp-trim">
+      <span class="tl">Main</span><button class="tbtn" data-k="main" data-d="-1">Trim</button><button class="tbtn" data-k="main" data-d="1">Ease</button>
+      <span class="tl tl-jib">Jib</span><button class="tbtn tp-jib" data-k="jib" data-d="-1">Trim</button><button class="tbtn tp-jib" data-k="jib" data-d="1">Ease</button>
+      <button class="tbtn tsm" id="tp-auto">Auto trim</button>
+    </div>
+  </div>
+</div>
+
+<div id="results" class="overlay" hidden role="dialog" aria-labelledby="res-title">
+  <div class="res-inner panel">
+    <div class="eyebrow" id="res-sub">Race</div>
+    <h2 id="res-title">Results</h2>
+    <ol id="res-list"></ol>
+    <div class="row">
+      <button id="res-again" class="btn primary">Race again</button>
+      <button id="res-keep" class="btn ghost">Keep sailing</button>
+      <button id="res-menu" class="btn ghost">Menu</button>
+    </div>
+  </div>
 </div>
 
 <div id="menu" class="overlay">
@@ -99,7 +134,7 @@
           <button class="seg-b" data-tod="night" role="radio">Night</button>
           <button class="seg-b" data-tod="live" role="radio" title="The real sun and moon over the venue right now">Live</button>
         </div>
-        <div class="field"><label for="tws">True wind <b id="tws-v"></b></label><input type="range" id="tws" min="2" max="60" step="0.5" value="12"></div>
+        <div class="field"><label for="tws">True wind <b id="tws-v"></b></label><input type="range" id="tws" min="2" max="60" step="0.5" value="12"><p id="tws-note" class="muted small note"></p></div>
         <div class="field"><label for="twd">Wind from <b id="twd-v"></b></label><input type="range" id="twd" min="0" max="359" step="1" value="70"></div>
         <div class="row"><button id="live-wind" class="btn ghost">Use live wind here</button><span id="live-status" class="muted small"></span></div>
         <div class="field"><label for="gust">Puffs &amp; lulls <b id="gust-v"></b></label><input type="range" id="gust" min="0" max="1" step="0.05" value="0.5"></div>
@@ -126,8 +161,15 @@
   </div>
 </div>
 
-<div id="help" class="overlay" hidden>
+<div id="help" class="overlay" hidden role="dialog" aria-label="Help">
   <div class="help-inner panel">
+    <h2>First sail</h2>
+    <ul class="first">
+      <li>The wind blows from the <b>top of the map</b> (the white arrow). No boat can sail straight into it: keep at least about 45° off the wind, or the sails flap and you stop (“in irons”).</li>
+      <li><b>Steer</b> with <kbd>A</kbd><kbd>D</kbd> or <kbd>←</kbd><kbd>→</kbd> (on a phone: the ◀ ▶ buttons). The helm stays where you leave it — <kbd>Space</kbd> centres it.</li>
+      <li>Press <kbd>T</kbd> for <b>automatic trim</b> and the crew set every sail for you. Take the sheets yourself later: <kbd>W</kbd><kbd>S</kbd> mainsheet, <kbd>↑</kbd><kbd>↓</kbd> jib.</li>
+      <li>Telltales: <span class="st st-luff">LUFF</span> trim in or bear away · <span class="st st-ok">FLOW</span> good · <span class="st st-stall">STALL</span> ease out or head up. Heeling hard? Ease the main, or reef (<kbd>R</kbd>).</li>
+    </ul>
     <h2>Helm &amp; crew</h2>
     <div class="help-grid">
       <div><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd><span>Steer (helm stays where you leave it; <kbd>Space</kbd> centres it)</span></div>
@@ -150,7 +192,9 @@
       <div><kbd>L</kbd> <kbd>K</kbd> <kbd>I</kbd><span>Laylines · force vectors · physics readout</span></div>
       <div><kbd>-</kbd> <kbd>=</kbd><span>Time warp (free sail)</span></div>
       <div><kbd>P</kbd> <kbd>Esc</kbd><span>Pause · menu</span></div>
+      <div><kbd>O</kbd> <kbd>?</kbd><span>Sound on / off · this help</span></div>
       <div>Mouse<span>Drag to look around, wheel to zoom. Click the map to set a waypoint.</span></div>
+      <div>Touch<span>Drag to look around, pinch to zoom, tap the map for a waypoint. Hold ◀ ▶ to steer and Trim / Ease for the sheets; Rig opens every line.</span></div>
     </div>
     <h2>Reading the boat</h2>
     <p>Telltales in the rig panel show each third of the sail: <span class="st st-luff">LUFF</span> ease less or bear away, <span class="st st-ok">FLOW</span> right on, <span class="st st-stall">STALL</span> ease the sheet or head up. Upwind, twist is set by mainsheet tension and the jib lead; the angle by the traveler. When overpowered: backstay on, cunningham on, outhaul on, traveler down, then reef.</p>

@@ -181,9 +181,30 @@ export class AIHelm {
     } else if (leg && leg.type === 'start' && clock < 0) {
       return this.preStart(dt, t, sim, racer, course, up);
     } else if (leg && leg.type === 'start') {
-      if (racer.ocs) { // dip back below the line
-        dest = { x: b.x - course.ux * 60, z: b.z - course.uz * 60 };
-      } else dest = { x: (course.pin.x + course.committee.x) / 2 + course.ux * 20, z: (course.pin.z + course.committee.z) / 2 + course.uz * 20 };
+      // the start only counts when the boat crosses the line itself, upwind, between the ends: aim through
+      // the nearest part of the line (inside the ends); a boat that is above it without having started
+      // (OCS, late, or carried past an end) goes back below first. Aiming at one point above the middle
+      // left boats that were beyond an end, or already above the line, circling there and never starting.
+      const cx = (course.pin.x + course.committee.x) / 2, cz = (course.pin.z + course.committee.z) / 2;
+      const half = Math.hypot(course.committee.x - course.pin.x, course.committee.z - course.pin.z) / 2;
+      const [a, c] = course.frame(b.x, b.z, cx, cz);
+      const cc = clamp(c, -half + 12, half - 12);
+      if (racer.ocs || a > 1) this.dipping = true;
+      else if (a < -12) this.dipping = false;
+      const up2 = this.dipping ? -30 : Math.abs(c) > half - 12 ? 5 : 20;
+      dest = { x: cx + course.rx * (this.dipping || Math.abs(c) > half - 12 ? cc : 0) + course.ux * up2,
+               z: cz + course.rz * (this.dipping || Math.abs(c) > half - 12 ? cc : 0) + course.uz * up2 };
+    } else if (leg && leg.type === 'mark') {
+      // round it, don't sail at it: lay a point a boat-length and a half to the right of the mark
+      // (it is left to port), and once above it bear away across its upwind ray. Aiming at the mark itself
+      // piled the fleet onto it, stalled head to wind, bumping it and never crossing the rounding ray.
+      const m = leg.mark, [am, cm] = course.frame(b.x, b.z, m.x, m.z);
+      if (this.roundLeg !== racer.leg) { this.roundLeg = racer.leg; this.overMark = false; }
+      if (am > 3 && cm > 0) this.overMark = true;
+      else if (am < -8) this.overMark = false;   // fell back below it without rounding: go round again
+      const off = 1.5 * b.cls.loa + 3;
+      dest = this.overMark ? { x: m.x - course.rx * 30 + course.ux * 6, z: m.z - course.rz * 30 + course.uz * 6 }
+        : { x: m.x + course.rx * off + course.ux * 3, z: m.z + course.rz * off + course.uz * 3 };
     } else if (leg) dest = course.target(leg, b);
     else dest = this.wander || (this.wander = { x: b.x + 500, z: b.z });
 
@@ -196,8 +217,11 @@ export class AIHelm {
       mode = 'beat';
       // tack on the layline, or on a big header when not near a layline
       let want = tack;
-      if (tack > 0 && rel > up - this.overstand * 0.2 + 2 * DEG) want = -1;
-      if (tack < 0 && rel < -up + this.overstand * 0.2 - 2 * DEG) want = 1;
+      // laylines are ground tracks: the other tack's heading plus leeway plus the tide (not the heading
+      // alone, which in a cross-tide had the fleet overstanding or tacking short of the mark)
+      if (mode === 'beat' && Math.abs(d.leeway ?? 0) < 20 * DEG) this.lee = lerp(this.lee ?? 5 * DEG, Math.abs(d.leeway ?? 0), clamp(dt / 20, 0, 1));
+      if (tack > 0 && rel > this.trackRel(-1, up) - this.overstand * 0.2 + 2 * DEG) want = -1;
+      if (tack < 0 && rel < this.trackRel(1, up) + this.overstand * 0.2 - 2 * DEG) want = 1;
       const header = tack > 0 ? wrap(twd - this.twdMean) : -wrap(twd - this.twdMean);
       if (want === tack && header < -8 * DEG && Math.abs(rel) < up - 15 * DEG && t - this.lastTack > 25) want = -tack;
       if (want !== tack && t - this.lastTack > 12) { this.lastTack = t; }
@@ -256,13 +280,24 @@ export class AIHelm {
     let desired, luff = false;
     if (-clock > tNeed + 12) {
       // hold below the line: reach back and forth around a holding point
-      const hold = { x: spot.x - course.ux * 90, z: spot.z - course.uz * 90 };
+      // on the starboard-tack layline to the spot: close-hauled from straight below it sails the boat
+      // out past the pin end (90 m below at ~45° made good = ~90 m to the left)
+      const lay = 90 * Math.tan(up + 6 * DEG);
+      const hold = { x: spot.x - course.ux * 90 + course.rx * lay, z: spot.z - course.uz * 90 + course.rz * lay };
       const dx = hold.x - b.x, dz = hold.z - b.z;
       if (Math.hypot(dx, dz) > 35) desired = Math.atan2(dx, -dz);
       else { desired = twd + Math.PI / 2 * (Math.sin(t * 0.05 + this.startFrac * 6) > 0 ? 1 : -1); luff = true; }
     } else {
-      // time the run to the line on starboard tack
-      desired = twd - up;
+      // time the run to the line: head for the spot. Inside the no-go zone, beat to it: hold the present
+      // tack until the spot is near the other layline, then tack (steer() alone holds the present tack
+      // for ever, sailing away past the end of the line)
+      desired = Math.atan2(spot.x + course.ux * 10 - b.x, -(spot.z + course.uz * 10 - b.z));
+      const rs = wrap(twd - desired), cur = Math.sign(wrap(twd - b.psi)) || 1;
+      // the laylines are ground tracks (heading, leeway and tide): stay on this tack until the spot is on the
+      // other tack's layline, then tack; outside the laylines just head for it
+      const layC = Math.abs(this.trackRel(cur, up)), layO = Math.abs(this.trackRel(-cur, up));
+      if (Math.sign(rs) === cur ? Math.abs(rs) < layC : Math.abs(rs) < layO - 4 * DEG) desired = twd - cur * up;
+      else if (Math.abs(rs) < up) desired = twd + cur * up;
       if (distToLine < 8 && -clock > 4) luff = true;
     }
     autoTrim(b, dt, this.bias);
@@ -270,6 +305,16 @@ export class AIHelm {
     if (luff) { b.ctrl.main = 1; b.ctrl.jib = 1; b.ctrl.stay = 1; }
     if (b.sailBy.gennaker) b.ctrl.gen = false;
     this.mode = 'prestart';
+  }
+
+  // ground-track angle (relative to the wind, like rel) the boat would make close-hauled on tack s
+  // (+1 starboard): heading, leeway to leeward, and the tide it feels (ground minus water velocity)
+  trackRel(s, up) {
+    const b = this.b, twd = b.diag.twd ?? 0;
+    const fx = Math.sin(b.psi), fz = -Math.cos(b.psi), sx = Math.cos(b.psi), sz = Math.sin(b.psi);
+    const cx = (b.vgx ?? 0) - (b.u * fx + b.v * sx), cz = (b.vgz ?? 0) - (b.u * fz + b.v * sz);
+    const V = Math.max(0.5, this.targetsUpBsp ?? b.u), h = twd - s * (up + (this.lee ?? 5 * DEG));
+    return wrap(Math.atan2(V * Math.sin(h) + cx, V * Math.cos(h) - cz) - twd);
   }
 
   steer(dt, desired) {

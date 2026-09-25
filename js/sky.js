@@ -133,7 +133,8 @@ vec3 skyColor(vec3 d) {
   vec3 c = texture2D(uSkyLUT, vec2(u, v)).rgb;
   // under a closed cloud deck the sky is a flat grey lit from above
   float g = dot(texture2D(uSkyLUT, vec2(0.5, 0.75)).rgb, vec3(0.3, 0.45, 0.25));
-  return mix(c, vec3(g * 0.92, g * 0.96, g), uOvercast * 0.7);
+  // and a thick one (a gale's stratocumulus, the base of a squall) lets much less light through
+  return mix(c, vec3(g * 0.92, g * 0.96, g), uOvercast * 0.7) * (1.0 - 0.4 * uOvercast * uOvercast);
 }`;
 
 // cloud field shared by the sky march, the reflections and the cloud shadows
@@ -157,7 +158,7 @@ vec3 cloudLayer(vec2 xz, out float cellK, out float anvil) {
     cellK = max(cellK, k);
     cov = max(cov, smoothstep(1.15, 0.6, d) * c.w);
     top = mix(top, 9500.0, k);
-    base = mix(base, base * 0.8, k);
+    base = mix(base, base * 0.7, k);          // ragged, lowered base under the rain
     anvil = max(anvil, smoothstep(1.9, 1.0, d) * c.w);
   }
   if (anvil > 0.0) top = max(top, mix(top, 9700.0, anvil));
@@ -265,7 +266,7 @@ void main() {
     float tc = max(0.0, -dot(o, dh)); float dist = length(o + dh * tc);
     float hgt = rd.y > 0.0 ? tc * rd.y / max(length(rd.xz), 1e-3) : 0.0;
     float shaft = smoothstep(0.45 * c.z, 0.12 * c.z, dist) * smoothstep(uCloudBase * 0.8, 0.0, hgt) * smoothstep(40000.0, 2000.0, tc) * c.w;
-    col = mix(col, uAmbBot * 0.8, clamp(shaft * 0.55, 0.0, 0.8));
+    col = mix(col, uAmbBot * 0.7, clamp(shaft * 0.75, 0.0, 0.85));
     T *= 1.0 - clamp(shaft * 0.6, 0.0, 0.9);
   }
   vec4 cur = vec4(col, T);
@@ -450,12 +451,16 @@ export class SkySystem {
   // clouds from the weather: cover 0..1, squall cells [{x,z,R}], wind drift
   setWeather(cover, cells, drift, t, windKt) {
     const U = this.U;
-    U.uCover.value += (cover - U.uCover.value) * 0.02;
+    // eased over ~8 s of sim time (frame-rate independent); a jump in t snaps
+    const dt = t - (this._wxT ?? -1e9); this._wxT = t;
+    const k = dt < 0 || dt > 60 ? 1 : 1 - Math.exp(-dt / 8);
+    U.uCover.value += (cover - U.uCover.value) * k;
     U.uWOff.value.copy(drift); U.uCloudTime.value = t;
     // stronger wind: flatter, lower stratocumulus; light air: tall fair-weather cumulus
     const base = 1250 - Math.min(500, windKt * 12), thick = 1500 - Math.min(700, windKt * 16) + cover * 600;
-    U.uCloudBase.value += (base - U.uCloudBase.value) * 0.02; U.uCloudThick.value += (thick - U.uCloudThick.value) * 0.02;
-    for (let i = 0; i < 4; i++) { const c = cells[i]; U.uCells.value[i].set(c ? c.x : 0, c ? c.z : 0, c ? Math.max(2500, c.R * 3.5) : 0, c ? 1 : 0); }
+    U.uCloudBase.value += (base - U.uCloudBase.value) * k; U.uCloudThick.value += (thick - U.uCloudThick.value) * k;
+    // cells grow from a swelling cumulus into a full cumulonimbus and collapse again (w = life 0..1)
+    for (let i = 0; i < 4; i++) { const c = cells[i]; U.uCells.value[i].set(c ? c.x : 0, c ? c.z : 0, c ? Math.max(2500, c.R * 3.5) : 0, c ? Math.min(1, 1.4 * (c.w ?? 1)) : 0); }
   }
   // where are the sun and moon, and what does the sky look like
   setTime(ms, lat, lon) {

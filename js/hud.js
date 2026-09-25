@@ -28,11 +28,23 @@ export class HUD {
     this.polarTrail = [];
     this.mapCanvas.addEventListener('wheel', (e) => { e.preventDefault(); this.mapRange = clamp(this.mapRange * (e.deltaY > 0 ? 1.2 : 1 / 1.2), 120, 6000); }, { passive: false });
     this.mapCanvas.addEventListener('click', (e) => this.mapClick(e));
-    $('#rig-toggle').addEventListener('click', () => {
-      const r = $('#rig'); r.classList.toggle('collapsed');
-      $('#rig-toggle').textContent = r.classList.contains('collapsed') ? 'Show' : 'Hide';
-      $('#rig-toggle').setAttribute('aria-expanded', String(!r.classList.contains('collapsed')));
-    });
+    $('#rig-toggle').addEventListener('click', () => this.setRigCollapsed(!$('#rig').classList.contains('collapsed')));
+    // the full string set (vang, cunningham, outhaul, backstay, jib car/halyard, lazy sheet, loads) is one click away
+    $('#rig-adv').addEventListener('click', () => this.setRigAdvanced(!$('#rig').classList.contains('adv')));
+    this.setRigAdvanced(pref('tw-rig-adv') === '1', false);
+    this.setRigCollapsed(pref('tw-rig-collapsed') === '1', false);
+  }
+  setRigCollapsed(on, save = true) {
+    const r = $('#rig'); r.classList.toggle('collapsed', on);
+    $('#rig-toggle').textContent = on ? 'Show' : 'Hide';
+    $('#rig-toggle').setAttribute('aria-expanded', String(!on));
+    if (save) pref('tw-rig-collapsed', on ? '1' : '0');
+  }
+  setRigAdvanced(on, save = true) {
+    $('#rig').classList.toggle('adv', on);
+    $('#rig-adv').setAttribute('aria-pressed', String(on));
+    $('#rig-adv').classList.toggle('on', on);
+    if (save) pref('tw-rig-adv', on ? '1' : '0');
   }
 
   // ------------------------------------------------------------ rig panel
@@ -56,7 +68,7 @@ export class HUD {
     if (S.stay) h += `<div class="sl2"><span>Staysail</span>${tt('stay')}</div>`;
     if (S.jib) h += `<div class="sl2"><span id="hs-name">Jib</span>${tt('jib')}</div>`;
     if (S.gennaker) h += `<div class="sl2"><span>Gennaker</span>${tt('gennaker')}</div>`;
-    h += `</div><div class="rg"><h3>Lines <span class="muted" style="font-weight:500;letter-spacing:.02em;text-transform:none">grab them on deck · 7</span></h3><div class="lines">`;
+    h += `</div><div class="rg"><h3>Lines <span class="muted" style="font-weight:500;letter-spacing:.02em;text-transform:none">or grab them on deck (7)</span></h3><div class="lines">`;
     // every control is here as press-and-hold buttons, and on deck as the real line / car / winch
     const BTN = { main: ['Trim', 'Ease'], jib: ['Trim', 'Ease'], lazy: ['Haul', 'Ease'], pushBoom: ['Port', 'Stbd'], stay: ['Trim', 'Ease'], trav: ['Windward', 'Leeward'], vang: ['−', '+'], cunn: ['−', '+'],
       outhaul: ['−', '+'], backstay: ['−', '+'], jibHalyard: ['−', '+'], jibLead: ['Fwd', 'Aft'], tackLine: ['Down', 'Ease'], board: ['Up', 'Down'], hike: ['In', 'Out'] };
@@ -65,7 +77,8 @@ export class HUD {
     const lockable = new Set(b.locks ? Object.keys(b.locks) : []);
     const hasCleat = (k) => lockable.has(k) && !(k === 'lazy' && C.noWinches) && !(k === 'jibHalyard' && C.id === 'dinghy') && !(k === 'trav' && !S.main.trav);
     const lk = (k) => hasCleat(k) ? `<button class="lk" data-lock="${k}" title="Cleat / release this line">⊓</button>` : `<span class="lk-sp"></span>`;
-    h += rows.map(([k, label, col]) => `<div class="ln" data-k="${k}"><i style="background:${col}"></i><span>${label}</span><b id="o-${k}"></b>${lk(k)}${btns(k)}</div>`).join('');
+    const ADV = new Set(['vang', 'cunn', 'outhaul', 'backstay', 'lazy', 'jibLead', 'jibHalyard', 'tackLine']);
+    h += rows.map(([k, label, col]) => `<div class="ln${ADV.has(k) ? ' adv' : ''}" data-k="${k}"><i style="background:${col}"></i><span>${label}</span><b id="o-${k}"></b>${lk(k)}${btns(k)}</div>`).join('');
     h += `<div class="ln"><i style="background:#8a5a2b"></i><span>Helm</span><b id="o-helm"></b><span class="lk-sp"></span><span class="nb"><button class="nbtn" data-k="helm" data-d="-1">Port</button><button class="nbtn" data-k="helm" data-d="1">Stbd</button></span></div>`;
     h += `</div><div class="toggles acts">`;
     if (S.main.reefs) h += `<span class="muted small">Reef</span>` + [0, 1, 2].slice(0, S.main.reefs + 1).map(r => `<button class="chip" data-reef="${r}">${['Full', '1st', '2nd'][r]}</button>`).join('') + `<b id="o-reef" class="small"></b>`;
@@ -75,7 +88,7 @@ export class HUD {
     if (C.canCapsize) h += `<button class="chip" id="a-right">Right the boat</button>`;
     h += `<button class="chip" id="a-center">Centre helm</button>`;
     h += `</div><div class="toggles"><button class="chip" id="t-trim">Automatic trim</button><button class="chip" id="t-hike">Automatic weight</button></div></div>`;
-    h += `<div class="rg"><h3>Rig loads</h3><div class="loads" id="loads"></div></div>`;
+    h += `<div class="rg adv"><h3>Rig loads</h3><div class="loads" id="loads"></div></div>`;
     $('#rig-body').innerHTML = h;
     this.rows = rows.map(r => r[0]);
     $('#t-trim').addEventListener('click', () => this.g.toggleAutoTrim());
@@ -126,7 +139,12 @@ export class HUD {
     set('bsp', fmt(b.u / KT)); set('sog', fmt(Math.hypot(b.vgx || 0, b.vgz || 0) / KT));
     set('hdg', pad3(deg(b.psi)));
     set('twa', `${Math.abs(twaDeg)}`, twaDeg > 0 ? 'stbd' : 'port');
-    set('tws', fmt((d.twsInst ?? 0) / KT));
+    // wind speeds are damped (~1.5 s) like a real display: the raw masthead reading swings with the roll
+    // rate (a knockdown moves the masthead at 10+ kn); a new boat starts from its first reading
+    if (this._windB !== b) { this._windB = b; this._twsD = d.twsInst ?? 0; this._awsD = d.aws ?? 0; }
+    const kd = 1 - Math.exp(-0.1 / 1.5);
+    this._twsD += ((d.twsInst ?? 0) - this._twsD) * kd; this._awsD += ((d.aws ?? 0) - this._awsD) * kd;
+    set('tws', fmt(this._twsD / KT));
     const tgt = g.navTarget();
     let vmg;
     if (tgt) { const brg = Math.atan2(tgt.x - b.x, -(tgt.z - b.z)); vmg = ((b.vgx || 0) * Math.sin(brg) - (b.vgz || 0) * Math.cos(brg)) / KT; this.el.vmg.querySelector('.lab span').textContent = 'VMC'; }
@@ -134,18 +152,45 @@ export class HUD {
     set('vmg', fmt(vmg));
     const awaDeg = deg(d.awa ?? 0);
     set('awa', `${Math.abs(awaDeg)}`, awaDeg > 0 ? 'stbd' : 'port');
-    set('aws', fmt((d.aws ?? 0) / KT));
+    set('aws', fmt(this._awsD / KT));
     set('heel', `${Math.abs(deg(b.phi))}`, Math.abs(b.phi) > C.targetHeel + 8 * DEG ? 'warn' : '');
-    set('lee', fmt(Math.abs(d.leeway ?? 0) / DEG));
+    set('lee', Math.abs(b.u) < 0.3 ? '–' : fmt(Math.abs(d.leeway ?? 0) / DEG));   // leeway is noise below ~0.6 kn
     const depth = g.world ? g.world.depthAt(b.x, b.z) : 99;
     set('depth', depth > 99 ? '99+' : fmt(depth), depth < C.draft + 1 ? 'bad' : depth < C.draft + 3 ? 'warn' : '');
     let perf = '–';
-    if (g.polar) { const ps = polarSpeedAt(g.polar, Math.abs(twaDeg)); if (ps > 0.3) perf = Math.round(100 * b.u / ps); }
+    if (g.polar && b.u > 0.15) { const ps = polarSpeedAt(g.polar, Math.abs(twaDeg)); if (ps > 0.3) perf = Math.round(100 * b.u / ps); }
     set('perf', perf, perf !== '–' && perf < 85 ? 'warn' : '');
     this.updateRig(b);
     if (!$('#physics').hidden) this.updatePhysics(b);
     this.drawPolar(b, twaDeg);
     this.updateRaceCard();
+    this.fitRig();
+    if (!$('#results').hidden) this.fillResults();
+  }
+
+  // the rig panel lives between the race card and the bottom edge: never under the standings
+  fitRig() {
+    const rc = $('#race-card').getBoundingClientRect(), rig = $('#rig');
+    const bottomGap = window.innerHeight - rig.getBoundingClientRect().bottom;
+    const mh = Math.max(160, Math.floor(window.innerHeight - rc.bottom - 10 - bottomGap));
+    if (this._rigMH !== mh) { this._rigMH = mh; rig.style.maxHeight = mh + 'px'; }
+  }
+
+  // ------------------------------------------------------------ race results
+  showResults() { this.fillResults(); $('#results').hidden = false; $('#res-keep').focus(); }
+  fillResults() {
+    const g = this.g; if (!g.race) return;
+    const st = g.raceStandings(), me = g.race.racers[0];
+    $('#res-sub').textContent = `${g.venue.name} · ${g.course.laps} lap${g.course.laps > 1 ? 's' : ''} · ${me.finished ? 'you finished ' + ordinal(me.place) : 'racing'}`;
+    const html = st.map((r, i) => `<li class="${r.me ? 'me' : ''}"><span>${r.finished ? i + 1 : ''}</span><span>${esc(r.name)}</span><span>${r.finished ? fmtT(r.time) : `<span class="muted">${legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span>`}</span></li>`).join('');
+    if (this._resHtml !== html) { this._resHtml = html; $('#res-list').innerHTML = html; }
+  }
+
+  // short control reminder, adapted to keyboard or touch, fades after a while
+  keysHint(touch) {
+    const k = $('#keys');
+    k.textContent = touch ? '' : 'A D steer · W S main · ↑ ↓ jib · T auto-trim · R reef · ? help · Esc menu · 1–7 cameras';
+    k.style.animation = 'none'; void k.offsetWidth; k.style.animation = '';
   }
 
   updateRig(b) {
@@ -432,6 +477,11 @@ export class HUD {
   }
 }
 
+// persisted per-browser preference (storage can be missing or throw: private mode, blocked site data)
+export function pref(k, v) {
+  try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; }
+  return null;
+}
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function ordinal(n) { return n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th'); }
 function fmtT(t) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; }

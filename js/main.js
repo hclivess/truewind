@@ -5,7 +5,7 @@ import { Boat, CLASSES, CLASS_ORDER, autoTrim, solvePolarAngle, POLAR_TWAS, vmgT
 import { VENUES, World, makeProjection, fetchVenueGeo, fetchLiveWind } from './world.js';
 import { Course, Race, AIHelm, applyWindShadow, resolveCollisions } from './race.js';
 import { Renderer } from './render.js';
-import { HUD } from './hud.js';
+import { HUD, pref } from './hud.js';
 import { Audio } from './audio.js';
 import { Net } from './net.js';
 import { Vector3 as THREE_V } from 'three';
@@ -17,6 +17,12 @@ const PHYS_DT = 1 / 120;
 const GRAB_PX = 30;
 const C_RIGHT = (b) => (b.cls.multihull ? 8 : 4); // grab radius on screen, also the size of the marker rings
 const NAMES = ['Tern', 'Petrel', 'Skua', 'Gannet', 'Fulmar', 'Shearwater', 'Kittiwake', 'Albatross', 'Puffin', 'Cormorant'];
+
+// reefs the crew ties in at the dock for this much wind (the same rule the AI crews use)
+function startReef(C, kn) {
+  const max = (C && (C.sails.find(s => s.key === 'main') || {}).reefs) || 0;
+  return Math.min(max, kn > 24 ? 2 : kn > 17 ? 1 : 0);
+}
 
 class Game {
   constructor() {
@@ -33,6 +39,16 @@ class Game {
       fleet: 5, countdown: 120, laps: 1, weather: 'changing', tod: 'afternoon', autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true,
     };
     this.venueTouched = false;
+    // the last setup is remembered (a custom location is not: its coastline is downloaded per visit)
+    try {
+      const saved = JSON.parse(pref('tw-settings') || 'null');
+      if (saved && typeof saved === 'object') {
+        for (const k in this.settings) if (k in saved && typeof saved[k] === typeof this.settings[k]) this.settings[k] = saved[k];
+        if (!CLASSES[this.settings.cls]) this.settings.cls = 'blackwatch';
+        if (!VENUES.some(v => v.id === this.settings.venue)) this.settings.venue = 'progreso';
+        this.venueTouched = true; this.restored = true;
+      }
+    } catch (e) { /* corrupt or blocked storage: defaults */ }
     this.running = false; this.paused = false;
     this.timeWarp = 1;
     this.t = 0;
@@ -40,6 +56,7 @@ class Game {
     this.showLaylines = true;
     this.buildMenu();
     this.bindInput();
+    this.bindTouch();
     window.addEventListener('resize', () => this.resize());
     this.resize();
     this.last = performance.now();
@@ -74,25 +91,29 @@ class Game {
       const el = $('#' + k);
       el.value = this.settings[k];
       const out = $('#' + k + '-v');
-      const upd = () => { this.settings[k] = parseFloat(el.value); out.textContent = sliders[k](this.settings[k]); };
+      const upd = () => { this.settings[k] = parseFloat(el.value); out.textContent = sliders[k](this.settings[k]); if (k === 'tws') this.windNote(); };
       el.addEventListener('input', upd); upd();
     }
     const checks = { 'opt-trim': 'autoTrim', 'opt-hike': 'autoHike', 'opt-tiller': 'tiller', 'opt-laylines': 'laylines', 'opt-sound': 'sound' };
     for (const id in checks) { const el = $('#' + id); el.checked = this.settings[checks[id]]; el.addEventListener('change', () => { this.settings[checks[id]] = el.checked; }); }
     $('#start').addEventListener('click', () => this.castOff());
     $('#resume').addEventListener('click', () => this.closeMenu());
-    $('#help-close').addEventListener('click', () => { $('#help').hidden = true; });
+    $('#help-close').addEventListener('click', () => this.closeHelp());
+    $('#help').addEventListener('click', (e) => { if (e.target.id === 'help') this.closeHelp(); });
+    $('#res-keep').addEventListener('click', () => { $('#results').hidden = true; this.syncTools(); });
+    $('#res-menu').addEventListener('click', () => this.openMenu());
+    $('#res-again').addEventListener('click', () => this.castOff());
     $('#live-wind').addEventListener('click', () => this.liveWind());
     $('#custom-go').addEventListener('click', () => this.customVenue());
     $('#custom-latlon').addEventListener('keydown', (e) => { if (e.key === 'Enter') this.customVenue(); });
     try { $('#net-name').value = localStorage.getItem('tw-name') || ''; $('#net-room').value = localStorage.getItem('tw-room') || ''; } catch (e) {}
-    this.pickVenue(this.settings.venue, false);
+    this.pickVenue(this.settings.venue, false, this.restored);
     this.refreshMenu();
   }
-  pickVenue(id, fromUser) {
+  pickVenue(id, fromUser, keepWind = false) {
     this.settings.venue = id;
     const v = VENUES.find(x => x.id === id) || this.customV;
-    if (v && !v.open) { this.setSlider('twd', v.wind); this.setSlider('tws', v.windKt); this.setSlider('current', v.current?.kt ?? 0); }
+    if (v && !v.open && !keepWind) { this.setSlider('twd', v.wind); this.setSlider('tws', v.windKt); this.setSlider('current', v.current?.kt ?? 0); }
     this.refreshMenu();
   }
   setSlider(k, v) { const el = $('#' + k); el.value = v; el.dispatchEvent(new Event('input')); }
@@ -102,8 +123,22 @@ class Game {
     document.querySelectorAll('.seg-b[data-mode]').forEach(b => { const on = b.dataset.mode === this.settings.mode; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
     document.querySelectorAll('.seg-b[data-weather]').forEach(b => { const on = b.dataset.weather === this.settings.weather; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
     document.querySelectorAll('.seg-b[data-tod]').forEach(b => { const on = b.dataset.tod === this.settings.tod; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
+    this.windNote();
     document.body.classList.toggle('racing', this.settings.mode === 'race');
     document.body.classList.toggle('online', this.settings.mode === 'online');
+  }
+  // what this much wind means for the chosen boat (Beaufort, and whether the crew will reef at the dock)
+  windNote() {
+    const el = $('#tws-note'); if (!el) return;
+    const kn = this.settings.tws, C = CLASSES[this.settings.cls];
+    const bf = [1, 4, 7, 11, 17, 22, 28, 34, 41, 48, 56, 64].findIndex(x => kn < x);
+    const name = ['calm', 'light air', 'light breeze', 'gentle breeze', 'moderate breeze', 'fresh breeze', 'strong breeze', 'near gale', 'gale', 'strong gale', 'storm', 'violent storm', 'hurricane'][bf < 0 ? 12 : bf];
+    const plan = startReef(C, kn);
+    let txt = `Force ${bf < 0 ? 12 : bf}, ${name}.`, warn = false;
+    if (plan > 0) { txt += ` The crew will tie in ${plan === 1 ? 'a reef' : 'two reefs'} before casting off.`; warn = kn > 30; }
+    else if (kn > 22) { txt += ` Hard work for a ${C ? C.name : 'small boat'} — expect to be overpowered; automatic trim helps.`; warn = true; }
+    el.textContent = kn >= 16 ? txt : '';
+    el.classList.toggle('warn', warn);
   }
   async liveWind() {
     const v = this.currentVenueDef();
@@ -158,13 +193,84 @@ class Game {
   }
   currentVenueDef() { return this.settings.venue === 'custom' ? this.customV : VENUES.find(v => v.id === this.settings.venue); }
 
-  openMenu() { $('#menu').hidden = false; $('#resume').hidden = !this.running; this.paused = true; }
-  closeMenu() { $('#menu').hidden = true; this.paused = false; this.audio.start(); }
+  openMenu() {
+    this.closeHelp();
+    $('#results').hidden = true;
+    $('#menu').hidden = false; $('#resume').hidden = !this.running;
+    document.body.classList.add('menu-open');
+    this.menuPaused = !this.paused; this.setPaused(true, true);
+    ($('#resume').hidden ? $('#start') : $('#resume')).focus({ preventScroll: true });
+  }
+  closeMenu() {
+    $('#menu').hidden = true; document.body.classList.remove('menu-open');
+    if (this.menuPaused) this.setPaused(false, true);
+    this.audio.on = this.settings.sound; this.syncTools();
+    this.audio.start();
+    document.activeElement && document.activeElement.blur();
+  }
   async castOff() {
     this.audio.on = this.settings.sound;
     this.audio.start();
-    $('#menu').hidden = true;
+    $('#menu').hidden = true; $('#results').hidden = true; document.body.classList.remove('menu-open');
+    document.activeElement && document.activeElement.blur();   // Space / Enter must not press Cast off again
+    const { venue, ...rest } = this.settings;
+    pref('tw-settings', JSON.stringify(venue === 'custom' ? rest : this.settings));
     await this.startSession(false);
+    if (!pref('tw-seen-help')) { pref('tw-seen-help', '1'); this.openHelp(); }
+  }
+  // pause (not in a shared world: everyone's wind runs on one clock)
+  setPaused(on, quiet = false) {
+    if (on && this.netEpoch !== null) on = false;
+    this.paused = on;
+    if (!quiet && this.running) this.hud.toast(on ? 'Paused' : 'Sailing', 1);
+    this.syncTools();
+  }
+  openHelp() {
+    if (!$('#help').hidden) return;
+    $('#help').hidden = false;
+    this.helpPaused = this.running && !this.paused && $('#menu').hidden;
+    if (this.helpPaused) this.setPaused(true, true);
+    $('#help-close').focus({ preventScroll: true });
+  }
+  closeHelp() {
+    if ($('#help').hidden) return;
+    $('#help').hidden = true;
+    if (this.helpPaused) { this.helpPaused = false; this.setPaused(false, true); }
+  }
+  toggleSound() {
+    this.settings.sound = this.audio.on = !this.audio.on;
+    $('#opt-sound').checked = this.audio.on;
+    if (this.audio.on) this.audio.start(); else if (this.audio.ctx) this.audio.ctx.suspend();
+    this.hud.toast(this.audio.on ? 'Sound on' : 'Sound off', 1);
+    this.syncTools();
+  }
+  // toolbar / pause badge state
+  syncTools() {
+    const inGame = this.running && $('#menu').hidden;
+    $('#paused-badge').hidden = !(this.paused && inGame && $('#help').hidden && $('#results').hidden);
+    $('#tb-pause').setAttribute('aria-pressed', String(!!this.paused));
+    $('#tb-pause').textContent = this.paused ? 'Play' : 'Pause';
+    $('#tb-sound').setAttribute('aria-pressed', String(!!this.audio.on));
+    const rigOn = document.body.classList.contains('narrow') ? document.body.classList.contains('rig-open') : !$('#rig').classList.contains('collapsed');
+    $('#tb-rig').setAttribute('aria-pressed', String(rigOn));
+  }
+  cycleCamera() {
+    const order = ['chase', 'helm', 'bow', 'mast', 'top', 'orbit', 'deck'];
+    const i = order.indexOf(this.renderer.cam.mode);
+    this.setCamera(String((i + 1) % order.length + 1));
+  }
+  setCamera(k) {
+    const c = this.renderer.cam;
+    const cams = { '1': 'chase', '2': 'helm', '3': 'bow', '4': 'mast', '5': 'top', '6': 'orbit', '7': 'deck' };
+    if (!cams[k]) return false;
+    c.mode = cams[k];
+    if (k === '2' || k === '3' || k === '4') { c.yaw = Math.PI; c.pitch = 0.2; }
+    else if (k === '7') { c.yaw = 200 * DEG; c.pitch = 0.45; c.dist = 6; }
+    else if (k === '1') { c.yaw = 200 * DEG; c.pitch = 14 * DEG; c.dist = this.player && this.player.cls.id === 'dinghy' ? 8 : 12; }
+    else if (k === '5') { c.dist = clamp(c.dist, 5, 60); }
+    else if (k === '6') { c.dist = Math.max(c.dist, 14); }
+    this.hud.toast({ chase: 'Chase camera', helm: 'At the helm', bow: 'On the bow', mast: 'Masthead', top: 'Overhead, wind up', orbit: 'Orbit', deck: 'On deck — grab the lines' }[cams[k]], 1.2);
+    return true;
   }
 
   // ------------------------------------------------------------ session setup
@@ -205,9 +311,13 @@ class Game {
     this.renderer.removeAllBoats();
     this.boats = []; this.ais = [];
     this.race = null; this.course = null; this.waypoint = null;
+    $('#results').hidden = true;
     const cls = CLASSES[S.cls];
     const player = new Boat(cls, { id: 0, name: 'You' });
     player.auto.trim = S.autoTrim; player.auto.hike = S.autoHike;
+    // in a blow the crew ties in the reefs before leaving (shaking one out is a keypress away)
+    const dockReef = idle ? 0 : startReef(cls, cond.tws);
+    if (dockReef) player.ctrl.reef = dockReef;
     this.player = player;
     this.boats.push(player);
     const P = makeProjection(v.lat, v.lon);
@@ -254,6 +364,7 @@ class Game {
     }
     for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (cls.id === 'blackwatch' ? '79' : '7') : String(100 + b.id * 7), hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9], crewTint: b.id });
     this.hud.buildRig(player);
+    document.body.classList.toggle('no-jib', !player.sailBy.jib);
     this.renderer.cam.mode = idle ? 'orbit' : 'chase';
     this.renderer.cam.yaw = idle ? 0 : 200 * DEG; this.renderer.cam.pitch = 14 * DEG; this.renderer.cam.dist = idle ? 26 : cls.id === 'dinghy' ? 8 : 12;
     this.t = 0; this.acc = 0; this.timeWarp = 1;
@@ -280,7 +391,11 @@ class Game {
       $('#hud').hidden = false;
       this.running = true; this.paused = false;
       if (!online) this.hud.toast(S.mode === 'race' ? `Race at ${v.name} — gun in ${Math.floor(S.countdown / 60)}:${String(S.countdown % 60).padStart(2, '0')}` : `${cls.name} · ${v.name}`, 3.5);
+      if (dockReef) setTimeout(() => this.hud.toast(`${cond.tws} kn: ${dockReef === 1 ? 'one reef' : 'two reefs'} tied in at the dock — R to change`, 4), 3600);
+      else if (cond.tws > 22) setTimeout(() => this.hud.toast(`${cond.tws} kn is a lot for a ${cls.name} — ease early, T for automatic trim`, 4), 3600);
       if (this.race) this.audio.horn(true);
+      this.hud.keysHint(document.body.classList.contains('touch'));
+      this.syncTools();
     }
   }
 
@@ -295,7 +410,9 @@ class Game {
     const fetchKm = world.open ? 2000 : fetchM >= 6000 ? 25 : Math.max(0.4, fetchM / 1000);
     const env = new Environment({
       tws: cond.tws * KT, twd: cond.twd, gust: cond.gust, shift: cond.shift, seed: cond.seed, weather: cond.weather ?? 'changing',
-      fetchKm, swellH: cond.swell, swellT: 5 + 3.2 * Math.sqrt(Math.max(0.1, cond.swell)),   // longer swell for bigger swell currentKt: cond.current, currentDir: cond.currentDir,
+      fetchKm, swellH: cond.swell, swellT: 5 + 3.2 * Math.sqrt(Math.max(0.1, cond.swell)),   // longer swell for bigger swell
+      currentKt: cond.current, currentDir: cond.currentDir,
+      hemi: v && !v.open && v.lat < 0 ? -1 : 1,     // puffs and squalls veer north of the equator, back south of it
     });
     // sheltering by land slows the wind near a weather shore
     const base = env.wind.sample.bind(env.wind);
@@ -366,6 +483,7 @@ class Game {
 
   // the crew sets the sails for the initial heading before handing over
   presetTrim(b) {
+    b.reefPos = b.ctrl.reef | 0;   // reefs tied in at the dock are already in, not being tied in
     const keep = { x: b.x, z: b.z, psi: b.psi };
     for (let i = 0; i < 240; i++) { autoTrim(b, 1 / 60, 0, true); b.step(1 / 60, this.env, 0, this.world); b.psi = keep.psi; b.r = 0; }
     b.x = keep.x; b.z = keep.z;
@@ -476,17 +594,35 @@ class Game {
       this.keys.delete(k); if (e.key === 'Shift') this.keys.delete('Shift');
     });
     window.addEventListener('blur', () => this.keys.clear());
+    // a background tab stops drawing frames: silence the sea too, and bring it back on return
+    document.addEventListener('visibilitychange', () => {
+      const ctx = this.audio.ctx; if (!ctx) return;
+      if (document.hidden) ctx.suspend(); else if (this.audio.on && this.running) ctx.resume();
+    });
     const cv = $('#view');
     let drag = null;
+    const touches = new Map();   // two fingers pinch to zoom
+    let pinch = null;
+    const spread = () => { const [a, b] = [...touches.values()]; return Math.hypot(a[0] - b[0], a[1] - b[1]); };
     cv.addEventListener('pointerdown', (e) => {
       cv.setPointerCapture(e.pointerId);
+      if (e.pointerType === 'touch') {
+        touches.set(e.pointerId, [e.clientX, e.clientY]);
+        if (touches.size === 2) { pinch = spread(); drag = null; this._dragging = false; return; }
+        if (touches.size > 2) return;
+      }
+      if (this.running && !this.idle) this.updateHover(e.clientX, e.clientY);   // a finger has no hover: pick up what it lands on
       const g = this.running && !this.idle ? this.hoverGrab : null;
       drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, grab: g, ang: null, clickDist: 0, shift: e.shiftKey };
       this._dragging = true;
       if (g) { cv.style.cursor = 'grabbing'; this.onGrabStart(g); }
     });
     cv.addEventListener('pointermove', (e) => {
-      this.mouse = [e.clientX, e.clientY];
+      if (touches.has(e.pointerId)) {
+        touches.set(e.pointerId, [e.clientX, e.clientY]);
+        if (pinch && touches.size === 2) { const s2 = spread(); if (s2 > 0 && pinch > 0) this.zoom(pinch / s2); pinch = s2; return; }
+      }
+      if (e.pointerType !== 'touch') this.mouse = [e.clientX, e.clientY];
       if (!drag) { this.updateHover(e.clientX, e.clientY); return; }
       if (drag.grab) { this.onGrabDrag(drag, e.clientX, e.clientY); }
       else {
@@ -497,18 +633,24 @@ class Game {
       drag.x = e.clientX; drag.y = e.clientY;
     });
     cv.addEventListener('pointerleave', () => { this.mouse = null; if (!drag) { this.hoverGrab = null; const tip = $('#grab-tip'); if (tip) tip.hidden = true; } });
-    cv.addEventListener('pointerup', () => {
+    const lift = (e) => { touches.delete(e.pointerId); if (touches.size < 2) pinch = null; };
+    cv.addEventListener('pointercancel', (e) => { lift(e); drag = null; this._dragging = false; });
+    cv.addEventListener('pointerup', (e) => {
+      lift(e);
       if (drag && drag.grab && (drag.grab.kind === 'click' || drag.grab.onClick) && drag.clickDist < 8) this.onGrabClick(drag.grab, drag.shift);
       drag = null; this._dragging = false; cv.style.cursor = this.hoverGrab ? 'grab' : '';
+      if (e.pointerType === 'touch') { this.hoverGrab = null; $('#grab-tip').hidden = true; }
     });
-    cv.addEventListener('wheel', (e) => {
-      const c = this.renderer.cam, out = e.deltaY > 0;
-      if (c.mode === 'helm' || c.mode === 'bow' || c.mode === 'mast') { if (out) { c.mode = 'chase'; c.dist = 4.5; c.yaw = 200 * DEG; c.pitch = 0.12; } return; }
-      if (c.mode === 'top') { c.dist = clamp(c.dist * (out ? 1.12 : 1 / 1.12), 5, 400); return; }
-      const next = c.dist * (out ? 1.12 : 1 / 1.12);
-      if (!out && next < 3.5 && (c.mode === 'chase' || c.mode === 'deck')) { c.mode = 'helm'; c.yaw = Math.PI; c.pitch = 0.15; this.hud.toast('At the helm', 1); return; }
-      c.dist = clamp(next, 3.5, 600);
-    }, { passive: true });
+    cv.addEventListener('wheel', (e) => this.zoom(e.deltaY > 0 ? 1.12 : 1 / 1.12), { passive: true });
+  }
+  // f > 1 backs the camera off; zooming in past the chase camera's closest puts you at the helm
+  zoom(f) {
+    const c = this.renderer.cam, out = f > 1;
+    if (c.mode === 'helm' || c.mode === 'bow' || c.mode === 'mast') { if (out && f > 1.05) { c.mode = 'chase'; c.dist = 4.5; c.yaw = 200 * DEG; c.pitch = 0.12; } return; }
+    if (c.mode === 'top') { c.dist = clamp(c.dist * f, 5, 400); return; }
+    const next = c.dist * f;
+    if (!out && next < 3.5 && (c.mode === 'chase' || c.mode === 'deck')) { c.mode = 'helm'; c.yaw = Math.PI; c.pitch = 0.15; this.hud.toast('At the helm', 1); return; }
+    c.dist = clamp(next, 3.5, 600);
   }
 
   // ---------------------------------------------------------------- deck handling
@@ -622,19 +764,26 @@ class Game {
   }
 
   onKey(k, e) {
-    if (k === 'Escape') { if (!$('#help').hidden) { $('#help').hidden = true; return; } if ($('#menu').hidden) this.openMenu(); else if (this.running) this.closeMenu(); return; }
-    if (!this.running || !$('#menu').hidden) return;
-    const b = this.player, c = this.renderer.cam;
-    const cams = { '1': 'chase', '2': 'helm', '3': 'bow', '4': 'mast', '5': 'top', '6': 'orbit', '7': 'deck' };
-    if (cams[k]) { c.mode = cams[k]; if (k === '2' || k === '3' || k === '4') { c.yaw = Math.PI; c.pitch = 0.2; } else if (k === '7') { c.yaw = 200 * DEG; c.pitch = 0.45; c.dist = 6; } else if (k === '1') { c.yaw = 200 * DEG; c.pitch = 14 * DEG; c.dist = 10; } this.hud.toast({ chase: 'Chase camera', helm: 'At the helm', bow: 'On the bow', mast: 'Masthead', top: 'Overhead, wind up', orbit: 'Orbit', deck: 'On deck — grab the lines' }[cams[k]], 1.2); }
-    else if (k === 'h') this.toggleAutoHike();
+    if (k === 'Escape') {
+      if (!$('#help').hidden) { this.closeHelp(); return; }
+      if (!$('#results').hidden) { $('#results').hidden = true; this.syncTools(); return; }
+      if (document.body.classList.contains('rig-open')) { this.toggleRig(); return; }
+      if ($('#menu').hidden) this.openMenu(); else if (this.running) this.closeMenu();
+      return;
+    }
+    if (k === 'F1' || k === '?' || (k === 'h' && e.shiftKey)) { e.preventDefault(); if ($('#help').hidden) this.openHelp(); else this.closeHelp(); return; }
+    if (!this.running || !$('#menu').hidden || !$('#help').hidden) return;
+    const b = this.player;
+    if (this.setCamera(k)) return;
+    if (k === 'h') this.toggleAutoHike();
     else if (k === 't') this.toggleAutoTrim();
     else if (k === 'g') this.toggleGen();
+    else if (k === 'o') this.toggleSound();
     else if (k === 'l') { this.showLaylines = !this.showLaylines; this.hud.toast(this.showLaylines ? 'Laylines on' : 'Laylines off', 1.2); }
     else if (k === 'k') { this.renderer.showForces = !this.renderer.showForces; this.hud.toast(this.renderer.showForces ? 'Force vectors: sails yellow, drive green, keel blue, rudder violet, wind white/teal' : 'Force vectors off', 3); }
     else if (k === 'i') { $('#physics').hidden = !$('#physics').hidden; }
     else if (k === 'p' && this.netEpoch !== null) { this.hud.toast('No pausing in a shared world', 1.5); }
-    else if (k === 'p') { this.paused = !this.paused; this.hud.toast(this.paused ? 'Paused' : 'Sailing', 1); }
+    else if (k === 'p') this.setPaused(!this.paused);
     else if (k === 'y' && b.cls.hasBoard) { this.userTouched('board'); b.ctrl.board = b.ctrl.board > 0.5 ? 0.25 : 1; this.hud.toast(b.ctrl.board > 0.5 ? 'Board down' : 'Board up', 1.2); }
     else if (k === 'r') {
       if (b.capsized) this.rightBoat();
@@ -642,11 +791,49 @@ class Game {
     }
     else if (k === 'f' && b.sailBy.jib) this.letFly();
     else if (k === ' ') b.ctrl.helm = 0;
-    else if (k === '=' || k === '+') { if (!this.race) { this.timeWarp = Math.min(8, this.timeWarp * 2); this.hud.toast(`Time ×${this.timeWarp}`, 1); } }
-    else if (k === '-') { this.timeWarp = Math.max(1, this.timeWarp / 2); this.hud.toast(`Time ×${this.timeWarp}`, 1); }
-    else if (k === 'F1' || k === '?') { e.preventDefault(); $('#help').hidden = false; }
-    else if (k === 'Enter' && false) {}
-    if (k === 'h' && e.shiftKey) $('#help').hidden = false;
+    else if (k === '=' || k === '+') this.warp(2);
+    else if (k === '-') this.warp(0.5);
+  }
+  // time warp: free sail, or the waiting part of an offline start sequence (drops back to 1x before the gun)
+  canWarp() { return this.netEpoch === null && (!this.race || (!this.sharedRace && this.race.clock < -20)); }
+  warp(f) {
+    if (f > 1 && !this.canWarp()) { this.hud.toast(this.race ? 'Time warp only before the last 20 s of the start sequence' : 'No time warp in a shared world', 1.6); return; }
+    this.timeWarp = clamp(this.timeWarp * f, 1, 8);
+    this.hud.toast(`Time ×${this.timeWarp}`, 1);
+  }
+  toggleRig() {
+    if (document.body.classList.contains('narrow')) document.body.classList.toggle('rig-open');
+    else this.hud.setRigCollapsed(!$('#rig').classList.contains('collapsed'));
+    this.syncTools();
+  }
+
+  // toolbar, touch pad and pinch zoom
+  bindTouch() {
+    const narrow = matchMedia('(max-width: 720px)'), coarse = matchMedia('(pointer: coarse)');
+    const upd = () => { document.body.classList.toggle('narrow', narrow.matches); document.body.classList.toggle('touch', coarse.matches); if (!narrow.matches) document.body.classList.remove('rig-open'); if (this.hud) this.syncTools(); };
+    narrow.addEventListener('change', upd); coarse.addEventListener('change', upd); upd();
+    const tap = (id, fn) => $(id).addEventListener('click', (e) => { fn(); e.currentTarget.blur(); });
+    tap('#tb-menu', () => this.openMenu());
+    tap('#tb-pause', () => { if (this.netEpoch !== null) this.hud.toast('No pausing in a shared world', 1.5); else this.setPaused(!this.paused); });
+    tap('#tb-cam', () => this.cycleCamera());
+    tap('#tb-rig', () => this.toggleRig());
+    tap('#tb-sound', () => this.toggleSound());
+    tap('#tb-help', () => this.openHelp());
+    tap('#tp-centre', () => { this.player.ctrl.helm = 0; });
+    tap('#tp-auto', () => this.toggleAutoTrim());
+    // press and hold: the helm / sheet keeps moving while the finger stays down
+    document.querySelectorAll('#touch .tbtn[data-k]').forEach(bt => {
+      let timer = null;
+      const stop = () => { clearInterval(timer); timer = null; bt.classList.remove('held'); };
+      bt.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); stop(); bt.setPointerCapture(e.pointerId); bt.classList.add('held');
+        const k = bt.dataset.k, d = +bt.dataset.d;
+        const go = () => { if (this.running && !this.paused) this.nudge(k, d, 0.05); };
+        go(); timer = setInterval(go, 50);
+      });
+      for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) bt.addEventListener(ev, stop);
+      bt.addEventListener('contextmenu', (e) => e.preventDefault());
+    });
   }
 
   // continuous controls, applied every physics step
@@ -763,6 +950,7 @@ class Game {
     });
     if (this.race) {
       this.race.update(dt);
+      if (this.timeWarp > 1 && !this.canWarp()) { this.timeWarp = 1; this.hud.toast('Time ×1 — 20 seconds to the gun', 2); }
       for (const ev of this.race.events.splice(0)) this.onRaceEvent(ev);
     }
   }
@@ -784,7 +972,15 @@ class Game {
     else if (me && ev.type === 'cleared') { this.hud.alert(null); this.hud.toast('Cleared — now start', 2); }
     else if (me && ev.type === 'started') this.hud.toast('Clean start', 2);
     else if (me && ev.type === 'rounded') this.hud.toast(`${ev.name} rounded`, 2);
-    else if (ev.type === 'finished') { this.audio.beep(); if (me) this.hud.toast(`Finished ${ev.place}${['th', 'st', 'nd', 'rd'][ev.place] || 'th'} — ${Math.floor(ev.t / 60)}:${String(Math.floor(ev.t % 60)).padStart(2, '0')}`, 6); }
+    else if (ev.type === 'finished') {
+      this.audio.beep();
+      if (me) {
+        this.hud.toast(`Finished ${ev.place}${['th', 'st', 'nd', 'rd'][ev.place] || 'th'} — ${Math.floor(ev.t / 60)}:${String(Math.floor(ev.t % 60)).padStart(2, '0')}`, 6);
+        this.timeWarp = 1;
+        clearTimeout(this._resT); const race = this.race;
+        this._resT = setTimeout(() => { if (this.race === race && $('#menu').hidden) { this.hud.showResults(); this.syncTools(); } }, 2500);
+      }
+    }
   }
 
   checkAlerts() {

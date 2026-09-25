@@ -6,7 +6,7 @@ import { STRIP_F, REEF, clamp, lerp } from './physics.js';
 import { buildBoatModel, updateBoatModel } from './models.js';
 import { Rigging, tickGlow } from './rigging.js';
 import { buildStructures, indexFeatures, structureMask } from './structures.js';
-import { HullSplash } from './splash.js';
+import { HullSplash, SeaSpray } from './splash.js';
 import { loadLand, buildTerrain, buildScenery, setSceneryNight, tickScenery } from './scenery.js';
 import { SkySystem, SKY_LUT_GLSL, CLOUD_GLSL, withCloudShadows } from './sky.js';
 
@@ -96,9 +96,14 @@ export class Renderer {
     const N = this.low ? 160 : 360, R = 6500, a = 0.035;
     const pos = new Float32Array((N + 1) * (N + 1) * 3);
     const map = (u) => R * Math.sign(u) * (a * Math.abs(u) + (1 - a) * Math.abs(u) ** 3);
+    // local grid spacing (m): a wave shorter than a few cells cannot be drawn as geometry — it would alias
+    // into moire bands — so the vertex shader leaves it to the per-pixel normal
+    const spc = new Float32Array((N + 1) * (N + 1));
+    const dmap = (u) => R * (a + 3 * (1 - a) * u * u) * 2 / N;
     let p = 0;
     for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
       pos[p++] = map(i / N * 2 - 1); pos[p++] = 0; pos[p++] = map(j / N * 2 - 1);
+      spc[j * (N + 1) + i] = Math.max(dmap(i / N * 2 - 1), dmap(j / N * 2 - 1));
     }
     const idx = [];
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
@@ -107,6 +112,7 @@ export class Renderer {
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('spc', new THREE.BufferAttribute(spc, 1));
     g.setIndex(idx);
     const Wa = [], Wb = [];
     for (let i = 0; i < MAXW; i++) { Wa.push(new THREE.Vector4()); Wb.push(new THREE.Vector4()); }
@@ -122,6 +128,7 @@ export class Renderer {
       uSdf: { value: this.sdfTex }, uWorldR: { value: 6000 }, uHasMap: { value: 0 }, uOvercast: this.overcastU,
       uPF: { value: this.pfTex }, uHasPF: { value: 0 }, uPFN: { value: 96 },
       uFlow: { value: new THREE.Vector2(0, 1) }, uWind: { value: 6 }, uFoamK: { value: 0 },
+      uHs: { value: 0 }, uJSig: { value: 0.1 }, uLmin: { value: 4 },
       uHullA: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uHullB: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uHullN: { value: 0 },
       uDeep: { value: new THREE.Color(0x0a2f40) }, uShallow: { value: new THREE.Color(0x2e9c9a) },
       fogColor: { value: new THREE.Color(0xb7c8d4) }, fogDensity: { value: 0.00011 },
@@ -134,7 +141,7 @@ export class Renderer {
       uniforms, fog: false,
       vertexShader: /* glsl */`
         ${WAVE_GLSL}
-        uniform vec2 uOffset; uniform vec3 uCam;
+        uniform vec2 uOffset; uniform vec3 uCam; attribute float spc;
         varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore; varying float vBreak;
         void main(){
           vec2 x0 = position.xz + uOffset;
@@ -156,28 +163,40 @@ export class Renderer {
           for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break;
             vec4 a = uWa[i]; vec4 b = uWb[i];
             float th = a.z * dot(a.xy, x0) + phaseOff(i, x0) - a.w * uTime + b.z;
-            float A = b.x * shoal(b.w, h) * cap * fade * shore;
+            float A = b.x * shoal(b.w, h) * cap * fade * shore * smoothstep(3.0 * spc, 6.0 * spc, 6.2832 / a.z);
             P.x += b.y * A * a.x * cos(th); P.z += b.y * A * a.y * cos(th); P.y += A * sin(th);
           }
           vPos = P; vX0 = x0; vFade = fade; vShore = shore;
           gl_Position = projectionMatrix * viewMatrix * vec4(P, 1.0);
         }`,
       fragmentShader: /* glsl */`
+        ${this.low ? '#define LOWQ' : ''}
         ${WAVE_GLSL}
         ${SKY_LUT_GLSL}
         ${CLOUD_GLSL}
         uniform vec3 uSunDir; uniform vec3 uSunCol; uniform samplerCube uEnv; uniform float uAmbF; uniform vec3 uLightDir; uniform sampler2D uSkyRT; uniform mat4 uSkyVP;
         uniform vec3 uCam; uniform sampler2D uGust; uniform vec2 uGustO; uniform float uGustS;
         uniform vec4 uHullA[4]; uniform vec4 uHullB[4]; uniform int uHullN;   // A = (x, z, sinψ, cosψ), B = (halfL, halfB, xOff, n)
-        uniform vec2 uFlow; uniform float uWind; uniform float uFoamK;
+        uniform vec2 uFlow; uniform float uWind; uniform float uFoamK; uniform float uHs; uniform float uJSig; uniform float uLmin;
         uniform vec3 uDeep; uniform vec3 uShallow; uniform vec3 fogColor; uniform float fogDensity;
         varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore; varying float vBreak;
         float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
         float qn(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
           return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y); }
         float sfbm(vec2 p){ float a = 0.55, s = 0.0; mat2 r = mat2(0.8, -0.6, 0.6, 0.8); for (int i = 0; i < 4; i++) { s += a * qn(p); p = r * p * 2.1 + 3.7; a *= 0.5; } return s; }
+        // value noise and its gradient (quintic): (v, dv/dx, dv/dy)
+        vec3 qnd(vec2 p){ vec2 i = floor(p), f = fract(p);
+          vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0), du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+          float a = hash(i), b = hash(i + vec2(1, 0)), c = hash(i + vec2(0, 1)), d = hash(i + vec2(1, 1)), e = a - b - c + d;
+          return vec3(a + (b - a) * u.x + (c - a) * u.y + e * u.x * u.y, du * vec2(b - a + e * u.y, c - a + e * u.x)); }
+        // the same, with octaves finer than the pixel footprint w (in p units) replaced by their mean (no shimmer)
+        float sfbmA(vec2 p, float w){ float a = 0.55, s = 0.0, f = 1.0; mat2 r = mat2(0.8, -0.6, 0.6, 0.8);
+          for (int i = 0; i < 4; i++) { s += a * mix(0.5, qn(p), smoothstep(0.8, 0.3, w * f)); p = r * p * 2.1 + 3.7; f *= 2.1; a *= 0.5; } return s; }
         float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
           return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
+        // z such that a normal variable exceeds it with probability p (p <= 0.5; Abramowitz-Stegun 26.2.23)
+        float invTail(float p){ float t = sqrt(-2.0 * log(max(p, 1e-6)));
+          return t - (2.515517 + 0.802853 * t + 0.010328 * t * t) / (1.0 + 1.432788 * t + 0.189269 * t * t + 0.001308 * t * t * t); }
         void main(){
           vec2 x0 = vX0;
           float dist = length(vPos - uCam);
@@ -189,7 +208,7 @@ export class Renderer {
           float fp = dist * 0.0022 / max(abs(V0.y), 0.06);
           float lost = 0.0;
           // analytic Gerstner normal + Jacobian (crest sharpness) for whitecaps
-          vec3 n = vec3(0.0, 1.0, 0.0); float J = 1.0;
+          vec3 n = vec3(0.0, 1.0, 0.0); float J = 1.0, sJ2 = 0.0, Cs = 0.0, sS2 = 0.0;
           for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break;
             vec4 a = uWa[i]; vec4 b = uWb[i];
             float th = a.z * dot(a.xy, x0) + phaseOff(i, x0) - a.w * uTime + b.z;
@@ -199,37 +218,69 @@ export class Renderer {
             lost += (1.0 - att) * WA0 * WA0 * 0.5;
             float WA = WA0 * att;
             n.x -= a.x * WA * cos(th); n.z -= a.y * WA * cos(th); n.y -= b.y * WA * sin(th);
-            J -= b.y * WA * sin(th);
+            J -= b.y * WA * sin(th); sJ2 += b.y * b.y * WA * WA * 0.5;
+            float ws = smoothstep(80.0, 20.0, 6.2832 / kw);                  // the short waves break on the long crests
+            Cs += ws * b.y * WA * sin(th); sS2 += ws * ws * b.y * b.y * WA * WA * 0.5;
           }
-          // local wind (puffs + land shelter) drives capillary ripples: puffs read as dark patches
+          // local wind (puffs + land shelter): the short waves answer it within seconds, so puffs read dark
           vec2 guv = (x0 - uGustO) / uGustS + 0.5;
           float gw = texture2D(uGust, guv).r * 2.0;
-          float lw = uWind * gw;
-          float rip = clamp((lw - 1.0) / 7.0, 0.0, 1.4);
-          float mip = 1.0;
+          float lw = uWind * gw;                                              // m/s
+          // the spectrum continued below the shortest modelled wave, drawn as normals only (nothing the boat
+          // would feel): equilibrium-range steepness, jittered wavelengths, fanned about the wind
           vec2 fl = uFlow, pr = vec2(-fl.y, fl.x);
-          vec2 rn = vec2(0.0);
-          for (int k = 0; k < 6; k++) {
+          float wk = smoothstep(0.8, 6.0, lw) * sqrt(clamp(gw, 0.3, 2.0));
+          float Cd = 0.0, sd2 = 0.0, wl = uLmin;
+          #ifdef LOWQ
+          const int ND = 5, NR = 2;
+          #else
+          const int ND = 10, NR = 3;
+          #endif
+          for (int k = 0; k < ND; k++) {
             float fk = float(k);
-            float ang = (hash(vec2(fk, 3.1)) - 0.5) * 1.3;
-            vec2 d = normalize(fl * cos(ang) + pr * sin(ang));
-            float wl = 0.45 + fk * 0.55;
-            float kk = 6.2832 / wl, om = sqrt(9.81 * kk + 0.074 * kk * kk * kk / 1025.0);
-            float ph = kk * dot(d, x0) - om * uTime + hash(vec2(fk, 7.7)) * 6.28;
-            float amp = 0.085 / (1.0 + fk * 0.35) * rip, att = smoothstep(fp * 2.0, fp * 6.0, wl);
-            lost += (1.0 - att) * amp * amp * 0.5;
-            rn += d * cos(ph) * amp * att / max(rip, 1e-3);
+            wl *= 0.74;
+            float wj = wl * (0.88 + 0.24 * hash(vec2(fk, 5.1)));
+            if (wj < 0.35) break;
+            float ang = (fract(0.37 + fk * 0.618034) - 0.5) * 2.6;
+            vec2 d = fl * cos(ang) + pr * sin(ang);
+            float kk = 6.2832 / wj, om = sqrt(9.81 * kk + 7.2e-5 * kk * kk * kk);
+            float ph = kk * dot(d, x0) - om * uTime + fk * 2.39996 + 1.7;
+            float kA = 0.038 * wk * (0.7 + 0.6 * hash(vec2(fk, 1.3))), att = smoothstep(fp * 2.0, fp * 6.0, wj);
+            lost += (1.0 - att) * kA * kA * 0.5;
+            kA *= att * vShore;
+            float s = sin(ph), c = cos(ph);
+            n.x -= d.x * kA * c; n.z -= d.y * kA * c; n.y -= 0.5 * kA * s;
+            Cd += kA * s; sd2 += kA * kA * 0.5;
           }
-          vec3 nWave = normalize(n);                     // the wave surface alone (smooth)
-          n.xz += rn * rip * mip;
+          // below that, wind ripples: gradient noise (no periodic pattern), octaves drifting downwind at
+          // their own phase speeds
+          vec2 rp = vec2(dot(x0, fl), dot(x0, pr));
+          float fr = 1.0 / 1.3;
+          for (int k = 0; k < NR; k++) {
+            float fk = float(k);
+            float c = sqrt(9.81 / (6.2832 * fr) + 7.2e-5 * 6.2832 * fr);
+            float ra = (fk - 1.0) * 0.45; mat2 Rk = mat2(cos(ra), sin(ra), -sin(ra), cos(ra));   // each octave turned a little: no grid
+            vec2 rq = Rk * rp;
+            vec2 pk = vec2(rq.x - c * uTime, rq.y * 0.6) * fr + fk * 17.3;
+            vec3 g = qnd(pk);
+            float sl = 0.05 * wk, att = smoothstep(fp * 2.0, fp * 6.0, 1.0 / fr);
+            lost += (1.0 - att) * sl * sl;
+            vec2 gr = vec2(g.y, g.z * 0.6) * Rk;                            // gradient back to (along, across)
+            vec2 gg = (gr.x * fl + gr.y * pr) * sl * att * vShore;
+            n.xz -= gg;
+            fr *= 2.2;
+          }
           n = normalize(n);
-          vec3 V = normalize(uCam - vPos);
-          float cosT = max(dot(n, V), 0.0);
-          float F = 0.02 + 0.98 * pow(1.0 - cosT, 5.0);
+          vec3 V = V0;
+          float NdV = max(dot(n, V), 1e-3);
+          float F = 0.02 + 0.98 * pow(1.0 - NdV, 5.0);
           vec3 R = reflect(-V, n); R.y = abs(R.y);
-          // sky and clouds; many ripple facets share a pixel at distance, so the reflection is a glossy average
-          float sig = sqrt(lost);                                   // rms slope of the filtered-out waves
-          float gloss = clamp(log2(1.0 + sig * 90.0), 0.0, 6.0);
+          // roughness: slopes too small to draw — the filtered-out waves plus the capillary rest of the
+          // Cox-Munk mean square slope (0.003 + 0.00512 U) — blur the reflection and widen the sun's path
+          float mssSub = max(0.0015, 0.003 + 0.00512 * lw - uJSig * uJSig - sd2) * 0.7;
+          float a2 = clamp(lost + mssSub, 2e-4, 0.5);
+          float sig = sqrt(a2);
+          float gloss = clamp(log2(1.0 + sig * 45.0), 0.0, 6.0);
           vec3 refl = texture(uEnv, R, gloss).rgb;
           // where the reflected direction is on screen, use the full-quality sky and clouds rendered this
           // frame (a sky at infinity reprojects exactly); the cube covers the rest and the rough water
@@ -240,12 +291,14 @@ export class Renderer {
             if (rw > 0.0) refl = mix(refl, texture2D(uSkyRT, ruv).rgb, rw);
           }
           float shadow = cloudShadow(vec3(x0.x, 0.0, x0.y), uLightDir);
-          // sun glitter: many small sharp sparkles rather than broad white patches
-          // sun highlight from the smooth wave surface, softened by the ripples (no aliased glitter blocks)
-          vec3 Rs = reflect(-V, normalize(mix(nWave, n, 0.2)));
-          float rough = clamp(rip * 0.6 + sig * 6.0, 0.0, 1.0);
-          float shin = mix(600.0, 40.0, rough);
-          float spec = pow(max(dot(Rs, uLightDir), 0.0), shin) * (shin * 0.004 + 0.3) * (1.0 - 0.9 * uOvercast) * shadow;
+          // sun: GGX microfacet reflection with the roughness above (a sharp glint on a calm sea, a long
+          // broken path of glitter on a rough one)
+          vec3 L = uLightDir, Hh = normalize(V + L);
+          float NdL = max(dot(n, L), 0.0), NdH = max(dot(n, Hh), 0.0), VdH = max(dot(V, Hh), 0.0);
+          float dd = NdH * NdH * (a2 - 1.0) + 1.0, kS = sig * 0.5;
+          float Dg = a2 / (3.14159 * dd * dd);
+          float Vis = 1.0 / (4.0 * (NdL * (1.0 - kS) + kS) * (NdV * (1.0 - kS) + kS));
+          float spec = min(Dg * Vis * (0.02 + 0.98 * pow(1.0 - VdH, 5.0)) * NdL, 40.0) * (1.0 - 0.9 * uOvercast) * shadow * step(0.0, L.y);
           // water body colour: shallow sand shows through on real bathymetry
           float depth = 30.0;
           float sd = 999.0;
@@ -253,19 +306,60 @@ export class Renderer {
             vec4 s = texture2D(uSdf, (x0 + uWorldR) / (2.0 * uWorldR));
             sd = s.r * 255.0 - 128.0; depth = s.g * 255.0 / 8.0;
           }
-          vec3 body = mix(uShallow, uDeep, smoothstep(0.5, 9.0, depth)) * (1.0 - 0.35 * uOvercast) * uAmbF * (0.75 + 0.25 * shadow);
-          body *= 0.85 + 0.3 * clamp(vPos.y * 1.5 + 0.3, 0.0, 1.0);          // light through crests
+          vec3 deep = mix(uShallow, uDeep, smoothstep(0.5, 9.0, depth));
+          // under cloud the light is grey and diffuse: the sea turns steel grey
+          deep = mix(deep, vec3(dot(deep, vec3(0.2126, 0.7152, 0.0722))) * vec3(0.92, 1.0, 1.06), 0.6 * uOvercast);
+          vec3 body = deep * (1.0 - 0.35 * uOvercast) * uAmbF * (0.75 + 0.25 * shadow);
           body *= 1.0 - 0.18 * clamp(gw - 1.0, 0.0, 1.0);                      // puffs look darker
-          vec3 col = mix(body, refl, F) + uSunCol * spec * 1.4;
-          // whitecaps where the trochoid crest folds (only in real breeze)
-          // whitecaps: foam where crests fold (Jacobian), streaked downwind, feathered — no grid artefacts
-          vec2 sw = vec2(dot(x0, uFlow), dot(x0, vec2(-uFlow.y, uFlow.x)));
-          vec2 q = vec2(sw.x * 0.22, sw.y * 0.8) - vec2(uTime * 0.12, 0.0);
-          float f1 = sfbm(q), f2 = sfbm(q * 3.3 + 7.1);
-          float crest = smoothstep(0.7, 0.3, J) * uFoamK + vBreak * 0.9;
-          float cov = clamp(crest, 0.0, 0.95);
-          float cap = smoothstep(1.0 - cov, 1.25 - cov, f1 * 0.7 + f2 * 0.3) * vFade;
-          col = mix(col, vec3(0.9, 0.94, 0.96) * uAmbF * (0.8 + 0.2 * shadow), clamp(cap, 0.0, 0.85) * (0.6 + 0.4 * f2));
+          // subsurface scattering: light entering the back of a wave leaves through its thin upper part,
+          // so crests glow green-blue when you look toward the sun (and faintly under any sky)
+          float hN = clamp(vPos.y / max(0.5 * uHs, 0.08), -1.5, 1.5);          // -1 trough .. +1 crest
+          float thin = clamp(0.45 + 0.45 * hN, 0.0, 1.0); thin *= thin;
+          vec2 Lh = normalize(L.xz + 1e-4), Vh = normalize(-V.xz + 1e-4);
+          float back = pow(max(dot(Vh, Lh), 0.0), 3.0) * (1.0 - 0.6 * max(L.y, 0.0));
+          float face = clamp(0.35 + dot(n.xz, V.xz) * 2.5, 0.0, 1.0);        // the face tilted toward you is thin
+          vec3 sssCol = vec3(0.07, 0.42, 0.36);
+          vec3 sss = sssCol * thin * (uSunCol * back * face * 0.9 * (1.0 - 0.85 * uOvercast) * shadow * step(0.0, L.y) + uAmbF * 0.10);
+          vec3 col = mix(body + sss, refl, F) + uSunCol * spec * 1.5;
+          // ---- whitecaps and foam, Beaufort coverage from the wind (Monahan: W = 3.84e-6 U^3.41), placed
+          // on the steepest crests: a z-score of crest compression (1 - Jacobian) against its local spread
+          float Wc = clamp(3.84e-6 * pow(max(lw, 0.0), 3.41), 0.0, 0.3);
+          // long waves say where (their crests), the short waves riding them say exactly which bits break
+          float zc = (0.5 * (1.0 - J) / sqrt(sJ2 + 1e-5) + 0.85 * (Cs + 0.4 * Cd) / sqrt(sS2 + 0.16 * sd2 + 1e-5)) / 1.3;
+          vec2 sw = vec2(dot(x0, uFlow), dot(x0, vec2(-uFlow.y, uFlow.x)));    // (downwind, across)
+          float fAA = smoothstep(0.4, 3.0, fp);                                // texture detail lost to distance
+          // foam texture is fixed in the water (x0 is the undisplaced, Lagrangian position): it rides the
+          // orbital motion of the waves and drifts slowly downwind
+          vec2 q = vec2(sw.x * 0.28, sw.y * 0.6) - vec2(uTime * 0.12, 0.0);
+          float f1 = sfbmA(q, fp * 0.6), f2 = sfbmA(q * 3.1 + 7.1, fp * 1.9);
+          float lace = smoothstep(0.32, 0.68, f1 * 0.6 + f2 * 0.4);
+          float foam = 0.0;
+          if (Wc > 2e-4) {
+            float zA = invTail(0.4 * Wc);                                      // active breaking crests
+            float act = smoothstep(zA - 0.15, zA + 0.4, zc + (f1 - 0.5) * 1.1) * (0.5 + 0.5 * lace);
+            // residual foam: thinning lace around the crests, and patches of old foam that ride the water
+            float big = sfbmA(sw * vec2(0.02, 0.05) + vec2(-uTime * 0.006, 3.3), fp * 0.05);
+            float thrB = 0.5 + 0.12 * invTail(clamp(0.6 * Wc, 1e-4, 0.5));
+            float resid = max(smoothstep(zA - 0.6, zA, zc) * 0.35, smoothstep(thrB - 0.03, thrB + 0.08, big) * 0.35) * lace;
+            // gale: foam blown into long, narrow, meandering streaks along the wind (Beaufort 8 and up)
+            float st = smoothstep(13.0, 24.0, lw);
+            float ya = sw.y + 10.0 * (qn(sw * vec2(0.008, 0.015)) - 0.5) + 2.0 * (qn(sw * vec2(0.03, 0.06) + 5.0) - 0.5);
+            float ridge = 1.0 - abs(2.0 * qn(vec2(sw.x * 0.015 - uTime * 0.02, ya * 0.3)) - 1.0);   // thin lines ~3 m apart
+            float wd = 0.2 + fp * 0.1;                                         // widen with distance, then fade to a mean
+            float line = smoothstep(1.0 - wd, 1.0 - wd * 0.15, ridge) * smoothstep(0.45, 0.75, qn(vec2(sw.x * 0.08, ya * 0.1) + 9.0));
+            line = mix(line, 0.15, smoothstep(0.6, 3.0, fp));
+            float streak = st * line * mix(smoothstep(0.3, 0.8, f2) * (0.4 + 0.6 * lace), 0.4, fAA);
+            foam = max(act * (0.7 + 0.3 * f2), max(resid, streak * 0.5));
+          }
+          // up close foam is bubbles and holes, not paint
+          #ifndef LOWQ
+          float grain = sfbmA(x0 * 3.0 + vec2(-uTime * 0.2, 0.0), fp * 3.0);
+          foam *= mix(1.0, smoothstep(0.25, 0.6, grain) * 1.15, 0.6);
+          #endif
+          // depth-limited breaking on real bathymetry
+          foam = max(foam, smoothstep(1.0 - vBreak * 0.9, 1.25 - vBreak * 0.9, f1 * 0.7 + f2 * 0.3) * vBreak);
+          vec3 foamCol = vec3(0.9, 0.94, 0.96) * (uAmbF * (0.72 + 0.2 * shadow) + uSunCol * 0.25 * NdL * shadow);
+          col = mix(col, foamCol, clamp(foam, 0.0, 0.92) * vFade);
           // shoreline surf
           if (uHasMap > 0.5) {
             float band = smoothstep(9.0, 0.0, sd) * (0.55 + 0.45 * sin(sd * 1.2 - uTime * 1.6 + vnoise(x0 * 0.1) * 6.0));
@@ -292,6 +386,17 @@ export class Renderer {
       else { U.uWa.value[i].set(0, 0, 0, 0); U.uWb.value[i].set(0, 0, 0, 1); }
     }
     U.uWn.value = n;
+    // sea statistics for the shader: height scale (crest light), crest-compression spread (whitecaps),
+    // and the shortest modelled wave, where the drawn-only short waves take over
+    let lmin = 1e9; for (let i = 0; i < n; i++) lmin = Math.min(lmin, 2 * Math.PI / (waves.comps[i].kRef ?? waves.comps[i].k));
+    U.uHs.value = waves.Hs || 0; U.uJSig.value = Math.max(0.02, waves.jSigma || 0.1); U.uLmin.value = Math.min(lmin, 12);
+  }
+  // spindrift blown off breaking crests around the camera (gale force only)
+  _updateSeaSpray(dt, t, env) {
+    if (!this.seaSpray) this.seaSpray = new SeaSpray(this.scene, this.skySys, this.low);
+    const d = this.camera.getWorldDirection(this._camDir || (this._camDir = new THREE.Vector3()));
+    const h = Math.hypot(d.x, d.z) || 1;
+    this.seaSpray.update(dt, t, env, this.camera.position, d.x / h, d.z / h);
   }
   setWavesEnabled(on, waves) {
     if (on) this.setWaves(waves); else this.waterU.uWn.value = 0;
@@ -329,26 +434,51 @@ export class Renderer {
     const oc = sky.overcast;
     // clouds drift with the wind aloft and thicken with the weather; squall cells tower
     const mw = env.wind.mean(t);
-    this.overcastU.value += (oc - this.overcastU.value) * 0.05;
-    const drift = (this._drift || (this._drift = new THREE.Vector2())).set(Math.sin(mw.dir) * mw.speed * 1.3 * t, -Math.cos(mw.dir) * mw.speed * 1.3 * t);
-    this.skySys.setWeather(Math.min(1, 0.22 + 0.95 * oc), W.activeCells ? W.activeCells(t) : [], drift, t, mw.speed / 0.5144);
+    // smoothed in time, not per frame (the same at 20 or 144 fps); a jump in t (joining a room, time warp) snaps
+    const dtw = t - (this._wxT ?? -1e9); this._wxT = t;
+    const kw = dtw < 0 || dtw > 30 ? 1 : 1 - Math.exp(-dtw / 3);
+    this.overcastU.value += (oc - this.overcastU.value) * kw;
+    // (the wind aloft is steady: drifting by the surface trend's speed x t swung the whole sky around
+    // the origin as the trend turned, tens of m/s sideways after an hour)
+    const vw = env.wind.tws * 1.3, dw = env.wind.twd;
+    const drift = (this._drift || (this._drift = new THREE.Vector2())).set(Math.sin(dw) * vw * t, -Math.cos(dw) * vw * t);
+    const cells = W.activeCells ? W.activeCells(t) : [];
+    this.skySys.setWeather(Math.min(1, 0.22 + 0.95 * oc), cells, drift, t, mw.speed / 0.5144);
+    // visibility: heavy rain closes it to ~1-2 km, and the haze turns rain-grey (applied to the fog colour in update)
     this.scene.fog.density = 0.00011 + 0.0012 * sky.rain;
     this.waterU.fogDensity.value = this.scene.fog.density;
-    // rain streaks around the camera, slanted by the wind
+    this._rainFog = sky.rain;
+    // rain: drops fixed in the world, falling at ~7 m/s and blown along by the wind, drawn as short
+    // motion-blur streaks along their velocity; heavier rain = more drops, not just brighter ones
     const rain = sky.rain;
-    this.rain.material.opacity = Math.min(0.55, rain * 0.8);
     this.rain.visible = rain > 0.03;
     if (this.rain.visible) {
       const p = this.rain.geometry.attributes.position.array, sd = this.rainSeeds, n = sd.length / 3;
       const w = env.wind.sample(cam.x, cam.z, t, this._rw || (this._rw = {}));
-      const wx = -Math.sin(w.dir) * w.speed, wz = Math.cos(w.dir) * w.speed, fall = 7;
-      for (let i = 0; i < n; i++) {
-        const R = 40, x = cam.x + (sd[i * 3] - 0.5) * 2 * R, z = cam.z + (sd[i * 3 + 1] - 0.5) * 2 * R;
-        const y = ((sd[i * 3 + 2] * 30 - t * fall) % 30 + 30) % 30 + cam.y - 12;
-        const L = 0.12;
-        p.set([x + wx * 0.02 * (y % 3), y, z + wz * 0.02 * (y % 3), x + wx * L * 0.1, y + fall * L, z + wz * L * 0.1], i * 6);
+      const sp = w.speed * 0.8;                        // drops carry most of the wind
+      const wx = -Math.sin(w.dir) * sp, wz = Math.cos(w.dir) * sp, fall = 7, blur = 0.045;
+      const R = 40, H = 30, wrap = (v, m) => ((v % m) + m) % m;
+      const m = Math.min(n, Math.round(n * Math.min(1, 0.15 + rain)));
+      for (let i = 0; i < m; i++) {
+        const x = cam.x - R + wrap(sd[i * 3] * 2 * R + wx * t - cam.x + R, 2 * R);
+        const z = cam.z - R + wrap(sd[i * 3 + 1] * 2 * R + wz * t - cam.z + R, 2 * R);
+        const y = cam.y - 12 + wrap(sd[i * 3 + 2] * H - fall * t - cam.y + 12, H);
+        p.set([x, y, z, x - wx * blur, y + fall * blur, z - wz * blur], i * 6);
       }
+      this.rain.geometry.setDrawRange(0, m * 2);
       this.rain.geometry.attributes.position.needsUpdate = true;
+      this.rain.material.opacity = Math.min(0.6, 0.25 + 0.4 * rain);
+    }
+    // lightning from mature cells: deterministic in t (everyone in a room sees the same flashes); a
+    // flash is a double flicker over ~0.3 s, dimmer with distance
+    this._flash = 0;
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i]; if (c.w < 0.6) continue;
+      const slot = Math.floor(t / 0.3) + i * 7919, h = Math.abs((Math.sin(slot * 12.9898) * 43758.5453) % 1);
+      if (h < 0.02 * (c.w - 0.5)) {
+        const ph = (t / 0.3) % 1, d = Math.hypot(cam.x - c.x, cam.z - c.z);
+        this._flash = Math.max(this._flash, (ph < 0.2 || (ph > 0.45 && ph < 0.6) ? 1 : 0.25) * (1 - ph) / (1 + d / 4000));
+      }
     }
   }
 
@@ -508,7 +638,13 @@ export class Renderer {
     // sky, sun or moon light, exposure, reflections; the shadow-casting light follows the player
     if (player) { this.skySys._px = player.x; this.skySys._pz = player.z; }
     const hz = this.skySys.update(this.camera, t, this.sun, this.hemi, this.overcastU.value);
-    this.scene.fog.color.setRGB(hz[0], hz[1], hz[2]); this.waterU.fogColor.value.copy(this.scene.fog.color);
+    {
+      // in rain the haze is a flat grey curtain, darker than the clear-air horizon
+      const rf = Math.min(1, (this._rainFog || 0) * 1.3), gy = (0.3 * hz[0] + 0.55 * hz[1] + 0.15 * hz[2]) * (1 - 0.3 * rf);
+      this.scene.fog.color.setRGB(hz[0] + (gy - hz[0]) * rf, hz[1] + (gy - hz[1]) * rf, hz[2] + (gy * 1.04 - hz[2]) * rf);
+    }
+    this.waterU.fogColor.value.copy(this.scene.fog.color);
+    if (this._flash > 0) this.r.toneMappingExposure *= 1 + 2.5 * this._flash;   // lightning (the sky system resets exposure each frame)
     {
       const up = this.skySys.U.uAmbTop.value, sc = this.skySys.U.uSunCol.value;
       const l = (v) => 0.2126 * v.x + 0.7152 * v.y + 0.0722 * v.z;
@@ -545,6 +681,7 @@ export class Renderer {
       if (near) sp.update(dt, t, env);
       this.wakes.get(b).update(b, env, t, dt);
     }
+    this._updateSeaSpray(dt, t, env);
     const tmp = {};
     for (const g of this.markMeshes) {
       const mk = g.userData.mark;
@@ -578,9 +715,19 @@ export class Renderer {
       if (c.mode === 'orbit') c.yaw += dt * 0.08;
       const yaw = c.yaw + (c.mode === 'chase' ? P.psi : 0);
       const d = c.dist;
-      cam.position.set(c.tx - Math.sin(yaw) * Math.cos(c.pitch) * d, Math.max(1.2, bh + 2 + Math.sin(c.pitch) * d), c.tz + Math.cos(yaw) * Math.cos(c.pitch) * d);
+      // a camera boat rides the swell slower than the yacht: follow the heave through a ~1.5 s low-pass so
+      // the horizon does not bob with every wave, and never let the lens dip under the sea in front of it
+      c.hs = c.hs === undefined || Math.abs(c.hs - bh) > 6 ? bh : c.hs + (bh - c.hs) * (1 - Math.exp(-dt / 1.5));
+      const px = c.tx - Math.sin(yaw) * Math.cos(c.pitch) * d, pz = c.tz + Math.cos(yaw) * Math.cos(c.pitch) * d;
+      let py = Math.max(1.2, c.hs + 2 + Math.sin(c.pitch) * d);
+      if (env && env.waves && env.waves.height) {
+        const floor = env.waves.height(px, pz, t) + 1.1 + 0.03 * d;   // rises at once, settles slowly
+        c.floor = c.floor === undefined ? floor : Math.max(floor, c.floor + (floor - c.floor) * (1 - Math.exp(-dt * 3)));
+        py = Math.max(py, c.floor);
+      }
+      cam.position.set(px, py, pz);
       cam.up.set(0, 1, 0);
-      cam.lookAt(c.tx, bh + C0.freeboard + 0.6, c.tz);
+      cam.lookAt(c.tx, lerp(c.hs, bh, 0.4) + C0.freeboard + 0.6, c.tz);
     } else if (c.mode === 'helm' || c.mode === 'bow' || c.mode === 'mast') {
       const vis = this.boats.get(b);
       const C = b.cls;

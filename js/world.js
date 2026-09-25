@@ -403,11 +403,16 @@ export async function fetchVenueGeo(lat, lon) {
 // Live wind at a location from Open-Meteo (free, no key)
 export async function fetchLiveWind(lat, lon) {
   const u = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn`;
-  const r = await fetch(u);
+  // a stalled request must not leave the menu saying "Asking Open-Meteo…" forever
+  const r = await fetch(u, typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(10000) } : undefined);
   if (!r.ok) throw new Error('Open-Meteo ' + r.status);
   const j = await r.json();
   const c = j.current;
-  return { kt: c.wind_speed_10m, dir: c.wind_direction_10m, gustKt: c.wind_gusts_10m, time: c.time };
+  if (!c || !Number.isFinite(c.wind_speed_10m) || !Number.isFinite(c.wind_direction_10m)) throw new Error('Open-Meteo: no current wind');
+  const kt = c.wind_speed_10m;
+  // gusts can be missing at some grid points; never report a gust below the mean
+  const gustKt = Number.isFinite(c.wind_gusts_10m) ? Math.max(kt, c.wind_gusts_10m) : kt * 1.4;
+  return { kt, dir: ((c.wind_direction_10m % 360) + 360) % 360, gustKt, time: c.time };
 }
 
 // ---------------------------------------------------------------------------------------------

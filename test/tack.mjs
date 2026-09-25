@@ -17,7 +17,7 @@ for (let i = 0; i < 120 * 30; i++) {
   if (process.argv[7] !== 'manual') autoTrim(b, dt);
   b.step(dt, env, t); t += dt;
   const twa = wrap(0 - b.psi) / DEG;
-  if (crossed === null && ((man === 'tack' && twa > 0) || (man === 'gybe' && Math.abs(twa) < 170 && twa < 0 && t > 1))) crossed = t;
+  if (crossed === null && ((man === 'tack' && twa > 0) || (man === 'gybe' && twa > 0 && twa < 179))) crossed = t;
   if (i % 60 === 0 && t < 9) console.log(`t ${t.toFixed(0).padStart(2)}  hdg ${(b.psi / DEG).toFixed(0).padStart(4)}  twa ${twa.toFixed(0).padStart(4)}  bsp ${(b.u / KT).toFixed(2)}  rud ${(b.rudder / DEG).toFixed(0)}  r ${(b.r / DEG).toFixed(1)}°/s  boom ${(b.booms.main.a / DEG).toFixed(0)}  jibSide ${b.side.jib.toFixed(2)} | N sail ${b.diag.Nsail.toFixed(0)} keel ${b.diag.Nkeel.toFixed(0)} rud ${b.diag.Nrud.toFixed(0)} hull ${b.diag.Nhull.toFixed(0)} | rudα ${(b.diag.rudAlpha/DEG).toFixed(0)} eps ${(b.diag.eps/DEG).toFixed(0)} keelCl ${b.diag.keelCl.toFixed(2)} v ${b.v.toFixed(2)}`);
 }
 console.log(crossed !== null ? `crossed the wind after ${crossed.toFixed(1)} s` : 'NEVER CROSSED');

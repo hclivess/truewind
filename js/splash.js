@@ -74,9 +74,15 @@ function materials(sky) {
           vec4 h = viewMatrix * vec4(iPos, 1.0), tl = viewMatrix * vec4(iPos - iVel * 0.03, 1.0);
           vec2 d = h.xy - tl.xy; float L = length(d); d = L > 1e-5 ? d / L : vec2(0.0, 1.0);
           mv = mix(tl, h, corner.y) + vec4(vec2(-d.y, d.x) * corner.x * iSize * 0.5, 0.0, 0.0);
-        } else {
+        } else if (iKind < 1.5) {
           // mist: a soft puff that grows as it drifts
           mv = viewMatrix * vec4(iPos, 1.0); mv.xy += vec2(corner.x, corner.y * 2.0 - 1.0) * iSize * (1.0 + (1.0 - iLife) * 1.5);
+        } else {
+          // spindrift: a wisp of spray torn off a crest, smeared along its flight and spreading
+          float w = iSize * (1.0 + (1.0 - iLife) * 2.0);
+          vec4 h = viewMatrix * vec4(iPos, 1.0), tl = viewMatrix * vec4(iPos - iVel * 0.3, 1.0);
+          vec2 d = h.xy - tl.xy; float L = length(d); d = L > 1e-5 ? d / L : vec2(0.0, 1.0);
+          mv = mix(tl, h, corner.y) + vec4(vec2(-d.y, d.x) * corner.x * w * 0.5 + d * (corner.y - 0.5) * w, 0.0, 0.0);
         }
         gl_Position = projectionMatrix * mv;
       }`,
@@ -87,7 +93,8 @@ function materials(sky) {
         vec3 col = uAmbTop * 0.7 + uSunCol * (0.9 + 5.0 * back);
         float a;
         if (vK < 0.5) a = (1.0 - vC.x * vC.x) * mix(0.25, 1.0, vC.y) * clamp(vL * 1.6, 0.0, 1.0) * 0.9;
-        else { vec2 q = vec2(vC.x, vC.y * 2.0 - 1.0); a = exp(-dot(q, q) * 3.0) * vL * 0.12; }
+        else if (vK < 1.5) { vec2 q = vec2(vC.x, vC.y * 2.0 - 1.0); a = exp(-dot(q, q) * 3.0) * vL * 0.12; }
+        else { vec2 q = vec2(vC.x, vC.y * 2.0 - 1.0); a = exp(-dot(q, q) * 2.2) * min(1.0, vL * 1.5) * 0.32; }
         if (a < 0.01) discard;
         gl_FragColor = vec4(col, a);
         #include <tonemapping_fragment>
@@ -362,4 +369,87 @@ export class HullSplash {
     this.aP.needsUpdate = true; this.aQ.needsUpdate = true;
   }
   dispose(scene) { scene.remove(this.points); scene.remove(this.patches); }
+}
+
+// Spindrift: from about Beaufort 7 the wind tears the tops off breaking crests and blows them downwind
+// as sheets of spray. Breaking crests are found the way the water shader finds whitecaps — the steepest
+// crest compression (Gerstner Jacobian) for the wind's whitecap coverage — on the real wave field
+// around the camera, so the spray leaves the crests you see break.
+const SEA_DROPS = 1200;
+const invTail = (p) => { const t = Math.sqrt(-2 * Math.log(Math.max(p, 1e-6))); return t - (2.515517 + 0.802853 * t + 0.010328 * t * t) / (1 + 1.432788 * t + 0.189269 * t * t + 0.001308 * t * t * t); };
+export class SeaSpray {
+  constructor(scene, sky, low = false) {
+    const M = materials(sky);
+    this.n = low ? SEA_DROPS / 3 | 0 : SEA_DROPS;
+    const n = this.n, g = new THREE.InstancedBufferGeometry(); quadCorners(g);
+    this.P = new Float32Array(n * 3); this.V = new Float32Array(n * 3); this.L = new Float32Array(n); this.S = new Float32Array(n); this.K = new Float32Array(n); this.F = new Float32Array(n);
+    this.attrs = [['iPos', this.P, 3], ['iVel', this.V, 3], ['iLife', this.L, 1], ['iSize', this.S, 1], ['iKind', this.K, 1]].map(([name, arr, k]) => {
+      const a = new THREE.InstancedBufferAttribute(arr, k); a.setUsage(THREE.DynamicDrawUsage); g.setAttribute(name, a); return a;
+    });
+    g.instanceCount = n;
+    this.mesh = new THREE.Mesh(g, M.spray); this.mesh.frustumCulled = false; this.mesh.renderOrder = 4;
+    scene.add(this.mesh);
+    this.next = 0; this.acc = 0; this._s = {}; this._w = {}; this.live = 0;
+  }
+  emit(x, y, z, vx, vy, vz, size, kind, fade) {
+    const i = this.next; this.next = (this.next + 1) % this.n;
+    this.P[i * 3] = x; this.P[i * 3 + 1] = y; this.P[i * 3 + 2] = z;
+    this.V[i * 3] = vx; this.V[i * 3 + 1] = vy; this.V[i * 3 + 2] = vz;
+    this.L[i] = 1; this.S[i] = size; this.K[i] = kind; this.F[i] = fade;
+  }
+  // cam: camera position; fwdX, fwdZ: its horizontal view direction
+  update(dt, t, env, cam, fwdX, fwdZ) {
+    if (dt <= 0) return;
+    dt = Math.min(dt, 0.05);
+    const w = env.wind.sample(cam.x, cam.z, t, this._w);
+    const U = w.speed, wx = -Math.sin(w.dir) * U, wz = Math.cos(w.dir) * U;
+    const gale = Math.max(0, Math.min(1, (U - 13) / 10));          // 25 kn: nothing; 45 kn: full spindrift
+    const waves = env.waves;
+    if (gale > 0 && env.wavesOn) {
+      const Wc = Math.min(0.3, 3.84e-6 * Math.pow(U, 3.41)), zA = invTail(0.4 * Wc) + 0.2;
+      const sig = Math.max(0.02, waves.jSigma || 0.1);
+      this.acc += dt * 1500 * gale;
+      for (; this.acc >= 1; this.acc--) {
+        // a crest somewhere in view, 10-180 m out
+        const r = 10 + Math.pow(Math.random(), 0.8) * 170, a = (Math.random() - 0.5) * 2.2;
+        const ca = Math.cos(a), sa = Math.sin(a);
+        const x = cam.x + (fwdX * ca - fwdZ * sa) * r, z = cam.z + (fwdZ * ca + fwdX * sa) * r;
+        const s = waves.sample(x, z, t, this._s);
+        const zc = (1 - s.j) / sig;
+        if (zc < zA) continue;
+        const k = Math.min(1, (zc - zA) / 1.2) * gale;
+        // a sheet of mist torn off the crest and a scatter of drops, all running with the wind
+        for (let m = 0; m < 2 + 3 * k; m++) {
+          const f = 0.45 + Math.random() * 0.4;
+          this.emit(x + (Math.random() - 0.5) * 3, s.h + 0.2 + Math.random() * 0.5, z + (Math.random() - 0.5) * 3,
+            wx * f + s.vx, 0.6 + Math.random() * 1.6 * k, wz * f + s.vz, 1.0 + Math.random() * 2.0 * (0.5 + k), 2, 0.3 + Math.random() * 0.25);
+        }
+        for (let m = 0; m < 3 * k; m++) {
+          const f = 0.3 + Math.random() * 0.4;
+          this.emit(x, s.h + 0.15, z, wx * f + s.vx, 1.5 + Math.random() * 3, wz * f + s.vz, 0.03 + Math.random() * 0.05, 0, 0.9);
+        }
+      }
+    }
+    const P = this.P, V = this.V, L = this.L, K = this.K;
+    let live = 0;
+    for (let i = 0; i < this.n; i++) {
+      if (L[i] <= 0) continue;
+      live++;
+      const k3 = i * 3;
+      if (K[i] < 0.5) {
+        V[k3 + 1] -= 9.81 * dt;
+        const dr = Math.exp(-dt * 0.8);
+        V[k3] = wx + (V[k3] - wx) * dr; V[k3 + 2] = wz + (V[k3 + 2] - wz) * dr;
+      } else {
+        const dr = Math.exp(-dt * 1.5);
+        V[k3] = wx * 0.8 + (V[k3] - wx * 0.8) * dr; V[k3 + 2] = wz * 0.8 + (V[k3 + 2] - wz * 0.8) * dr; V[k3 + 1] *= dr;
+      }
+      P[k3] += V[k3] * dt; P[k3 + 1] += V[k3 + 1] * dt; P[k3 + 2] += V[k3 + 2] * dt;
+      L[i] -= dt * this.F[i];
+      if (K[i] < 0.5 && V[k3 + 1] < 0 && P[k3 + 1] < -2 - 0.5 * (waves.Hs || 0)) L[i] = 0;   // well below any trough
+    }
+    this.live = live;
+    this.mesh.visible = live > 0;
+    if (live) for (const a of this.attrs) a.needsUpdate = true;
+  }
 }

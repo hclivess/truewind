@@ -88,8 +88,11 @@ export const CLASSES = {
     bowsprit: 1.0,
     massHull: 794, zG: -0.22, crewN: 4, crewEach: 80, crewZ: 0.6, crewMaxOut: 1.05, crewLee: -0.55, hikeRate: 0.55,
     gm: 1.05, bmForm: 0.65, Ixx: 1400, Izz: 3600, amX: 0.06, amY: 0.7, amYaw: 0.4, amRoll: 0.25,
+    // residuary resistance / weight. The hump is that of a keelboat that planes, not a dinghy: total R/W ~0.10-0.11
+    // at Fn_vol ~2 (Savitsky; J/70-type D/L ~140 incl. crew), i.e. Rr/W ~0.07 once friction is taken off.
+    // (It used to plateau at 0.05, which let it reach at wind speed in 12 kn — J/70 polars give ~8 kn.)
     rr: [[0.1, 0.0001], [0.15, 0.0004], [0.2, 0.0009], [0.25, 0.0018], [0.3, 0.0035], [0.35, 0.0065], [0.4, 0.013],
-         [0.45, 0.025], [0.5, 0.037], [0.55, 0.045], [0.6, 0.049], [0.7, 0.051], [0.8, 0.05], [1.0, 0.048], [1.2, 0.049], [1.5, 0.055]],
+         [0.45, 0.027], [0.5, 0.044], [0.55, 0.057], [0.6, 0.066], [0.7, 0.072], [0.8, 0.071], [1.0, 0.066], [1.2, 0.065], [1.5, 0.069]],
     keel: { x: 0.25, z: -0.85, area: 0.58, ARe: 5.0, stall: 14 * DEG, cd0: 0.009, span: 1.17, chord: 0.5 },
     rudder: { x: -3.05, z: -0.45, area: 0.23, ARe: 3.6, stall: 15 * DEG, cd0: 0.01, max: 32 * DEG, span: 0.95, chord: 0.26, loadRef: 700 },
     hullLat: { area: 1.5, cd: 0.9, z: -0.1 },
@@ -207,15 +210,18 @@ function foilCoef(alpha, F, ARe, out) {
   let a = Math.abs(alpha), s = Math.sign(alpha) || 1;
   if (a > Math.PI / 2) { a = Math.PI - a; s = -s; }
   const slope = 2 * Math.PI / (2 / ARe + Math.sqrt(1 + (2 / ARe) ** 2));
-  let cl;
-  if (a <= F.stall) cl = slope * a;
-  else {
-    const clm = slope * F.stall;
-    const t = sstep(F.stall, F.stall + 0.35, a);
-    cl = lerp(clm * (1 - 0.4 * Math.min(1, (a - F.stall) / 0.12)), 1.1 * Math.sin(2 * a), t);
-  }
   const sep = sstep(F.stall * 0.9, F.stall + 0.3, a);
-  const cd = F.cd0 + cl * cl / (Math.PI * ARe * 0.9) + 1.2 * Math.sin(a) ** 2 * sep;
+  let cl = a <= F.stall ? slope * a : slope * F.stall * (1 - 0.4 * Math.min(1, (a - F.stall) / 0.12));
+  let cd = F.cd0 + cl * cl / (Math.PI * ARe * 0.9) + 1.2 * Math.sin(a) ** 2 * sep;
+  if (a > F.stall) {
+    // deep stall: a flat plate with no leading-edge suction, so the force is normal to the chord
+    // (Viterna-Corrigan, CDmax = 1.11 + 0.018 AR). The old post-stall lift (1.1 sin 2a against 1.2 sin^2 a
+    // drag) tilted the resultant forward: a stalled keel pulled the boat ahead and a hard-over rudder
+    // braked too little.
+    const cdMax = 1.11 + 0.018 * ARe, t = sstep(F.stall, F.stall + 0.35, a);
+    cl = lerp(cl, cdMax * Math.sin(a) * Math.cos(a), t);
+    cd = lerp(cd, F.cd0 + cdMax * Math.sin(a) ** 2, t);
+  }
   out.cl = cl * s; out.cd = cd; out.stalled = a > F.stall;
   return out;
 }
@@ -400,6 +406,7 @@ export class Boat {
     const heaveH = this.heave;
     const aeroOn = true;
     this._cRollWet = 0;                     // strips that are under water are handled one by one below
+    this._wD11 = 0; this._wD12 = 0; this._wD22 = 0; // their sway/yaw drag, integrated implicitly
 
     // mid-height apparent wind (drives headsail sides, trimming, crew)
     const M0 = this.sailBy.main;
@@ -532,8 +539,12 @@ export class Boat {
           const vlat = this.v + this.r * xce + this.p * zs;                 // strip moving through the water
           const Aw = s.area * STRIP_W[i] * areaF * wet;
           const cq = 0.5 * RHO_W * 1.2 * Aw * Math.abs(vlat);                // linearised drag coefficient
-          const Fvr = -cq * (this.v + this.r * xce) - Math.sign(this.p * zs) * RHO_W * G * 0.01 * Aw; // translation + water on the cloth
-          Y += Fvr * cphi; K += Fvr * zs; N += xce * Fvr * cphi;
+          const Fp = -Math.sign(this.p * zs) * RHO_W * G * 0.01 * Aw;       // water lying on the cloth
+          Y += Fp * cphi; N += xce * Fp * cphi;
+          K += (Fp - cq * (this.v + this.r * xce)) * zs;
+          // dragging a whole sail sideways through water is stiff (a capsized cat: cq*dt/m > 2 blew the
+          // explicit step up to NaN); its sway/yaw part goes into the implicit solve after the step
+          const cw = cq * cphi; this._wD11 += cw; this._wD12 += cw * xce; this._wD22 += cw * xce * xce;
           this._cRollWet += cq * zs * zs;                                     // roll part: integrated implicitly (stiff)
           X -= 0.5 * RHO_W * 0.08 * Aw * this.u * Math.abs(this.u);
         }
@@ -635,7 +646,7 @@ export class Boat {
       const ax = Wbx * prof - ug, ay = Wby * prof - vg - this.p * wd.z;
       const V = Math.hypot(ax, ay);
       const q = 0.5 * RHO_A * wd.area * wd.cd * V * Math.max(0.3, Math.abs(cphi));
-      X += q * ax; Y += q * ay * cphi; K += q * ay * cphi * wd.z;
+      X += q * ax; Y += q * ay * cphi; K += q * ay * cphi * wd.z; d.windX = q * ax;
     }
 
     // ---- hydrodynamics ----
@@ -690,7 +701,7 @@ export class Boat {
       const rx = q * (fc.cl * vl / V - fc.cd * ul / V), rn = q * (-fc.cl * ul / V - fc.cd * vl / V);
       X += rx; Y += rn * cphi; K += rn * F.z; N += F.x * rn * cphi;
       d.Nrud = F.x * rn * cphi; d.rudAlpha = wrap(Math.atan2(vl, ul) - eps + this.rudder); d.eps = eps;
-      d.rudderY = rn * cphi; d.rudderStall = fc.stalled; d.rudderLoad = Math.abs(rn); d.rudderVent = vent;
+      d.rudderX = rx; d.rudderY = rn * cphi; d.rudderStall = fc.stalled; d.rudderLoad = Math.abs(rn); d.rudderVent = vent;
       d.helmMoment = rn * F.chord * (F.transom ? 0.3 : 0.12); // tiller feel: an unbalanced transom rudder is heavy
     }
     {
@@ -754,6 +765,7 @@ export class Boat {
       else K += this.crewMass * G * (-(C.keel.span * clamp(ctrl.board, 0.3, 1) + C.canoeDraft + 0.2)) * sphi; // standing on the board tip
     } else K += this.crewMass * G * (this.crewY * cphi + C.crewZ * sphi);
     // Froude-Krylov wave forces on the immersed volume (surfing, wave roll/yaw)
+    d.fkX = wv ? RHO_W * G * imm.FKx : 0;
     if (wv) { X += RHO_W * G * imm.FKx; Y += RHO_W * G * imm.FKy * cphi; N += RHO_W * G * imm.FKn * cphi; }
     d.Fb = Fb;
 
@@ -782,6 +794,11 @@ export class Boat {
     const dp = K / this.Ixx;
     this._rdot = dr;
     this.u += du * dt; this.v += dv * dt; this.r += dr * dt;
+    if (this._wD11 > 0) { // backward Euler for the wet-rig drag: (M + dt D) [v r]' = M [v r]  (D is symmetric, >= 0)
+      const a11 = m22 + dt * this._wD11, a12 = dt * this._wD12, a22 = this.Izz + dt * this._wD22;
+      const b1 = m22 * this.v, b2 = this.Izz * this.r, det = a11 * a22 - a12 * a12;
+      this.v = (b1 * a22 - a12 * b2) / det; this.r = (a11 * b2 - a12 * b1) / det;
+    }
     // explicit roll, then the stiff water damping of a wet rig implicitly (unconditionally stable)
     this.p = (this.p + dp * dt) / (1 + (this._cRollWet || 0) * dt / this.Ixx);
     // guards: a numerical blow-up must never take the game down
@@ -811,8 +828,13 @@ export class Boat {
       const tgt = windSide * C.targetHeel * 0.6 * upwindness;
       const err = this.phi - tgt;
       this._hikeI = clamp((this._hikeI || 0) + err * dt * 1.2, -0.4, 0.4);
-      const ff = 0.8 * (this._sailKf || 0) / (this.crewMass * G * lim);
-      const cmd = clamp(err * 5 + this.p * 2.2 + this._hikeI + ff, -1, 1);
+      const Mc = this.crewMass * G * lim;
+      const ff = 0.8 * (this._sailKf || 0) / Mc;
+      // PD gains from the roll inertia the crew's weight has to steer: a ~2.5 rad/s, well-damped loop.
+      // Fixed gains made the light boats' loop faster than a sailor can cross the boat (hikeRate): the crew
+      // lagged the heel, the lag turned into a self-excited ±50° roll that pumped the rig downwind.
+      const wn = 2.5, kp = this.Ixx * wn * wn / Mc, kd = 2 * 0.9 * wn * this.Ixx / Mc;
+      const cmd = clamp(err * kp + this.p * kd + this._hikeI + ff, -1, 1);
       crewTarget = -cmd * lim;
       ctrl.hike = clamp(-crewTarget * windSide / lim, -1, 1);
       ctrl.crewAft = lerp(-0.6, 0.8, sstep(0.3, 0.55, Fn));
@@ -848,7 +870,8 @@ export class Boat {
       const IyyEff = this.Iyy * (0.6 + 0.4 * Math.min(1, imf));
       this.pitchV += (My - cp2 * this.pitchV) / IyyEff * dt;
       this.pitch = clamp(this.pitch + this.pitchV * dt, -0.6, 0.6);
-      if (!isFinite(this.heave)) { this.heave = 0; this.heaveV = 0; }
+      if (!isFinite(this.heave) || !isFinite(this.heaveV)) { this.heave = 0; this.heaveV = 0; }
+      if (!isFinite(this.pitch) || !isFinite(this.pitchV)) { this.pitch = 0; this.pitchV = 0; }
     }
 
     // ---- diagnostics / instruments ----
