@@ -958,7 +958,7 @@ export function updateBoatModel(vis, b, t) {
   if (C.keel.twin && vis.keelMesh) vis.keelMesh.position.y = C.freeboard - 0.05 + (1 - b.ctrl.board) * C.keel.span * 0.8;
   else if (C.keel.board && vis.keelMesh) vis.keelMesh.position.y = -C.canoeDraft + 0.41 + (1 - b.ctrl.board) * C.keel.span * 0.8;
   for (const k in vis.booms) {
-    vis.booms[k].rotation.y = b.booms[k].a;
+    vis.booms[k].rotation.set(-(b.booms[k].elev || 0), b.booms[k].a, 0, 'YXZ');   // (a cloth sail's boom lifts)
     const bundle = vis.booms[k].userData.bundle;
     if (bundle) { const rp = b.reefPos; bundle.visible = rp > 0.03; bundle.scale.set(0.4 + 0.6 * Math.min(1, rp), 1, 0.4 + 0.6 * Math.min(1, rp)); }
   }
@@ -969,7 +969,39 @@ export function updateBoatModel(vis, b, t) {
   updateTelltales(vis, b, t);
 }
 
+// A cloth sail (js/sail/cloth.js) drawn from its own nodes: Catmull-Rom through the cloth grid onto the mesh's
+// (u, v) chart (u = 0 at the luff, v = 0 at the foot), rig frame (x fwd, y stbd, z up) -> [y, z, -x]
+function clothToMesh(mesh, rig) {
+  const c = rig.cloth, nu = c.nu, nv = c.nv, off = c.off, X = c.x, pos = mesh.geometry.attributes.position.array;
+  const P = (i, j, k) => {
+    // nodes outside the grid are extrapolated linearly
+    const ii = i < 0 ? 0 : i >= nu ? nu - 1 : i, jj = j < 0 ? 0 : j >= nv ? nv - 1 : j;
+    let v = X[3 * (off + jj * nu + ii) + k];
+    if (i < 0) v = 2 * v - X[3 * (off + jj * nu + 1) + k]; else if (i >= nu) v = 2 * v - X[3 * (off + jj * nu + nu - 2) + k];
+    if (j < 0) v = 2 * v - X[3 * (off + nu + ii) + k]; else if (j >= nv) v = 2 * v - X[3 * (off + (nv - 2) * nu + ii) + k];
+    return v;
+  };
+  const cr = (p0, p1, p2, p3, t) => 0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (3 * p1 - p0 + p3 - 3 * p2) * t * t * t);
+  const col = [0, 0, 0, 0];
+  for (let v = 0; v <= NV; v++) {
+    const fv = v / NV * (nv - 1), j = Math.min(nv - 2, Math.floor(fv)), tv = fv - j;
+    for (let u = 0; u <= NU; u++) {
+      const fu = u / NU * (nu - 1), i = Math.min(nu - 2, Math.floor(fu)), tu = fu - i, k = (v * (NU + 1) + u) * 3;
+      for (let a = 0; a < 3; a++) {
+        for (let q = 0; q < 4; q++) col[q] = cr(P(i - 1, j - 1 + q, a), P(i, j - 1 + q, a), P(i + 1, j - 1 + q, a), P(i + 2, j - 1 + q, a), tu);
+        const w = cr(col[0], col[1], col[2], col[3], tv);
+        if (a === 0) pos[k + 2] = -w; else if (a === 1) pos[k] = w; else pos[k + 1] = w;
+      }
+    }
+  }
+  mesh.visible = true;
+  mesh.geometry.attributes.position.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+}
+
 function updateSail(mesh, boat, s, t) {
+  const rig = boat.sailSys && boat.sailSys.active(boat) ? boat.sailSys.cloth(s.key) : null;
+  if (rig) { if ((boat.diag.strips[s.key].areaF ?? 1) < 0.3) mesh.visible = false; else clothToMesh(mesh, rig); return; }
   const C = boat.cls, d = boat.diag;
   const sh = d.shape[s.key], st = d.strips[s.key];
   const pos = mesh.geometry.attributes.position.array;
@@ -1026,11 +1058,15 @@ function updateTelltales(vis, b, t) {
   let n = 0;
   const px = head.key === 'main' ? C.mastX : head.tackX, pz = head.key === 'main' ? C.boomZ : head.tackZ;
   const side = Math.sign(st.baseAngle || 1);
+  // a cloth sail: the telltales sit on the cloth itself
+  const act = b.sailSys && b.sailSys.active(b), hRig = act && b.sailSys.cloth(head.key), mRig = act && b.sailSys.cloth('main');
+  const _q = updateTelltales._q || (updateTelltales._q = [0, 0, 0]);
   for (let i = 0; i < 3; i++) {
     const fv = STRIP_F[i], s = st[i], a = sh[i].ang;
     const chord = head.foot * (1 - fv) + head.head * fv;
     const cx = -Math.cos(a), cy = Math.sin(a);
-    const baseX = px - (head.rake || 0) * fv + cx * chord * 0.12, baseY = cy * chord * 0.12, baseZ = pz + fv * head.luff;
+    let baseX = px - (head.rake || 0) * fv + cx * chord * 0.12, baseY = cy * chord * 0.12, baseZ = pz + fv * head.luff;
+    if (hRig) { hRig.cloth.sample(hRig.cloth.x, 0.12, fv, _q); baseX = _q[0]; baseY = _q[1]; baseZ = _q[2]; }
     for (const ws of [-1, 1]) {
       const nx = Math.sin(a) * side * ws * 0.02, ny = Math.cos(a) * side * ws * 0.02;
       let dx = cx, dy = cy, dz = 0;
@@ -1054,7 +1090,8 @@ function updateTelltales(vis, b, t) {
       const fv = STRIP_F[i], s = mst[i], a = msh[i].ang;
       const chord = ms.foot * (1 - fv) + ms.head * fv + ms.foot * 0.07 * Math.sin(Math.PI * fv * 0.85);
       const cx = -Math.cos(a), cy = Math.sin(a), lx = Math.sin(a) * mside, ly = Math.cos(a) * mside; // chord aft, leeward normal
-      const baseX = C.mastX - 0.02 + cx * chord, baseY = cy * chord, baseZ = C.boomZ + fv * ms.luff * rf.l;
+      let baseX = C.mastX - 0.02 + cx * chord, baseY = cy * chord, baseZ = C.boomZ + fv * ms.luff * rf.l;
+      if (mRig) { mRig.cloth.sample(mRig.cloth.x, 1, fv, _q); baseX = _q[0]; baseY = _q[1]; baseZ = _q[2]; }
       let dx = cx, dy = cy, dz = -0.08;
       const flog = s.flog || 0;
       if (s.state === 3) { dx = -cx * 0.25 + lx * 0.75 + Math.sin(t * 8 + i * 1.7) * 0.2; dy = -cy * 0.25 + ly * 0.75 + Math.cos(t * 6 + i) * 0.2; dz = -0.45; }

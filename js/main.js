@@ -1,7 +1,7 @@
 // Game controller: menu, venue loading (baked OSM or live Overpass), live weather, input, the
 // fixed-step simulation loop, race flow, AI fleet, cameras.
 import { Environment, KT, DEG } from './env.js';
-import { Boat, CLASSES, CLASS_ORDER, autoTrim, solvePolarAngle, POLAR_TWAS, vmgTargets, clamp, lerp, wrap } from './physics.js';
+import { Boat, CLASSES, CLASS_ORDER, autoTrim, solvePolarAngle, POLAR_TWAS, vmgTargets, clamp, lerp, wrap, makeSteadyEnv } from './physics.js';
 import { VENUES, World, makeProjection, fetchVenueGeo, fetchLiveWind } from './world.js';
 import { Course, Race, AIHelm, applyWindShadow, resolveCollisions } from './race.js';
 import { Renderer } from './render.js';
@@ -11,6 +11,11 @@ import { Net } from './net.js';
 import { Vector3 as THREE_V } from 'three';
 import { Rigging } from './rigging.js';
 import { sunPosition } from './sky.js';
+import { attachSails } from './sail/sailsim.js';   // (also registers the cloth / lattice sail model with physics.js)
+
+// the player's sail model: ?sails=strip (three strips per sail), vlm (vortex lattice on the rig-set shapes) or
+// cloth (cloth shaped by the wind and the rig, forces from a vortex lattice over it)
+const SAIL_MODEL = (() => { try { const m = new URLSearchParams(location.search).get('sails'); return ['strip', 'vlm', 'cloth'].includes(m) ? m : 'strip'; } catch (e) { return 'strip'; } })();
 
 const $ = (s) => document.querySelector(s);
 const PHYS_DT = 1 / 120;
@@ -316,7 +321,7 @@ class Game {
     this.race = null; this.course = null; this.waypoint = null;
     $('#results').hidden = true;
     const cls = CLASSES[S.cls];
-    const player = new Boat(cls, { id: 0, name: 'You' });
+    const player = new Boat(cls, { id: 0, name: 'You', sailModel: SAIL_MODEL, lod: SAIL_MODEL === 'strip' ? 2 : this.sailLevelFor(cls) });
     player.auto.trim = S.autoTrim; player.auto.hike = S.autoHike;
     // in a blow the crew ties in the reefs before leaving (shaking one out is a keypress away)
     const dockReef = idle ? 0 : startReef(cls, cond.tws);
@@ -915,12 +920,14 @@ class Game {
     }
     let steps = 0;
     const maxSteps = 12 * this.timeWarp;
+    const tPhys = performance.now();
     while (this.acc >= PHYS_DT && steps < maxSteps) {
       for (const b of this.boats) b._prev = { x: b.x, z: b.z, psi: b.psi, heave: b.heave, pitch: b.pitch, phi: b.phi };
       this.step(PHYS_DT);
       this.acc -= PHYS_DT; steps++;
     }
     if (steps >= maxSteps) this.acc = 0;
+    this.sailGovernor(performance.now() - tPhys, dt);
     // draw the boats between the last two physics states so motion is smooth at any refresh rate
     const alpha = clamp(this.acc / PHYS_DT, 0, 1);
     const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -956,6 +963,46 @@ class Game {
       this.audio.update(p, dt);
       this.checkAlerts();
     }
+  }
+
+  // The cloth / lattice sails' detail level for the player: L0 (the full model), L1 (coarser) or L2 (the strip
+  // model). A short benchmark on load picks where to start; the governor steps down when the physics takes
+  // more than 6 ms of a frame (and back up, to the starting level, after a while well under budget); in
+  // time warp beyond x2 the sails run at L2.
+  sailLevelFor(cls) {
+    if (this._sailLevel && this._sailLevel.cls === cls.id) return this._sailLevel.lod;
+    let lod = 0;
+    try {
+      for (lod = 0; lod < 2; lod++) {
+        const b = new Boat(cls, { sailModel: SAIL_MODEL, lod }), env = makeSteadyEnv(6);
+        b.reset(0, 0, 1.2); b.u = 2;
+        for (let i = 0; i < 40; i++) b.step(PHYS_DT, env, 0);                 // warm up (and the first factorisation)
+        const t0 = performance.now();
+        for (let i = 0; i < 120; i++) b.step(PHYS_DT, env, 0);
+        const ms = (performance.now() - t0) / 120;
+        if (ms < 1.6) break;
+      }
+    } catch (e) { console.warn('sail benchmark', e); lod = 2; }
+    this._sailLevel = { cls: cls.id, lod, start: lod };
+    return lod;
+  }
+  setSailLevel(b, lod) {
+    if (!b || b.sailModel === 'strip' || lod === b.lod) return;
+    if (lod >= 2) { b.lod = 2; return; }
+    if (!b.sailSys || b.sailSys.lod !== lod) attachSails(b, b.sailModel, lod);
+    else { b.lod = lod; b.sailSys.reset(); }
+  }
+  sailGovernor(ms, dt) {
+    const b = this.player, L = this._sailLevel;
+    if (!b || !L || b.sailModel === 'strip') return;
+    const g = this._gov || (this._gov = { ema: 0, over: 0, under: 0 });
+    g.ema += (ms - g.ema) * Math.min(1, dt * 4);
+    const want = this.timeWarp > 2 ? 2 : null;
+    if (want !== null) { if (b.lod < 2) { g.saved = b.lod; this.setSailLevel(b, 2); } return; }
+    if (g.saved !== undefined) { this.setSailLevel(b, g.saved); g.saved = undefined; }
+    if (g.ema > 6) { g.over += dt; g.under = 0; } else if (g.ema < 2.5) { g.under += dt; g.over = 0; } else { g.over = 0; g.under = 0; }
+    if (g.over > 1.5 && b.lod < 2) { this.setSailLevel(b, b.lod + 1); g.over = 0; this.hud.toast(b.lod < 2 ? 'Sails: lighter model (L' + b.lod + ') to keep the frame rate' : 'Sails: strip model to keep the frame rate', 2); }
+    if (g.under > 15 && b.lod > L.start) { this.setSailLevel(b, b.lod - 1); g.under = 0; }
   }
 
   step(dt) {

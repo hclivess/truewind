@@ -176,7 +176,9 @@ const RUNS_UP = new Set(['main', 'jib', 'lazy', 'stay', 'trav', 'tackLine']);
 export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat'];
 
 export const STRIP_F = [0.17, 0.5, 0.82];
-const STRIP_W = [0.43, 0.34, 0.23];
+export const STRIP_W = [0.43, 0.34, 0.23];
+// js/sail/sailsim.js registers the cloth / vortex-lattice sail model here when it is loaded (no import cycle)
+export const sailHooks = { make: null };
 export const REEF = [{ a: 1, l: 1 }, { a: 0.76, l: 0.84 }, { a: 0.56, l: 0.69 }];
 // area / luff factors at a continuous reef position (reefing is a procedure, not a switch)
 export function reefAt(pos) {
@@ -292,6 +294,13 @@ export class Boat {
     this._w = {}; this._wv = {}; this._c = {}; this._fc = {}; this._sc = {};
     this.shadow = 1;
     this.slamEvents = 0;
+    // sail model: 'strip' (three strips per sail, L2), 'vlm' (vortex lattice on the rig-set shapes) or
+    // 'cloth' (cloth shaped by the wind and the rig, forces from a vortex lattice over it). lod 0/1/2 is the
+    // detail level the cloth/lattice model runs at (2 = strip model); see js/sail/sailsim.js
+    this.sailModel = opts.sailModel ?? 'strip';
+    this.lod = opts.lod ?? (this.sailModel === 'strip' ? 2 : 0);
+    this.sailSys = null;
+    if (this.sailModel !== 'strip' && sailHooks.make) this.sailSys = sailHooks.make(this, this.sailModel, this.lod);
     this.reset(opts.x ?? 0, opts.z ?? 0, opts.heading ?? 0);
   }
 
@@ -315,6 +324,7 @@ export class Boat {
     this.reefPos = 0; this.reefSlack = 0; this.reefing = false;
     this.log = 0; this.t = 0; this.slam = 0;
     this._clHead = 0; this._clMain = 0;
+    if (this.sailSys) this.sailSys.reset(this);
   }
 
   GZ(phi) {
@@ -371,6 +381,184 @@ export class Boat {
       }
       o.d = d; o.f = clamp(f, 0.25, 0.7); o.tw = tw;
     }
+  }
+
+  // A strip of sail lying in the water (knocked down / capsized) is a plate in water, not a wing: blend
+  // smoothly over the band where the cloth lies on the surface. A = strip area, h = its height above the
+  // local surface, (xce, zs) its centre in the rig. Adds the water loads to ax; returns the wet fraction.
+  sailWet(A, h, zs, xce, ax) {
+    const wet = sstep(0.45, -0.15, h);
+    if (wet > 0.01) {
+      const cphi = ax.cphi;
+      const vlat = this.v + this.r * xce + this.p * zs;                 // strip moving through the water
+      const Aw = A * wet;
+      const cq = 0.5 * RHO_W * 1.2 * Aw * Math.abs(vlat);                // linearised drag coefficient
+      const Fp = -Math.sign(this.p * zs) * RHO_W * G * 0.01 * Aw;       // water lying on the cloth
+      ax.Y += Fp * cphi; ax.N += xce * Fp * cphi;
+      ax.K += (Fp - cq * (this.v + this.r * xce)) * zs;
+      // dragging a whole sail sideways through water is stiff (a capsized cat: cq*dt/m > 2 blew the
+      // explicit step up to NaN); its sway/yaw part goes into the implicit solve after the step
+      const cw = cq * cphi; this._wD11 += cw; this._wD12 += cw * xce; this._wD22 += cw * xce * xce;
+      this._cRollWet += cq * zs * zs;                                     // roll part: integrated implicitly (stiff)
+      ax.X -= 0.5 * RHO_W * 0.08 * Aw * this.u * Math.abs(this.u);
+    }
+    return wet;
+  }
+
+  // Boom dynamics: a rotating body driven by the aero torque about its pivot, stopped by its sheet.
+  boomDynamics(s, boomTorque, dt, aeroOn = true) {
+    const key = s.key, ctrl = this.ctrl, d = this.diag;
+    const b = this.booms[key];
+    const limit = this.boomLimit(s);
+    const grav = s.boomMass * G * (s.foot * 0.45) * Math.sin(this.phi) * Math.cos(b.a);
+    const inert = -s.Iboom * (this._rdot || 0);
+    const damp = aeroOn ? 2.5 : 8;
+    // una-rig in irons: the sailor pushes the boom out against the wind to sail backwards and turn
+    const push = (ctrl.pushBoom && !this.sailBy.jib && key === 'main') ? (ctrl.pushBoom * 0.8 - b.a) * s.Iboom * 20 : 0;
+    const acc = (boomTorque + grav + inert + push - damp * b.rate) / s.Iboom;
+    b.rate += acc * dt; b.a += b.rate * dt;
+    let sheetLoad = 0;
+    if (Math.abs(b.a) >= limit) {
+      const sg = Math.sign(b.a);
+      b.a = sg * limit;
+      if (b.rate * sg > 0) {
+        const J = s.Iboom * b.rate * 1.2;
+        if (key === 'main') { this.slam = Math.max(this.slam, Math.abs(b.rate)); if (Math.abs(b.rate) > 1.2) this.slamEvents++; }
+        this.r -= J / this.Izz * 0.6;
+        b.rate *= -0.2;
+      }
+      // the sheet holds the aero torque, plus the leech tension it carries when hard in
+      sheetLoad = Math.abs(boomTorque + grav) / (s.foot * 0.85) * (1 + 1.6 * (1 - sstep(0, 0.35, this.lines[key] ?? 0.3)));
+    }
+    d.rig[key + 'Load'] = lerp(d.rig[key + 'Load'] || 0, sheetLoad, 0.1);
+    d.rig[key + 'Limit'] = limit;
+  }
+
+  // Where sail s sits and how it is set this step: the fraction of it hoisted (areaF), the chord angle at
+  // its foot (baseAngle, + = to starboard), its pivot/tack, side, how much it flogs and how full it is.
+  sailRig(s, reef, o) {
+    const C = this.cls, key = s.key, genDef = this.sailBy.gennaker;
+    let areaF = 1, baseAngle, pivotX, pivotZ, side, flogging = 0, fill = 1, luff = s.luff;
+    if (s.kind === 'boom') {
+      const b = this.booms[key];
+      baseAngle = b.a; side = Math.sign(b.a) || 1;
+      if (key === 'main') { pivotX = C.mastX; pivotZ = C.boomZ; areaF = reef.a; luff = s.luff * reef.l; }
+      else { pivotX = s.tackX; pivotZ = s.tackZ; }
+    } else if (s.kind === 'loose') {
+      areaF = genDef && genDef.replaces === key ? 1 - this.genDeploy : 1;
+      pivotX = s.tackX; pivotZ = s.tackZ;
+      baseAngle = this.side.jib * lerp(s.min, s.max, this.lines.jib); side = Math.sign(this.side.jib) || 1;
+      flogging = 1 - sstep(0.55, 0.95, Math.abs(this.side.jib));
+    } else {
+      areaF = this.genDeploy; pivotX = s.tackX; pivotZ = s.tackZ;
+      baseAngle = this.side.gennaker * lerp(s.min, s.max, this.lines.jib); side = Math.sign(this.side.gennaker) || 1;
+      flogging = 1 - sstep(0.5, 0.95, Math.abs(this.side.gennaker));
+      fill = this.genFill;
+    }
+    o.areaF = areaF; o.baseAngle = baseAngle; o.pivotX = pivotX; o.pivotZ = pivotZ; o.side = side;
+    o.flogging = flogging; o.fill = fill; o.luff = luff;
+    return o;
+  }
+
+  // Strip-theory sails (level L2): three strips per sail, shape from the rig, coefficients from the shape.
+  // ax carries the step's environment in and the sail forces and moments out.
+  sailsStrip(ax) {
+    const C = this.cls, ctrl = this.ctrl, d = this.diag;
+    const { env, dt, cphi, sphi, heaveH, waveH, Wbx, Wby, ug, vg, rhoA, awaMid, qMid, bend, sag, aeroOn } = ax;
+    const genDef = this.sailBy.gennaker;
+    let X = 0, Y = 0, K = 0, N = 0, sailX = 0, sailY = 0, sailK = 0;
+    const sc = this._sc;
+    let clHeadSum = 0, clMainMid = 0;
+    const reef = reefAt(this.reefPos);
+    for (const s of this.sails) {
+      const key = s.key;
+      const ds = d.strips[key], sh = d.shape[key];
+      const rg = this.sailRig(s, reef, this._rg || (this._rg = {}));
+      const { areaF, baseAngle, pivotX, pivotZ, side, fill, luff } = rg;
+      let flogging = rg.flogging;
+      ds.areaF = areaF; ds.baseAngle = baseAngle; ds.luff = luff;
+      this.shapeSail(s, qMid, bend, sag, sh);
+      let boomTorque = 0, Fsum = 0, genAlphaMid = 0;
+      if (areaF < 0.02 || !aeroOn) {
+        for (let i = 0; i < 3; i++) { const st = ds[i]; st.state = 0; st.cl = 0; st.flog = areaF < 0.02 ? 0 : 1; sh[i].ang = baseAngle + side * sh[i].tw; }
+      } else for (let i = 0; i < 3; i++) {
+        const f = STRIP_F[i], o = ds[i], shp = sh[i];
+        const chord = s.foot * (1 - f) + s.head * f;
+        const zs = pivotZ + f * luff + (s.footRise || 0) * 0.4 * (1 - f);
+        const lim = Math.max(Math.abs(baseAngle), 90 * DEG);  // the leech never twists past square
+        const ang = clamp(baseAngle + side * shp.tw, -lim, lim);
+        shp.ang = ang;
+        const ca = Math.cos(ang), sa = Math.sin(ang);
+        const xce = pivotX - (s.rake || 0) * f - 0.4 * chord * ca;
+        const yce = 0.4 * chord * sa;
+        // is this strip of sail in the water (knocked down / capsized)? a wet strip is a plate in water,
+        // not a wing: blend smoothly over the band where the cloth lies on the surface
+        const hStrip = zs * cphi - yce * sphi + heaveH - waveH;
+        const wet = this.sailWet(s.area * STRIP_W[i] * areaF, hStrip, zs, xce, ax);
+        o.inWater = wet > 0.5;
+        if (wet > 0.99) { o.state = 0; o.cl = 0; o.flog = 0; continue; }
+        const prof = env.wind.profile(zs * cphi - yce * sphi + 0.4 + heaveH);
+        let axs = Wbx * prof - ug + this.r * yce;
+        let ays = Wby * prof - vg - this.r * xce - this.p * zs;
+        if (s.kind === 'boom') {
+          const rb = 0.4 * chord, br = this.booms[key].rate;
+          axs -= br * rb * sa; ays -= br * rb * ca;
+        }
+        const an = ays * cphi;
+        const V2 = axs * axs + an * an;
+        const V = Math.sqrt(V2) + 1e-9;
+        const dx = axs / V, dn = an / V;
+        const cx = -ca, cn = sa;
+        const cross = cx * dn - cn * dx, dot = cx * dx + cn * dn;
+        let alpha = Math.atan2(cross, dot);
+        // slot: headsail downwash on the main, main upwash on the headsail
+        const sgn = Math.sign(alpha) || 1;
+        if (key === 'main') alpha -= sgn * 0.055 * this._clHead;
+        else alpha += sgn * 0.03 * this._clMain;
+        let a = Math.abs(alpha), rev = 1;
+        if (a > Math.PI / 2) { a = Math.PI - a; rev = -1; }
+        shapeCoef(a, shp.d, shp.f, s, sc);
+        let cl = sc.cl, cd = sc.cd;
+        if (s.kind === 'spin') {
+          // an eased tack line lets the luff rotate to windward and hold shape at lower angles of attack
+          const alf = sc.alf * (1 - 0.3 * ctrl.tackLine);
+          if (a < alf) cl *= (a / alf) ** 2;
+          cl *= fill; cd = lerp(0.35, cd, fill);
+          if (i === 1) genAlphaMid = a;
+        }
+        if (key === 'main' && this.reefSlack > 0) flogging = Math.max(flogging, 0.75 * this.reefSlack);
+        if (flogging > 0) { cl *= 1 - flogging; cd += 0.15 * flogging; }
+        let lx = -(cx - dot * dx) * rev, ln = -(cn - dot * dn) * rev;
+        const lm = Math.hypot(lx, ln) + 1e-9; lx /= lm; ln /= lm;
+        const blanket = key === 'main' ? 1 : 1 - 0.65 * sstep(140 * DEG, 178 * DEG, Math.abs(awaMid));
+        const q = 0.5 * rhoA * V2 * s.area * STRIP_W[i] * areaF * blanket * (1 - wet);
+        const Fx = q * (cl * lx + cd * dx), Fn = q * (cl * ln + cd * dn);
+        const Fy = Fn * cphi;
+        sailX += Fx; sailY += Fy; sailK += Fn * zs;
+        N += xce * Fy - (yce * cphi + zs * sphi) * Fx;
+        Fsum += Math.hypot(Fx, Fn);
+        if (s.kind === 'boom') boomTorque += 0.4 * chord * (Fx * sa + Fn * ca);
+        o.alpha = alpha; o.cl = cl; o.cd = cd; o.V = V; o.alf = sc.alf; o.ast = sc.ast;
+        o.state = flogging > 0.5 ? 1 : (s.kind === 'spin' && fill < 0.6 ? 1 : sc.state);
+        o.flog = Math.max(sc.flog, flogging, s.kind === 'spin' ? 1 - fill : 0);
+        if (i === 1) {
+          if (key === 'main') clMainMid = cl;
+          else clHeadSum = Math.max(clHeadSum, cl * areaF);
+        }
+      }
+      ds.F = Fsum;
+      if (s.kind === 'spin') {
+        const target = genAlphaMid > sc.alf * 0.75 * (1 - 0.3 * ctrl.tackLine) && Math.abs(this.side.gennaker) > 0.8 ? 1 : 0;
+        this.genFill = clamp(this.genFill + (target ? 1.4 : -2.6) * dt, 0, 1);
+      }
+      if (s.kind === 'boom') this.boomDynamics(s, boomTorque, dt, aeroOn);
+      else if (s.kind === 'loose' || (s.kind === 'spin' && this.genDeploy > 0.5)) {
+        d.rig.jibLoad = lerp(d.rig.jibLoad || 0, Fsum * 0.95 * areaF, 0.1);
+      }
+    }
+    this._clHead = lerp(this._clHead, clHeadSum, 0.2);
+    this._clMain = lerp(this._clMain, clMainMid, 0.2);
+    ax.X += X; ax.Y += Y; ax.K += K; ax.N += N; ax.sailX += sailX; ax.sailY += sailY; ax.sailK += sailK;
   }
 
   // one integration step. world (optional) supplies water depth for grounding.
@@ -462,6 +650,7 @@ export class Boat {
     // the jib). When the clew crosses, the sheets swap roles — nothing is transferred by magic.
     const flipRate = 0.9 * clamp(Math.sqrt(qMid) / 2.5, 0.25, 1.6);
     for (const k of ['jib', 'gennaker']) {
+      if (this.sailSys && this.sailSys.owns && this.sailSys.owns(k)) continue;   // a cloth headsail finds its own side
       const cs = this.side[k], cur = Math.sign(cs) || 1;
       let want = -Math.sign(awaMid) || cs;
       if (k === 'jib') {
@@ -504,149 +693,15 @@ export class Boat {
     }
 
     // ---- sails ----
-    const sc = this._sc;
-    let clHeadSum = 0, clMainMid = 0;
-    const reef = reefAt(this.reefPos);
-    for (const s of this.sails) {
-      const key = s.key;
-      const ds = d.strips[key], sh = d.shape[key];
-      let areaF = 1, baseAngle, pivotX, pivotZ, side, flogging = 0, fill = 1, luff = s.luff;
-      if (s.kind === 'boom') {
-        const b = this.booms[key];
-        baseAngle = b.a; side = Math.sign(b.a) || 1;
-        if (key === 'main') { pivotX = C.mastX; pivotZ = C.boomZ; areaF = reef.a; luff = s.luff * reef.l; }
-        else { pivotX = s.tackX; pivotZ = s.tackZ; }
-      } else if (s.kind === 'loose') {
-        areaF = genDef && genDef.replaces === key ? 1 - this.genDeploy : 1;
-        pivotX = s.tackX; pivotZ = s.tackZ;
-        baseAngle = this.side.jib * lerp(s.min, s.max, this.lines.jib); side = Math.sign(this.side.jib) || 1;
-        flogging = 1 - sstep(0.55, 0.95, Math.abs(this.side.jib));
-      } else {
-        areaF = this.genDeploy; pivotX = s.tackX; pivotZ = s.tackZ;
-        baseAngle = this.side.gennaker * lerp(s.min, s.max, this.lines.jib); side = Math.sign(this.side.gennaker) || 1;
-        flogging = 1 - sstep(0.5, 0.95, Math.abs(this.side.gennaker));
-        fill = this.genFill;
-      }
-      ds.areaF = areaF; ds.baseAngle = baseAngle; ds.luff = luff;
-      this.shapeSail(s, qMid, bend, sag, sh);
-      let boomTorque = 0, Fsum = 0, genAlphaMid = 0;
-      if (areaF < 0.02 || !aeroOn) {
-        for (let i = 0; i < 3; i++) { const st = ds[i]; st.state = 0; st.cl = 0; st.flog = areaF < 0.02 ? 0 : 1; sh[i].ang = baseAngle + side * sh[i].tw; }
-      } else for (let i = 0; i < 3; i++) {
-        const f = STRIP_F[i], o = ds[i], shp = sh[i];
-        const chord = s.foot * (1 - f) + s.head * f;
-        const zs = pivotZ + f * luff + (s.footRise || 0) * 0.4 * (1 - f);
-        const lim = Math.max(Math.abs(baseAngle), 90 * DEG);  // the leech never twists past square
-        const ang = clamp(baseAngle + side * shp.tw, -lim, lim);
-        shp.ang = ang;
-        const ca = Math.cos(ang), sa = Math.sin(ang);
-        const xce = pivotX - (s.rake || 0) * f - 0.4 * chord * ca;
-        const yce = 0.4 * chord * sa;
-        // is this strip of sail in the water (knocked down / capsized)? a wet strip is a plate in water,
-        // not a wing: blend smoothly over the band where the cloth lies on the surface
-        const hStrip = zs * cphi - yce * sphi + heaveH - waveH;
-        const wet = sstep(0.45, -0.15, hStrip);
-        if (wet > 0.01) {
-          const vlat = this.v + this.r * xce + this.p * zs;                 // strip moving through the water
-          const Aw = s.area * STRIP_W[i] * areaF * wet;
-          const cq = 0.5 * RHO_W * 1.2 * Aw * Math.abs(vlat);                // linearised drag coefficient
-          const Fp = -Math.sign(this.p * zs) * RHO_W * G * 0.01 * Aw;       // water lying on the cloth
-          Y += Fp * cphi; N += xce * Fp * cphi;
-          K += (Fp - cq * (this.v + this.r * xce)) * zs;
-          // dragging a whole sail sideways through water is stiff (a capsized cat: cq*dt/m > 2 blew the
-          // explicit step up to NaN); its sway/yaw part goes into the implicit solve after the step
-          const cw = cq * cphi; this._wD11 += cw; this._wD12 += cw * xce; this._wD22 += cw * xce * xce;
-          this._cRollWet += cq * zs * zs;                                     // roll part: integrated implicitly (stiff)
-          X -= 0.5 * RHO_W * 0.08 * Aw * this.u * Math.abs(this.u);
-        }
-        o.inWater = wet > 0.5;
-        if (wet > 0.99) { o.state = 0; o.cl = 0; o.flog = 0; continue; }
-        const prof = env.wind.profile(zs * cphi - yce * sphi + 0.4 + heaveH);
-        let axs = Wbx * prof - ug + this.r * yce;
-        let ays = Wby * prof - vg - this.r * xce - this.p * zs;
-        if (s.kind === 'boom') {
-          const rb = 0.4 * chord, br = this.booms[key].rate;
-          axs -= br * rb * sa; ays -= br * rb * ca;
-        }
-        const an = ays * cphi;
-        const V2 = axs * axs + an * an;
-        const V = Math.sqrt(V2) + 1e-9;
-        const dx = axs / V, dn = an / V;
-        const cx = -ca, cn = sa;
-        const cross = cx * dn - cn * dx, dot = cx * dx + cn * dn;
-        let alpha = Math.atan2(cross, dot);
-        // slot: headsail downwash on the main, main upwash on the headsail
-        const sgn = Math.sign(alpha) || 1;
-        if (key === 'main') alpha -= sgn * 0.055 * this._clHead;
-        else alpha += sgn * 0.03 * this._clMain;
-        let a = Math.abs(alpha), rev = 1;
-        if (a > Math.PI / 2) { a = Math.PI - a; rev = -1; }
-        shapeCoef(a, shp.d, shp.f, s, sc);
-        let cl = sc.cl, cd = sc.cd;
-        if (s.kind === 'spin') {
-          // an eased tack line lets the luff rotate to windward and hold shape at lower angles of attack
-          const alf = sc.alf * (1 - 0.3 * ctrl.tackLine);
-          if (a < alf) cl *= (a / alf) ** 2;
-          cl *= fill; cd = lerp(0.35, cd, fill);
-          if (i === 1) genAlphaMid = a;
-        }
-        if (key === 'main' && this.reefSlack > 0) flogging = Math.max(flogging, 0.75 * this.reefSlack);
-        if (flogging > 0) { cl *= 1 - flogging; cd += 0.15 * flogging; }
-        let lx = -(cx - dot * dx) * rev, ln = -(cn - dot * dn) * rev;
-        const lm = Math.hypot(lx, ln) + 1e-9; lx /= lm; ln /= lm;
-        const blanket = key === 'main' ? 1 : 1 - 0.65 * sstep(140 * DEG, 178 * DEG, Math.abs(awaMid));
-        const q = 0.5 * rhoA * V2 * s.area * STRIP_W[i] * areaF * blanket * (1 - wet);
-        const Fx = q * (cl * lx + cd * dx), Fn = q * (cl * ln + cd * dn);
-        const Fy = Fn * cphi;
-        sailX += Fx; sailY += Fy; sailK += Fn * zs;
-        N += xce * Fy - (yce * cphi + zs * sphi) * Fx;
-        Fsum += Math.hypot(Fx, Fn);
-        if (s.kind === 'boom') boomTorque += 0.4 * chord * (Fx * sa + Fn * ca);
-        o.alpha = alpha; o.cl = cl; o.cd = cd; o.V = V; o.alf = sc.alf; o.ast = sc.ast;
-        o.state = flogging > 0.5 ? 1 : (s.kind === 'spin' && fill < 0.6 ? 1 : sc.state);
-        o.flog = Math.max(sc.flog, flogging, s.kind === 'spin' ? 1 - fill : 0);
-        if (i === 1) {
-          if (key === 'main') clMainMid = cl;
-          else clHeadSum = Math.max(clHeadSum, cl * areaF);
-        }
-      }
-      ds.F = Fsum;
-      if (s.kind === 'spin') {
-        const target = genAlphaMid > sc.alf * 0.75 * (1 - 0.3 * ctrl.tackLine) && Math.abs(this.side.gennaker) > 0.8 ? 1 : 0;
-        this.genFill = clamp(this.genFill + (target ? 1.4 : -2.6) * dt, 0, 1);
-      }
-      // ---- boom dynamics: a rotating body stopped by its sheet ----
-      if (s.kind === 'boom') {
-        const b = this.booms[key];
-        const limit = this.boomLimit(s);
-        const grav = s.boomMass * G * (s.foot * 0.45) * Math.sin(this.phi) * Math.cos(b.a);
-        const inert = -s.Iboom * (this._rdot || 0);
-        const damp = aeroOn ? 2.5 : 8;
-        // una-rig in irons: the sailor pushes the boom out against the wind to sail backwards and turn
-        const push = (ctrl.pushBoom && !this.sailBy.jib && key === 'main') ? (ctrl.pushBoom * 0.8 - b.a) * s.Iboom * 20 : 0;
-        const acc = (boomTorque + grav + inert + push - damp * b.rate) / s.Iboom;
-        b.rate += acc * dt; b.a += b.rate * dt;
-        let sheetLoad = 0;
-        if (Math.abs(b.a) >= limit) {
-          const sg = Math.sign(b.a);
-          b.a = sg * limit;
-          if (b.rate * sg > 0) {
-            const J = s.Iboom * b.rate * 1.2;
-            if (key === 'main') { this.slam = Math.max(this.slam, Math.abs(b.rate)); if (Math.abs(b.rate) > 1.2) this.slamEvents++; }
-            this.r -= J / this.Izz * 0.6;
-            b.rate *= -0.2;
-          }
-          // the sheet holds the aero torque, plus the leech tension it carries when hard in
-          sheetLoad = Math.abs(boomTorque + grav) / (s.foot * 0.85) * (1 + 1.6 * (1 - sstep(0, 0.35, this.lines[key] ?? 0.3)));
-        }
-        d.rig[key + 'Load'] = lerp(d.rig[key + 'Load'] || 0, sheetLoad, 0.1);
-        d.rig[key + 'Limit'] = limit;
-      } else if (s.kind === 'loose' || (s.kind === 'spin' && this.genDeploy > 0.5)) {
-        d.rig.jibLoad = lerp(d.rig.jibLoad || 0, Fsum * 0.95 * areaF, 0.1);
-      }
-    }
-    this._clHead = lerp(this._clHead, clHeadSum, 0.2);
-    this._clMain = lerp(this._clMain, clMainMid, 0.2);
+    const ax = this._ax || (this._ax = {});
+    ax.env = env; ax.dt = dt; ax.cphi = cphi; ax.sphi = sphi; ax.heaveH = heaveH; ax.waveH = waveH;
+    ax.Wbx = Wbx; ax.Wby = Wby; ax.ug = ug; ax.vg = vg; ax.rhoA = rhoA; ax.awaMid = awaMid; ax.qMid = qMid;
+    ax.bend = bend; ax.sag = sag; ax.aeroOn = aeroOn;
+    ax.X = 0; ax.Y = 0; ax.K = 0; ax.N = 0; ax.sailX = 0; ax.sailY = 0; ax.sailK = 0;
+    if (this.sailSys && this.sailSys.active(this)) this.sailSys.step(this, ax);
+    else this.sailsStrip(ax);
+    X += ax.X; Y += ax.Y; K += ax.K; N += ax.N;
+    sailX = ax.sailX; sailY = ax.sailY; sailK = ax.sailK;
     d.Nsail = N;
     X += sailX; Y += sailY; K += sailK;
     this._sailKf = lerp(this._sailKf || 0, sailK, clamp(dt * 4, 0, 1));
@@ -954,11 +1009,33 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
     if (s.kind === 'spin' && boat.genDeploy < 0.5) continue;
     if (s.kind === 'loose' && boat.genDeploy >= 0.5) continue;
     const midTw = sh[s.key] ? sh[s.key][1].tw : 0;
+    // the crew trims to the telltales, i.e. to the angle the sail actually meets: the lattice models report
+    // how far the flow at the sail is turned from the apparent wind (downwash, the other sail's up/downwash)
+    // as aInd; the strip model only knows the headsail's downwash on the main
+    const aInd = d.strips[s.key] ? d.strips[s.key].aInd : undefined;
     let aT;
-    if (s.key === 'main') aT = (15 + aoaBias) * DEG - over * 7 * DEG + 0.055 * boat._clHead;
-    else if (s.kind === 'spin') aT = (21 + aoaBias) * DEG;
-    else aT = (13 + aoaBias) * DEG - over * 3 * DEG;
+    if (s.key === 'main') aT = (15 + aoaBias) * DEG - over * 7 * DEG + (aInd ?? 0.055 * boat._clHead);
+    else if (s.kind === 'spin') aT = (21 + aoaBias) * DEG + (aInd ?? 0);
+    else aT = (13 + aoaBias) * DEG - over * 3 * DEG + (aInd ?? 0);
     const want = awa - aT - midTw;
+    // A cloth sail goes where the wind and its sheet put it, not where the sheet's length says, and the lattice
+    // gives each strip the angle it really meets: the crew trims by the telltales, easing while the sail
+    // meets the wind at more than the angle it wants, hauling in while less (attached strips only: a stalled
+    // strip's angle says nothing about the trim)
+    const owned = boat.sailSys && boat.sailSys.owns && boat.sailSys.owns(s.key);
+    if (owned && !(s.kind === 'loose' && (letFly || boat.backedByLazy))) {
+      const key = s.kind === 'boom' ? s.key : 'jib', st = d.strips[s.key];
+      const aim = aT - (aInd ?? 0);
+      // (the lattice's angles are signed across the boat: to leeward positive, a backed or luffing strip negative)
+      const sd = Math.sign(st.baseAngle || (s.kind === 'boom' ? boat.booms[s.key].a : boat.side.jib)) || 1;
+      let a = 0; for (let i = 0; i < 3; i++) a += clamp((st[i].alpha || 0) * sd, -0.3, 0.6) * [0.43, 0.34, 0.23][i];
+      if (s.key === 'main' && s.trav) {
+        const sheetEase = clamp(0.06 + 0.25 * flat * upwind + (1 - upwind) * 0.3, 0, 1);
+        c.trav = lerp(c.trav, clamp((want - sheetEase * (s.max - s.trav[1]) - s.trav[0]) / (s.trav[1] - s.trav[0]), 0, 1), k * 2);
+      }
+      c[key] = clamp((c[key] ?? 0.3) + clamp(a - aim, -0.3, 0.3) / (s.max - s.min) * k * 0.4, pinched && s.key === 'main' ? 0.35 : 0, 1);
+      continue;
+    }
     if (s.key === 'main' && s.trav) {
       // traveler carries the angle upwind, sheet sets leech tension (twist); off the wind, traveler down
       const sheetEase = clamp(0.06 + 0.25 * flat * upwind + (1 - upwind) * 0.3, 0, 1);
@@ -989,13 +1066,13 @@ export function makeSteadyEnv(twsMS) {
   };
 }
 
-export function solvePolarAngle(C, twsMS, twaDeg) {
+export function solvePolarAngle(C, twsMS, twaDeg, opts = {}) {
   const env = makeSteadyEnv(twsMS);
   const dt = 1 / 50;
   let best = { twa: twaDeg, bsp: 0, vmg: 0 };
   const genOpts = C.sails.some(s => s.kind === 'spin') && twaDeg >= 85 ? [false, true] : [false];
   for (const gen of genOpts) for (const bias of [-4, 0, 4]) {
-    const b = new Boat(C);
+    const b = new Boat(C, opts);
     b.reset(0, 0, twaDeg * DEG);
     b.u = 1.5; for (const k in b.booms) b.booms[k].a = 0.3; b.side.jib = 1; b.side.gennaker = 1;
     b.ctrl.gen = gen; b.genDeploy = gen ? 1 : 0; b.genFill = gen ? 1 : 0;
@@ -1015,9 +1092,9 @@ export function solvePolarAngle(C, twsMS, twaDeg) {
 }
 
 export const POLAR_TWAS = [32, 36, 40, 44, 48, 55, 65, 75, 90, 105, 120, 135, 150, 165, 180];
-export function solvePolar(cls, twsMS, angles = POLAR_TWAS) {
+export function solvePolar(cls, twsMS, angles = POLAR_TWAS, opts = {}) {
   const C = typeof cls === 'string' ? CLASSES[cls] : cls;
-  return angles.map(a => solvePolarAngle(C, twsMS, a));
+  return angles.map(a => solvePolarAngle(C, twsMS, a, opts));
 }
 
 export function vmgTargets(polar) {

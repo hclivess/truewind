@@ -85,6 +85,15 @@ Each sail is split into three horizontal strips. For each strip, per step:
 
 Each strip's force is applied at its own centre of effort, so heel moment, weather helm (the drive's lever arm grows as the rig heels) and yaw all come out of the geometry rather than being tuned in.
 
+### Sails as cloth over a vortex lattice (opt-in: `?sails=cloth`)
+Add `?sails=cloth` to the address to sail the player's boat with sails that are simulated cloth, loaded by a vortex-lattice model of the air over their live shape (`?sails=vlm` keeps the rig-set shapes above and puts only the lattice under them). The AI boats, the online boats and the velocity prediction still use the strip model.
+
+- **Cloth** (`js/sail/cloth.js`). Each sail is a membrane cut to its sailmaker's moulded shape, with separate stiffness along the warp, along the fill and on the bias (cross-cut Dacron on the Blackwatch and the dinghy, tri-radial laminate on the sportboat and the cat, light nylon for the gennakers). It carries no compression: it wrinkles instead. It is integrated with projective dynamics (implicit, four substeps per step), which is stable for stiff sailcloth and gives the static stretch exactly (`node test/cloth.mjs`). The air a sail carries with it is part of its mass.
+- **Rig** (`js/sail/rigsim.js`). The luff is held on the mast or on the stay, and the stay sags to leeward with load and less backstay. The boom is a body on its gooseneck held by ropes: the mainsheet to the traveller car, the vang and a topping lift. The outhaul moves the clew along the boom, the cunningham tensions the luff, and mast bend moves the luff forward against the luff round cut into the sail. Headsails are held by two sheets to the jib cars, and the car's position decides whether the sheet pulls along the foot or down the leech. Twist, boom lift, a hooked or open leech, a backed jib and the clew crossing in a tack all come out of that. A reef makes the sail smaller.
+- **Air** (`js/sail/vlm.js`). All the sails form one vortex lattice with a frozen wake, and the water surface acts as a mirror. The headsail's downwash on the main, the slot and a backed jib pushing on the main therefore come from the flow itself. The sail's own motion is part of the boundary condition, which gives the aerodynamic damping. A viscous correction pulls each strip's lift onto a 2-D section polar at its effective angle of attack (decambering). Strips past the stall, or with the wind coming over the leech, take the polar's separated-flow force. Separated strips cast a wake of slow air on the sails behind them. A strip that carries almost no lift gets a travelling pressure wave, so a luffing sail flogs. The lattice's lift acts on the cloth normal to it, and its leading-edge suction acts on the mast or stay.
+- **Coupling.** The rig hands the hull what it actually carries: the air's load on every particle, minus the inertia of its motion relative to the hull. A boom snatched up short by its sheet therefore hands its momentum to the hull.
+- **Cost and levels.** On load, a short benchmark picks the level: L0, the full lattice (0.3–1.1 ms per step on one server core, against 0.07–0.15 ms for the strip model; `node test/bench.mjs`), L1, a coarser lattice and cloth, or the strip model. A governor steps the level down when the physics takes more than 6 ms of a frame. Time warp beyond ×2 uses the strip model.
+
 ### Rig dynamics
 - **Booms** (main, and the Blackwatch's self-tacking staysail) are rotating bodies. They are driven by aerodynamic torque and gravity at heel, and stopped by the sheet. Gybes, crash-gybes, backwinding and the death roll all emerge from that, including the angular momentum the boom hands to the hull when it slams.
 - **Loose headsails** have two sheets. The working sheet holds the clew until it is let fly (`F`). The lazy sheet, ground in on the windward winch (`J`), hauls the clew across and backs the jib (to heave to or get out of irons). When the clew crosses, the sheets swap roles. Automatic trim releases and re-tails the sheets in a tack. Every winch works: two-speed cranking (clockwise fast, anticlockwise powerful), and the handle moves to the winch you use. On the Blackwatch and the sportboat, a cabin-top winch takes any control led aft through the clutches. Each handle turn hauls a fixed length of line (about 19 cm in the fast gear, a third of that in the slow gear), and heavy loads stall the fast gear. Every line sits in a cam cleat, clutch or self-tailer. Released, a loaded line runs out by itself until you cleat it again.
@@ -118,6 +127,15 @@ Polars from `node test/vpp.mjs` in 12 kn of true wind (boat speed in knots, `g` 
 | Dinghy | 36°, 4.4, 3.6 | 6.2 | 5.7 | 4.7 | 4.4 at 165° |
 | Beach cat | 55°, 9.6, 5.5 | 13.3 g | 15.2 g | 7.6 g | 7.7 at 135° |
 
+The cloth sails (`?sails=cloth`) are not yet calibrated to these numbers. The table below compares the same automatic crew at 120 Hz in 12 kn of true wind (best of three trim offsets, boat speed in knots). This is why the strip model remains the default:
+
+| Boat | Upwind VMG, cloth / strip | 90° | 120° | 150° | Best downwind VMG |
+|---|---|---|---|---|---|
+| Blackwatch | 2.76 / 3.13 | 4.65 / 5.18 | 4.49 / 4.96 | 3.70 / 4.39 | 3.58 / 3.91 |
+| Sportboat | 4.27 / 4.66 | 8.26 / 8.60 g | 7.61 / 10.15 g | 6.40 / 7.02 g | 5.64 / 6.26 |
+| Dinghy | 3.38 / 3.54 | 6.43 / 6.19 | 5.73 / 5.74 | 4.57 / 4.68 | 4.32 / 4.39 |
+| Beach cat | 4.51 / 5.45 | 13.22 / 13.35 g | 9.21 / 15.07 g | 6.07 / 7.64 g | 5.50 / 7.53 |
+
 In 20 kn the sportboat planes at 16.4 kn at 120° under gennaker, and the cat reaches at 18.5–20 kn. The Blackwatch sails upwind with 6° of leeway (a long keel) and cannot pass its 5.6 kn hull speed. The cat's numbers are those of a 16 ft two-up beach cat such as a Hobie 16: about 5.5 kn VMG upwind and 13–15 kn reaching in 12 kn of wind. It used to show 11.2 kn upwind and 17.5 kn on a beam reach, because its residuary resistance was half the tank value and its slender hulls were treated as if they planed.
 
 Helm balance (`node test/helm.mjs`) is the rudder angle that holds a steady course. With the Munk moment included, the keelboats are neutral upwind in 12 kn and carry 2–3° of weather helm in 20 kn, which is what designers aim for. Without it they had 3–5° of lee helm.
@@ -126,6 +144,7 @@ Helm balance (`node test/helm.mjs`) is the rudder angle that holds a steady cour
 
 These are the honest limits:
 
+- **The cloth sails are a first version.** Under `?sails=cloth`, the sections still take their viscous lift and drag from the same empirical fitted polars. The lattice is potential flow, which is weakest in separated downwind flow, and flogging is forced rather than solved. The cunningham barely moves the draft, the jib car does not flatten the foot reliably, and the gennaker bags too deep. The resulting polars fall short of the strip model's, which is why the cloth model is not the default (see below).
 - **Sail sections are empirical.** The coefficient curves are fitted functions of depth and draft, not a panel method or CFD. The three strips per sail capture twist and the wind gradient, not the full 3-D flow.
 - **Depth is estimated.** It comes from distance to shore and the venue's typical depth, because OSM carries no bathymetry.
 - **The hull model is simplified.** Heave and pitch follow the waves as a response model, not a full 6-DOF seakeeping solution. Slamming and green water are not modelled.
@@ -176,6 +195,7 @@ Development tools:
 
 - `node test/vpp.mjs [class]` prints polars.
 - `node test/race.mjs solent sportboat 6 25` runs a headless AI race on a real map.
+- `node test/vlm.mjs`, `node test/cloth.mjs` and `node test/sailshape.mjs [class]` check the vortex lattice, the sailcloth and the cloth sails' shapes. `node test/bench.mjs [class]` times one physics step per sail model.
 - `node tools/fetch-venues.mjs [id…]` re-bakes venues from OpenStreetMap.
 
 ## Credits and licences

@@ -452,11 +452,14 @@ export class Rigging {
 
   // points on a boom (physics: distance s aft of the pivot, dz below)
   boomPt(key, s, dz = -0.07) {
-    const piv = this.vis.booms[key].position, a = this.b.booms[key].a;
-    return new THREE.Vector3(piv.x + Math.sin(a) * s, piv.y + dz, piv.z + Math.cos(a) * s);
+    const piv = this.vis.booms[key].position, a = this.b.booms[key].a, e = this.b.booms[key].elev || 0, h = s * Math.cos(e);
+    return new THREE.Vector3(piv.x + Math.sin(a) * h, piv.y + dz + s * Math.sin(e), piv.z + Math.cos(a) * h);
   }
   clew(key) {
     const b = this.b, s = b.sailBy[key], sh = b.diag.shape[key], st = b.diag.strips[key];
+    // a cloth headsail: its clew node
+    const rig = b.sailSys && b.sailSys.active(b) && b.sailSys.cloth(key);
+    if (rig && rig.clew !== undefined) { const x = rig.cloth.x, k = 3 * rig.clew; return V(x[k], x[k + 1], x[k + 2]); }
     const a = st.baseAngle ?? 0;
     const tx = s.tackX + (key === 'gennaker' && this.b.cls.bowsprit ? 0 : 0);
     const foot = s.foot * (key === 'gennaker' ? 0.95 : 1);
