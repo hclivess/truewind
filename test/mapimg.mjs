@@ -1,8 +1,14 @@
 // Render a venue's land/water/depth grid to a PGM image for checking
 import { VENUES, World } from '../js/world.js';
 import { readFileSync, writeFileSync } from 'node:fs';
-const id = process.argv[2];
+import { tmpdir } from 'node:os';
+// usage: node test/mapimg.mjs [venue] [out.pgm]   (venue defaults to progreso)
+const id = process.argv[2] || 'progreso';
 const v = VENUES.find(v => v.id === id);
+if (!v || v.open) {
+  console.error(`usage: node test/mapimg.mjs [venue] [out.pgm]\nvenues: ${VENUES.filter(v => !v.open).map(v => v.id).join(' ')}`);
+  process.exit(1);
+}
 const geo = JSON.parse(readFileSync(`data/venues/${id}.json`));
 const t0 = Date.now();
 const w = new World(v, geo);
@@ -17,4 +23,6 @@ for (const p of geo.piers || []) for (let k = 0; k < p.pts.length; k += 2) {
   const i = Math.floor((p.pts[k] + w.R) / (2 * w.R) * S), j = Math.floor((p.pts[k + 1] + w.R) / (2 * w.R) * S);
   if (i >= 0 && j >= 0 && i < S && j < S) img[j * S + i] = 0;
 }
-writeFileSync(`/tmp/claude-0/-root-sail/61a25932-8e81-418d-b989-ba3e621c50da/scratchpad/${id}.pgm`, Buffer.concat([Buffer.from(`P5 ${S} ${S} 255\n`), img]));
+const out = process.argv[3] || `${tmpdir()}/${id}.pgm`;
+writeFileSync(out, Buffer.concat([Buffer.from(`P5 ${S} ${S} 255\n`), img]));
+console.log('wrote', out);

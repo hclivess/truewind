@@ -16,6 +16,9 @@ const $ = (s) => document.querySelector(s);
 const PHYS_DT = 1 / 120;
 const GRAB_PX = 30;
 const C_RIGHT = (b) => (b.cls.multihull ? 8 : 4); // grab radius on screen, also the size of the marker rings
+// the touch pad's third line (in order of use), with the labels for its two buttons (d = -1, +1)
+const TOUCH_LINES = { stay: ['Stay', 'Trim', 'Ease', 'Staysail sheet'], trav: ['Trav', 'Up', 'Down', 'Traveler'], hike: ['Hike', 'In', 'Out', 'Crew weight'],
+  vang: ['Vang', '−', '+', 'Vang'], tackLine: ['Tack', 'Down', 'Ease', 'Gennaker tack line'], backstay: ['Bstay', '−', '+', 'Backstay'], board: ['Board', 'Up', 'Down', 'Daggerboard'], pushBoom: ['Boom', 'Port', 'Stbd', 'Push the boom out'] };
 const NAMES = ['Tern', 'Petrel', 'Skua', 'Gannet', 'Fulmar', 'Shearwater', 'Kittiwake', 'Albatross', 'Puffin', 'Cormorant'];
 
 // reefs the crew ties in at the dock for this much wind (the same rule the AI crews use)
@@ -362,9 +365,10 @@ class Game {
       this.renderer.setMarks([], null);
       if (idle) { player.auto.trim = true; }
     }
-    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (cls.id === 'blackwatch' ? '79' : '7') : String(100 + b.id * 7), hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9], crewTint: b.id });
+    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (cls.id === 'blackwatch' ? '79' : '7') : String(100 + b.id * 7), hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9] });
     this.hud.buildRig(player);
     document.body.classList.toggle('no-jib', !player.sailBy.jib);
+    this.buildTouch(player);
     this.renderer.cam.mode = idle ? 'orbit' : 'chase';
     this.renderer.cam.yaw = idle ? 0 : 200 * DEG; this.renderer.cam.pitch = 14 * DEG; this.renderer.cam.dist = idle ? 26 : cls.id === 'dinghy' ? 8 : 12;
     this.t = 0; this.acc = 0; this.timeWarp = 1;
@@ -413,6 +417,10 @@ class Game {
       fetchKm, swellH: cond.swell, swellT: 5 + 3.2 * Math.sqrt(Math.max(0.1, cond.swell)),   // longer swell for bigger swell
       currentKt: cond.current, currentDir: cond.currentDir,
       hemi: v && !v.open && v.lat < 0 ? -1 : 1,     // puffs and squalls veer north of the equator, back south of it
+      // sea/lake and land breezes by the real sun at the venue. clock0 = UTC ms at t = 0: online it is the
+      // room's shared epoch (every peer's clock is epoch + t), offline the chosen time of day
+      thermal: world.open || !v ? null : { lat: v.lat, lon: v.lon, land: world,
+        clock0: this.settings.mode === 'online' && cond.epoch ? cond.epoch * 1000 : this.clockFor() },
     });
     // sheltering by land slows the wind near a weather shore
     const base = env.wind.sample.bind(env.wind);
@@ -439,7 +447,7 @@ class Game {
   addRemoteBoat(b) {
     this.boats.push(b);
     const idx = this.boats.length;
-    this.renderer.addBoat(b, { number: String(200 + (idx * 37) % 700), hullColor: [0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc][idx % 7], crewTint: idx, label: b.name });
+    this.renderer.addBoat(b, { number: String(200 + (idx * 37) % 700), hullColor: [0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc][idx % 7], label: b.name });
   }
   removeRemoteBoat(b) {
     this.boats = this.boats.filter(x => x !== b);
@@ -575,6 +583,25 @@ class Game {
   toggleGen() {
     const b = this.player; if (!b.sailBy.gennaker) return;
     b.ctrl.gen = !b.ctrl.gen; this.hud.toast(b.ctrl.gen ? 'Gennaker going up' : 'Dousing the gennaker');
+    this.syncTouch();
+  }
+  // touch pad: helm, main and jib, plus one more line of the class, picked by tapping its name
+  buildTouch(b) {
+    const rows = this.hud.rows || [];
+    this.touchLines = Object.keys(TOUCH_LINES).filter(k => rows.includes(k));
+    this.touchSel = 0;
+    $('#tp-gen').hidden = !b.sailBy.gennaker;
+    $('#touch .tp-trim').classList.toggle('has-gen', !!b.sailBy.gennaker);
+    this.syncTouch();
+  }
+  syncTouch() {
+    const b = this.player; if (!b || !this.touchLines) return;
+    const k = this.touchLines[this.touchSel % this.touchLines.length], [name, lo, hi] = TOUCH_LINES[k];
+    $('#tp-sel').textContent = `${name} ▸`;
+    $('#tp-x0').dataset.k = k; $('#tp-x0').textContent = lo;
+    $('#tp-x1').dataset.k = k; $('#tp-x1').textContent = hi;
+    $('#tp-gen').textContent = b.ctrl.gen ? 'Douse' : 'Hoist';
+    $('#tp-jibl').textContent = b.ctrl.gen && b.sailBy.gennaker ? 'Genn.' : 'Jib';
   }
 
   // ------------------------------------------------------------ input
@@ -821,6 +848,8 @@ class Game {
     tap('#tb-help', () => this.openHelp());
     tap('#tp-centre', () => { this.player.ctrl.helm = 0; });
     tap('#tp-auto', () => this.toggleAutoTrim());
+    tap('#tp-sel', () => { this.touchSel = (this.touchSel + 1) % Math.max(1, this.touchLines.length); this.syncTouch(); this.hud.toast(TOUCH_LINES[this.touchLines[this.touchSel]]?.[3] || '', 1); });
+    tap('#tp-gen', () => this.toggleGen());
     // press and hold: the helm / sheet keeps moving while the finger stays down
     document.querySelectorAll('#touch .tbtn[data-k]').forEach(bt => {
       let timer = null;

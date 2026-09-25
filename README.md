@@ -1,5 +1,7 @@
 # True Wind
 
+[![The Blackwatch 19/24 under tanbark sails off Puerto Progreso](docs/preview.jpg)](https://hclivess.github.io/truewind/)
+
 A browser sailing simulator where the boat is not animated — it is computed. Every frame, the wind on each strip of each sail, the shape your strings give that sail, the lift of the keel and rudder, the resistance of the hull, the heel, the waves and the tide are solved as forces and moments on a rigid body, 120 times a second.
 
 **Play:** https://hclivess.github.io/truewind/
@@ -13,6 +15,9 @@ It runs in any modern browser with WebGL, with no install and no build step.
 | **Blackwatch 19/24** | Dave Autry's 1979 pocket bluewater cutter from Blue Water Boatworks (81 built, 1979–81). LOA 5.64 m (nearly 24 ft with the bowsprit), LWL 5.33 m, beam 2.29 m, draft 0.61 m, 1,021 kg with 363 kg of iron ballast, 19.7 m² of sail. Long keel, transom-hung rudder, teak bowsprit, self-tacking staysail, flying jib, double-reefed main. Its home port in the sim is **Progreso, Yucatán**. |
 | **Sportboat 23** | A 7 m one-design keelboat with four crew, a carbon mast and an asymmetric gennaker. It planes downwind from about 13 kn of wind. |
 | **Singlehander 14** | A 4.2 m una-rig Olympic-style dinghy with one sailor, a bendy unstayed mast and a daggerboard. It capsizes. |
+| **Beach Cat 16** | A 5 m beach catamaran with two crew on trapeze, twin daggerboards and rudders, and a gennaker. It flies a hull from about 10 kn and pitchpoles if you bury the bows. |
+
+Each class has its own sailcloth: tanbark Dacron on the Blackwatch, a grey tri-radial laminate with draft stripes on the sportboat, white Dacron on the dinghy. The cloth shows its seams, batten pockets, reef points and corner patches, and the sun shines through it. Telltales on the luff and on the main's leech stream while the flow is attached and lift or curl when it luffs or stalls.
 
 ## Where you can sail
 
@@ -54,13 +59,14 @@ Everything is in `js/physics.js` (boat), `js/env.js` (wind, waves, current) and 
 
 ### Rigid body
 The boat moves in surge, sway, roll and yaw in SNAME body axes, with added mass and Coriolis coupling:
-`(m+mₓ)(u̇ − v r·m_y/m_x) = X`, `(m+m_y)(v̇ + u r·m_x/m_y) = Y`, `I_z ṙ = N`, `I_x ṗ = K`.
+`(m+mₓ)(u̇ − v r·m_y/m_x) = X`, `(m+m_y)(v̇ + u r·m_x/m_y) = Y`, `I_z ṙ = N − (m_y − m_x)·u v`, `I_x ṗ = K`.
+The last yaw term is the Munk moment, where m_x and m_y are the added masses. A hull moving at a drift angle carries more water sideways than lengthwise, so the flow turns it broadside. With leeway this adds weather helm. In a turn, where the bow points inside the track, it tightens the turn.
 Heave and pitch respond as damped oscillators to the wave elevation along the hull. The response includes bow-down trim from sail drive, squat, crew fore-aft trim, and the bow lifting as the boat starts to plane.
 
 ### Sails: strip theory with shape
 Each sail is split into three horizontal strips. For each strip, per step:
 
-1. **Apparent wind.** The true wind comes from a neutral log boundary layer, `U(h) = U₁₀ ln(h/z₀)/ln(10/z₀)`, with z₀ taken from Charnock roughness. The strip's own velocity is subtracted from it: surge, sway, yaw rate × lever arm, roll rate × height, and the boom's swing. The result is projected into the heeled rig plane (the cos φ effective-angle correction).
+1. **Apparent wind.** The true wind comes from a neutral log boundary layer, `U(h) = U₁₀ ln(h/z₀)/ln(10/z₀)`, with z₀ taken from Charnock roughness. The strip's own velocity is subtracted from it: surge, sway, yaw rate × lever arm, roll rate × height, and the boom's swing. The result is projected into the heeled rig plane (the cos φ effective-angle correction). Air density is 1.225 kg/m³, except in the rain-cooled outflow under a squall. That air is up to about 9 K colder, so it is about 3% denser and pushes harder than its wind speed alone suggests.
 2. **Shape from the rig.** Each strip's camber depth, draft position and twist are set by the controls a real crew uses:
    - **Mainsheet:** leech tension when hard in.
    - **Traveler:** boom angle at constant leech tension.
@@ -89,12 +95,13 @@ Each strip's force is applied at its own centre of effort, so heel moment, weath
 - **Keel, daggerboard and rudder** are finite wings, with the Helmbold lift slope `2π/(2/AR + √(1+(2/AR)²))`, stall, post-stall flat-plate behaviour and induced drag. Each sees water-relative velocity, which includes wave orbital motion, yaw and roll rates, and the keel's downwash on the rudder. The rudder ventilates at extreme heel, which is how broaches happen. Raising the daggerboard cuts both area and aspect ratio.
 - **Hull resistance** has three parts:
   - ITTC-57 friction.
-  - Residuary (wave-making) resistance tabulated against Froude number for each hull. This gives the Blackwatch's hard wall at 5.6 kn and lets the dinghy and sportboat plane.
+  - Residuary (wave-making) resistance tabulated against Froude number for each hull. This gives the Blackwatch's hard wall at 5.6 kn and lets the dinghy and sportboat plane. The catamaran's slender hulls do not plane. Their table comes from towing-tank data for catamarans of the same slenderness (the Southampton series), and it stays at about 5% of the boat's weight past the hump. Flying a hull puts the whole weight on one hull and raises that figure by up to 30%.
   - Extra terms for heel drag, fore-aft trim, added resistance in waves, cross-flow drag, yaw damping and the heeled hull's asymmetry.
 - **Stability** combines a GZ curve (weight and form terms) with crew weight at its real height. With the crew hiked and the boat heeled past about 50°, the crew adds to the capsizing moment instead of fighting it.
 
 ### Environment
-- **Wind.** Puffs and lulls are advected at the mean wind speed and elongated along it. Puffs tend to veer. Oscillating and spatial shifts are layered on top. Land upwind shelters the wind, which recovers over roughly a kilometre of open water.
+- **Wind.** Puffs and lulls are noise in space and time: they are carried downwind at about the mean wind speed, stretched along it, and grow and die as they go, so the pattern never repeats. Puffs come down from aloft carrying a veered wind (backed south of the equator) and fan out as they land, lifting you on one edge and heading you on the other. Oscillating and spatial shifts are layered on top. Land upwind shelters the wind, which recovers over roughly a kilometre of open water.
+- **Weather.** Steady, changing or squally. The gradient wind drifts in speed and direction over tens of minutes, and a sea breeze or land breeze builds and fades with the real sun at the venue. In squally weather a cumulonimbus cell comes through about every 11 minutes. Each one is born, towers up to an anvil, and dies over about 70 minutes while it tracks across with the wind aloft. Ahead of it the wind lulls into the updraft; under it the gust front hits, veered on one flank and backed on the other, with heavy rain that closes the visibility. Behind it the air is light and fitful. Mature cells throw lightning. Everything is a function of the seed and the clock, so everyone in a shared room gets the same squall at the same moment.
 - **Waves.** A fetch-limited JONSWAP sea is grown from wind speed and the real upwind fetch to the coastline, and discretised into Gerstner components, with optional ocean swell. The GPU shader and the physics use the same components. Waves push the hull (Froude–Krylov surge force, so you surf), roll it, yaw it, and shrink in the lee and in shallow water.
 - **Tide.** A current field is applied over ground. The instruments work like real ones: TWS and TWA are computed from the masthead unit and boat speed through the water.
 - **Depth.** Estimated bathymetry shelves out from the real shoreline with shoals. Your keel or board can run aground.
@@ -102,11 +109,18 @@ Each strip's force is applied at its own centre of effort, so heel moment, weath
 ### Velocity prediction
 `solvePolar()` is a VPP that runs the full dynamic model at fixed true-wind angles with the automatic crew, and keeps the best of several trim targets. It drives the live polar, the POLAR % instrument and the AI's upwind and downwind angles.
 
-Calibration against real one-design polars in 12 kn of true wind:
+Polars from `node test/vpp.mjs` in 12 kn of true wind (boat speed in knots, `g` = under gennaker or spinnaker):
 
-- **Sportboat:** about 5.5 kn upwind and 7.9 kn reaching under gennaker. In 20 kn it planes at about 15 kn.
-- **Dinghy:** about 4.6 kn upwind and 6.2 kn on a beam reach.
-- **Blackwatch:** about 4.2 kn upwind at 44° with 6–7° of leeway (a long keel). It reaches at about 5.1 kn and cannot pass its 5.6 kn hull speed.
+| Boat | Upwind (TWA, speed, VMG) | 90° | 120° | 150° | Best downwind VMG |
+|---|---|---|---|---|---|
+| Blackwatch | 40°, 4.1, 3.1 | 5.2 | 5.0 | 4.4 | 3.9 at 165° |
+| Sportboat | 40°, 6.1, 4.7 | 8.6 g | 10.2 g | 7.0 g | 6.2 at 165° |
+| Dinghy | 36°, 4.4, 3.6 | 6.2 | 5.7 | 4.7 | 4.4 at 165° |
+| Beach cat | 55°, 9.6, 5.5 | 13.3 g | 15.2 g | 7.6 g | 7.7 at 135° |
+
+In 20 kn the sportboat planes at 16.4 kn at 120° under gennaker, and the cat reaches at 18.5–20 kn. The Blackwatch sails upwind with 6° of leeway (a long keel) and cannot pass its 5.6 kn hull speed. The cat's numbers are those of a 16 ft two-up beach cat such as a Hobie 16: about 5.5 kn VMG upwind and 13–15 kn reaching in 12 kn of wind. It used to show 11.2 kn upwind and 17.5 kn on a beam reach, because its residuary resistance was half the tank value and its slender hulls were treated as if they planed.
+
+Helm balance (`node test/helm.mjs`) is the rudder angle that holds a steady course. With the Munk moment included, the keelboats are neutral upwind in 12 kn and carry 2–3° of weather helm in 20 kn, which is what designers aim for. Without it they had 3–5° of lee helm.
 
 ## What is approximated
 
@@ -124,21 +138,28 @@ These are the honest limits:
 | `A` `D` / `←` `→` | Steer. The helm stays where you leave it; `Space` centres it. |
 | `W` `S` | Mainsheet trim / ease |
 | `↑` `↓` | Jib or gennaker sheet. Hold `Shift` for the staysail. |
+| `F` | Let the jib sheet fly |
 | `Z` `X` | Traveler |
 | `C` `V` | Vang |
 | `N` `M` | Backstay |
 | `Q` `E` | Crew in / hike out |
-| `J` (hold) | Back the jib |
+| `J` / `Shift`+`J` | Haul / ease the lazy jib sheet to back the jib (una-rig: push the boom out) |
 | `G` | Gennaker hoist / douse |
 | `R` | Reef, or right a capsized dinghy |
 | `Y` | Daggerboard |
 | `T` `H` | Auto-trim / auto-hike |
-| `1`–`6` | Cameras: chase, helm, bow, masthead, overhead, orbit |
+| `1`–`7` | Cameras: chase, helm, bow, masthead, overhead, orbit, on deck |
 | `L` `K` `I` | Laylines, force vectors, physics readout |
 | `-` `=` | Time warp |
 | `P` `Esc` | Pause, menu |
+| `O` | Sound on / off |
+| `?` | Help |
 
-All other controls (cunningham, outhaul, jib car and halyard, tack line, crew fore-aft) are sliders in the rig panel. Menu options include tiller steering (push the tiller and the bow goes the other way).
+With the mouse, drag to look around and use the wheel to zoom; zooming all the way in puts you at the helm. Click the tactical map to drop a waypoint. On deck you can grab the lines themselves: pull ropes, slide cars along their tracks, wind winch handles round (clockwise is the fast gear), push the tiller, and click a cleat to release or cleat its line.
+
+Every line is also in the rig panel as press-and-hold buttons, with a LOCK/FREE toggle for its cleat. Menu options include tiller steering (push the tiller and the bow goes the other way).
+
+On a phone or tablet, drag to look around, pinch to zoom, and tap a rope, winch or cleat on deck to grab it. The touch pad holds the helm (◀ ▶ and Centre), the mainsheet and jib sheet, and one more line of the class (traveler, staysail, vang, crew weight, tack line, backstay or daggerboard): tap its name to pick the next. Auto trim and the gennaker hoist sit under it. The **Rig** button opens every line.
 
 ## Graphics
 

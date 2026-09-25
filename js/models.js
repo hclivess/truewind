@@ -242,7 +242,7 @@ function deckGeometry(C, Lx, stations, ck) {
   return g;
 }
 
-// deck height at (x fwd, y stbd) — used to seat fittings and crew
+// deck height at (x fwd, y stbd) — used to seat fittings
 function deckHeightFn(C, Lx, ck) {
   if (C.multihull) return (x, y) => {
     const t = clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1), half = C.hullSpacing / 2;
@@ -287,21 +287,24 @@ function foilGeom(chord, span, thick = 0.1, taper = 0.7, sweep = 0.1) {
 function lathe(profile, seg = 16) { return new THREE.LatheGeometry(profile.map(([r, y]) => new THREE.Vector2(Math.max(r, 0.0001), y)), seg); }
 
 // ------------------------------------------------------------------ sail textures
-// Sailcloth per class: the Blackwatch carries cream cruising Dacron (crosscut), the sportboat a grey
-// racing laminate (tri-radial panels, load-path scrim, draft stripes), the dinghy white Dacron.
-// Gennakers are nylon in the class colour. Texture space: x = 0 leech .. w luff, y = 0 head .. h foot.
+// Sailcloth per class: the Blackwatch carries tanbark cruising Dacron (crosscut, rust-red, the dye a
+// little uneven from panel to panel), the sportboat a grey racing laminate (tri-radial panels,
+// load-path scrim, draft stripes), the dinghy white Dacron. Gennakers are nylon in the class colour.
+// Texture space: x = 0 leech .. w luff, y = 0 head .. h foot.
 const SAILCLOTH = {
-  blackwatch: { cloth: 0xeee6d2, kind: 'dacron', num: '#27313f', logo: '#8e2a22', trans: 0.3, rough: 0.62 },
+  blackwatch: { cloth: 0x9c4f2e, kind: 'dacron', mottle: true, num: '#efe6d2', logo: '#1c1d21', trans: 0.26, rough: 0.66 },
   sportboat: { cloth: 0xd5d8d8, kind: 'laminate', num: '#16233a', logo: '#1d4e89', trans: 0.16, rough: 0.42 },
   dinghy: { cloth: 0xf5f4ef, kind: 'dacron', num: '#1d2a44', logo: '#c8412c', trans: 0.34, rough: 0.6 },
   cat: { cloth: 0xeef0f2, kind: 'laminate', num: '#1d2a44', logo: '#d9412b', trans: 0.2, rough: 0.45 },
 };
 const clothOf = (C, s) => s.kind === 'spin' ? { cloth: s.color, kind: 'nylon', num: '#ffffff', logo: '#ffffff', trans: 0.45, rough: 0.5 } : (SAILCLOTH[C.id] || SAILCLOTH.dinghy);
-// the same pattern on both faces of the cloth; only the sail number and insignia are drawn to read
-// correctly from each side (starboard number higher, as class rules have it)
-function sailTexture(C, s, number, face) {
+// One cloth texture per class and sail, shared by both faces and every boat of the class. The sail
+// number and insignia are a small decal atlas per number (DECAL), drawn by the sail shader into fixed
+// rectangles of the cloth, mirrored on the face that needs it (starboard number higher, as class
+// rules have it).
+function sailTexture(C, s) {
   const cl = clothOf(C, s);
-  const key = `sail-${C.id}-${s.key}-${number}-${cl.cloth}-${face}`;
+  const key = `sail-${C.id}-${s.key}-${cl.cloth}`;
   return canvasTex(key, 512, 1024, (g, w, h) => {
     const base = new THREE.Color(cl.cloth);
     g.fillStyle = `#${base.getHexString()}`; g.fillRect(0, 0, w, h);
@@ -341,8 +344,22 @@ function sailTexture(C, s, number, face) {
       g.fillStyle = 'rgba(255,255,255,0.14)'; g.fillRect(0, h * 0.44, w, h * 0.12);
     } else {
       // crosscut Dacron with a faint weave
+      if (cl.mottle) {
+        // tanbark: each panel dyed a shade apart, with soft cloudy blotches through the cloth
+        for (let y = panelPx * 0.6 - panelPx, i = 0; y < h + 40; y += panelPx, i++) {
+          const k = r() - 0.5;
+          g.fillStyle = k > 0 ? `rgba(255,190,150,${k * 0.1})` : `rgba(40,10,0,${-k * 0.14})`;
+          g.beginPath(); g.moveTo(0, y); g.lineTo(w, y + slope(y)); g.lineTo(w, y + panelPx + slope(y + panelPx)); g.lineTo(0, y + panelPx); g.fill();
+        }
+        for (let i = 0; i < 26; i++) {
+          const x = r() * w, y = r() * h, rad = 30 + r() * 90, dark = r() < 0.55;
+          const grd = g.createRadialGradient(x, y, 0, x, y, rad);
+          grd.addColorStop(0, dark ? 'rgba(50,15,0,0.07)' : 'rgba(255,200,160,0.06)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
+          g.fillStyle = grd; g.fillRect(x - rad, y - rad, 2 * rad, 2 * rad);
+        }
+      }
       for (let y = panelPx * 0.6; y < h + 40; y += panelPx) seam(y);
-      g.fillStyle = 'rgba(0,0,0,0.018)';
+      g.fillStyle = cl.mottle ? 'rgba(0,0,0,0.035)' : 'rgba(0,0,0,0.018)';
       for (let i = 0; i < 4000; i++) g.fillRect(r() * w, r() * h, 2, 1);
     }
     // soft creases from the clew toward the luff: sails are never paint-smooth
@@ -390,12 +407,6 @@ function sailTexture(C, s, number, face) {
         for (let x = 30; x < w - 30; x += 40) g.fillRect(x, y - 2, 3, 16);
         g.fillStyle = 'rgba(120,110,95,0.9)'; g.beginPath(); g.arc(w - 14, y, 10, 0, 7); g.arc(14, y, 10, 0, 7); g.fill();
       }
-      // insignia and sail number, reading correctly from this face
-      const mirror = face === 'port';
-      const text = (str, x, y, px, col) => { g.save(); g.translate(x, y); if (mirror) g.scale(-1, 1); g.font = `bold ${px}px "Barlow Condensed", "Arial Narrow", sans-serif`; g.textAlign = 'center'; g.fillStyle = col; g.fillText(str, 0, 0); g.restore(); };
-      const logo = C.id === 'blackwatch' ? 'BW' : C.id === 'sportboat' ? 'S23' : C.id === 'dinghy' ? 'S14' : 'C16';
-      text(logo, w * 0.58, h * 0.24, 74, cl.logo);
-      if (number) text(String(number), w * 0.52, h * (mirror ? 0.58 : 0.47), 150, cl.num);
     }
     if (s.kind === 'loose' || (s.key === 'main' && C.id === 'dinghy')) { // window
       const [wx, wy, ww, wh] = s.kind === 'loose' ? [w * 0.35, h * 0.7, w * 0.32, h * 0.12] : [w * 0.3, h * 0.66, w * 0.4, h * 0.1];
@@ -405,15 +416,45 @@ function sailTexture(C, s, number, face) {
   });
 }
 
+// Insignia and sail number atlas (512 x 256): the class insignia in the top-left 256 x 96 band, the
+// number in the 512 x 160 band below. Each band maps onto a rectangle of the 512 x 1024 cloth texture
+// (DECAL rects, in cloth pixels: x0, y0, width, height; the number sits lower on the port face).
+const DECAL = { logo: [0.58 * 512 - 128, 0.24 * 1024 - 76, 256, 96], numStbd: [0.52 * 512 - 256, 0.47 * 1024 - 130, 512, 160], numPort: [0.52 * 512 - 256, 0.58 * 1024 - 130, 512, 160] };
+function sailDecal(C, number) {
+  const cl = SAILCLOTH[C.id] || SAILCLOTH.dinghy;
+  return canvasTex(`decal-${C.id}-${number ?? ''}`, 512, 256, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    g.textAlign = 'center';
+    const logo = C.id === 'blackwatch' ? 'BW' : C.id === 'sportboat' ? 'S23' : C.id === 'dinghy' ? 'S14' : 'C16';
+    g.font = 'bold 74px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = cl.logo; g.fillText(logo, 128, 76);
+    if (number) { g.font = 'bold 150px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = cl.num; g.fillText(String(number), 256, 226); }
+  });
+}
+
 // ------------------------------------------------------------------ sails
 // Sailcloth is thin: sunlight on one face shows through the other (a backlit sail glows and its
 // seams and battens show), so the diffuse term also takes light from behind the cloth.
-function sailMaterial(tex, cl, side) {
+function sailMaterial(tex, cl, side, decal = null, mirror = false) {
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, map: tex, side, roughness: cl.rough, metalness: 0 });
   m.shadowSide = THREE.DoubleSide;
   const uTrans = { value: cl.trans };
+  const nr = mirror ? DECAL.numPort : DECAL.numStbd;
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uTrans = uTrans;
+    if (decal) {
+      sh.uniforms.uDecal = { value: decal }; sh.uniforms.uMirror = { value: mirror ? 1 : 0 };
+      sh.uniforms.uLogoR = { value: new THREE.Vector4(...DECAL.logo) }; sh.uniforms.uNumR = { value: new THREE.Vector4(...nr) };
+      sh.fragmentShader = 'uniform sampler2D uDecal;\nuniform float uMirror;\nuniform vec4 uLogoR, uNumR;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+      {
+        vec2 cc = vec2(vMapUv.x, 1.0 - vMapUv.y) * vec2(512.0, 1024.0);
+        vec4 dc = vec4(0.0);
+        vec2 l = (cc - uLogoR.xy) / uLogoR.zw;
+        if (l.x >= 0.0 && l.y >= 0.0 && l.x < 1.0 && l.y < 1.0) { if (uMirror > 0.5) l.x = 1.0 - l.x; dc = texture2D(uDecal, vec2(l.x * 0.5, 1.0 - l.y * 0.375)); }
+        vec2 q = (cc - uNumR.xy) / uNumR.zw;
+        if (q.x >= 0.0 && q.y >= 0.0 && q.x < 1.0 && q.y < 1.0) { if (uMirror > 0.5) q.x = 1.0 - q.x; dc = texture2D(uDecal, vec2(q.x, 1.0 - (0.375 + q.y * 0.625))); }
+        diffuseColor.rgb = mix(diffuseColor.rgb, dc.rgb, dc.a);
+      }`);
+    }
     sh.fragmentShader = 'uniform float uTrans;\n' + sh.fragmentShader.replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
       #if NUM_DIR_LIGHTS > 0
         for (int i = 0; i < NUM_DIR_LIGHTS; i++) {
@@ -422,7 +463,7 @@ function sailMaterial(tex, cl, side) {
         }
       #endif`);
   };
-  m.customProgramCacheKey = () => 'sailcloth';
+  m.customProgramCacheKey = () => decal ? 'sailcloth-decal' : 'sailcloth';
   return m;
 }
 const NU = 12, NV = 18;
@@ -439,8 +480,9 @@ function sailMesh(C, s, number) {
   g.setIndex(idx);
   const cl = clothOf(C, s);
   // front faces look to port, back faces to starboard: one material per face so both read right
-  const mesh = new THREE.Mesh(g, sailMaterial(sailTexture(C, s, number, 'port'), cl, THREE.FrontSide));
-  const back = new THREE.Mesh(g, sailMaterial(sailTexture(C, s, number, 'stbd'), cl, THREE.BackSide));
+  const tex = sailTexture(C, s), decal = s.key === 'main' ? sailDecal(C, number) : null;
+  const mesh = new THREE.Mesh(g, sailMaterial(tex, cl, THREE.FrontSide, decal, true));
+  const back = new THREE.Mesh(g, sailMaterial(tex, cl, THREE.BackSide, decal, false));
   back.frustumCulled = false; mesh.add(back);
   mesh.castShadow = true; mesh.frustumCulled = false;
   back.customDepthMaterial = null; back.castShadow = false;
@@ -561,6 +603,16 @@ export function buildBoatModel(boat, opts = {}) {
     kit.box(M.glass(), w * 1.6, 0.05, 0.02, V(xf - 0.02, 0, deckH0(xf, 0) + 0.1)); // forward windows
     for (const s of [-1, 1]) kit.box(M.glass(), 0.02, 0.05, L * 0.6, V((xa + xf) / 2, s * w * 0.96, deckH0(xa, 0) + 0.1));
     kit.box(M.black(), 0.5, 0.03, 0.5, V(xa + 0.3, 0, deckH0(xa, 0) + 0.15)); // hatch
+    // deck organisers either side of the mast: the halyards and control lines turn aft here to the clutches
+    for (const s of [-1, 1]) {
+      const ox = C.mastX - 0.28, oy = s * 0.2, oz = deckH(ox, oy);
+      kit.box(M.black(), 0.16, 0.012, 0.06, V(ox, oy, oz + 0.006));
+      for (let i = 0; i < 3; i++) { const g = new THREE.CylinderGeometry(0.022, 0.022, 0.012, 12); g.rotateZ(Math.PI / 2); g.translate(oy + (i - 1) * 0.045, oz + 0.026, -ox); kit.add(M.alu(), g); }
+    }
+    // forward hatch on the foredeck, and the mast-mounted compass / tactical display facing the cockpit
+    const hx = bx(0.8), hz = deckH(hx, 0);
+    kit.box(M.alu(), 0.46, 0.03, 0.46, V(hx, 0, hz + 0.012)); kit.box(M.glass(), 0.4, 0.012, 0.4, V(hx, 0, hz + 0.03));
+    kit.box(M.black(), 0.13, 0.1, 0.03, V(C.mastX - 0.08, 0, deckH(C.mastX, 0) + 1.55));
   }
   // stanchions, pulpit, pushpit, lifelines
   if (C.id !== 'dinghy' && !C.multihull) buildLifelines(kit, C, Lx, stations, deckH, bx);
@@ -702,7 +754,6 @@ export function buildBoatModel(boat, opts = {}) {
     for (const s of [-1, 1]) rigKit.rod(M.wire(), V(C.mastX - 0.05, s * C.hullSpacing / 2, C.freeboard + 0.1), V(C.mastX, s * 0.02, hounds), 0.003);
     const J = S.jib; rigKit.rod(M.wire(), V(J.tackX, 0, J.tackZ), V(J.tackX - J.rake, 0, J.tackZ + J.luff + 0.05), 0.0035);
     for (const s of [-1, 1]) rigKit.rod(M.wire(), V(J.tackX, 0, J.tackZ), V(C.bowX - 0.2, s * C.hullSpacing / 2, C.freeboard + 0.15), 0.003); // bridle
-    stay.trapezeTop = V(C.mastX, 0, hounds);
   } else if (C.id !== 'dinghy') {
     const sprZ = mastBase + mastLen * 0.5, sprLen = C.beam * 0.36;
     const hounds = C.id === 'sportboat' ? C.mastHeight - mastLen * 0.2 : C.mastHeight - 0.25;
@@ -764,7 +815,6 @@ export function buildBoatModel(boat, opts = {}) {
   telltales.frustumCulled = false; rig.add(telltales);
 
   kit.build(inner);
-  const crew = buildCrew(C, rig);   // under the rig group: not a solid the rigging seats hardware on
   // floating name tag for other sailors
   if (opts.label) {
     const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
@@ -779,7 +829,7 @@ export function buildBoatModel(boat, opts = {}) {
     root.add(sp);
   }
   return { root, inner, hull, deck, booms, sailMeshes, rudderPivot, rudderPivots, keelMesh, telltales, windex, rig, sprit, extension, tillerEnd,
-    lines: Lx, deckH, ck, chain, stay, mastBase, crew };
+    lines: Lx, deckH, ck, chain, stay, mastBase };
 }
 
 function buildCatStructure(kit, inner, C, Lx, deckH) {
@@ -914,7 +964,6 @@ export function updateBoatModel(vis, b, t) {
   }
   // retracted, the pole's tip sits just proud of the stem (the rest is in its tube inside the hull)
   if (vis.sprit) vis.sprit.position.z = -(C.bowX + 0.05 - vis.sprit.userData.len) - C.bowsprit * b.genDeploy;
-  updateCrew(vis, b);
   for (const s of b.sails) updateSail(vis.sailMeshes[s.key], b, s, t);
   vis.windex.rotation.y = -b.diag.awa + Math.PI;
   updateTelltales(vis, b, t);
@@ -996,226 +1045,28 @@ function updateTelltales(vis, b, t) {
       n++;
     }
   }
+  // leech telltales on the main, at the batten ends: they stream aft off the leech while the flow
+  // leaves it cleanly, and curl round behind the leeward side when that strip stalls
+  const ms = b.sailBy.main, mst = b.diag.strips.main, msh = b.diag.shape.main;
+  if (ms && (mst.areaF ?? 1) > 0.3) {
+    const rf = reefAt(b.reefPos), mside = Math.sign(mst.baseAngle || 1);
+    for (let i = 0; i < 3; i++) {
+      const fv = STRIP_F[i], s = mst[i], a = msh[i].ang;
+      const chord = ms.foot * (1 - fv) + ms.head * fv + ms.foot * 0.07 * Math.sin(Math.PI * fv * 0.85);
+      const cx = -Math.cos(a), cy = Math.sin(a), lx = Math.sin(a) * mside, ly = Math.cos(a) * mside; // chord aft, leeward normal
+      const baseX = C.mastX - 0.02 + cx * chord, baseY = cy * chord, baseZ = C.boomZ + fv * ms.luff * rf.l;
+      let dx = cx, dy = cy, dz = -0.08;
+      const flog = s.flog || 0;
+      if (s.state === 3) { dx = -cx * 0.25 + lx * 0.75 + Math.sin(t * 8 + i * 1.7) * 0.2; dy = -cy * 0.25 + ly * 0.75 + Math.cos(t * 6 + i) * 0.2; dz = -0.45; }
+      else if (s.state === 0) { dx = cx * 0.15; dy = cy * 0.15; dz = -1; }
+      else { const w = Math.sin(t * 14 + i * 2) * (0.06 + 0.3 * flog + (s.state === 1 ? 0.12 : 0)); dx += lx * w; dy += ly * w; }
+      const L = 0.3, k = n * 2;
+      pos.setXYZ(k, baseY, baseZ, -baseX);
+      pos.setXYZ(k + 1, baseY + dy * L, baseZ + dz * L, -(baseX + dx * L));
+      col.setXYZ(k, 1, 0.7, 0.1); col.setXYZ(k + 1, 1, 0.7, 0.1);
+      n++;
+    }
+  }
   pos.needsUpdate = true; col.needsUpdate = true;
   vis.telltales.geometry.setDrawRange(0, n * 2);
-}
-
-// ================================================================== crew
-// Sailors drawn where the physics puts their weight: b.crewY is the crew's lateral centre of mass, so
-// the figures sit in, move out to the rail and hike (dinghy: feet under the strap, torso out over the
-// water; sportboat: legs over the side; Blackwatch: on the windward bench / side deck). The helm holds
-// the tiller or the extension, which swings to the hand. Two instanced meshes per boat (limbs, joints),
-// and a figure the camera is inside (the helm view) is not drawn.
-const CREW_KIT = [
-  { jacket: 0x1d2c4a, legs: 0x23262b, pfd: 0xd9412b, skin: 0xc99672, cap: 0xf2f2ee },
-  { jacket: 0xe8e6df, legs: 0x2d3440, pfd: 0x1d2c4a, skin: 0x8d5a3b, cap: 0x1d2c4a },
-  { jacket: 0xc83a2e, legs: 0x1d2025, pfd: 0x23262b, skin: 0xe0b08c, cap: 0x23262b },
-  { jacket: 0x3d5f7a, legs: 0x2a2d31, pfd: 0xe8c53a, skin: 0xb07a55, cap: 0xe8e6df },
-];
-const LIMBS_PER = 11, JOINTS_PER = 15;
-let _crewMat = null;
-function crewMaterial() {
-  if (_crewMat) return _crewMat;
-  const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.75, metalness: 0 });
-  m.onBeforeCompile = (sh) => {
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 crewAnchor;')
-      .replace('#include <project_vertex>', `#include <project_vertex>
-        { vec4 aw = modelMatrix * vec4(crewAnchor.xyz, 1.0);
-          if (distance(aw.xyz, cameraPosition) < crewAnchor.w) gl_Position = vec4(2.0, 2.0, 2.0, 1.0); }`);
-  };
-  return (_crewMat = m);
-}
-function buildCrew(C, parent) {
-  const n = C.crewN || 0;
-  if (!n) return null;
-  const limbG = new THREE.CylinderGeometry(1, 0.86, 1, 8, 1); limbG.translate(0, 0.5, 0);
-  const jointG = new THREE.SphereGeometry(1, 10, 8);
-  const mk = (g, count) => {
-    g.setAttribute('crewAnchor', new THREE.InstancedBufferAttribute(new Float32Array(count * 4), 4));
-    const im = new THREE.InstancedMesh(g, crewMaterial(), count);
-    im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true;
-    im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    const z = new THREE.Matrix4().makeScale(0, 0, 0);
-    for (let i = 0; i < count; i++) im.setMatrixAt(i, z);
-    parent.add(im);
-    return im;
-  };
-  const limbs = mk(limbG, n * LIMBS_PER), joints = mk(jointG, n * JOINTS_PER);
-  const c = new THREE.Color();
-  for (let i = 0; i < n; i++) {
-    const k = CREW_KIT[i % CREW_KIT.length];
-    // limbs: torso, vest, neck, thigh x2, shin x2, upper arm x2, forearm x2
-    [k.jacket, k.pfd, k.skin, k.legs, k.legs, k.legs, k.legs, k.jacket, k.jacket, k.jacket, k.jacket]
-      .forEach((col, j) => limbs.setColorAt(i * LIMBS_PER + j, c.setHex(col)));
-    // joints: head, cap, brim, hand x2, knee x2, elbow x2, foot x2, shoulder x2, pelvis, chest
-    [k.skin, k.cap, k.cap, k.skin, k.skin, k.legs, k.legs, k.jacket, k.jacket, 0x2a2c30, 0x2a2c30, k.jacket, k.jacket, k.legs, k.pfd]
-      .forEach((col, j) => joints.setColorAt(i * JOINTS_PER + j, c.setHex(col)));
-  }
-  return { limbs, joints, n };
-}
-
-// 2-bone IK (three coords): joint `mid` between root a and end, bending toward pole
-const _ik = { d: new THREE.Vector3(), p: new THREE.Vector3() };
-function ik2(a, target, l1, l2, pole, mid, end) {
-  const d = _ik.d.subVectors(target, a); const L = d.length();
-  const dist = clamp(L, 0.05, (l1 + l2) * 0.995);
-  d.multiplyScalar(1 / Math.max(L, 1e-6));
-  end.copy(a).addScaledVector(d, dist);
-  const x = (l1 * l1 - l2 * l2 + dist * dist) / (2 * dist), h = Math.sqrt(Math.max(0, l1 * l1 - x * x));
-  const p = _ik.p.copy(pole).addScaledVector(d, -pole.dot(d));
-  if (p.lengthSq() < 1e-8) p.set(0, 1, 0).addScaledVector(d, -d.y);
-  p.normalize();
-  mid.copy(a).addScaledVector(d, x).addScaledVector(p, h);
-}
-const _m4 = new THREE.Matrix4(), _bx = new THREE.Vector3(), _by = new THREE.Vector3(), _bz = new THREE.Vector3(), _up3 = new THREE.Vector3(0, 1, 0);
-// a limb from a to b of radius r (the lateral axis `side` flattens it when rx != rz)
-function setLimb(im, i, a, b, rx, rz = rx, side = null) {
-  _by.subVectors(b, a); const L = _by.length(); if (L < 1e-4) { im.setMatrixAt(i, _m4.makeScale(0, 0, 0)); return; }
-  _by.multiplyScalar(1 / L);
-  _bx.copy(side || (Math.abs(_by.y) < 0.9 ? _up3 : _bz.set(1, 0, 0))).addScaledVector(_by, -(side || (Math.abs(_by.y) < 0.9 ? _up3 : _bz)).dot(_by));
-  if (_bx.lengthSq() < 1e-8) _bx.set(1, 0, 0); _bx.normalize();
-  _bz.crossVectors(_bx, _by);
-  _m4.set(_bx.x * rx, _by.x * L, _bz.x * rz, a.x, _bx.y * rx, _by.y * L, _bz.y * rz, a.y, _bx.z * rx, _by.z * L, _bz.z * rz, a.z, 0, 0, 0, 1);
-  im.setMatrixAt(i, _m4);
-}
-function setBall(im, i, p, sx, sy = sx, sz = sx, ax = null, ay = null) {
-  if (ax && ay) { _bx.copy(ax); _by.copy(ay); _bz.crossVectors(_bx, _by);
-    _m4.set(_bx.x * sx, _by.x * sy, _bz.x * sz, p.x, _bx.y * sx, _by.y * sy, _bz.y * sz, p.y, _bx.z * sx, _by.z * sy, _bz.z * sz, p.z, 0, 0, 0, 1); }
-  else _m4.makeScale(sx, sy, sz).setPosition(p);
-  im.setMatrixAt(i, _m4);
-}
-
-// seat stations along the boat (physics x) and each class's sitting geometry
-function crewLayout(C, vis) {
-  const Lx = vis.lines, bw = (x) => Lx.bDeck(tAtX(C, x));
-  if (C.id === 'blackwatch') {
-    const cw = vis.ck.w * Lx.bDeck((vis.ck.t0 + vis.ck.t1) / 2);
-    return { xs: [C.sternX + 0.9, C.sternX + 1.75], inY: cw - 0.22, seatZ: vis.ck.sole + 0.41, railY: (x) => Math.min(bw(x) - 0.3, cw + 0.3), lean: 12 * DEG2, legsOver: false, feetY: 0.08, feetZ: vis.ck.sole + 0.03, faceIn: 0.9 };
-  }
-  if (C.id === 'sportboat') return { xs: [-2.1, -1.3, -0.75, -0.2], inY: 0.62, seatZ: null, railY: (x) => bw(x) - 0.03, lean: 40 * DEG2, legsOver: true, feetY: 0.42, feetZ: vis.ck.sole + 0.03, faceIn: 0.25 };
-  if (C.multihull) return { xs: [C.mastX - 0.9, C.sternX + 1.1], inY: 0.3, seatZ: C.freeboard + 0.1, railY: () => C.hullSpacing / 2 + (C.hullBeam || 0.4) * 0.3, lean: 45 * DEG2, legsOver: false, feetY: 0.4, feetZ: C.freeboard + 0.1, faceIn: 0.3 };
-  return { xs: [C.mastX - 1.95], inY: 0.25, seatZ: vis.ck.sole + 0.06, railY: (x) => bw(x) - 0.03, lean: 56 * DEG2, legsOver: false, feetY: 0.12, feetZ: vis.ck.sole + 0.04, faceIn: 0.35, strap: true };
-}
-const DEG2 = Math.PI / 180;
-const _qc = new THREE.Quaternion(), _wu = new THREE.Vector3(), _cf = new THREE.Vector3();
-const _cv = Array.from({ length: 24 }, () => new THREE.Vector3());
-
-function updateCrew(vis, b) {
-  const cr = vis.crew; if (!cr) return;
-  const C = b.cls, lay = vis.crewLay || (vis.crewLay = crewLayout(C, vis));
-  const { limbs, joints, n } = cr;
-  const la = limbs.geometry.attributes.crewAnchor, ja = joints.geometry.attributes.crewAnchor;
-  const cy = b.crewY || 0, s = Math.sign(cy) || 1;
-  const f = clamp(Math.abs(cy) / Math.max(0.2, C.crewMaxOut), 0, 1);
-  const out = sstep(0.15, 0.8, f), hike = sstep(0.72, 1, f);
-  const P = (x, y, z, o) => o.copy(V(x, y, z));
-  const [hip, sh, neck, head, kneeL, kneeR, footL, footR, hipL, hipR, shL, shR, elL, elR, hdL, hdR, tgt, pole, fwd, lat, up, tmp, tmp2] = _cv;
-  const piv = vis.rudderPivot; piv.updateMatrix();
-  for (let i = 0; i < n; i++) {
-    const x = lay.xs[i] ?? lay.xs[lay.xs.length - 1] + 0.6 * i, isHelm = i === 0;
-    const rail = lay.railY(x);
-    // lateral seat: from the inboard seat out to the rail as the crew moves its weight out
-    const y = s * lerp(Math.min(lay.inY, rail), rail, out);
-    const deckZ = vis.deckH(x, y);
-    const seatZ = lay.seatZ !== null && out < 0.5 ? lerp(lay.seatZ, deckZ, sstep(0.25, 0.5, out)) : deckZ;
-    // lean: outboard with the hike, a little aft-lean when sitting in
-    const th = hike * lay.lean + (C.multihull ? 0 : 0.05);
-    P(x, y, seatZ + 0.1, hip);
-    up.copy(V(0, s * Math.sin(th), Math.cos(th)));                  // torso axis
-    fwd.copy(V(1, 0, 0)); lat.copy(V(0, s, 0));                     // lat = outboard
-    // capsized dinghy: the sailor stands on the daggerboard, upright in the world, leaning back on it
-    const cap = b.capsized && lay.strap;
-    if (cap) {
-      vis.inner.getWorldQuaternion(_qc).invert(); _wu.set(0, 1, 0).applyQuaternion(_qc);
-      _cf.copy(V(C.keel.x, 0, -C.canoeDraft - 0.45));
-      hip.copy(_cf).addScaledVector(_wu, 0.82);
-      up.copy(_wu).addScaledVector(V(0, 0, -1), 0.4).normalize();
-    }
-    // facing: sailors in the cockpit turn inboard; hikers face forward
-    const face = lerp(lay.faceIn, 0.1, hike);
-    tmp.copy(fwd).multiplyScalar(Math.cos(face)).addScaledVector(lat, -Math.sin(face)).normalize(); // body forward
-    sh.copy(hip).addScaledVector(up, 0.5);
-    neck.copy(hip).addScaledVector(up, 0.56);
-    head.copy(hip).addScaledVector(up, 0.7).addScaledVector(tmp, 0.02);
-    tmp2.crossVectors(up, tmp).normalize();                          // body right/left axis (either sign)
-    hipL.copy(hip).addScaledVector(tmp2, 0.1); hipR.copy(hip).addScaledVector(tmp2, -0.1);
-    shL.copy(sh).addScaledVector(tmp2, 0.19); shR.copy(sh).addScaledVector(tmp2, -0.19);
-    // which hip/shoulder is outboard
-    const lOut = (shL.x - shR.x) * s * 1 + 0 > 0;                    // three x = physics y (stbd)
-    const shIn = lOut ? shR : shL, shOut = lOut ? shL : shR, hdIn = lOut ? hdR : hdL, hdOut = lOut ? hdL : hdR, elIn = lOut ? elR : elL, elOut = lOut ? elL : elR;
-    // feet
-    const legsOver = lay.legsOver && out > 0.6;
-    for (const [hp, ft, kn, k] of [[hipL, footL, kneeL, 0], [hipR, footR, kneeR, 1]]) {
-      const hy = -hp.z, fy = hp.x;                                  // back to physics x, y
-      if (cap) { tgt.copy(_cf).addScaledVector(fwd, k ? 0.12 : -0.12); pole.copy(_wu).addScaledVector(V(0, 0, 1), 0.5); }
-      else if (legsOver) { P(hy + 0.25, s * (rail + 0.12), deckZ - 0.42, tgt); pole.copy(V(0.3, s, 0.4)); }
-      else if (lay.strap) { P(hy + 0.3, s * lay.feetY + (fy - s * Math.abs(y)) * 0.3, lay.feetZ, tgt); pole.copy(V(0.2, 0, 1)); }
-      else { P(hy + 0.4, s * lerp(lay.feetY, Math.abs(y) - 0.2, 0.3) + (k ? 0.08 : -0.08), lay.feetZ, tgt); pole.copy(V(0.5, 0, 1)); }
-      ik2(hp, tgt, 0.45, 0.46, pole, kn, ft);
-    }
-    // hands: helm on the tiller / extension, crew on the sheet or rail
-    let hand;
-    if (cap) hdIn.copy(V(x, -Math.sign(b.phi || 1) * lay.railY(x), vis.deckH(x, 0)));   // reaching for the gunwale
-    else if (isHelm) {
-      const te = tmp2.copy(vis.tillerEnd).applyMatrix4(piv.matrix);  // tiller end in the boat frame
-      if (vis.extension) {
-        const L = vis.extension.userData.len;
-        // the extension is aimed at a comfortable grip ahead of the chest; if the helm sits close, its
-        // end runs on past the hand, as a real one does
-        const grip = tgt.copy(shIn).addScaledVector(tmp, 0.32).addScaledVector(up, -0.3).addScaledVector(lat, -0.1);
-        hand = hdIn; hand.subVectors(grip, te); const dl = hand.length();
-        hand.multiplyScalar(Math.min(L, dl) / Math.max(dl, 1e-4)).add(te);
-        aimExtension(vis, te, hand, b.rudder);
-      } else hand = hdIn.copy(te);
-    } else {
-      P(x + 0.45, s * Math.max(0.2, Math.abs(y) - 0.35), seatZ + 0.35, hdIn);
-    }
-    ik2(shIn, hdIn, 0.31, 0.3, tgt.copy(V(-0.3, 0, -1)).addScaledVector(lat, 0.4), elIn, hdIn);
-    // outboard hand: mainsheet (dinghy helm), the rail, or a knee
-    if (cap) hdOut.copy(hdIn).addScaledVector(fwd, 0.35);
-    else if (lay.strap && isHelm) P(C.mastX - 1.55, 0, lay.feetZ + 0.25, hdOut);
-    else if (hike > 0.3 && !lay.legsOver) hdOut.copy(hip).addScaledVector(lat, -0.05).addScaledVector(fwd, 0.15);
-    else hdOut.copy(kneeL).lerp(kneeR, 0.5).addScaledVector(lat, 0.12).addScaledVector(fwd, -0.05);
-    ik2(shOut, hdOut, 0.31, 0.3, tgt.copy(V(-0.3, 0, -1)).addScaledVector(lat, 0.5), elOut, hdOut);
-    // write instances
-    const li = i * LIMBS_PER, ji = i * JOINTS_PER;
-    const chest = tmp2.copy(hip).addScaledVector(up, 0.12);
-    setLimb(limbs, li, hip, sh, 0.17, 0.11, lat);
-    setLimb(limbs, li + 1, chest, tgt.copy(hip).addScaledVector(up, 0.46), 0.195, 0.135, lat);
-    setLimb(limbs, li + 2, sh, neck, 0.05);
-    setLimb(limbs, li + 3, hipL, kneeL, 0.075); setLimb(limbs, li + 4, hipR, kneeR, 0.075);
-    setLimb(limbs, li + 5, kneeL, footL, 0.055); setLimb(limbs, li + 6, kneeR, footR, 0.055);
-    setLimb(limbs, li + 7, shL, elL, 0.05); setLimb(limbs, li + 8, shR, elR, 0.05);
-    setLimb(limbs, li + 9, elL, hdL, 0.042); setLimb(limbs, li + 10, elR, hdR, 0.042);
-    setBall(joints, ji, head, 0.1, 0.115, 0.1);
-    setBall(joints, ji + 1, tgt.copy(head).addScaledVector(up, 0.04), 0.105, 0.075, 0.105);
-    setBall(joints, ji + 2, tgt.copy(head).addScaledVector(up, 0.025).addScaledVector(tmp, 0.1), 0.075, 0.012, 0.07);
-    setBall(joints, ji + 3, hdL, 0.04); setBall(joints, ji + 4, hdR, 0.04);
-    setBall(joints, ji + 5, kneeL, 0.062); setBall(joints, ji + 6, kneeR, 0.062);
-    setBall(joints, ji + 7, elL, 0.05); setBall(joints, ji + 8, elR, 0.05);
-    const fdir = tmp.clone();
-    setBall(joints, ji + 9, tgt.copy(footL).addScaledVector(fdir, 0.06), 0.045, 0.05, 0.12, _cv[23].crossVectors(_up3, fdir).normalize(), _up3);
-    setBall(joints, ji + 10, tgt.copy(footR).addScaledVector(fdir, 0.06), 0.045, 0.05, 0.12, _cv[23].crossVectors(_up3, fdir).normalize(), _up3);
-    setBall(joints, ji + 11, shL, 0.065); setBall(joints, ji + 12, shR, 0.065);
-    setBall(joints, ji + 13, hip, 0.17, 0.1, 0.13);
-    setBall(joints, ji + 14, chest.copy(hip).addScaledVector(up, 0.34), 0.2, 0.13, 0.15);
-    // hide a figure the camera is inside (the helm seat view)
-    const R = isHelm ? 1.4 : 1.25;
-    const ax = hip.x, ay = hip.y + 0.3, az = hip.z;
-    for (let j = 0; j < LIMBS_PER; j++) la.setXYZW(li + j, ax, ay, az, R);
-    for (let j = 0; j < JOINTS_PER; j++) ja.setXYZW(ji + j, ax, ay, az, R);
-  }
-  limbs.instanceMatrix.needsUpdate = true; joints.instanceMatrix.needsUpdate = true;
-  la.needsUpdate = true; ja.needsUpdate = true;
-}
-
-// swing the tiller extension so its end lies at `hand` (both in the boat frame)
-const _qe = new THREE.Quaternion(), _d0 = new THREE.Vector3(), _d1 = new THREE.Vector3();
-function aimExtension(vis, te, hand, rudder) {
-  const ext = vis.extension, piv = vis.rudderPivot;
-  _d0.set(0, 1, 0).applyAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2 + 0.08);
-  _d1.subVectors(hand, te).applyAxisAngle(_up3, -piv.rotation.y);
-  if (_d1.lengthSq() < 1e-6) return;
-  _d1.normalize();
-  ext.quaternion.setFromUnitVectors(_d0, _d1);
 }

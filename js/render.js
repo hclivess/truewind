@@ -1,5 +1,5 @@
 // Three.js renderer: sky, Gerstner ocean (same spectrum as the physics), real-map terrain, piers,
-// lofted hulls, live sails (twist, camber, draft, luffing), telltales, crew, wakes, marks, cameras.
+// lofted hulls, live sails (twist, camber, draft, luffing), telltales, wakes, marks, cameras.
 import * as THREE from 'three';
 import { DEG } from './env.js';
 import { STRIP_F, REEF, clamp, lerp } from './physics.js';
@@ -8,9 +8,11 @@ import { Rigging, tickGlow } from './rigging.js';
 import { buildStructures, indexFeatures, structureMask } from './structures.js';
 import { HullSplash, SeaSpray } from './splash.js';
 import { loadLand, buildTerrain, buildScenery, setSceneryNight, tickScenery } from './scenery.js';
-import { SkySystem, SKY_LUT_GLSL, CLOUD_GLSL, withCloudShadows } from './sky.js';
+import { SkySystem, SKY_LUT_GLSL, CLOUD_GLSL, withCloudShadows, sunPosition, MIST_U } from './sky.js';
+import { strikes, flashAt, thunderDue, boltSegments, convection, heatFromSun, mist, mistTau } from './wx.js';
 
 const MAXW = 20;
+const FOAM_N = 512;   // persistent-foam map resolution (texels a side)
 
 // Gerstner components (same data as the physics): Wa = (dx, dz, k_deep, omega_doppler), Wb = (A, Q, phase, omega)
 // Depth from the chart texture (G channel, metres*8): finite-depth wavenumber, shoaling, breaking cap;
@@ -20,6 +22,26 @@ uniform vec4 uWa[${MAXW}];
 uniform vec4 uWb[${MAXW}];
 uniform int uWn;
 uniform float uTime;
+uniform float uK2;   // second-order (Tayfun) coefficient k_m / 2: WaveField.update
+// the whitecap measure shared by the water and the persistent-foam pass: a z-score of crest compression
+// (1 - Jacobian, long waves) plus the short waves riding them (which bits break)
+float crestZ(float J, float sJ2, float Cs, float sS2, float Cd, float sd2) {
+  return (0.5 * (1.0 - J) / sqrt(sJ2 + 1e-5) + 0.85 * (Cs + 0.4 * Cd) / sqrt(sS2 + 0.16 * sd2 + 1e-5)) / 1.3;
+}
+// hash without sin() (whose precision varies by GPU and blocks up at large arguments), lattice wrapped
+float hash(vec2 p){ p = mod(p, 4096.0); vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+vec2 hash2(vec2 p){ p = mod(p, 4096.0); vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy) * 2.0 - 1.0; }
+// gradient noise scaled to value-noise statistics (mean 0.5, sd 0.23): value noise's flat spot at every
+// lattice point showed thresholded foam as a mosaic of cells
+float qn(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  float a = dot(hash2(i), f), b = dot(hash2(i + vec2(1, 0)), f - vec2(1, 0)), c = dot(hash2(i + vec2(0, 1)), f - vec2(0, 1)), d = dot(hash2(i + vec2(1, 1)), f - vec2(1, 1));
+  return clamp(0.5 + 1.28 * mix(mix(a, b, u.x), mix(c, d, u.x), u.y), 0.0, 1.0); }
+// fbm with octaves finer than the footprint w (in p units) replaced by their mean (no shimmer)
+float sfbmA(vec2 p, float w){ float a = 0.55, s = 0.0, f = 1.0; mat2 r = mat2(0.8, -0.6, 0.6, 0.8);
+  for (int i = 0; i < 4; i++) { s += a * mix(0.5, qn(p), smoothstep(0.8, 0.3, w * f)); p = r * p * 2.1 + 3.7; f *= 2.1; a *= 0.5; } return s; }
+// z such that a normal variable exceeds it with probability p (p <= 0.5; Abramowitz-Stegun 26.2.23)
+float invTail(float p){ float t = sqrt(-2.0 * log(max(p, 1e-6)));
+  return t - (2.515517 + 0.802853 * t + 0.010328 * t * t) / (1.0 + 1.432788 * t + 0.189269 * t * t + 0.001308 * t * t * t); }
 uniform sampler2D uSdf; uniform float uWorldR; uniform float uHasMap;
 uniform sampler2D uPF; uniform float uHasPF; uniform float uPFN;
 // GLSL tanh/sinh overflow to NaN for large arguments on many GPUs: keep them bounded
@@ -127,8 +149,9 @@ export class Renderer {
       uGust: { value: this.gustTex }, uGustO: { value: new THREE.Vector2() }, uGustS: { value: 2048 },
       uSdf: { value: this.sdfTex }, uWorldR: { value: 6000 }, uHasMap: { value: 0 }, uOvercast: this.overcastU,
       uPF: { value: this.pfTex }, uHasPF: { value: 0 }, uPFN: { value: 96 },
-      uFlow: { value: new THREE.Vector2(0, 1) }, uWind: { value: 6 }, uFoamK: { value: 0 },
+      uFlow: { value: new THREE.Vector2(0, 1) }, uWind: { value: 6 }, uK2: { value: 0 },
       uHs: { value: 0 }, uJSig: { value: 0.1 }, uLmin: { value: 4 },
+      uFoam: { value: null }, uFoamC: { value: new THREE.Vector2() }, uFoamS: { value: 320 }, uFoamOff: { value: new THREE.Vector2() }, uFoamOn: { value: 0 },
       uHullA: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uHullB: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uHullN: { value: 0 },
       uDeep: { value: new THREE.Color(0x0a2f40) }, uShallow: { value: new THREE.Color(0x2e9c9a) },
       fogColor: { value: new THREE.Color(0xb7c8d4) }, fogDensity: { value: 0.00011 },
@@ -160,12 +183,16 @@ export class Renderer {
           float cap = uHasMap > 0.5 && Hs > 0.78 * h ? 0.78 * h / Hs : 1.0;
           vBreak = clamp(Hs / (0.78 * h) - 0.7, 0.0, 1.0);
           vec3 P = vec3(x0.x, 0.0, x0.y);
+          float eH = 0.0, s2 = 0.0;                       // Hilbert partner, trochoid self terms (WaveField.sample)
           for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break;
             vec4 a = uWa[i]; vec4 b = uWb[i];
             float th = a.z * dot(a.xy, x0) + phaseOff(i, x0) - a.w * uTime + b.z;
             float A = b.x * shoal(b.w, h) * cap * fade * shore * smoothstep(3.0 * spc, 6.0 * spc, 6.2832 / a.z);
-            P.x += b.y * A * a.x * cos(th); P.z += b.y * A * a.y * cos(th); P.y += A * sin(th);
+            float C = cos(th), S = sin(th);
+            P.x += b.y * A * a.x * C; P.z += b.y * A * a.y * C; P.y += A * S;
+            eH += A * C; s2 += b.y * A * A * (C * C - S * S);
           }
+          P.y += uK2 * (P.y * P.y - eH * eH + s2);          // second order: sharper crests, flatter troughs
           vPos = P; vX0 = x0; vFade = fade; vShore = shore;
           gl_Position = projectionMatrix * viewMatrix * vec4(P, 1.0);
         }`,
@@ -177,26 +204,17 @@ export class Renderer {
         uniform vec3 uSunDir; uniform vec3 uSunCol; uniform samplerCube uEnv; uniform float uAmbF; uniform vec3 uLightDir; uniform sampler2D uSkyRT; uniform mat4 uSkyVP;
         uniform vec3 uCam; uniform sampler2D uGust; uniform vec2 uGustO; uniform float uGustS;
         uniform vec4 uHullA[4]; uniform vec4 uHullB[4]; uniform int uHullN;   // A = (x, z, sinψ, cosψ), B = (halfL, halfB, xOff, n)
-        uniform vec2 uFlow; uniform float uWind; uniform float uFoamK; uniform float uHs; uniform float uJSig; uniform float uLmin;
+        uniform vec2 uFlow; uniform float uWind; uniform float uHs; uniform float uJSig; uniform float uLmin;
+        uniform sampler2D uFoam; uniform vec2 uFoamC; uniform float uFoamS; uniform vec2 uFoamOff; uniform float uFoamOn;
         uniform vec3 uDeep; uniform vec3 uShallow; uniform vec3 fogColor; uniform float fogDensity;
         varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore; varying float vBreak;
-        float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-        float qn(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-          return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y); }
-        float sfbm(vec2 p){ float a = 0.55, s = 0.0; mat2 r = mat2(0.8, -0.6, 0.6, 0.8); for (int i = 0; i < 4; i++) { s += a * qn(p); p = r * p * 2.1 + 3.7; a *= 0.5; } return s; }
         // value noise and its gradient (quintic): (v, dv/dx, dv/dy)
         vec3 qnd(vec2 p){ vec2 i = floor(p), f = fract(p);
           vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0), du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
           float a = hash(i), b = hash(i + vec2(1, 0)), c = hash(i + vec2(0, 1)), d = hash(i + vec2(1, 1)), e = a - b - c + d;
           return vec3(a + (b - a) * u.x + (c - a) * u.y + e * u.x * u.y, du * vec2(b - a + e * u.y, c - a + e * u.x)); }
-        // the same, with octaves finer than the pixel footprint w (in p units) replaced by their mean (no shimmer)
-        float sfbmA(vec2 p, float w){ float a = 0.55, s = 0.0, f = 1.0; mat2 r = mat2(0.8, -0.6, 0.6, 0.8);
-          for (int i = 0; i < 4; i++) { s += a * mix(0.5, qn(p), smoothstep(0.8, 0.3, w * f)); p = r * p * 2.1 + 3.7; f *= 2.1; a *= 0.5; } return s; }
         float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
           return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
-        // z such that a normal variable exceeds it with probability p (p <= 0.5; Abramowitz-Stegun 26.2.23)
-        float invTail(float p){ float t = sqrt(-2.0 * log(max(p, 1e-6)));
-          return t - (2.515517 + 0.802853 * t + 0.010328 * t * t) / (1.0 + 1.432788 * t + 0.189269 * t * t + 0.001308 * t * t * t); }
         void main(){
           vec2 x0 = vX0;
           float dist = length(vPos - uCam);
@@ -209,6 +227,7 @@ export class Renderer {
           float lost = 0.0;
           // analytic Gerstner normal + Jacobian (crest sharpness) for whitecaps
           vec3 n = vec3(0.0, 1.0, 0.0); float J = 1.0, sJ2 = 0.0, Cs = 0.0, sS2 = 0.0;
+          float e1 = 0.0, eH = 0.0; vec2 gH = vec2(0.0), g2 = vec2(0.0);    // second order: height, Hilbert partner, slopes
           for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break;
             vec4 a = uWa[i]; vec4 b = uWb[i];
             float th = a.z * dot(a.xy, x0) + phaseOff(i, x0) - a.w * uTime + b.z;
@@ -216,12 +235,15 @@ export class Renderer {
             float WA0 = kw * b.x * shoal(b.w, hd) * vFade * vShore;
             float att = smoothstep(fp * 2.0, fp * 6.0, 6.2832 / kw);
             lost += (1.0 - att) * WA0 * WA0 * 0.5;
-            float WA = WA0 * att;
-            n.x -= a.x * WA * cos(th); n.z -= a.y * WA * cos(th); n.y -= b.y * WA * sin(th);
-            J -= b.y * WA * sin(th); sJ2 += b.y * b.y * WA * WA * 0.5;
+            float WA = WA0 * att, C = cos(th), S = sin(th), A = WA / kw;
+            n.x -= a.x * WA * C; n.z -= a.y * WA * C; n.y -= b.y * WA * S;
+            J -= b.y * WA * S; sJ2 += b.y * b.y * WA * WA * 0.5;
             float ws = smoothstep(80.0, 20.0, 6.2832 / kw);                  // the short waves break on the long crests
-            Cs += ws * b.y * WA * sin(th); sS2 += ws * ws * b.y * b.y * WA * WA * 0.5;
+            Cs += ws * b.y * WA * S; sS2 += ws * ws * b.y * b.y * WA * WA * 0.5;
+            e1 += A * S; eH += A * C; gH += a.xy * WA * S; g2 -= a.xy * 4.0 * b.y * A * WA * S * C;
           }
+          // slope of eta2 = K2 (eta^2 - H^2 + Q-self): n.xz here is minus the first-order slope
+          n.xz -= uK2 * (-2.0 * e1 * n.xz + 2.0 * eH * gH + g2);
           // local wind (puffs + land shelter): the short waves answer it within seconds, so puffs read dark
           vec2 guv = (x0 - uGustO) / uGustS + 0.5;
           float gw = texture2D(uGust, guv).r * 2.0;
@@ -325,36 +347,65 @@ export class Renderer {
           // on the steepest crests: a z-score of crest compression (1 - Jacobian) against its local spread
           float Wc = clamp(3.84e-6 * pow(max(lw, 0.0), 3.41), 0.0, 0.3);
           // long waves say where (their crests), the short waves riding them say exactly which bits break
-          float zc = (0.5 * (1.0 - J) / sqrt(sJ2 + 1e-5) + 0.85 * (Cs + 0.4 * Cd) / sqrt(sS2 + 0.16 * sd2 + 1e-5)) / 1.3;
-          vec2 sw = vec2(dot(x0, uFlow), dot(x0, vec2(-uFlow.y, uFlow.x)));    // (downwind, across)
-          float fAA = smoothstep(0.4, 3.0, fp);                                // texture detail lost to distance
+          float zc = crestZ(J, sJ2, Cs, sS2, Cd, sd2);
           // foam texture is fixed in the water (x0 is the undisplaced, Lagrangian position): it rides the
-          // orbital motion of the waves and drifts slowly downwind
-          vec2 q = vec2(sw.x * 0.28, sw.y * 0.6) - vec2(uTime * 0.12, 0.0);
+          // orbital motion of the waves and moves with their mean (Stokes) drift, as the foam pass does
+          vec2 xd = x0 - uFoamOff;
+          vec2 sw = vec2(dot(xd, uFlow), dot(xd, vec2(-uFlow.y, uFlow.x)));    // (downwind, across)
+          float fAA = smoothstep(0.4, 3.0, fp);                                // texture detail lost to distance
+          vec2 q = vec2(sw.x * 0.28, sw.y * 0.6);
           float f1 = sfbmA(q, fp * 0.6), f2 = sfbmA(q * 3.1 + 7.1, fp * 1.9);
           float lace = smoothstep(0.32, 0.68, f1 * 0.6 + f2 * 0.4);
           float foam = 0.0;
+          // persistent foam around the player (the foam pass: whitecaps and wakes that linger, drift and
+          // gather into windrows): dense while fresh, thinning to a lace of bubbles as it decays
+          float pm = 0.0, pers = 0.0;
+          #ifndef LOWQ
+          vec2 fuv = (x0 - uFoamC) / uFoamS + 0.5;
+          pm = uFoamOn * (1.0 - smoothstep(0.36, 0.48, max(abs(fuv.x - 0.5), abs(fuv.y - 0.5))));
+          if (pm > 0.0) {
+            // cubic B-spline read (4 bilinear taps): plain bilinear leaves its texel creases in the thresholded
+            // foam as straight edges and diamonds
+            vec2 tp = fuv * ${FOAM_N}.0 - 0.5, ti = floor(tp), tf = tp - ti, tf2 = tf * tf, tf3 = tf2 * tf;
+            vec2 w0 = (1.0 - 3.0 * tf + 3.0 * tf2 - tf3) / 6.0, w1 = (4.0 - 6.0 * tf2 + 3.0 * tf3) / 6.0, w3 = tf3 / 6.0, g0 = w0 + w1, g1 = 1.0 - g0;
+            vec2 h0 = (ti - 0.5 + w1 / g0) / ${FOAM_N}.0, h1 = (ti + 1.5 + w3 / g1) / ${FOAM_N}.0;
+            vec2 PP = g0.y * (g0.x * texture2D(uFoam, h0).rg + g1.x * texture2D(uFoam, vec2(h1.x, h0.y)).rg)
+                    + g1.y * (g0.x * texture2D(uFoam, vec2(h0.x, h1.y)).rg + g1.x * texture2D(uFoam, h1).rg);
+            float P = max(PP.x, min(1.0, PP.y * 1.5));                         // whitecap foam, wake foam (shows sooner)
+            float det = f1 * 0.45 + f2 * 0.35 + lace * 0.2, pw = 0.1 + 0.3 * fAA;
+            pers = smoothstep(1.0 - 0.7 * P - pw, 1.0 - 0.7 * P + pw, det) * min(1.0, P * 2.0) * 0.85 * pm;
+          }
+          #endif
+          // gale streak rows: across-wind coordinate, meandering (and its change per pixel, outside any branch)
+          float ya = sw.y + 14.0 * (qn(sw * vec2(0.005, 0.012)) - 0.5) + 4.0 * (qn(sw * vec2(0.025, 0.05) + 5.0) - 0.5);
+          float fwY = length(vec2(dFdx(ya), dFdy(ya)));
           if (Wc > 2e-4) {
             float zA = invTail(0.4 * Wc);                                      // active breaking crests
             float act = smoothstep(zA - 0.15, zA + 0.4, zc + (f1 - 0.5) * 1.1) * (0.5 + 0.5 * lace);
-            // residual foam: thinning lace around the crests, and patches of old foam that ride the water
-            float big = sfbmA(sw * vec2(0.02, 0.05) + vec2(-uTime * 0.006, 3.3), fp * 0.05);
+            // residual foam: thinning lace around the crests, and (beyond the foam pass) patches of old foam
+            float big = sfbmA(sw * vec2(0.02, 0.05) + vec2(0.0, 3.3), fp * 0.05);
             float thrB = 0.5 + 0.12 * invTail(clamp(0.6 * Wc, 1e-4, 0.5));
-            float resid = max(smoothstep(zA - 0.6, zA, zc) * 0.35, smoothstep(thrB - 0.03, thrB + 0.08, big) * 0.35) * lace;
-            // gale: foam blown into long, narrow, meandering streaks along the wind (Beaufort 8 and up)
+            float resid = max(smoothstep(zA - 0.6, zA, zc), smoothstep(thrB - 0.03, thrB + 0.08, big) * (1.0 - pm)) * 0.35 * lace;
+            // gale: foam blown into streaks along the wind (Beaufort 8 and up) — windrows ~9 m apart that
+            // meander, break into runs tens of metres long, each run its own width; box-filtered across the
+            // pixel, so a far streak fades with its width instead of staying a bright hairline
             float st = smoothstep(13.0, 24.0, lw);
-            float ya = sw.y + 10.0 * (qn(sw * vec2(0.008, 0.015)) - 0.5) + 2.0 * (qn(sw * vec2(0.03, 0.06) + 5.0) - 0.5);
-            float ridge = 1.0 - abs(2.0 * qn(vec2(sw.x * 0.015 - uTime * 0.02, ya * 0.3)) - 1.0);   // thin lines ~3 m apart
-            float wd = 0.2 + fp * 0.1;                                         // widen with distance, then fade to a mean
-            float line = smoothstep(1.0 - wd, 1.0 - wd * 0.15, ridge) * smoothstep(0.45, 0.75, qn(vec2(sw.x * 0.08, ya * 0.1) + 9.0));
-            line = mix(line, 0.15, smoothstep(0.6, 3.0, fp));
-            float streak = st * line * mix(smoothstep(0.3, 0.8, f2) * (0.4 + 0.6 * lace), 0.4, fAA);
-            foam = max(act * (0.7 + 0.3 * f2), max(resid, streak * 0.5));
+            float row = floor(ya / 9.0), fy = ya - 9.0 * (row + 0.3 + 0.4 * hash(vec2(row, 3.7)));
+            float rh = hash(vec2(row, 1.9)) * 97.0 + 0.5;                      // this row's own noise (off the lattice)
+            float wdt = 0.3 + 1.2 * qn(vec2(sw.x * 0.03, rh));                 // half-width, m
+            // runs tens of metres long with gaps, beaded with thicker clots every 10-20 m
+            float run = smoothstep(0.45, 0.7, qn(vec2(sw.x * 0.02, rh + 0.5))) * (0.35 + 0.65 * smoothstep(0.3, 0.7, qn(vec2(sw.x * 0.08, rh + 0.25))));
+            float fw = fwY + 0.4 * wdt;                                        // plus a soft edge
+            float line = clamp((min(fy + 0.5 * fw, wdt) - max(fy - 0.5 * fw, -wdt)) / fw, 0.0, 1.0) * run;
+            float streak = st * line * mix(smoothstep(0.3, 0.8, f2) * (0.4 + 0.6 * lace), 0.3, fAA);
+            foam = max(act * (0.7 + 0.3 * f2), max(resid, streak * 0.55));
           }
-          // up close foam is bubbles and holes, not paint
+          foam = max(foam, pers);
+          // up close foam is bubbles and holes, not paint (faded out before the bubbles shrink to a pixel)
           #ifndef LOWQ
-          float grain = sfbmA(x0 * 3.0 + vec2(-uTime * 0.2, 0.0), fp * 3.0);
-          foam *= mix(1.0, smoothstep(0.25, 0.6, grain) * 1.15, 0.6);
+          float gfp = fp * 3.0;
+          float grain = sfbmA(mat2(0.8, 0.6, -0.6, 0.8) * xd * 3.0, gfp);
+          foam *= mix(1.0, smoothstep(0.25, 0.6, grain) * 1.15, 0.6 * smoothstep(0.6, 0.15, gfp));
           #endif
           // depth-limited breaking on real bathymetry
           foam = max(foam, smoothstep(1.0 - vBreak * 0.9, 1.25 - vBreak * 0.9, f1 * 0.7 + f2 * 0.3) * vBreak);
@@ -367,6 +418,7 @@ export class Renderer {
           }
           float fogF = 1.0 - exp(-pow(fogDensity * dist, 2.0));
           col = mix(col, skyColor(normalize(vec3(-V.x, 0.02, -V.z))), clamp(fogF, 0.0, 1.0));
+          col = mix(uMistCol, col, exp(-mistTau(uCam, vPos)));   // mist / sea fog (sky.js MIST_GLSL)
           gl_FragColor = vec4(col, 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
@@ -375,6 +427,130 @@ export class Renderer {
     this.water = new THREE.Mesh(g, m);
     this.water.frustumCulled = false;
     this.scene.add(this.water);
+    if (!this.low) this._buildFoam();
+  }
+
+  // Persistent foam: a map of how much foam the water carries, FN^2 texels over uFoamS metres around the
+  // player, in undisplaced (Lagrangian) water coordinates so the water shader's foam rides the orbital
+  // motion. Each frame the old foam is carried by the waves' Stokes drift and by Langmuir cells' cross-wind
+  // convergence (which gathers it into the same windrows the water draws as gale streaks), spreads a
+  // little and fades over 5-15 s; new foam comes from the breaking crests (the water shader's whitecap
+  // measure) and from the boats' sterns. ?q=low goes without (procedural old foam and the wake ribbon).
+  _buildFoam() {
+    const mk = () => new THREE.WebGLRenderTarget(FOAM_N, FOAM_N, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
+    this.foamRT = [mk(), mk()]; this.foamI = 0; this.foamT = null;
+    const U = this.waterU, v4 = () => [0, 1, 2, 3].map(() => new THREE.Vector4());
+    const fu = { uPrev: { value: null }, uCp: { value: new THREE.Vector2() }, uDt: { value: 0 }, uDrift: { value: new THREE.Vector2() }, uLang: { value: 0 }, uKeep: { value: 0 }, uWake: { value: v4() }, uWakeW: { value: v4() } };
+    for (const k of ['uWa', 'uWb', 'uWn', 'uTime', 'uK2', 'uSdf', 'uWorldR', 'uHasMap', 'uPF', 'uHasPF', 'uPFN', 'uGust', 'uGustO', 'uGustS', 'uFlow', 'uWind', 'uFoamC', 'uFoamS', 'uFoamOff']) fu[k] = U[k];
+    this.foamU = fu;
+    const mat = new THREE.ShaderMaterial({
+      uniforms: fu, depthTest: false, depthWrite: false,
+      vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+      fragmentShader: /* glsl */`
+        ${WAVE_GLSL}
+        uniform sampler2D uPrev; uniform vec2 uCp; uniform float uDt; uniform vec2 uDrift; uniform float uLang; uniform float uKeep;
+        const float uTexel = 1.0 / ${FOAM_N}.0;
+        uniform vec4 uWake[4]; uniform vec4 uWakeW[4];          // stern path this frame (x0a, z0a, x0b, z0b); (half-width, strength)
+        uniform sampler2D uGust; uniform vec2 uGustO; uniform float uGustS; uniform vec2 uFlow; uniform float uWind;
+        uniform vec2 uFoamC; uniform float uFoamS; uniform vec2 uFoamOff;
+        varying vec2 vUv;
+        void main(){
+          vec2 p = uFoamC + (vUv - 0.5) * uFoamS, cell = vec2(uFoamS * uTexel);
+          float hd = depthAt(p), shore = 1.0;
+          if (uHasMap > 0.5) shore = clamp((texture2D(uSdf, (p + uWorldR) / (2.0 * uWorldR)).r * 255.0 - 128.0) / 60.0, 0.08, 1.0);
+          // crest compression as the water shader measures it (waves shorter than the map resolves left out)
+          float J = 1.0, sJ2 = 0.0, Cs = 0.0, sS2 = 0.0;
+          for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break;
+            vec4 a = uWa[i]; vec4 b = uWb[i];
+            float th = a.z * dot(a.xy, p) + phaseOff(i, p) - a.w * uTime + b.z;
+            float kw = kDepth(b.w, hd);
+            float WA = kw * b.x * shoal(b.w, hd) * shore * smoothstep(2.0 * cell.x, 4.0 * cell.x, 6.2832 / kw), S = sin(th);
+            J -= b.y * WA * S; sJ2 += b.y * b.y * WA * WA * 0.5;
+            float ws = smoothstep(80.0, 20.0, 6.2832 / kw);
+            Cs += ws * b.y * WA * S; sS2 += ws * ws * b.y * b.y * WA * WA * 0.5;
+          }
+          float lw = uWind * texture2D(uGust, (p - uGustO) / uGustS + 0.5).r * 2.0;
+          float Wc = clamp(3.84e-6 * pow(max(lw, 0.0), 3.41), 0.0, 0.3);
+          vec2 xd = p - uFoamOff, pr = vec2(-uFlow.y, uFlow.x);
+          vec2 sw = vec2(dot(xd, uFlow), dot(xd, pr));
+          float f1 = sfbmA(vec2(sw.x * 0.28, sw.y * 0.6), cell.x * 0.28);
+          float act = Wc > 2e-4 ? smoothstep(invTail(0.4 * Wc) - 0.15, invTail(0.4 * Wc) + 0.4, crestZ(J, sJ2, Cs, sS2, 0.0, 0.0) + (f1 - 0.5) * 1.1) : 0.0;
+          // Langmuir windrows: cross-wind convergence onto the water shader's streak lines (same rows)
+          float ya = sw.y + 14.0 * (qn(sw * vec2(0.005, 0.012)) - 0.5) + 4.0 * (qn(sw * vec2(0.025, 0.05) + 5.0) - 0.5);
+          float row = floor(ya / 9.0), fy = ya - 9.0 * (row + 0.3 + 0.4 * hash(vec2(row, 3.7)));
+          vec2 v = uDrift - pr * uLang * clamp(fy / 3.0, -1.0, 1.0);
+          float conv = abs(fy) < 3.0 ? uLang / 3.0 : 0.0;
+          // carried foam (semi-Lagrangian), spreading (the wake, r g, faster: its turbulence widens it);
+          // nothing comes in from beyond the map
+          vec2 uv = (p - v * uDt - uCp) / uFoamS + 0.5, e = vec2(uTexel, 0.0);
+          vec2 old = vec2(0.0);
+          if (uKeep > 0.5 && all(greaterThan(uv, e.xx)) && all(lessThan(uv, 1.0 - e.xx))) {
+            vec2 c = texture2D(uPrev, uv).rg;
+            vec2 nb = texture2D(uPrev, uv + e.xy).rg + texture2D(uPrev, uv - e.xy).rg + texture2D(uPrev, uv + e.yx).rg + texture2D(uPrev, uv - e.yx).rg;
+            old = c + (nb - 4.0 * c) * min(vec2(0.2), vec2(0.08, 0.15) * uDt / (cell.x * cell.x));
+          }
+          float tau = 3.0 + 6.0 * qn(xd * 0.04 + 1.3);                   // e-folding, patchy: gone in ~5-15 s
+          old *= exp(-uDt / vec2(tau, 12.0)) * (1.0 + conv * uDt);
+          float src = act * 2.0 * uDt, wake = 0.0;                       // ~0.5 s of breaking to full cover
+          for (int i = 0; i < 4; i++) {
+            vec4 w = uWake[i]; vec4 ww = uWakeW[i];
+            if (ww.y <= 0.0) continue;
+            vec2 ab = w.zw - w.xy, ap = p - w.xy;
+            float d = length(ap - ab * clamp(dot(ap, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0));
+            wake += ww.y * smoothstep(ww.x, ww.x * 0.3, d) * (0.6 + 0.8 * f1) * 5.0 * uDt;
+          }
+          gl_FragColor = vec4(min(old + vec2(src, wake), 1.0), 0.0, 1.0);
+        }`,
+    });
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); quad.frustumCulled = false;
+    this.foamScene = new THREE.Scene(); this.foamScene.add(quad);
+    this.foamCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    this._sternPrev = new Map();
+    U.uFoamOn.value = 1;
+  }
+  // one step of the foam map (and, at any quality, the drift of the foam texture)
+  _updateFoam(t, env, boats, player) {
+    const dt0 = this.foamT === null ? 0 : t - this.foamT;
+    const jump = this.foamT === null || dt0 < 0 || dt0 > 5;
+    this.foamT = t;
+    const dt = jump ? 0 : Math.min(dt0, 0.25), W = env.waves, U = this.waterU;
+    const dr = env.wavesOn && W.drift ? W.drift : { x: 0, z: 0 };
+    U.uFoamOff.value.x += dr.x * dt; U.uFoamOff.value.y += dr.z * dt;
+    if (!this.foamRT || !player || (dt <= 0 && !jump)) return;
+    const F = this.foamU, S = U.uFoamS.value, cs = S / FOAM_N, cam = this.camera;
+    // centred a little ahead of the camera's view of the player, snapped to whole texels (no smearing)
+    const d = cam.getWorldDirection(this._camDir || (this._camDir = new THREE.Vector3())), h = Math.hypot(d.x, d.z) || 1;
+    F.uCp.value.copy(U.uFoamC.value);
+    U.uFoamC.value.set(Math.round((player.x + d.x / h * 0.2 * S) / cs) * cs, Math.round((player.z + d.z / h * 0.2 * S) / cs) * cs);
+    F.uDt.value = dt; F.uKeep.value = jump ? 0 : 1;
+    F.uDrift.value.set(dr.x, dr.z);
+    const U10 = env.wind.tws;
+    F.uLang.value = 0.008 * U10 * clamp((U10 - 3) / 5, 0, 1);
+    // wakes: each boat's stern path since the last step, in the same water coordinates
+    const s = this._fs || (this._fs = {});
+    let n = 0;
+    for (const b of boats) {
+      if (n >= 4) break;
+      const P = b.pose || b, C = b.cls, fx = Math.sin(P.psi), fz = -Math.cos(P.psi);
+      const sx = P.x + fx * C.sternX * 0.9, sz = P.z + fz * C.sternX * 0.9;
+      if (Math.abs(sx - U.uFoamC.value.x) > S / 2 || Math.abs(sz - U.uFoamC.value.y) > S / 2) continue;
+      let x0 = sx, z0 = sz;
+      if (env.wavesOn) { W.sample(sx, sz, t, s); x0 = s.x0; z0 = s.z0; }
+      const prev = this._sternPrev.get(b), ok = prev && !jump && Math.hypot(x0 - prev[0], z0 - prev[1]) < 10;
+      this._sternPrev.set(b, [x0, z0]);
+      if (!ok) continue;
+      const sp = Math.hypot(b.u || 0, b.v || 0);
+      F.uWake.value[n].set(prev[0], prev[1], x0, z0);
+      F.uWakeW.value[n].set((C.hullBeam ?? C.beam) * (0.35 + 0.05 * sp), clamp((sp - 0.4) / 3, 0, 1), 0, 0);
+      n++;
+    }
+    for (let i = n; i < 4; i++) F.uWakeW.value[i].set(0, 0, 0, 0);
+    const src = this.foamRT[this.foamI], dst = this.foamRT[1 - this.foamI];
+    F.uPrev.value = src.texture;
+    const r = this.r, prevRT = r.getRenderTarget();
+    r.setRenderTarget(dst); r.render(this.foamScene, this.foamCam); r.setRenderTarget(prevRT);
+    this.foamI = 1 - this.foamI;
+    U.uFoam.value = dst.texture;
   }
 
   setWaves(waves) {
@@ -390,6 +566,7 @@ export class Renderer {
     // and the shortest modelled wave, where the drawn-only short waves take over
     let lmin = 1e9; for (let i = 0; i < n; i++) lmin = Math.min(lmin, 2 * Math.PI / (waves.comps[i].kRef ?? waves.comps[i].k));
     U.uHs.value = waves.Hs || 0; U.uJSig.value = Math.max(0.02, waves.jSigma || 0.1); U.uLmin.value = Math.min(lmin, 12);
+    U.uK2.value = waves.k2 || 0;
   }
   // spindrift blown off breaking crests around the camera (gale force only)
   _updateSeaSpray(dt, t, env) {
@@ -418,22 +595,68 @@ export class Renderer {
     U.uPF.value = this.pfTex; U.uHasPF.value = 1; U.uPFN.value = N;
   }
 
-  // ---------------------------------------------------------------- weather: overcast, rain, squall clouds
+  // ---------------------------------------------------------------- weather: overcast, rain, squall clouds, lightning, mist
   _buildRain() {
     const n = this.low ? 1500 : 4000;
     const pos = new Float32Array(n * 6);
+    // drop positions from a fixed sequence (golden-ratio lattice), not Math.random: the same rain everywhere
     this.rainSeeds = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) { this.rainSeeds[i * 3] = Math.random(); this.rainSeeds[i * 3 + 1] = Math.random(); this.rainSeeds[i * 3 + 2] = Math.random(); }
+    for (let i = 0; i < n; i++) { this.rainSeeds[i * 3] = (i * 0.6180339887) % 1; this.rainSeeds[i * 3 + 1] = (i * 0.7548776662 + 0.31) % 1; this.rainSeeds[i * 3 + 2] = (i * 0.5698402910 + 0.67) % 1; }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     this.rain = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xc9d4dc, transparent: true, opacity: 0.0, depthWrite: false }));
     this.rain.frustumCulled = false; this.scene.add(this.rain);
+    // the water shares the sky's cell, convection and mist uniforms (its shader includes CLOUD_GLSL and the mist)
+    for (const k of ['uCellsB', 'uTower', 'uStrat', 'uMist', 'uMistCol']) this.waterU[k] = this.skySys.U[k];
+    // lightning bolts: camera-facing ribbons (a few pixels wide at any distance), additive, lit by nothing
+    this.bolts = [0, 1].map(() => {
+      const m = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
+        uniforms: { uRes: { value: new THREE.Vector2(1280, 720) }, uWidth: { value: 3 }, uI: { value: 0 } },
+        vertexShader: /* glsl */`
+          attribute vec3 aOther; attribute float aSide; attribute float aI;
+          uniform vec2 uRes; uniform float uWidth; varying float vS; varying float vI;
+          void main() {
+            vec4 a = projectionMatrix * modelViewMatrix * vec4(position, 1.0), b = projectionMatrix * modelViewMatrix * vec4(aOther, 1.0);
+            vec2 d = (b.xy / max(b.w, 1e-3) - a.xy / max(a.w, 1e-3)) * uRes; float l = length(d); d = l > 1e-5 ? d / l : vec2(1.0, 0.0);
+            a.xy += vec2(-d.y, d.x) * aSide * uWidth * (0.45 + 0.55 * aI) / uRes * 2.0 * a.w;
+            gl_Position = a; vS = aSide; vI = aI;
+          }`,
+        fragmentShader: /* glsl */`
+          uniform float uI; varying float vS; varying float vI;
+          void main() {
+            float x = vS * vS;
+            gl_FragColor = vec4(vec3(0.82, 0.86, 1.0) * uI * vI * (exp(-x * 10.0) + 0.3 * exp(-x * 2.5)), 1.0);
+            #include <tonemapping_fragment>
+            #include <colorspace_fragment>
+          }`,
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+      }));
+      m.frustumCulled = false; m.visible = false; m.renderOrder = 5; this.scene.add(m);
+      return m;
+    });
+    this.thunderLog = [];
+  }
+  // a ribbon mesh for a strike's channel (wx.boltSegments): 4 vertices per segment, each end knowing the other
+  _setBolt(m, s, top) {
+    const sg = boltSegments(s, top), n = sg.length / 7;
+    const P = new Float32Array(n * 12), O = new Float32Array(n * 12), S = new Float32Array(n * 4), I = new Float32Array(n * 4), idx = new Uint32Array(n * 6);
+    for (let i = 0; i < n; i++) {
+      const q = i * 7, a = [sg[q], sg[q + 1], sg[q + 2]], b = [sg[q + 3], sg[q + 4], sg[q + 5]];
+      const ends = [[a, b, 1], [a, b, -1], [b, a, -1], [b, a, 1]];   // the far end sees the segment reversed: side flips
+      ends.forEach(([p, o, sd], j) => { P.set(p, (i * 4 + j) * 3); O.set(o, (i * 4 + j) * 3); S[i * 4 + j] = sd; I[i * 4 + j] = sg[q + 6]; });
+      idx.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3], i * 6);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(P, 3)); g.setAttribute('aOther', new THREE.BufferAttribute(O, 3));
+    g.setAttribute('aSide', new THREE.BufferAttribute(S, 1)); g.setAttribute('aI', new THREE.BufferAttribute(I, 1));
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    m.geometry.dispose(); m.geometry = g; m.userData.id = s.id;
   }
   updateWeather(env, t, cam) {
     const W = env.weather; if (!W) return;
     const sky = W.sky(cam.x, cam.z, t, this._sky || (this._sky = {}));
     const oc = sky.overcast;
     // clouds drift with the wind aloft and thicken with the weather; squall cells tower
-    const mw = env.wind.mean(t);
+    const mw = env.wind.mean(t), kts = mw.speed / 0.5144;
     // smoothed in time, not per frame (the same at 20 or 144 fps); a jump in t (joining a room, time warp) snaps
     const dtw = t - (this._wxT ?? -1e9); this._wxT = t;
     const kw = dtw < 0 || dtw > 30 ? 1 : 1 - Math.exp(-dtw / 3);
@@ -443,11 +666,20 @@ export class Renderer {
     const vw = env.wind.tws * 1.3, dw = env.wind.twd;
     const drift = (this._drift || (this._drift = new THREE.Vector2())).set(Math.sin(dw) * vw * t, -Math.cos(dw) * vw * t);
     const cells = W.activeCells ? W.activeCells(t) : [];
-    this.skySys.setWeather(Math.min(1, 0.22 + 0.95 * oc), cells, drift, t, mw.speed / 0.5144);
+    // the day (wx.js): the sun now and an hour and a half ago (the cumulus lag the sun) at the venue
+    const S = this.skySys, lat = S.lat ?? 32, lon = S.lon ?? -40, ms = S.ms ?? Date.now();
+    const conv = convection(W.mode, heatFromSun(sunPosition(ms - 5.4e6, lat, lon).el), kts);
+    this.convState = conv;
+    this.skySys.setWeather(Math.min(1, 0.95 * oc + conv.cover), cells, drift, t, kts, conv);
     // visibility: heavy rain closes it to ~1-2 km, and the haze turns rain-grey (applied to the fog colour in update)
     this.scene.fog.density = 0.00011 + 0.0012 * sky.rain;
     this.waterU.fogDensity.value = this.scene.fog.density;
     this._rainFog = sky.rain;
+    // mist and sea fog (wx.mist): a layer at the surface, eased like the clouds
+    const hour = ((ms / 3.6e6 + lon / 15) % 24 + 24) % 24;
+    const mi = this.mistState = mist(W.mode, W.seed ?? 0, t, S.sunEl ?? 0.5, hour, lat, kts, sky.cold || 0, this.mistState || {});
+    const mv = MIST_U.uMist.value, km = dtw < 0 || dtw > 30 ? 1 : 1 - Math.exp(-dtw / 5);
+    mv.x += (mi.sigma - mv.x) * km; mv.y += (Math.max(4, mi.H) - mv.y) * km; mv.z = 0.55;
     // rain: drops fixed in the world, falling at ~7 m/s and blown along by the wind, drawn as short
     // motion-blur streaks along their velocity; heavier rain = more drops, not just brighter ones
     const rain = sky.rain;
@@ -469,17 +701,49 @@ export class Renderer {
       this.rain.geometry.attributes.position.needsUpdate = true;
       this.rain.material.opacity = Math.min(0.6, 0.25 + 0.4 * rain);
     }
-    // lightning from mature cells: deterministic in t (everyone in a room sees the same flashes); a
-    // flash is a double flicker over ~0.3 s, dimmer with distance
-    this._flash = 0;
-    for (let i = 0; i < cells.length; i++) {
-      const c = cells[i]; if (c.w < 0.6) continue;
-      const slot = Math.floor(t / 0.3) + i * 7919, h = Math.abs((Math.sin(slot * 12.9898) * 43758.5453) % 1);
-      if (h < 0.02 * (c.w - 0.5)) {
-        const ph = (t / 0.3) % 1, d = Math.hypot(cam.x - c.x, cam.z - c.z);
-        this._flash = Math.max(this._flash, (ph < 0.2 || (ph > 0.45 && ph < 0.6) ? 1 : 0.25) * (1 - ph) / (1 + d / 4000));
+    this._lightning(cells, t, cam);
+  }
+  // lightning (wx.js): strikes are a pure function of (seed, cell, time), so everyone in a room sees the same
+  // bolt at the same moment and hears its thunder when the sound gets to them. The flash lights the cloud
+  // from inside (sky march), the scene by proximity (hemisphere fill, water, haze), and a cloud-to-ground
+  // strike draws its branched channel from the base to the sea.
+  _lightning(cells, t, cam) {
+    const list = this._strikes || (this._strikes = []); list.length = 0;
+    if (cells.length) strikes(cells, t, Math.max(0, t - 90), t + 1e-6, list);
+    const U = this.skySys.U, base = U.uCloudBase.value * 0.72, mv = MIST_U.uMist.value;
+    let best = null, bestI = 0, light = 0, nb = 0;
+    for (const s of list) {
+      if (t - s.ts > 1.5) continue;
+      const I = flashAt(s, t); if (I <= 0) continue;
+      const fy = s.cg ? base * 0.6 : s.y, d = Math.hypot(cam.x - s.x, cam.y - fy, cam.z - s.z);
+      // what reaches the eye through the rain haze and any mist
+      const att = Math.exp(-((this.scene.fog.density * d) ** 2)) * Math.exp(-mistTau(mv.x, mv.y, cam.x, cam.y, cam.z, s.x, fy, s.z));
+      light += I * (s.cg ? 1 : 0.5) / (1 + (d / 1100) ** 2);
+      if (I > bestI) { bestI = I; best = s; }
+      if (s.cg && nb < this.bolts.length) {
+        const m = this.bolts[nb++];
+        if (m.userData.id !== s.id) this._setBolt(m, s, base + 60);
+        m.visible = true;
+        m.material.uniforms.uI.value = 40 * I * att;
+        m.material.uniforms.uWidth.value = Math.max(1.3, Math.min(7, 2.4 * 3000 / Math.max(300, d))) * this.r.getPixelRatio();
+        this.r.getDrawingBufferSize(m.material.uniforms.uRes.value);
       }
     }
+    for (let i = nb; i < this.bolts.length; i++) this.bolts[i].visible = false;
+    if (best) U.uFlash.value.set(best.x, best.cg ? base + 400 : best.y, best.z, bestI * (2 + 5 * clamp((0.05 - (this.skySys.sunEl ?? 0.5)) / 0.15, 0, 1)))   // (a flash is far brighter against a night sky); else U.uFlash.value.w = 0;
+    if (bestI > 0) this._lastFlashT = t;
+    this.skySys.noHist = bestI > 0 || t - (this._lastFlashT ?? -1e9) < 0.25;
+    this._flashLight = light;
+    // thunder: fired in sim time when the sound front (343 m/s) from the nearest part of the channel reaches
+    // the camera, so it waits through a pause and hurries with time warp; audio.js listens for the event
+    const due = thunderDue(list, cam.x, cam.y, cam.z, this._thT ?? t, t, base, this._due || (this._due = []));
+    this._thT = t;
+    for (const e of due) {
+      this.thunderLog.push({ id: e.s.id, ts: e.s.ts, t, d: e.d, cg: e.s.cg });
+      if (this.thunderLog.length > 50) this.thunderLog.shift();
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('truewind:thunder', { detail: { d: e.d, spread: e.far - e.d, seed: e.s.seed, cg: e.s.cg } }));
+    }
+    due.length = 0;
   }
 
   // ---------------------------------------------------------------- terrain & piers from the real map
@@ -535,7 +799,6 @@ export class Renderer {
     const fl = env.wind.flowDir();
     this.waterU.uFlow.value.set(fl[0], fl[1]);
     this.waterU.uWind.value = env.wind.tws;
-    this.waterU.uFoamK.value = clamp((env.wind.tws - 5.5) / 5, 0, 1);
   }
 
   // ---------------------------------------------------------------- boats
@@ -641,14 +904,26 @@ export class Renderer {
     {
       // in rain the haze is a flat grey curtain, darker than the clear-air horizon
       const rf = Math.min(1, (this._rainFog || 0) * 1.3), gy = (0.3 * hz[0] + 0.55 * hz[1] + 0.15 * hz[2]) * (1 - 0.3 * rf);
-      this.scene.fog.color.setRGB(hz[0] + (gy - hz[0]) * rf, hz[1] + (gy - hz[1]) * rf, hz[2] + (gy * 1.04 - hz[2]) * rf);
+      // (under a heavy cell it takes a green-grey cast: red-poor light through deep cloud)
+      this.scene.fog.color.setRGB(hz[0] + (gy * 0.94 - hz[0]) * rf, hz[1] + (gy * 1.02 - hz[1]) * rf, hz[2] + (gy * 1.0 - hz[2]) * rf);
     }
+    // mist: lit grey-white from the sky (brighter toward the sun, in the march), and it dims the sun under it
+    {
+      const mv = MIST_U.uMist.value, mc = MIST_U.uMistCol.value;
+      const g = 0.3 * hz[0] + 0.55 * hz[1] + 0.15 * hz[2], sc = this.skySys.U.uSunCol.value, sy = Math.max(0, this.skySys.lightV.y);
+      mc.x = (hz[0] * 0.35 + g * 0.75) * 1.12 + sc.x * 0.16 * sy; mc.y = (hz[1] * 0.35 + g * 0.75) * 1.12 + sc.y * 0.16 * sy; mc.z = (hz[2] * 0.35 + g * 0.75) * 1.15 + sc.z * 0.16 * sy;
+      if (mv.x > 0) this.sun.intensity *= Math.exp(-mv.x * mv.y * Math.exp(-Math.max(0, cam.y) / mv.y) / Math.max(0.12, sy));
+    }
+    // lightning lights the scene by how close it is (not a global exposure bump): a hemisphere fill, the
+    // water's ambient and the rain haze
+    const fl = this._flashLight || 0;
+    if (fl > 0) { const c = this.scene.fog.color; c.r += 0.15 * fl; c.g += 0.16 * fl; c.b += 0.2 * fl; }
     this.waterU.fogColor.value.copy(this.scene.fog.color);
-    if (this._flash > 0) this.r.toneMappingExposure *= 1 + 2.5 * this._flash;   // lightning (the sky system resets exposure each frame)
     {
       const up = this.skySys.U.uAmbTop.value, sc = this.skySys.U.uSunCol.value;
       const l = (v) => 0.2126 * v.x + 0.7152 * v.y + 0.0722 * v.z;
-      this.waterU.uAmbF.value = Math.max(0.004, Math.min(1.6, (l(up) + 0.5 * l(sc) * Math.max(this.skySys.lightV.y, 0)) / 0.97));
+      this.waterU.uAmbF.value = Math.max(0.004, Math.min(1.6, (l(up) + 0.5 * l(sc) * Math.max(this.skySys.lightV.y, 0)) / 0.97)) + 0.8 * fl;
+      if (fl > 0) this.hemi.intensity += 3 * fl;
     }
     const Ld = this.skySys.lightDir || this.sunDir;
     if (this.town) {
@@ -672,15 +947,18 @@ export class Renderer {
     }
     for (const [b, vis] of this.boats) {
       updateBoatModel(vis, b, t);
-      // detail near the camera: ropes and crew IK only where they can be seen
+      // detail near the camera: ropes only where they can be seen
       const dist = Math.hypot(b.x - cam.x, b.z - cam.z);
       const near = vis.player || dist < 150;
       vis.rigging.update(t, near, dt, env);
       const sp = vis.splash;
       sp.foam.visible = sp.sheet.visible = sp.points.visible = sp.patches.visible = near;
       if (near) sp.update(dt, t, env);
-      this.wakes.get(b).update(b, env, t, dt);
+      // the wake ribbon only without the foam map (which lays the wake down as persistent foam)
+      const wk = this.wakes.get(b); wk.mesh.visible = !this.foamRT;
+      if (!this.foamRT) wk.update(b, env, t, dt);
     }
+    this._updateFoam(t, env, boats, player);
     this._updateSeaSpray(dt, t, env);
     const tmp = {};
     for (const g of this.markMeshes) {

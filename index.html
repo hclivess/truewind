@@ -69,8 +69,9 @@
     </div>
     <div class="tp tp-trim">
       <span class="tl">Main</span><button class="tbtn" data-k="main" data-d="-1">Trim</button><button class="tbtn" data-k="main" data-d="1">Ease</button>
-      <span class="tl tl-jib">Jib</span><button class="tbtn tp-jib" data-k="jib" data-d="-1">Trim</button><button class="tbtn tp-jib" data-k="jib" data-d="1">Ease</button>
-      <button class="tbtn tsm" id="tp-auto">Auto trim</button>
+      <span class="tl tl-jib" id="tp-jibl">Jib</span><button class="tbtn tp-jib" data-k="jib" data-d="-1">Trim</button><button class="tbtn tp-jib" data-k="jib" data-d="1">Ease</button>
+      <button class="tbtn tsm tp-sel" id="tp-sel" title="Tap for the next line">Trav ▸</button><button class="tbtn" id="tp-x0" data-k="trav" data-d="-1">Up</button><button class="tbtn" id="tp-x1" data-k="trav" data-d="1">Down</button>
+      <button class="tbtn tsm" id="tp-auto">Auto trim</button><button class="tbtn tsm" id="tp-gen" hidden>Hoist</button>
     </div>
   </div>
 </div>
@@ -194,7 +195,7 @@
       <div><kbd>P</kbd> <kbd>Esc</kbd><span>Pause · menu</span></div>
       <div><kbd>O</kbd> <kbd>?</kbd><span>Sound on / off · this help</span></div>
       <div>Mouse<span>Drag to look around, wheel to zoom. Click the map to set a waypoint.</span></div>
-      <div>Touch<span>Drag to look around, pinch to zoom, tap the map for a waypoint. Hold ◀ ▶ to steer and Trim / Ease for the sheets; Rig opens every line.</span></div>
+      <div>Touch<span>Drag to look around, pinch to zoom, tap the map for a waypoint. Hold ◀ ▶ to steer and Trim / Ease for the sheets; the third row works one more line (tap its name for the next: traveler, vang, weight, board…). Tap a rope, winch or cleat on deck to grab it. Rig opens every line.</span></div>
     </div>
     <h2>Reading the boat</h2>
     <p>Telltales in the rig panel show each third of the sail: <span class="st st-luff">LUFF</span> ease less or bear away, <span class="st st-ok">FLOW</span> right on, <span class="st st-stall">STALL</span> ease the sheet or head up. Upwind, twist is set by mainsheet tension and the jib lead; the angle by the traveler. When overpowered: backstay on, cunningham on, outhaul on, traveler down, then reef.</p>

@@ -56,7 +56,7 @@ export function mulberry32(seed) {
 const P_MEAN = 0.08;  // mean of the skewed puff noise (removed so the slider's wind is the mean wind)
 const GAMP = 0.96;    // puff amplitude per unit of the gust setting
 const FAN = 0.28;     // puff fanning (lateral outflow per unit cross-wind gradient)
-const TR0 = Object.freeze({ f: 1, d: 0 }), SQ0 = Object.freeze({ f: 1, d: 0, rain: 0 });
+const TR0 = Object.freeze({ f: 1, d: 0 }), SQ0 = Object.freeze({ f: 1, d: 0, rain: 0, cold: 0 });
 export class WindField {
   constructor(opts = {}) {
     this.tws = opts.tws ?? 12 * KT;         // mean speed at 10 m (m/s)
@@ -117,13 +117,21 @@ export class WindField {
   }
   sample(x, z, t, out = {}) {
     const p = this.puff(x, z, t), dp = this._dp;
-    const g = this.gust, U = this.tws;
+    const gs = this.gust, U = this.tws;
     const W = this.weather;
-    const tr = W ? W.trend(t) : TR0;
+    const tr = W ? W.synoptic(t) : TR0;
     const sq = W ? W.squall(x, z, t, this._sq) : SQ0;
+    // the gradient wind here, combined as vectors with the local thermal breeze (sea/lake breeze by day,
+    // land breeze by night) and its stability (a convective day mixes gusts down, a stable night damps them)
+    let base = U * tr.f, dir0 = this.twd + tr.d, g = gs, shift = this.shift;
+    if (W && W.thermal) {
+      const th = W.thermal.at(x, z, t, base, this._th || (this._th = {}));
+      const c = combineThermal(base, dir0, th);
+      base = c.speed; dir0 = c.dir; g *= 1 + 0.4 * th.st; shift *= 1 + 0.25 * th.st;
+    }
     // turbulence intensity ~0.14 g: the gust factor (peak 3-s gust / 10-min mean) comes out ~1 + 0.8 g,
     // the ratio forecasts quote (1.3-1.5 at sea for g ~ 0.4-0.6)
-    const speed = U * tr.f * sq.f * Math.max(0.05, 1 + GAMP * g * p);
+    const speed = base * sq.f * Math.max(0.05, 1 + GAMP * g * p);
     const fx = -Math.sin(this.twd), fz = Math.cos(this.twd);
     const a0 = x * fx + z * fz, cross = -x * fz + z * fx;
     // oscillating shifts are carried downwind with the wind: the boat to windward gets each one first
@@ -133,9 +141,10 @@ export class WindField {
     const spatial = noise2((a0 - 0.9 * U * t) / 900, cross / 700 + 3.7, this.seed + 2);
     // puffs come down from aloft carrying veered wind (backed south of the equator) and fan out as they
     // land: lifted on one edge, headed on the other (outflow down the puff's cross-wind gradient)
-    const dir = this.twd + tr.d + sq.d + this.shift * (0.75 * osc + 0.5 * spatial)
+    const dir = dir0 + sq.d + shift * (0.75 * osc + 0.5 * spatial)
               + this.hemi * p * g * 7 * DEG - Math.atan(FAN * g * this.L1 * dp);
     out.speed = speed; out.dir = dir; out.puff = p; out.rain = sq.rain;
+    out.cold = sq.cold;
     return out;
   }
 }
@@ -162,10 +171,25 @@ export class Weather {
     this.tws0 = opts.tws ?? 6; this.twd0 = opts.twd ?? 0;
     this._cells = new Map();
     this._tt = NaN; this._tf = 1; this._td = 0;
+    this.thermal = null; this._ct = NaN;
   }
-  // slow evolution of the mean wind: speed factor and direction offset (cached per t: the wind field asks
-  // for it at every sample, and a frame samples thousands of points at one t)
+  // share of the sky's cloud from the weather type alone (fair-weather cumulus up to an unsettled sky)
+  cloudBase() { return this.mode === 'squally' ? 0.35 : this.mode === 'changing' ? 0.15 : 0.05; }
+  // mean wind at the sailing area now: the gradient trend combined (as vectors) with the venue's thermal
+  // breeze at its reference point. Speed factor f against tws0 and direction offset d against twd0. Without
+  // a thermal (open water, tests) this is the gradient trend itself. The sea follows this wind.
   trend(t) {
+    if (!this.thermal) return this.synoptic(t);
+    if (t !== this._ct) {
+      const s = this.synoptic(t), th = this.thermal.at(this.thermal.refX, this.thermal.refZ, t, this.tws0 * s.f, this._cth || (this._cth = {}));
+      const c = combineThermal(this.tws0 * s.f, this.twd0 + s.d, th);
+      this._ct = t; this._cf = c.speed / Math.max(1e-3, this.tws0); this._cd = c.dir - this.twd0;
+    }
+    return { f: this._cf, d: this._cd };
+  }
+  // slow evolution of the gradient (synoptic) wind: speed factor and direction offset (cached per t: the
+  // wind field asks for it at every sample, and a frame samples thousands of points at one t)
+  synoptic(t) {
     if (!this.amp) return { f: 1, d: 0 };
     if (t !== this._tt) {
       const [a, b, c, e] = this.p;
@@ -185,7 +209,7 @@ export class Weather {
     const R = 450 + r() * 900;                                   // radius of the downdraft / rain core (m)
     const lateral = (r() - 0.5) * 2200;
     const strength = 0.45 + r() * 0.6;
-    const tr = this.trend(T);
+    const tr = this.synoptic(T);
     const dir = this.twd0 + tr.d + this.hemi * (5 + r() * 20) * DEG;
     // cells ride the wind a few km up, which outruns a light surface breeze
     const speed = 3 + 0.8 * this.tws0 * tr.f;
@@ -210,7 +234,7 @@ export class Weather {
   squall(x, z, t, out) {
     out.f = 1; out.d = 0; out.rain = 0; out.cloud = 0; out.cold = 0;
     if (!this.squallsOn) return out;
-    const tr = this.trend(t), dir = this.twd0 + tr.d, U = Math.max(0.5, this.tws0 * tr.f);
+    const tr = this.synoptic(t), dir = this.twd0 + tr.d, U = Math.max(0.5, this.tws0 * tr.f);
     const fx = -Math.sin(dir), fz = Math.cos(dir);
     let vx = 0, vz = 0;                                          // the cells' own flow (m/s)
     const k0 = Math.max(0, Math.floor((t - 240 - CELL_LIFE - 150) / CELL_EVERY));
@@ -250,7 +274,8 @@ export class Weather {
     const out = [];
     this._eachCell(t, (c, age, w) => {
       const s0 = c.speed * age;
-      out.push({ x: c.ux * s0 - c.uz * c.lateral, z: c.uz * s0 + c.ux * c.lateral, R: c.R, w });
+      // (k, age, life and the track let the sky place lightning and the gust front deterministically)
+      out.push({ x: c.ux * s0 - c.uz * c.lateral, z: c.uz * s0 + c.ux * c.lateral, R: c.R, w, k: c.k, age, life: CELL_LIFE, ux: c.ux, uz: c.uz, speed: c.speed, strength: c.strength });
     });
     // the most developed first (the sky draws four)
     return out.sort((a, b) => b.w - a.w);
@@ -259,10 +284,151 @@ export class Weather {
   // a grey stratocumulus sky), squally weather an unsettled, broken sky between the cells.
   sky(x, z, t, out = {}) {
     this.squall(x, z, t, out);
-    const kt = this.tws0 * this.trend(t).f / KT;
-    const base = (this.mode === 'squally' ? 0.35 : this.mode === 'changing' ? 0.15 : 0.05)
+    const kt = this.tws0 * this.synoptic(t).f / KT;
+    const base = this.cloudBase()
                + 0.6 * Math.min(1, Math.max(0, (kt - 16) / 22));
     out.overcast = Math.max(Math.min(0.85, base), out.cloud);
+    return out;
+  }
+}
+
+// ---------- thermal winds: sea/lake breeze, land breeze, diurnal stability ----------
+// A pure function of (venue geometry, lat/lon, UTC clock at t = 0, t), so every browser in a shared world
+// sees the same breeze. The land-sea temperature contrast dT is the land's lagged response (tau 2.5 h) to
+// the sun: it heats with the sine of the real sun elevation at the venue (latitude, season, time of day)
+// under the weather's cloud and cools at night by net long-wave loss. The breeze runs down the pressure
+// gradient that contrast sets up, U ~ sqrt(g h dT / T), from the water toward the land by day (onset late
+// morning, peak mid-afternoon, gone around sunset) and gently back offshore late at night and at dawn
+// (katabatic, much stronger under high ground: Garda's morning Pelèr against its afternoon Ora). Coriolis
+// turns it through the day (veering north of the equator, backing south of it). The geometry is a
+// multi-scale "where is the land" vector: land seen on rings 0.6-6 km around each point, which points
+// inland perpendicular to the smoothed coastline and has length 1 on a straight coast, 0 on open water
+// or mid-lake (breezes flow outward to every shore and cancel there). It decays offshore (~15 km).
+const TH_TAU = 2.5 * 3600, TH_STEP = 600, TH_SPAN = 5 * TH_TAU;   // land lag, integration step, memory (s)
+const TH_A = 13, TH_B = 3.5;           // K of land-sea contrast per unit sin(sun elevation) in clear sky; K of night cooling
+const TH_SEA = 2.5, TH_SEA0 = 1.5;     // sea breeze m/s per sqrt(K) above a K threshold
+const TH_LAND = 1.3, TH_LAND0 = 0.5;   // land breeze
+// rings weighted to the large scales: a breeze needs a broad heated area (a 2 km-wide lake has no cross-lake
+// breeze, but its end has an along-valley one); the outer ring reads past the map edge (the edge extended)
+const TH_RINGS = [800, 2000, 4500, 9000], TH_RW = [0.3, 0.6, 1, 1.4], TH_AZ = 16;
+export function sunElevation(ms, lat, lon) {   // same low-precision ephemeris as the sky (sky.js sunPosition)
+  const d = ms / 86400000 + 2440587.5 - 2451545.0;
+  const g = (357.529 + 0.98560028 * d) * DEG;
+  const L = (280.459 + 0.98564736 * d + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * DEG;
+  const e = (23.439 - 0.00000036 * d) * DEG;
+  const ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L)), dec = Math.asin(Math.sin(e) * Math.sin(L));
+  const H = (280.46061837 + 360.98564736629 * d + lon) * DEG - ra, phi = lat * DEG;
+  return Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+}
+// gradient wind (speed m/s, from-direction rad) plus a thermal {vx, vz, st}: speed and from-direction,
+// the direction kept within half a turn of the gradient's (so it never jumps by 2 pi)
+const _cmb = { speed: 0, dir: 0 };
+export function combineThermal(U, dir, th) {
+  const m = U * (1 + 0.08 * th.st);                        // a mixed (unstable) day brings more of the wind down
+  const vx = -Math.sin(dir) * m + th.vx, vz = Math.cos(dir) * m + th.vz;
+  let dd = Math.atan2(-vx, vz) - dir;
+  dd -= 2 * Math.PI * Math.round(dd / (2 * Math.PI));
+  _cmb.speed = Math.hypot(vx, vz); _cmb.dir = dir + dd;
+  return _cmb;
+}
+export class Thermal {
+  // land: { R, sdfAt(x, z) (m, + over water), landHeight?(x, z) }; clock0: UTC ms at t = 0
+  constructor(opts) {
+    const land = opts.land, R = land.R, M = opts.M ?? 48, c = 2 * R / M;
+    this.lat = opts.lat; this.lon = opts.lon; this.clock0 = opts.clock0;
+    this.hemi = opts.lat < 0 ? -1 : 1;
+    this.latF = Math.abs(Math.sin(opts.lat * DEG)) / Math.SQRT1_2;   // Coriolis parameter against 45 deg
+    this.cloud = opts.cloud ?? 0.15;                                 // weather's cloud share (0 clear .. 1 overcast)
+    this.R = R; this.M = M; this.cs = c;
+    const gx = new Float32Array(M * M), gz = new Float32Array(M * M), rl = new Float32Array(M * M);
+    let wsum = 0; for (let r = 0; r < TH_RINGS.length; r++) wsum += TH_RW[r] * TH_AZ;
+    let ax = 0, az = 0, ar = 0, an = 0;
+    for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) {
+      const x = -R + (i + 0.5) * c, z = -R + (j + 0.5) * c;
+      let vx = 0, vz = 0, hs = 0, hw = 0;
+      for (let r = 0; r < TH_RINGS.length; r++) for (let k = 0; k < TH_AZ; k++) {
+        const a = (k + 0.5 * (r & 1)) * 2 * Math.PI / TH_AZ, ux = Math.sin(a), uz = -Math.cos(a);
+        const px = x + ux * TH_RINGS[r], pz = z + uz * TH_RINGS[r];
+        if (land.sdfAt(px, pz) >= 0) continue;
+        vx += TH_RW[r] * ux; vz += TH_RW[r] * uz;
+        if (land.landHeight) { hs += TH_RW[r] * Math.max(0, land.landHeight(px, pz)); hw += TH_RW[r]; }
+      }
+      // pi / wsum: a straight coast (land on half the circle) gives length 1; a bay's head or a harbour
+      // (land on both hands) about 0.3-0.6, which still brings in the breeze. Mountain valleys channel the
+      // whole valley's thermal flow along their axis (the end of an alpine lake gets a full valley wind).
+      const relief = Math.min(1, (hw ? hs / hw : 0) / 250);   // high ground 0..1 (a mean ~250 m of hills)
+      const len = Math.hypot(vx, vz) * Math.PI / wsum, n = Math.min(1, (1.6 + 3 * relief) * len) / Math.max(1e-9, len);
+      const off = Math.exp(-Math.max(0, land.sdfAt(x, z)) / 15000);   // the breeze dies away offshore
+      const k = j * M + i;
+      gx[k] = vx * Math.PI / wsum * n * off; gz[k] = vz * Math.PI / wsum * n * off;
+      rl[k] = relief;
+      if (x * x + z * z < 3000 * 3000 && land.sdfAt(x, z) > 0) { ax += gx[k]; az += gz[k]; ar += rl[k]; an++; }
+    }
+    this.gx = gx; this.gz = gz; this.rl = rl;
+    // the reference point for the area's mean wind (and the sea it raises): the water within 3 km of centre
+    this.refX = 0; this.refZ = 0;
+    if (an) { this._ref = { gx: ax / an, gz: az / an, rl: ar / an }; }
+    this._dt = new Map(); this._tt = NaN;
+  }
+  // land-sea contrast (K) at UTC ms q (a multiple of TH_STEP s): exponentially lagged equilibrium contrast
+  _dT(q) {
+    let v = this._dt.get(q);
+    if (v !== undefined) return v;
+    const clear = 1 - 0.7 * this.cloud;
+    let s = 0, w = 0;
+    for (let a = 0; a <= TH_SPAN; a += TH_STEP) {
+      const el = sunElevation(q - a * 1000, this.lat, this.lon);
+      const eq = TH_A * clear * Math.max(0, Math.sin(el)) - TH_B;
+      const k = Math.exp(-a / TH_TAU); s += k * eq; w += k;
+    }
+    v = s / w;
+    if (this._dt.size > 512) this._dt.clear();
+    this._dt.set(q, v);
+    return v;
+  }
+  // the time-only part at sim time t (cached per t): contrast, breeze speeds, their turning, stability
+  _time(t) {
+    if (t === this._tt) return this;
+    const ms = this.clock0 + t * 1000, st = TH_STEP * 1000;
+    const q0 = Math.floor(ms / st) * st, f = (ms - q0) / st;
+    const dT = this._dT(q0) * (1 - f) + this._dT(q0 + st) * f;
+    this.dT = dT;
+    this.hour = ((ms / 3.6e6 + this.lon / 15) % 24 + 24) % 24;       // local solar time
+    this.sea = TH_SEA * Math.sqrt(Math.max(0, dT - TH_SEA0));
+    this.landB = TH_LAND * Math.sqrt(Math.max(0, -dT - TH_LAND0));
+    // Coriolis: the sea breeze turns through the afternoon (~6 deg/h at 45 deg), the land breeze through the night
+    const hd = Math.max(-3, Math.min(7, this.hour - 12));
+    const hn = Math.max(-5, Math.min(6, ((this.hour - 3 + 36) % 24) - 12));
+    this.veerD = this.hemi * hd * 6 * DEG * this.latF;
+    this.veerN = this.hemi * hn * 4 * DEG * this.latF;
+    this.stab = Math.max(-1, Math.min(1, dT / 6));
+    this._tt = t;
+    return this;
+  }
+  // thermal flow at (x, z) (m/s, x east / z south), and stability st in [-1, 1] (+ = convective day)
+  // over land-affected water. Ug = gradient wind speed: a strong gradient mixes the contrast away.
+  at(x, z, t, Ug, out = {}) {
+    const T = this._time(t);
+    let gx, gz, rl;
+    if (x === this.refX && z === this.refZ && this._ref) ({ gx, gz, rl } = this._ref);
+    else {
+      const M = this.M, c = this.cs;
+      let fx = (x + this.R) / c - 0.5, fz = (z + this.R) / c - 0.5;
+      fx = Math.max(0, Math.min(M - 1.001, fx)); fz = Math.max(0, Math.min(M - 1.001, fz));
+      const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j, k = j * M + i;
+      const bl = (a) => (a[k] * (1 - u) + a[k + 1] * u) * (1 - v) + (a[k + M] * (1 - u) + a[k + M + 1] * u) * v;
+      gx = bl(this.gx); gz = bl(this.gz); rl = bl(this.rl);
+    }
+    // high ground: a stronger afternoon up-valley breeze, far stronger night drainage (katabatic), and
+    // the valley walls hold the flow on the valley's axis against the Coriolis turn
+    const supp = 1 / (1 + (Ug / 8) ** 2), ch = 1 - 0.7 * rl;
+    const S = T.sea * (1 + 0.5 * rl) * supp, L = T.landB * (1 + 1.8 * rl) * supp;
+    const cd = Math.cos(T.veerD * ch), sd = Math.sin(T.veerD * ch), cn = Math.cos(T.veerN * ch), sn = Math.sin(T.veerN * ch);
+    // flow toward the land by day, away from it by night; a turn of the from-direction by +a (veer) turns
+    // the flow vector (fx, fz) to (fx cos a - fz sin a, fz cos a + fx sin a)
+    out.vx = S * (gx * cd - gz * sd) - L * (gx * cn - gz * sn);
+    out.vz = S * (gz * cd + gx * sd) - L * (gz * cn + gx * sn);
+    out.st = T.stab * Math.min(1, Math.hypot(gx, gz));
     return out;
   }
 }
@@ -380,6 +546,22 @@ export class WaveField {
     this.jSigma = Math.sqrt(sJ);          // rms crest compression (1 - Jacobian): whitecap statistics
     let best = null; for (const c of this.comps) if (c.kind === 'sea' && (!best || c.A > best.A)) best = c;
     this.Tp = best ? 1 / best.f : 0;
+    // second order: the Gerstner map makes each component a trochoid (Stokes' second-order crest on its
+    // own), but a sum of trochoids has no sum-frequency interaction between components, so a real sea of
+    // twenty of them stays almost symmetric (skewness ~0.01 against ~0.1-0.2 measured at sea). Tayfun's
+    // narrow-band correction adds the missing part: eta2 = (k_m / 2) (eta^2 - H[eta]^2), H the Hilbert
+    // transform (every component's cosine partner), k_m from the spectral mean frequency — sharper, higher
+    // crests and flatter troughs, zero mean. The trochoids' own share (Q of each self term) is taken out.
+    // Mean surface Stokes drift sum(omega k A^2) along each direction: what carries the foam.
+    let m0 = 0, m1 = 0, sx = 0, sz = 0;
+    for (const c of this.comps) {
+      const A = c.A * (c.curAmp ?? 1), a2 = A * A;
+      m0 += a2; m1 += a2 * c.omega;
+      sx += c.omega * c.k * a2 * c.dx; sz += c.omega * c.k * a2 * c.dz;
+    }
+    const wm = m0 > 0 ? m1 / m0 : 1;
+    this.k2 = 0.5 * wm * wm / G;
+    this.drift = { x: sx, z: sz };
     return this;
   }
 
@@ -481,6 +663,7 @@ export class WaveField {
     }
     const h = this.depthFn ? this.depthFn(x0, z0) : null;
     let hsum = 0, nx = 0, nz = 0, ny = 1, vx = 0, vz = 0, vy = 0, a2 = 0;
+    let hc = 0, hx = 0, hz = 0, ht = 0, s2 = 0, s2x = 0, s2z = 0, s2t = 0;   // Hilbert partner and trochoid self terms
     let ci = 0;
     for (const c of this.comps) {
       const A = c.A * (c.curAmp ?? 1) * this._ampFactor(c, h);
@@ -494,6 +677,18 @@ export class WaveField {
       const orb = h === null ? 1 : 1 / Math.max(0.3, Math.tanh(kk * h)); // orbital velocity grows in shallow water
       vx += A * c.omega * c.dx * S * orb; vz += A * c.omega * c.dz * S * orb;
       vy -= A * c.omega * C;
+      hc += A * C; hx += c.dx * WA * S; hz += c.dz * WA * S; ht += A * c.omega * S;
+      const qa = c.Q * A * A, sc4 = 4 * qa * S * C;
+      s2 += qa * (C * C - S * S); s2x -= sc4 * kk * c.dx; s2z -= sc4 * kk * c.dz; s2t += sc4 * c.omega;
+    }
+    // second-order crest/trough asymmetry (see update): height, slope and vertical velocity
+    const K2 = this.k2 || 0;
+    if (K2 > 0) {
+      const e = hsum;
+      hsum += K2 * (e * e - hc * hc + s2);
+      nx -= K2 * (-2 * e * nx + 2 * hc * hx + s2x);
+      nz -= K2 * (-2 * e * nz + 2 * hc * hz + s2z);
+      vy += K2 * (2 * e * vy - 2 * hc * ht + s2t);
     }
     // depth-limited breaking: significant height cannot exceed 0.78 h
     let k = this.scaleFn ? this.scaleFn(x, z) : 1;
@@ -501,6 +696,7 @@ export class WaveField {
     out.h = hsum * k; out.sx = -nx / ny * k; out.sz = -nz / ny * k; out.vx = vx * k; out.vz = vz * k; out.vy = vy * k;
     out.breaking = h !== null ? clamp01(4 * Math.sqrt(a2 / 2) / (0.78 * h) - 0.7) : 0;
     out.j = ny;                    // crest compression (Gerstner Jacobian): the water shader's whitecap measure
+    out.x0 = x0; out.z0 = z0;      // the undisplaced (Lagrangian) position of the water here: the foam map's frame
     return out;
   }
   height(x, z, t) { return this.sample(x, z, t, this._tmp || (this._tmp = {})).h; }
@@ -531,6 +727,8 @@ export class Environment {
   constructor(opts = {}) {
     this.opts = opts;
     this.weather = new Weather({ mode: opts.weather ?? 'changing', seed: (opts.seed ?? 7) * 3 + 1, tws: opts.tws ?? 6, twd: (opts.twd ?? 0) * DEG, hemi: opts.hemi });
+    // thermal breezes where there is land: opts.thermal = { lat, lon, clock0 (UTC ms at t = 0), land (World) }
+    if (opts.thermal) this.weather.thermal = new Thermal({ ...opts.thermal, cloud: this.weather.cloudBase() });
     this.wind = new WindField({ ...opts, weather: this.weather });
     this.waves = new WaveField({ tws: this.wind.tws, twd: this.wind.twd, fetchKm: opts.fetchKm, swellH: opts.swellH, swellT: opts.swellT, seaScale: opts.seaScale, weather: this.weather, seed: (opts.seed ?? 3) + 5 });
     this.current = new Current({ speed: opts.currentKt ?? 0, dir: opts.currentDir ?? 90 });

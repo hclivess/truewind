@@ -121,7 +121,35 @@ function skyView(lightEl, scale, data, add) {
 }
 
 // ------------------------------------------------------------------ shaders
+// the low fog / mist layer: extinction uMist.x (1/m) at the sea surface, falling off with height scale
+// uMist.y; its optical depth between two points, integrated exactly through the layer
+export const MIST_GLSL = /* glsl */`
+#ifndef MIST_GLSL_DEF
+#define MIST_GLSL_DEF
+uniform vec4 uMist; uniform vec3 uMistCol;
+float mistTau(vec3 a, vec3 b) {
+  if (uMist.x <= 0.0) return 0.0;
+  float H = uMist.y, y0 = max(a.y, 0.0), y1 = max(b.y, 0.0), dy = y1 - y0;
+  float g = abs(dy) > 0.01 * H ? H * (exp(-y0 / H) - exp(-y1 / H)) / dy : exp(-y0 / H);
+  return uMist.x * length(b - a) * g;
+}
+#endif`;
+// The same mist on every built-in material (boats, terrain, buildings, marks): three's fog chunks add the
+// layer's optical depth from the camera to the fragment on top of the ordinary haze. The uniform values
+// are plain objects, not Vector3/4, so every per-material copy three makes of the ShaderLib uniforms
+// shares them (a ShaderMaterial without them sees zero: no mist). Sprites (labels) are left out.
+export const MIST_U = { uMist: { value: { x: 0, y: 30, z: 0, w: 0 } }, uMistCol: { value: { x: 0.7, y: 0.72, z: 0.75 } } };
+(function installMist() {
+  const C = THREE.ShaderChunk, sub = (k, a, b) => { if (C[k].includes(a)) C[k] = C[k].replace(a, b); else console.warn('mist: fog chunk changed', k); };
+  sub('fog_pars_vertex', 'varying float vFogDepth;', 'varying float vFogDepth; varying vec3 vFogWorld;');
+  sub('fog_vertex', 'vFogDepth = - mvPosition.z;', 'vFogDepth = - mvPosition.z;\n\tvFogWorld = cameraPosition + transpose( mat3( viewMatrix ) ) * mvPosition.xyz;');
+  sub('fog_pars_fragment', 'varying float vFogDepth;', 'varying float vFogDepth; varying vec3 vFogWorld;\n' + MIST_GLSL);
+  sub('fog_fragment', 'gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );',
+    'gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );\n\tgl_FragColor.rgb = mix( uMistCol, gl_FragColor.rgb, exp( - mistTau( cameraPosition, vFogWorld ) ) );');
+  for (const k in THREE.ShaderLib) { const u = THREE.ShaderLib[k].uniforms; if (k !== 'sprite' && u && u.fogDensity) Object.assign(u, MIST_U); }
+})();
 export const SKY_LUT_GLSL = /* glsl */`
+${MIST_GLSL}
 uniform sampler2D uSkyLUT; uniform vec3 uLutDir; uniform float uOvercast;
 vec3 skyColor(vec3 d) {
   d = normalize(d);
@@ -142,42 +170,86 @@ export const CLOUD_GLSL = /* glsl */`
 precision highp sampler3D;
 uniform sampler3D uNoise; uniform sampler2D uWeather;
 uniform vec2 uWOff; uniform float uCover; uniform float uCloudBase; uniform float uCloudThick; uniform float uCloudTime;
-uniform vec4 uCells[4];
+uniform vec4 uCells[4];    // squall cells: centre xz, cloud radius, development 0..1 (most developed first)
+uniform vec4 uCellsB[4];   // their track direction xz, life stage (-1 young .. 0 mature .. +1 old), rain-core radius
+uniform float uTower; uniform float uStrat;
 float remap(float v, float a, float b, float c, float d) { return c + (v - a) / (b - a) * (d - c); }
-// coverage, base and top at a point; squall cells are cumulonimbus: a broad tower to ~9.5 km with an
-// anvil spreading downwind at the top (cellK = inside a tower, anvil = under the anvil's reach)
+// coverage, base and top at a point. Cumulus take their base and depth from the day's heating and climb
+// into towers where the convection map peaks on an unstable afternoon. Squall cells are cumulonimbus: a
+// tower that climbs to ~9.5 km as the cell develops and collapses as it dies, and an anvil that spreads
+// downwind once it is mature and lingers after the tower has gone (cellK = inside a tower, anvil = under it)
 vec3 cloudLayer(vec2 xz, out float cellK, out float anvil) {
   vec4 w = texture2D(uWeather, (xz + uWOff) / 36000.0);
   float cov = clamp(w.r * 1.3 - 0.5 + uCover, 0.0, 1.0);
   float base = uCloudBase, top = base + uCloudThick * (0.55 + 0.9 * w.g);
+  top += uTower * 4200.0 * smoothstep(0.55, 0.85, w.g) * smoothstep(0.45, 0.75, w.r);
   cellK = 0.0; anvil = 0.0;
   for (int i = 0; i < 4; i++) {
     vec4 c = uCells[i]; if (c.z <= 0.0) continue;
-    float d = length(xz - c.xy) / c.z;
-    float k = smoothstep(1.0, 0.45, d) * c.w;
+    vec4 e = uCellsB[i];
+    vec2 o = xz - c.xy;
+    float d = length(o) / c.z, old = max(e.z, 0.0);
+    float k = smoothstep(1.12, 0.5, d) * c.w;
     cellK = max(cellK, k);
     cov = max(cov, smoothstep(1.15, 0.6, d) * c.w);
-    top = mix(top, 9500.0, k);
-    base = mix(base, base * 0.7, k);          // ragged, lowered base under the rain
-    anvil = max(anvil, smoothstep(1.9, 1.0, d) * c.w);
+    top = mix(top, mix(base + uCloudThick * 1.6, 9500.0, mix(c.w, c.w * c.w, old)), k);
+    base = mix(base, base * 0.72, smoothstep(1.05, 0.85, d) * smoothstep(0.2, 0.5, c.w));   // one flat, low base
+    // the anvil: blown downwind by the winds aloft, much wider than the tower, spreading further as it ages
+    float anv = e.z < 0.0 ? smoothstep(0.7, 1.0, c.w) : sqrt(c.w);
+    vec2 ao = o - e.xy * c.z * (1.3 + 1.6 * old);
+    float da = length(vec2(dot(ao, e.xy) / (2.2 + 1.4 * old), dot(ao, vec2(-e.y, e.x)) / 1.25)) / c.z;
+    anvil = max(anvil, smoothstep(1.0, 0.72, da) * anv);
   }
-  if (anvil > 0.0) top = max(top, mix(top, 9700.0, anvil));
-  return vec3(cov, base, top);
+  return vec3(cov, base, top);     // (the anvil sheet above the top is added by cloudDensity)
+}
+// shelf cloud: a low wedge along the gust front ahead of a mature cell — the cold outflow lifts the warm
+// air into a layered shelf under the storm's base, lowest at its leading edge
+float shelfCloud(vec3 p) {
+  float s = 0.0;
+  for (int i = 0; i < 4; i++) {
+    vec4 c = uCells[i], e = uCellsB[i];
+    if (c.z <= 0.0 || c.w < 0.5) continue;
+    vec2 o = p.xz - c.xy;
+    float al = dot(o, e.xy), la = dot(o, vec2(-e.y, e.x)), R = max(e.w, 300.0);
+    // 0 on the gust front (1.5 R ahead of the core, as in env.js; the arc drawn wider on the flanks), > 0 behind
+    float lead = 1.0 - length(vec2(al > 0.0 ? al / 1.5 : al, la / 1.7)) / R;
+    if (lead < -0.25 || lead > 0.85 || al < -0.3 * R) continue;
+    lead += (texture(uNoise, vec3((p.xz - c.xy) / 2500.0, 0.21)).b - 0.5) * 0.25;   // a ragged, uneven edge
+    float hb = uCloudBase * 0.72, fl = clamp(abs(la) / (1.7 * R), 0.0, 1.0);
+    // the wedge: low at its leading edge, sloping up behind, and rising into the base toward the flanks
+    float bot = hb * (0.22 + 0.75 * clamp(lead * 2.2, 0.0, 1.0) + 0.6 * smoothstep(0.3, 0.9, fl));
+    float band = smoothstep(-0.08, 0.05, lead) * smoothstep(0.7, 0.3, lead) * smoothstep(-0.3, 0.5, al / R);
+    s = max(s, band * smoothstep(bot, bot + 40.0, p.y) * smoothstep(hb * 1.05, hb * 0.9, p.y) * smoothstep(0.5, 0.85, c.w));
+  }
+  return s;
 }
 float cloudDensity(vec3 p, float detail) {
   float cellK, anvil; vec3 L = cloudLayer(p.xz, cellK, anvil);
-  if (p.y < L.y || p.y > L.z) return 0.0;
-  float hf = (p.y - L.y) / (L.z - L.y);
+  if (p.y > (anvil > 0.0 ? 10300.0 : L.z)) return 0.0;
   vec3 q = vec3(p.x + uWOff.x, p.y - uCloudTime * 0.4, p.z + uWOff.y);
-  // cumulus: flat base, rounded cauliflower tops
-  float prof = smoothstep(0.0, 0.07, hf) * smoothstep(1.0, 0.62, hf);
+  if (p.y < L.y) {
+    if (uCells[0].w < 0.5 || p.y < 30.0) return 0.0;
+    float sh = shelfCloud(p);
+    if (sh <= 0.0) return 0.0;
+    // tiered and ragged (stretched noise and horizontal bands), fixed to the air that moves with the storm
+    float n = texture(uNoise, q / vec3(2200.0, 420.0, 2200.0)).r;
+    n = (0.55 + 0.6 * n) * (0.8 + 0.25 * sin(p.y / 38.0 + 5.0 * n));
+    if (detail > 0.5) n = n * 0.85 + 0.15 * texture(uNoise, q / 500.0).g;
+    return clamp(remap(n * sh, 0.2, 0.6, 0.0, 1.0), 0.0, 1.0) * 2.0;
+  }
+  float hf = (p.y - L.y) / (L.z - L.y);
+  // cumulus: flat base, rounded cauliflower tops (flatter stratocumulus in a strong wind)
+  float prof = smoothstep(0.0, 0.07, hf) * smoothstep(1.0, mix(0.62, 0.3, uStrat), hf);
   // a cell: solid tower (stretched noise so it does not break into a stack of puffs), and the anvil sheet
   float tower = cellK * smoothstep(0.0, 0.04, hf) * smoothstep(1.0, 0.9, hf);
-  float sheet = anvil * smoothstep(8300.0, 8900.0, p.y) * smoothstep(9700.0, 9300.0, p.y);
+  // (a flat-bottomed sheet, thicker over the tower, with an overshooting dome above the updraft)
+  // (thinning to a sharp edge away from the tower)
+  float ab = 8750.0 - 900.0 * cellK + 500.0 * (1.0 - anvil), at = 9800.0 + 450.0 * cellK - 250.0 * (1.0 - anvil);
+  float sheet = anvil * smoothstep(ab, ab + 150.0, p.y) * smoothstep(at, at - 350.0, p.y);
   float shape = texture(uNoise, q / vec3(4200.0, 2600.0, 4200.0)).r;
-  float shapeT = texture(uNoise, q / vec3(3000.0, 9000.0, 3000.0)).r;
+  float shapeT = texture(uNoise, q / vec3(2600.0, 5200.0, 2600.0)).r;
   float d = max(remap(shape * clamp(prof, 0.0, 1.0), 1.0 - L.x, 1.0, 0.0, 1.0) * (1.0 - cellK),
-                max(remap(shapeT, 0.15, 0.7, 0.0, 1.0) * tower, remap(shape, 0.2, 0.8, 0.0, 1.0) * sheet));
+                max(remap(shapeT, 0.15, 0.7, 0.0, 1.0) * tower, remap(shape, 0.08, 0.55, 0.0, 1.0) * sheet));
   if (d <= 0.0) return 0.0;
   if (detail > 0.5) {
     float det = texture(uNoise, q / 700.0 + vec3(0.0, uCloudTime * 0.00012, 0.0)).g;
@@ -203,12 +275,35 @@ const DOME_VS = /* glsl */`varying vec3 vDir; void main(){ vDir = position; vec4
 const MARCH_FS = /* glsl */`
 varying vec3 vDir;
 uniform vec3 uCamPos; uniform float uSteps; uniform float uFrame;
-uniform sampler2D uHist; uniform mat4 uPrevVP; uniform float uHistOK;
+uniform sampler2D uHist; uniform mat4 uPrevVP; uniform float uHistOK; uniform float uHistMin;
 uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uAmbTop; uniform vec3 uAmbBot;
+uniform vec4 uFlash;       // lightning: where (world), how bright (scene units); lights the cloud from inside
 ${SKY_LUT_GLSL}
 ${CLOUD_GLSL}
 float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float hg(float c, float g) { float g2 = g * g; return (1.0 - g2) / (4.0 * 3.14159265 * pow(1.0 + g2 - 2.0 * g * c, 1.5)); }
+// in-scattered light of one march sample of length ds (sun through the cloud toward the light, sky
+// ambient, a lightning flash inside the cloud), composited front to back into L and T
+void shadeCloud(vec3 p, float ds, float phase, inout vec3 L, inout float T) {
+  float d = cloudDensity(p, 1.0);
+  if (d <= 0.003) return;
+  float sig = d * 0.045;
+  float cellK, anv; vec3 Ly = cloudLayer(p.xz, cellK, anv);
+  // light march toward the sun (farther in a storm tower: the anvil and the tower shade its own lower flanks)
+  float od = 0.0, sl = 60.0; vec3 lp = p;
+  int nl = cellK > 0.05 && p.y < 9000.0 ? 6 : 4;
+  for (int k = 0; k < 6; k++) { if (k >= nl) break; lp += uSunDir * sl; od += cloudDensity(lp, 0.0) * sl; sl *= 2.2; }
+  float Tl = exp(-od * 0.045) + 0.25 * exp(-od * 0.01);          // beer + multiple-scattering tail
+  float powder = 1.0 - exp(-d * 2.5);
+  float hf = clamp((p.y - Ly.y) / (Ly.z - Ly.y), 0.0, 1.0);
+  // under a heavy cell the light is dim and green-grey (red-poor light scattered through deep cloud and hail)
+  vec3 amb = mix(uAmbBot, uAmbTop, hf) * (1.0 - 0.7 * cellK * (1.0 - hf) * (1.0 - hf)) * mix(vec3(1.0), vec3(0.8, 0.94, 0.86), cellK * (1.0 - hf));
+  vec3 S = uSunCol * Tl * phase * mix(1.0, powder, 0.6) * 9.0 + amb * (0.55 + 0.45 * hf);
+  if (uFlash.w > 0.0) S += vec3(0.78, 0.82, 1.0) * uFlash.w * exp(-length(p - uFlash.xyz) / 1000.0);
+  float a = exp(-sig * ds);
+  L += T * S * (1.0 - a);
+  T *= a;
+}
 void main() {
   vec3 rd = normalize(vDir);
   vec3 sky = skyColor(rd);
@@ -221,7 +316,8 @@ void main() {
     ci = smoothstep(0.42, 0.85, ci) * 0.55 * smoothstep(0.012, 0.12, rd.y) * (0.4 + uCover);
     sky = mix(sky, uSunCol * hg(dot(rd, uSunDir), 0.6) * 1.8 + uAmbTop * 1.1, ci * 0.6);
     // cumulus layer
-    float lo = uCloudBase * 0.72, hi = uCells[0].z > 0.0 || uCells[1].z > 0.0 ? 9600.0 : uCloudBase + uCloudThick * 1.5;
+    float lo = uCloudBase * 0.72;
+    float hi = uCells[0].z > 0.0 || uCells[1].z > 0.0 ? 10400.0 : uCloudBase + uCloudThick * 1.5 + uTower * 4200.0;
     float t0 = max(0.0, (lo - uCamPos.y) / rd.y), t1 = (hi - uCamPos.y) / rd.y;
     t1 = min(t1, t0 + 30000.0);
     if (t0 < 90000.0) {
@@ -229,28 +325,32 @@ void main() {
       float t = t0 + dt * hash12(gl_FragCoord.xy + fract(uFrame * 0.618) * 97.0);
       float cth = dot(rd, uSunDir);
       float phase = mix(hg(cth, 0.78), hg(cth, -0.2), 0.35);
+      // a shelf cloud hangs below the storm's base: a short march of its own through that slab (lit by the
+      // open sky ahead of the storm, darker underneath), in front of everything above it
+      if (uCells[0].w >= 0.5) {
+        float sa = max(0.0, (uCloudBase * 0.15 - uCamPos.y) / rd.y), sb = min(t0, sa + 12000.0);
+        float ds = (sb - sa) / 10.0, ts = sa + ds * hash12(gl_FragCoord.yx + fract(uFrame * 0.618) * 57.0);
+        for (int j = 0; j < 10; j++) {
+          if (ds <= 0.0 || T < 0.02) break;
+          vec3 p = uCamPos + rd * ts;
+          float d = cloudDensity(p, 1.0);
+          if (d > 0.003) {
+            if (firstHit < 0.0) firstHit = ts;
+            float lift = clamp((p.y - lo * 0.3) / (lo * 0.5), 0.0, 1.0);
+            vec3 S = mix(uAmbBot, uAmbTop, 0.6) * vec3(0.86, 0.95, 0.92) * mix(0.45, 1.05, lift) + uSunCol * phase * 2.0 * lift;
+            if (uFlash.w > 0.0) S += vec3(0.78, 0.82, 1.0) * uFlash.w * exp(-length(p - uFlash.xyz) / 1000.0);
+            float a = exp(-d * 0.045 * ds);
+            L += T * S * (1.0 - a); T *= a;
+          }
+          ts += ds;
+        }
+      }
       for (int i = 0; i < 96; i++) {
         if (float(i) >= n || T < 0.02) break;
         vec3 p = uCamPos + rd * t;
-        float d = cloudDensity(p, 0.0);
-        if (d <= 0.003) { t += dt * (firstHit < 0.0 ? 1.3 : 1.0); continue; }   // empty air: stride
-        d = cloudDensity(p, 1.0);
-        if (d > 0.003) {
-          if (firstHit < 0.0) firstHit = t;
-          float sig = d * 0.045;
-          // light march toward the sun
-          float od = 0.0, sl = 60.0; vec3 lp = p;
-          for (int k = 0; k < 4; k++) { lp += uSunDir * sl; od += cloudDensity(lp, 0.0) * sl; sl *= 2.2; }
-          float Tl = exp(-od * 0.045) + 0.25 * exp(-od * 0.01);          // beer + multiple-scattering tail
-          float powder = 1.0 - exp(-d * 2.5);
-          float cellK, anv; vec3 Ly = cloudLayer(p.xz, cellK, anv);
-          float hf = clamp((p.y - Ly.y) / (Ly.z - Ly.y), 0.0, 1.0);
-          vec3 amb = mix(uAmbBot, uAmbTop, hf) * (1.0 - 0.55 * cellK);
-          vec3 S = uSunCol * Tl * phase * mix(1.0, powder, 0.6) * 9.0 + amb * (0.55 + 0.45 * hf);
-          float a = exp(-sig * dt);
-          L += T * S * (1.0 - a);
-          T *= a;
-        }
+        if (cloudDensity(p, 0.0) <= 0.003) { t += dt * (firstHit < 0.0 ? 1.3 : 1.0); continue; }   // empty air: stride
+        if (firstHit < 0.0) firstHit = t;
+        shadeCloud(p, dt, phase, L, T);
         t += dt;
       }
       // aerial perspective: distant clouds sink into the haze
@@ -259,15 +359,45 @@ void main() {
     }
   }
   vec3 col = sky * T + L;
-  // rain shafts under squall cells
+  // rain curtains: each cell's rain core (a little ahead of its centre) hangs from the base to the sea,
+  // thickest where the ray crosses most of it, streaked by noise fixed to the cell so the curtains travel
+  // with it, the streaks falling and slanting in the wind
   for (int i = 0; i < 4; i++) {
-    vec4 c = uCells[i]; if (c.z <= 0.0) continue;
-    vec2 o = uCamPos.xz - c.xy; vec2 dh = normalize(rd.xz + 1e-5);
-    float tc = max(0.0, -dot(o, dh)); float dist = length(o + dh * tc);
-    float hgt = rd.y > 0.0 ? tc * rd.y / max(length(rd.xz), 1e-3) : 0.0;
-    float shaft = smoothstep(0.45 * c.z, 0.12 * c.z, dist) * smoothstep(uCloudBase * 0.8, 0.0, hgt) * smoothstep(40000.0, 2000.0, tc) * c.w;
-    col = mix(col, uAmbBot * 0.7, clamp(shaft * 0.75, 0.0, 0.85));
-    T *= 1.0 - clamp(shaft * 0.6, 0.0, 0.9);
+    vec4 c = uCells[i]; if (c.z <= 0.0 || c.w <= 0.05) continue;
+    vec4 e = uCellsB[i];
+    float Rr = max(e.w, 300.0) * 1.15;
+    vec2 ctr = c.xy + e.xy * 0.15 * e.w;
+    float lh = max(length(rd.xz), 1e-4); vec2 dh = rd.xz / lh;
+    vec2 o = uCamPos.xz - ctr;
+    float b = dot(o, dh), disc = b * b - dot(o, o) + Rr * Rr;
+    if (disc <= 0.0) continue;
+    float sq = sqrt(disc), tn = max(-b - sq, 0.0), tf = -b + sq;
+    if (tf <= 0.0) continue;
+    float tm = 0.5 * (tn + tf), hgt = uCamPos.y + tm * rd.y / lh, hb = uCloudBase * 0.75;
+    vec2 rel = o + dh * tm;
+    rel -= e.xy * hgt * 0.25;                                   // slanting: the rain is blown ahead of the cell
+    float st = texture(uNoise, vec3(rel.x / 650.0, hgt / 2400.0 + uCloudTime * 0.0038, rel.y / 650.0)).g;
+    float core = 1.0 - exp(-(tf - tn) / (1.2 * Rr));
+    float vis = smoothstep(hb, hb * 0.5, hgt) * smoothstep(-60.0, 40.0, hgt) * smoothstep(45000.0, 3000.0, tn);
+    float dens = clamp(c.w * core * (0.35 + 1.1 * st) * vis, 0.0, 1.0);
+    vec3 rc = uAmbBot * vec3(0.5, 0.56, 0.55);
+    if (uFlash.w > 0.0) rc += vec3(0.78, 0.82, 1.0) * uFlash.w * 0.015 * exp(-length(vec3(ctr.x, hgt, ctr.y) - uFlash.xyz) / 2000.0);
+    col = mix(col, rc, clamp(dens * 0.85, 0.0, 0.88));
+    T *= 1.0 - clamp(dens * 0.7, 0.0, 0.9);
+  }
+  // mist and sea fog: a layer hugging the water, thick at the surface, clear a few scale heights up; seen
+  // from inside it the horizon closes in, looking up the sky shows through; banks thicker and thinner
+  if (uMist.x > 0.0) {
+    float H = uMist.y, sy = max(rd.y, 0.0);
+    float path = min(H / max(sy, 1e-4), 40000.0);
+    float tau = uMist.x * exp(-max(uCamPos.y, 0.0) / H) * path;
+    vec2 ex = uCamPos.xz + rd.xz / max(length(rd.xz), 1e-3) * min(path, 2500.0);
+    float bank = texture(uNoise, vec3((ex + uWOff * 0.15) / 3000.0, 0.55 + uCloudTime * 0.00002)).r;
+    tau *= mix(1.0, 0.35 + 1.3 * bank, uMist.z);
+    float mT = exp(-tau);
+    float cth = dot(rd, uSunDir);
+    vec3 mc = uMistCol + uSunCol * 0.6 * hg(cth, 0.65) * exp(-uMist.x * H * 2.0);   // bright toward the sun
+    col = mix(mc, col, mT); T *= mT;
   }
   vec4 cur = vec4(col, T);
   // temporal accumulation: last frame's sky, reprojected by direction (exact for a sky at infinity)
@@ -277,7 +407,7 @@ void main() {
       vec2 uv = c.xy / c.w * 0.5 + 0.5;
       if (all(greaterThan(uv, vec2(0.002))) && all(lessThan(uv, vec2(0.998)))) {
         vec4 h = texture2D(uHist, uv);
-        cur = mix(h, cur, 0.18 + 0.5 * clamp(abs(h.a - cur.a) * 2.0, 0.0, 1.0));
+        cur = mix(h, cur, max(uHistMin, 0.18 + 0.5 * clamp(abs(h.a - cur.a) * 2.0, 0.0, 1.0)));
       }
     }
   }
@@ -338,7 +468,7 @@ export function withCloudShadows(mat, sky, opts = {}) {
   const U = sky.U, prev = mat.onBeforeCompile, prevKey = mat.customProgramCacheKey;
   mat.onBeforeCompile = (sh, rr) => {
     if (prev) prev.call(mat, sh, rr);           // chain an existing patch (facades, trees)
-    for (const k of ['uNoise', 'uWeather', 'uWOff', 'uCover', 'uCloudBase', 'uCloudThick', 'uCloudTime', 'uCells']) sh.uniforms[k] = U[k];
+    for (const k of ['uNoise', 'uWeather', 'uWOff', 'uCover', 'uCloudBase', 'uCloudThick', 'uCloudTime', 'uCells', 'uCellsB', 'uTower', 'uStrat']) sh.uniforms[k] = U[k];
     sh.uniforms.uLightDirW = { value: sky.lightV }; sh.uniforms.uPlayerShade = sky.playerShadeU;
     sh.vertexShader = 'varying vec3 vCSWorld;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
       vec4 cswp = vec4(transformed, 1.0);
@@ -404,12 +534,15 @@ export class SkySystem {
       uNoise: { value: noise.tex }, uWeather: { value: wx.tex }, uWOff: { value: new THREE.Vector2() },
       uCover: { value: 0.4 }, uCloudBase: { value: 1100 }, uCloudThick: { value: 1300 }, uCloudTime: { value: 0 },
       uCells: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, 0, 0, 0)) },
+      uCellsB: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, 1, 0, 1000)) },
+      uTower: { value: 0 }, uStrat: { value: 0 }, uFlash: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uMist: MIST_U.uMist, uMistCol: MIST_U.uMistCol,
       uSunDir: { value: this.sunDir }, uSunCol: { value: new THREE.Vector3(1, 1, 1) },
       uAmbTop: { value: new THREE.Vector3(0.3, 0.4, 0.6) }, uAmbBot: { value: new THREE.Vector3(0.2, 0.22, 0.25) },
       uCamPos: { value: new THREE.Vector3() }, uFrame: { value: 0 },
     };
     const marchMat = (steps) => new THREE.ShaderMaterial({
-      uniforms: { ...this.U, uSteps: { value: steps }, uHist: { value: null }, uPrevVP: { value: new THREE.Matrix4() }, uHistOK: { value: 0 } }, vertexShader: DOME_VS, fragmentShader: MARCH_FS,
+      uniforms: { ...this.U, uSteps: { value: steps }, uHist: { value: null }, uPrevVP: { value: new THREE.Matrix4() }, uHistOK: { value: 0 }, uHistMin: { value: 0.18 } }, vertexShader: DOME_VS, fragmentShader: MARCH_FS,
       side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
     });
     // half-resolution pass
@@ -448,8 +581,9 @@ export class SkySystem {
     this.histOK = false;
     this.compU.uRes.value.set(w * pr, h * pr);
   }
-  // clouds from the weather: cover 0..1, squall cells [{x,z,R}], wind drift
-  setWeather(cover, cells, drift, t, windKt) {
+  // clouds from the weather: cover 0..1, squall cells [{x,z,R,w,age,life,ux,uz}], wind drift, and the
+  // day's convection {base, thick, tower, strat} (wx.convection)
+  setWeather(cover, cells, drift, t, windKt, conv) {
     const U = this.U;
     // eased over ~8 s of sim time (frame-rate independent); a jump in t snaps
     const dt = t - (this._wxT ?? -1e9); this._wxT = t;
@@ -457,13 +591,20 @@ export class SkySystem {
     U.uCover.value += (cover - U.uCover.value) * k;
     U.uWOff.value.copy(drift); U.uCloudTime.value = t;
     // stronger wind: flatter, lower stratocumulus; light air: tall fair-weather cumulus
-    const base = 1250 - Math.min(500, windKt * 12), thick = 1500 - Math.min(700, windKt * 16) + cover * 600;
+    const base = conv ? conv.base : 1250 - Math.min(500, windKt * 12), thick = (conv ? conv.thick : 1500 - Math.min(700, windKt * 16)) + cover * 600;
     U.uCloudBase.value += (base - U.uCloudBase.value) * k; U.uCloudThick.value += (thick - U.uCloudThick.value) * k;
-    // cells grow from a swelling cumulus into a full cumulonimbus and collapse again (w = life 0..1)
-    for (let i = 0; i < 4; i++) { const c = cells[i]; U.uCells.value[i].set(c ? c.x : 0, c ? c.z : 0, c ? Math.max(2500, c.R * 3.5) : 0, c ? Math.min(1, 1.4 * (c.w ?? 1)) : 0); }
+    U.uTower.value += ((conv ? conv.tower : 0) - U.uTower.value) * k; U.uStrat.value += ((conv ? conv.strat : 0) - U.uStrat.value) * k;
+    // cells grow from a swelling cumulus into a full cumulonimbus and collapse again (w = life 0..1; the
+    // stage says which way: a young tower has no anvil yet, an old anvil outlives its tower)
+    for (let i = 0; i < 4; i++) {
+      const c = cells[i];
+      U.uCells.value[i].set(c ? c.x : 0, c ? c.z : 0, c ? Math.max(3000, c.R * 4) : 0, c ? Math.min(1, 1.4 * (c.w ?? 1)) : 0);
+      U.uCellsB.value[i].set(c?.ux ?? 0, c?.uz ?? 1, c && c.life ? Math.max(-1, Math.min(1, c.age / c.life)) : 0, c ? c.R : 1000);
+    }
   }
   // where are the sun and moon, and what does the sky look like
   setTime(ms, lat, lon) {
+    this.ms = ms; this.lat = lat; this.lon = lon;
     const s = sunPosition(ms, lat, lon), m = moonPosition(ms, lat, lon);
     dirOf(s.el, s.az, this.sunDir); dirOf(m.el, m.az, this.moonDir);
     this.sunEl = s.el; this.moonEl = m.el;
@@ -565,7 +706,9 @@ export class SkySystem {
     // passes: half-resolution sky, then (every few frames) the reflection cube and the lighting environment
     const r = this.r, prevRT = r.getRenderTarget(), prevAC = r.autoClear;
     const mu = this.marchDome.material.uniforms, hist = this.rt, out = this.rt === this.rtA ? this.rtB : this.rtA;
+    // (while lightning flickers the history counts for little: a flash lasts a frame or two and must not smear)
     mu.uHist.value = hist.texture; mu.uHistOK.value = this.histOK && this.lutKey === this._histKey ? 1 : 0;
+    mu.uHistMin.value = this.noHist ? 0.55 : 0.18;
     r.setRenderTarget(out); r.render(this.marchScene, camera); r.setRenderTarget(prevRT);
     this.rt = out; this.compU.uSkyTex.value = out.texture; this.histOK = true; this._histKey = this.lutKey;
     camera.updateMatrixWorld();
@@ -574,6 +717,7 @@ export class SkySystem {
     this.cubeAge++; this.envAge++;
     // reflection cube: a whole refresh after a jump, otherwise one face per frame (spreads the cost)
     const full = this.cubeAge > 90;
+    const flashW = U.uFlash.value.w; U.uFlash.value.w = 0;   // the reflection cube keeps faces for frames: no flashes in it
     if (full || !this.low || this.frame % 3 === 0) {
       if (full || this.cubeFace === 5 || this.cubeFace === undefined) {
         this.cubeCam.position.set(cp.x, Math.max(2, cp.y), cp.z);
@@ -591,6 +735,7 @@ export class SkySystem {
         this.envRT = next; this.scene.environment = next.texture;
       }
     }
+    U.uFlash.value.w = flashW;
     r.autoClear = prevAC;
     // fog: the horizon colour
     return hz;

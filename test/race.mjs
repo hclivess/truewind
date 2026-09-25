@@ -20,7 +20,7 @@ console.log('course len', course.L.toFixed(0), 'origin', course.origin.x.toFixed
 const boats = [], ais = [];
 for (let i=0;i<+nb;i++){ const b=new Boat(cls,{id:i}); const off=(i-(+nb)/2)*15; b.reset(course.origin.x - course.ux*150 + course.rx*off, course.origin.z - course.uz*150 + course.rz*off, env.wind.twd+Math.PI/2); boats.push(b); const a=new AIHelm(b,{startFrac:i/(+nb), skill: 0.85+0.03*i}); a.targetsUpBsp=vt.up.bsp; ais.push(a);}
 const race = new Race(course, boats, { countdown: 90 });
-const sim = { boats, world, race };
+const sim = { boats, world, race, env };   // as in the game: the AI reads the tide field
 const dt=1/60; let t=0; let aground=0;
 const piers = geo?.piers||[];
 for (let s=0; s< +mins*60/dt; s++) {

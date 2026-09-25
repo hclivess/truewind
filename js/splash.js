@@ -12,13 +12,19 @@ import * as THREE from 'three';
 
 const DROPS = 2400, PATCHES = 520, Q = 16, RWS = 7;
 const NOISE = /* glsl */`
-float fh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float fn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(fh(i), fh(i + vec2(1, 0)), f.x), mix(fh(i + vec2(0, 1)), fh(i + vec2(1, 1)), f.x), f.y); }
+// hash without sin() (at world coordinates x 26 its precision ran out and the foam broke into blocks)
+vec2 fh(vec2 p){ p = mod(p, 4096.0); vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy) * 2.0 - 1.0; }
+// gradient noise with value-noise statistics (value noise's flat lattice spots made foam a mosaic of cells)
+float fn(vec2 p){ vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
+  float a = dot(fh(i), f), b = dot(fh(i + vec2(1, 0)), f - vec2(1, 0)), c = dot(fh(i + vec2(0, 1)), f - vec2(0, 1)), d = dot(fh(i + vec2(1, 1)), f - vec2(1, 1));
+  return clamp(0.5 + 1.28 * mix(mix(a, b, u.x), mix(c, d, u.x), u.y), 0.0, 1.0); }
+// the same, faded to its mean once a cell is smaller than a couple of pixels (w: pixel footprint in p units)
+float fnA(vec2 p, float w){ return mix(0.5, fn(p), smoothstep(0.7, 0.3, w)); }
 float foam(vec2 p, float t, float cover) {
-  float n = fn(p * 3.0 + vec2(t * 0.3, 0.0)) * 0.5 + fn(p * 7.0 - vec2(0.0, t * 0.5)) * 0.3 + fn(p * 17.0 + t) * 0.2;
-  float bub = smoothstep(0.35, 0.6, fn(p * 26.0 - t * 0.4)) * smoothstep(0.2, 0.5, fn(p * 9.0));
-  return smoothstep(1.0 - cover, 1.0 - cover + 0.35, n * 0.75 + bub * 0.35);
+  float w = length(fwidth(p));
+  float n = fnA(p * 3.0 + vec2(t * 0.3, 0.0), w * 3.0) * 0.5 + fnA(p * 7.0 - vec2(0.0, t * 0.5), w * 7.0) * 0.3 + fnA(p * 17.0 + t, w * 17.0) * 0.2;
+  float bub = smoothstep(0.35, 0.6, fnA(p * 26.0 - t * 0.4, w * 26.0)) * smoothstep(0.2, 0.5, fnA(p * 9.0, w * 9.0));
+  return smoothstep(1.0 - cover, 1.0 - cover + 0.35 + min(0.3, w * 3.0), n * 0.75 + bub * 0.35);
 }`;
 const LIGHT = /* glsl */`
 uniform vec3 uSunCol; uniform vec3 uAmbTop; uniform vec3 uLightDir;

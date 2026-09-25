@@ -224,6 +224,9 @@ export class AIHelm {
       if (tack < 0 && rel < this.trackRel(1, up) + this.overstand * 0.2 - 2 * DEG) want = 1;
       const header = tack > 0 ? wrap(twd - this.twdMean) : -wrap(twd - this.twdMean);
       if (want === tack && header < -8 * DEG && Math.abs(rel) < up - 15 * DEG && t - this.lastTack > 25) want = -tack;
+      // the tide across the course: where the next couple of hundred metres on the other tack carry the
+      // boat into water flowing more toward the mark (less against it), that tack pays
+      if (want === tack && Math.abs(rel) < up - 10 * DEG && t - this.lastTack > 40 && this.tideGain(sim, -tack, up, dest) - this.tideGain(sim, tack, up, dest) > 0.12) want = -tack;
       if (want !== tack && t - this.lastTack > 12) { this.lastTack = t; }
       else want = tack;
       desired = twd - want * (up + (this.skill < 1 ? (1 - this.skill) * 6 * DEG : 0));
@@ -235,16 +238,15 @@ export class AIHelm {
       if (tack < 0 && rel > (dn - 2 * DEG)) want = 1;
       if (want !== tack && t - this.lastTack > 15) this.lastTack = t; else want = tack;
       desired = twd - want * dn;
-    } else desired = brg;
-    // keep off the rocks: probe ahead along the desired and current headings
-    if (sim.world && !sim.world.open) {
-      const look = 25 + b.u * 8;
-      const px = b.x + Math.sin(b.psi) * look, pz = b.z - Math.cos(b.psi) * look;
-      if (sim.world.depthAt(px, pz) < b.cls.draft + 0.6) {
-        if (mode === 'beat' && t - this.lastTack > 6) { this.lastTack = t; desired = twd + tack * up; }
-        else desired = b.psi + (sim.world.depthAt(b.x + Math.sin(b.psi + 0.6) * look, b.z - Math.cos(b.psi + 0.6) * look) > sim.world.depthAt(b.x + Math.sin(b.psi - 0.6) * look, b.z - Math.cos(b.psi - 0.6) * look) ? 0.6 : -0.6);
-      }
+    } else {
+      // reaching to a point: steer up-tide of it so the ground track, not the bow, points at it (aiming the
+      // bow at a mark in a cross-tide sets a slow boat down-tide of it, round and round, never laying it)
+      const c = this.curAt(sim, b.x, b.z), V = Math.max(b.u, 1);
+      const cross = c.x * Math.cos(brg) + c.z * Math.sin(brg);        // tide to the right of the bearing
+      desired = brg - Math.asin(clamp(cross / V, -0.7, 0.7));
     }
+    // keep off the rocks and banks
+    if (sim.world && !sim.world.open) desired = this.avoidShoals(sim, desired, mode, tack, up, twd, t);
     // simple traffic avoidance
     for (const o of sim.boats) {
       if (o === b) continue;
@@ -317,23 +319,90 @@ export class AIHelm {
     return wrap(Math.atan2(V * Math.sin(h) + cx, V * Math.cos(h) - cz) - twd);
   }
 
+  // the tide at (x, z): the environment's current field when the sim has one, else the tide the boat is in
+  curAt(sim, x, z) {
+    if (sim.env && sim.env.current) return sim.env.current.at(x, z, this._cur || (this._cur = {}));
+    return { x: this.b.diag.curX ?? 0, z: this.b.diag.curZ ?? 0 };
+  }
+  // the tide's share of the ground made toward dest over the next ~2 minutes close-hauled on tack s: the
+  // current where that tack takes the boat, resolved along the bearing to the mark (m/s)
+  tideGain(sim, s, up, dest) {
+    const b = this.b, twd = b.diag.twd ?? 0, h = twd - s * (up + (this.lee ?? 5 * DEG));
+    const run = 120 * Math.max(1, this.targetsUpBsp ?? b.u);
+    const c = this.curAt(sim, b.x + Math.sin(h) * run, b.z - Math.cos(h) * run);
+    const bx = dest.x - b.x, bz = dest.z - b.z, L = Math.hypot(bx, bz) || 1;
+    return (c.x * bx + c.z * bz) / L;
+  }
+  // Depth along the track the boat will actually make on heading h: speed through the water along the
+  // heading plus the tide, which in a cross-tide sets the boat sideways onto a bank that a probe along the
+  // bow never sees. Returns the least under-keel clearance (m) over the next ~40 s.
+  clearance(sim, h) {
+    const b = this.b, V = Math.max(b.u, 1.2), c = this.curAt(sim, b.x, b.z);
+    const gx = V * Math.sin(h) + c.x, gz = -V * Math.cos(h) + c.z, need = b.cls.draft + 0.6;
+    let worst = 1e9;
+    for (const s of [5, 12, 22, 40]) worst = Math.min(worst, sim.world.depthAt(b.x + gx * s, b.z + gz * s) - need);
+    return worst;
+  }
+  // keep the desired heading if its track is clear; on a beat tack away from the shallows; otherwise the
+  // nearest clear heading either side (or, if nothing is clear, the one with the most water)
+  avoidShoals(sim, desired, mode, tack, up, twd, t) {
+    if (this.clearance(sim, desired) > 0) return desired;
+    if (mode === 'beat' && t - this.lastTack > 6) {
+      const other = twd + tack * up;
+      if (this.clearance(sim, other) > 0) { this.lastTack = t; return other; }
+    }
+    let best = desired, bestC = -1e9;
+    for (let k = 1; k <= 14; k++) for (const s of [1, -1]) {
+      const h = desired + s * k * 12 * DEG, c = this.clearance(sim, h);
+      if (c > 0) return h;
+      if (c > bestC) { bestC = c; best = h; }
+    }
+    return best;
+  }
+
   steer(dt, desired) {
     const b = this.b, d = b.diag;
     const twd = d.twd ?? 0;
-    const up = (this.upAngle ?? 40 * DEG) * 0.95;
+    // close-hauled, but footing off to build speed when slow (a heavy boat that has stalled at the target
+    // angle, in a lull or after a tack, never gets going again there: it only slides sideways)
+    // (upwind target speed for the wind blowing now: the race-start polar overstates it in a lull)
+    const vT = Math.max(0.5, Math.min(this.targetsUpBsp ?? 2, 0.45 * (d.tws ?? 5)));
+    const slow = clamp(1 - b.u / (0.7 * vT), 0, 1);
+    const up = (this.upAngle ?? 40 * DEG) * 0.95 + 40 * DEG * slow * slow;   // stopped: bear off to a close reach
     // never aim into the no-go zone: pinch at most to close-hauled on the nearer tack
     let rel = wrap(twd - desired);
     if (Math.abs(rel) < up) desired = twd - (Math.sign(wrap(twd - b.psi)) || 1) * up;
-    // no tacking from a standstill: bear away on the present tack and build speed first
+    // no tacking from a standstill: bear away on the present tack and build speed first — but not for ever:
+    // in a light patch with the tide under it the speed may never come, and holding on sailed the boat away
+    // from the mark and onto the shore. After 25 s of that it goes round the other way, gybing (a slow boat
+    // cannot tack, but it can always bear away through the wind astern)
     const tackNow = Math.sign(wrap(twd - b.psi)) || 1;
-    if ((Math.sign(wrap(twd - desired)) || 1) !== tackNow && b.u < 1.2 && Math.abs(wrap(twd - b.psi)) > 25 * DEG) desired = twd - tackNow * (up + 30 * DEG);
+    if (this.buildTack !== tackNow) { this.buildTack = tackNow; this.buildT = 0; }
+    const wantsOther = (Math.sign(wrap(twd - desired)) || 1) !== tackNow;
+    if (wantsOther && b.u < 0.5 * vT && Math.abs(wrap(twd - b.psi)) > 25 * DEG) {
+      this.buildT += dt;
+      desired = this.buildT < 25 ? twd - tackNow * (up + 30 * DEG) : twd + tackNow * 150 * DEG; // (the other gybe)
+    }
     let err = wrap(desired - b.psi);
+    this.desired = desired;
+    // bearing away from slow: ease the main so the rig stops turning the bow into the wind (a sheeted-in
+    // main's weather helm beats a rudder with no flow over it — the fleet sat at the windward mark with the
+    // helm hard over, pinned at 30-45° by the tide). Only while the bow is not coming round: an eased main
+    // on a boat that is already turning just stops it (a una-rig dinghy then sat luffing on a reach)
+    const off = Math.abs(wrap(twd - desired)) - Math.abs(wrap(twd - b.psi));
+    const sameTack = (Math.sign(wrap(twd - desired)) || 1) === (Math.sign(wrap(twd - b.psi)) || 1);
+    const turning = b.r * Math.sign(err) > 2 * DEG;
+    if (sameTack && off > 10 * DEG && slow > 0.3 && !turning && b.sailBy.jib && b.sailBy.main) b.ctrl.main = Math.max(b.ctrl.main, 0.35 + 0.5 * slow);
     const kp = 2.4 * this.skill, kd = 1.6;
     let cmd = clamp(kp * err - kd * b.r, -0.8, 0.8);
     const twa = wrap(twd - b.psi);
     // in irons / going astern: the rudder works backwards; the jib is backed by hauling the lazy sheet
     // across on the other winch (a una-rig pushes the boom out by hand)
-    if (b.u < 0.4 && Math.abs(twa) < 45 * DEG) {
+    // (with hysteresis: a boat merely slow at close-hauled is not in irons — backing its jib there stopped it
+    // dead, and the release-and-back cycle kept a Blackwatch drifting sideways on the tide for many minutes)
+    const upB = this.upAngle ?? 40 * DEG;
+    const irons = this.backing ? b.u < 0.8 && Math.abs(twa) < upB + 10 * DEG : b.u < 0.3 && Math.abs(twa) < 0.75 * upB;
+    if (irons) {
       const wantTack = Math.sign(wrap(twd - desired)) || 1;
       if (b.sailBy.jib) {
         const clew = Math.sign(b.side.jib) || 1;

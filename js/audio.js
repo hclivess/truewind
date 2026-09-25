@@ -1,8 +1,12 @@
-// Procedural sound: wind in the rig, water along the hull, flogging sails, boom slams, start horn.
+// Procedural sound: wind in the rig, water along the hull, flogging sails, boom slams, start horn, thunder.
 // Smoothness matters more than detail: seamless noise loops, slow parameter glides at a fixed
 // update rate, and flog sound shaped by a smooth LFO instead of hard gating.
 export class Audio {
-  constructor() { this.ctx = null; this.on = true; this.acc = 0; }
+  constructor() {
+    this.ctx = null; this.on = true; this.acc = 0;
+    // the renderer fires 'truewind:thunder' when a strike's sound reaches the camera (render.js _lightning)
+    if (typeof window !== 'undefined') window.addEventListener('truewind:thunder', (e) => this.thunder(e.detail));
+  }
 
   // pink-ish noise with the loop seam crossfaded, so there is no click every loop
   _noise(ctx, seconds, seed) {
@@ -78,6 +82,58 @@ export class Audio {
     glide(this.flog.g.gain, on * heavy * heavy * Math.min(1, aws / 9) * 0.12, 0.6);
     glide(this.lfo.frequency, 4 + aws * 0.45, 1.0);
     if (b.slam > 1.2 && on) { this.thump(Math.min(1, b.slam / 3)); b.slam = 0; }
+  }
+
+  // Thunder, played the moment its sound arrives (the delay, distance / 343 m/s, is kept by the caller in sim
+  // time). A near strike: a sharp crack, then the rumble; a far one only a low rumble, because the air
+  // absorbs the highs with distance. It rolls on while sound from farther parts of the channel keeps
+  // arriving ((far - near) / 343 s), in irregular peals. Level falls with distance (spherical spreading,
+  // softened: the compressor and the sim's scale).
+  thunder({ d = 3000, spread = 2000, seed = 1, cg = true } = {}) {
+    if (!this.ctx || !this.on) return;
+    const ctx = this.ctx, t0 = ctx.currentTime + 0.01, sr = ctx.sampleRate;
+    if (!this._white) {
+      const len = sr * 4, buf = ctx.createBuffer(1, len, sr), dd = buf.getChannelData(0);
+      let s = 2463534242; for (let i = 0; i < len; i++) { s = (s * 1664525 + 1013904223) >>> 0; dd[i] = s / 2147483648 - 1; }
+      this._white = buf;
+    }
+    let s = (seed >>> 0) || 1; const rnd = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296;
+    const loud = Math.min(1, 650 / (d + 250)), dur = Math.min(16, 2.2 + spread / 343 + d / 4000);
+    const noise = (off, len, loop) => { const n = ctx.createBufferSource(); n.buffer = this._white; n.loop = loop; n.start(t0, off); n.stop(t0 + len); return n; };
+    const filt = (type, f, q = 0.7) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; };
+    // crack: within a couple of kilometres, the leader and return strokes tearing the air
+    const near = cg ? Math.max(0, 1 - d / 2200) : 0;
+    if (near > 0) {
+      const g = ctx.createGain(), hp = filt('highpass', 500), lp = filt('lowpass', 2500 + 9000 * near);
+      g.gain.setValueAtTime(0.0001, t0);
+      let tc = t0;
+      for (let k = 0, n = 2 + Math.floor(rnd() * 3); k < n; k++) {      // a ripping sequence of snaps
+        const a = near * loud * (k ? 0.35 + 0.4 * rnd() : 1.1);
+        g.gain.setValueAtTime(0.0001, tc); g.gain.exponentialRampToValueAtTime(a, tc + 0.004); g.gain.exponentialRampToValueAtTime(a * 0.08, tc + 0.065);
+        tc += 0.07 + 0.09 * rnd();
+      }
+      g.gain.exponentialRampToValueAtTime(0.0001, tc + 0.25);
+      noise(rnd() * 3, tc - t0 + 0.3, false).connect(hp); hp.connect(lp); lp.connect(g); g.connect(this.master);
+    }
+    // rumble: noise through two low-passes whose cutoff falls with distance, under an envelope of peals
+    const fc = 90 + 2600 * Math.exp(-d / 1300);
+    const l1 = filt('lowpass', fc), l2 = filt('lowpass', fc * 1.4), g = ctx.createGain();
+    const N = Math.ceil(dur * 60), env = new Float32Array(N);
+    const peals = 3 + Math.floor(rnd() * 5 + spread / 1500);
+    for (let k = 0; k < peals; k++) {
+      const tp = k === 0 ? (near > 0 ? 0.05 : 0) : rnd() * dur * 0.65, a = (k === 0 ? 1 : 0.35 + 0.65 * rnd()) * (1 - 0.5 * tp / dur);
+      const ta = (near > 0 && k === 0 ? 0.03 : 0.12) + rnd() * 0.35 * Math.min(1, d / 3000), td = 0.5 + rnd() * 2.2;
+      for (let i = 0; i < N; i++) {
+        const x = i / 60 - tp; if (x < 0) continue;
+        env[i] += a * (x < ta ? x / ta : Math.exp(-(x - ta) / td));
+      }
+    }
+    let mx = 0; for (let i = 0; i < N; i++) mx = Math.max(mx, env[i]);
+    for (let i = 0; i < N; i++) env[i] = Math.max(0.0001, env[i] / mx * loud * (0.55 + 0.35 * (1 - near))) * Math.min(1, (N - 1 - i) / 20);
+    env[0] = 0.0001; env[N - 1] = 0;
+    g.gain.setValueCurveAtTime(env, t0, dur);
+    noise(rnd() * 3, dur + 0.05, true).connect(l1); l1.connect(l2); l2.connect(g); g.connect(this.master);
+    this.lastThunder = { d, dur, fc, at: t0 };
   }
 
   thump(a) {

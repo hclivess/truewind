@@ -141,7 +141,12 @@ export const CLASSES = {
     bowsprit: 0.9,
     massHull: 160, zG: 0.42, crewN: 2, crewEach: 72, crewZ: 0.5, crewMaxOut: 2.0, crewLee: -0.4, hikeRate: 1.0,
     gm: 3, bmForm: 1, Ixx: 560, Izz: 520, amX: 0.04, amY: 0.35, amYaw: 0.4, amRoll: 0.4,
-    rr: [[0.1, 0.0004], [0.2, 0.002], [0.3, 0.0055], [0.35, 0.009], [0.4, 0.0135], [0.45, 0.018], [0.5, 0.021], [0.6, 0.0225], [0.7, 0.022], [0.8, 0.021], [1.0, 0.0195], [1.2, 0.019], [1.5, 0.02]],
+    // residuary resistance / weight of the pair of hulls, from the Southampton catamaran series (Molland,
+    // Wellicome & Couser 1994) at this boat's slenderness L/vol^(1/3) ~ 9.3 per hull and spacing s/L ~ 0.4:
+    // C_R ~ 5e-3 at the Fn 0.45-0.5 hump falling to ~1e-3 by Fn 1.2, times Fn^2 L S / 2 vol (~34 here).
+    // A slender hull's C_R falls with speed but its Rr/W does not: it stays ~0.045-0.06 past the hump.
+    // (The old table halved that, which is most of why the cat reached at 1.45 x the wind speed.)
+    rr: [[0.1, 0.0004], [0.2, 0.002], [0.3, 0.0076], [0.35, 0.0145], [0.4, 0.024], [0.45, 0.036], [0.5, 0.042], [0.6, 0.046], [0.7, 0.046], [0.8, 0.048], [1.0, 0.051], [1.2, 0.054], [1.5, 0.061]],
     keel: { x: 0.3, z: -0.5, area: 0.36, ARe: 4.5, stall: 13 * DEG, cd0: 0.011, span: 0.75, chord: 0.26, board: true, twin: true },
     rudder: { x: -2.4, z: -0.3, area: 0.18, ARe: 3.5, stall: 16 * DEG, cd0: 0.012, max: 30 * DEG, span: 0.6, chord: 0.2, loadRef: 250, twin: true },
     hullLat: { area: 0.6, cd: 0.9, z: -0.08 },
@@ -379,6 +384,7 @@ export class Boat {
 
     // ---- environment at the boat ----
     const cur = env.current.at(this.x, this.z, this._c);
+    this.diag.curX = cur.x; this.diag.curZ = cur.z;          // the tide the boat is in (the AI plans with it)
     let wv = null, slopeAlong = 0, slopeLat = 0, slopeLatBow = 0, slopeLatStern = 0, orbU = 0, orbV = 0, waveH = 0;
     // the sea along the hull: 7 samples from stern to bow (height, slopes, orbital velocity)
     const W7 = this._ws7, xs7 = this._xs7 || (this._xs7 = [0, 1, 2, 3, 4, 5, 6].map(i => C.sternX + (C.bowX - C.sternX) * i / 6));
@@ -400,6 +406,11 @@ export class Boat {
     const wx = -Math.sin(w.dir) * wsp, wz = Math.cos(w.dir) * wsp;
     const Wbx = wx * fx + wz * fz, Wby = wx * sx + wz * sz;
     d.tws = w.speed; d.twd = w.dir; d.puff = w.puff;
+    // air density: the rain-cooled outflow under a squall (w.cold 0..1) is up to ~9 K colder than the air
+    // around it, so ~3% denser (ideal gas, rho ~ 1/T at constant pressure) — a squall hits a little harder
+    // than its wind speed alone says
+    const rhoA = RHO_A * 288 / (288 - 9 * clamp(w.cold || 0, 0, 1));
+    d.rhoA = rhoA;
 
     let X = 0, Y = 0, K = 0, N = 0;
     let sailX = 0, sailY = 0, sailK = 0;
@@ -414,7 +425,7 @@ export class Boat {
     const pm = env.wind.profile(zMid * cphi + 0.5);
     const axm = Wbx * pm - ug, aym = Wby * pm - vg - this.r * C.mastX - this.p * zMid;
     const awaMid = Math.atan2(-aym, -axm);
-    const qMid = 0.5 * RHO_A * (axm * axm + aym * aym);
+    const qMid = 0.5 * rhoA * (axm * axm + aym * aym);
     d.awaMid = awaMid; d.qMid = qMid;
 
     // ---- released lines run out under their load (sheets ease, controls lose tension, the car slides) ----
@@ -584,7 +595,7 @@ export class Boat {
         let lx = -(cx - dot * dx) * rev, ln = -(cn - dot * dn) * rev;
         const lm = Math.hypot(lx, ln) + 1e-9; lx /= lm; ln /= lm;
         const blanket = key === 'main' ? 1 : 1 - 0.65 * sstep(140 * DEG, 178 * DEG, Math.abs(awaMid));
-        const q = 0.5 * RHO_A * V2 * s.area * STRIP_W[i] * areaF * blanket * (1 - wet);
+        const q = 0.5 * rhoA * V2 * s.area * STRIP_W[i] * areaF * blanket * (1 - wet);
         const Fx = q * (cl * lx + cd * dx), Fn = q * (cl * ln + cd * dn);
         const Fy = Fn * cphi;
         sailX += Fx; sailY += Fy; sailK += Fn * zs;
@@ -645,7 +656,7 @@ export class Boat {
       const wd = C.windage, prof = env.wind.profile(wd.z * cphi + 0.3);
       const ax = Wbx * prof - ug, ay = Wby * prof - vg - this.p * wd.z;
       const V = Math.hypot(ax, ay);
-      const q = 0.5 * RHO_A * wd.area * wd.cd * V * Math.max(0.3, Math.abs(cphi));
+      const q = 0.5 * rhoA * wd.area * wd.cd * V * Math.max(0.3, Math.abs(cphi));
       X += q * ax; Y += q * ay * cphi; K += q * ay * cphi * wd.z; d.windX = q * ax;
     }
 
@@ -705,7 +716,11 @@ export class Boat {
       d.helmMoment = rn * F.chord * (F.transom ? 0.3 : 0.12); // tiller feel: an unbalanced transom rudder is heavy
     }
     {
-      const planeLift = sstep(0.45, 0.95, Fn);
+      // a planing monohull rises onto its run and dries its forward sections. A multihull's slender,
+      // round-bilged hulls (beam/length ~0.08) carry no planing surface: they stay displacement hulls, and
+      // their residuary table (towing-tank C_R, which is referenced to the static wetted area) already
+      // holds whatever sinkage and trim they take at speed
+      const planeLift = C.multihull ? 0 : sstep(0.45, 0.95, Fn);
       const Swet = imm.girthLen * (1 - 0.3 * planeLift);                 // wetted surface of the real hull
       const Rf = 0.5 * RHO_W * Swet * uw * uw * cfITTC(uw, lwlDyn) * 1.08;
       // fore-aft crew weight: forward in light air (bury the bow, lift the transom), aft when planing
@@ -731,6 +746,12 @@ export class Boat {
       if (!C.multihull) N -= 0.011 * 0.5 * RHO_W * uw * Math.abs(uw) * L * L * T * Math.sin(this.phi);
       // hull drag acts where the immersed volume is: a multihull on its leeward hull wants to bear away
       if (imm.V > 1e-6) N += (Rf + Rr) * Math.sign(uw) * (imm.My / imm.V) * cphi * (C.multihull ? 1 : 0.3);
+      // Munk moment: a hull moving at a drift angle carries more fluid momentum sideways than lengthwise,
+      // and the difference turns it broadside to the flow, N = -(m_y - m_x) u v (Kirchhoff; the added-mass
+      // Coriolis term the surge and sway equations already carry, closed in yaw). With leeway it adds weather
+      // helm; in a turn (bow inside the track) it tightens the turn. Water-relative velocities, as for the hull.
+      const Nmunk = -(this.m22 - this.m11) * uw * vw * cphi;
+      N += Nmunk; d.Nmunk = Nmunk;
       d.Nhull = N - N0;
       X -= 2 * uw;
     }
