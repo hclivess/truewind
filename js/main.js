@@ -209,6 +209,7 @@ class Game {
     if (!this.env || this.netEpoch !== null || this.settings.mode === 'online') return;
     this.clockBase = this.clockFor() - this.t * 1000;
     this.env.setClock(this.clockBase, this.t);
+    this.renderer.setPhaseField(this.env.waves);
     this.renderer.setWaves(this.env.waves);
     this.world.updateShelter(this.env.wind.mean(this.t).dir);
     if (this.player) this.computePolar(this.player.cls, this.env.wind.mean(this.t).speed);

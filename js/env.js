@@ -506,7 +506,7 @@ export class WaveField {
     this.seed = opts.seed ?? 3;
     this.set(opts);
   }
-  set(opts) {
+  set(opts, t0 = 0) {
     this.opts = opts;
     const U0 = Math.max(0.5, opts.tws ?? 6);
     this.U0 = U0;
@@ -515,19 +515,25 @@ export class WaveField {
     this.weather = opts.weather || null;
     this.seaScale = opts.seaScale ?? 1;
     const rnd = mulberry32(this.seed * 977 + 11);
-    // frequency bins cover the peak for the whole range of wind the weather can bring
-    const [, TpLo] = hsTp(U0 * 0.55, this.F), [, TpHi] = hsTp(U0 * 1.55, this.F);
-    const fLo = 0.8 / Math.max(TpHi, 0.5), fHi = 2.6 / Math.max(TpLo, 0.4);
     const sw = opts.swellH ?? 0, nSw = sw > 0.01 ? 2 : 0, nS = MAXW - nSw;
+    // the components are laid out once, about the direction(s) the day's wind will blow from; the weather
+    // then only sets their amplitudes. A venue's thermal can blow from anywhere (Garda: Pelèr from the
+    // north at dawn, Ora from the south by noon), so the day ahead is sampled and a sea whose energy comes
+    // from two opposite sides gets two families of components, each with its own full frequency range.
+    let fams = [{ dir: this.dir0, n: nS }], Ulo = U0 * 0.55, Uhi = U0 * 1.55;
+    if (this.weather && this.weather.thermal) ({ fams, Ulo, Uhi } = this._layout(nS, U0, t0));
+    // frequency bins cover the peak for the whole range of wind the weather can bring
+    const [, TpLo] = hsTp(Ulo, this.F), [, TpHi] = hsTp(Uhi, this.F);
+    const fLo = 0.8 / Math.max(TpHi, 0.5), fHi = 2.6 / Math.max(TpLo, 0.4);
     const comps = [], ratio = fHi / fLo, ph0 = rnd();
-    for (let i = 0; i < nS; i++) {
-      const fa = fLo * Math.pow(ratio, i / nS), fb = fLo * Math.pow(ratio, (i + 1) / nS);
+    for (const fam of fams) for (let i = 0, n = fam.n; i < n; i++) {
+      const fa = fLo * Math.pow(ratio, i / n), fb = fLo * Math.pow(ratio, (i + 1) / n);
       const f = fa * Math.pow(fb / fa, 0.2 + 0.6 * rnd());
       // spreading: the long waves near the peak run close to the wind, the short ones fan out
-      const w = (28 + 34 * i / (nS - 1)) * DEG;
+      const w = (28 + 34 * i / (n - 1)) * DEG;
       const u = (ph0 + i * 0.6180339887) % 1;                     // golden-ratio sequence: neighbours differ
       const dd = (2 * u - 1) * w;
-      const th = this.dir0 + Math.PI + dd;
+      const th = fam.dir + Math.PI + dd;
       const omega = 2 * Math.PI * f;
       comps.push({ f, fa, fb, dd, wSpread: 2 * w / spreadP(w), travel: th, A: 0, k: omega * omega / G, omega, dx: Math.sin(th), dz: -Math.cos(th), phase: rnd() * 6.283, Q: 0, kind: 'sea' });
     }
@@ -543,7 +549,33 @@ export class WaveField {
     this.comps = comps;
     this.cur = { x: 0, z: 0 };
     this.depthFn = null; this.phaseField = null;
-    this.update(0);
+    this.update(t0);
+  }
+
+  // where the next 12 h of wind (gradient + thermal) comes from, weighted by the sea it raises (~U^3):
+  // the axial mean direction splits the samples into two opposite halves; a half with over a fifth of the
+  // energy gets its own family of components (at least 6), about its own energy-weighted mean direction
+  _layout(nS, U0, t0) {
+    const W = this.weather, S = [];
+    let Ulo = Infinity, Uhi = 0, c2 = 0, s2 = 0;
+    for (let t = t0; t <= t0 + 12 * 3600; t += 600) {
+      const tr = W.trend(t), U = U0 * tr.f, d = this.dir0 + tr.d, w = U * U * U;
+      S.push({ d, w }); c2 += w * Math.cos(2 * d); s2 += w * Math.sin(2 * d);
+      Ulo = Math.min(Ulo, U); Uhi = Math.max(Uhi, U);
+    }
+    const ax = 0.5 * Math.atan2(s2, c2), half = [{ x: 0, z: 0, e: 0 }, { x: 0, z: 0, e: 0 }];
+    for (const s of S) {
+      const h = half[Math.cos(s.d - ax) >= 0 ? 0 : 1];
+      h.x += s.w * Math.sin(s.d); h.z += s.w * Math.cos(s.d); h.e += s.w;
+    }
+    const E = half[0].e + half[1].e, dirOf = (h) => Math.atan2(h.x, h.z);
+    let fams;
+    if (E <= 0) fams = [{ dir: this.dir0, n: nS }];
+    else if (Math.min(half[0].e, half[1].e) > 0.2 * E) {
+      const n0 = Math.max(6, Math.min(nS - 6, Math.round(nS * half[0].e / E)));
+      fams = [{ dir: dirOf(half[0]), n: n0 }, { dir: dirOf(half[1]), n: nS - n0 }];
+    } else fams = [{ dir: dirOf(half[0].e >= half[1].e ? half[0] : half[1]), n: nS }];
+    return { fams, Ulo: Math.min(U0, Ulo) * 0.55, Uhi: Math.max(U0, Uhi) * 1.55 };
   }
 
   // target spectral amplitude of a component for mean wind (U, from-direction dir)
@@ -617,6 +649,7 @@ export class WaveField {
 
   // Finite-depth phase field: integrate (k(h) - k_deep) along each component's direction.
   buildDepthField(world) {
+    this._world = world;
     for (const c of this.comps) c.kRef = c.k;
     if (!world || world.open) { this.depthFn = null; this.phaseField = null; return; }
     this.depthFn = (x, z) => Math.max(0.05, world.depthAt(x, z));
@@ -780,7 +813,10 @@ export class Environment {
   setClock(clock0, t = 0) {
     const th = this.weather.thermal; if (!th) return;
     th.setClock(clock0); this.weather._ct = NaN;
-    this.waves.update(t); this._lastWaveT = t;
+    // the day ahead now blows from elsewhere: lay the sea's components out anew (current and depth kept)
+    const W = this.waves, cur = W.cur, world = W._world;
+    W.set(W.opts); W.setCurrent(cur.x, cur.z); if (world) W.buildDepthField(world); W.update(t);
+    this._lastWaveT = t;
   }
   // advance the slowly-changing sea state (cheap; call every frame)
   tick(t) {

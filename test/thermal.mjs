@@ -135,5 +135,17 @@ const fmt = (m) => `${kt(m).toFixed(1)} kn from ${deg(m).toFixed(0).padStart(3, 
   check(ng < dg, 'stability: steadier wind at night than by day');
 }
 
+// 7. the sea follows the thermal wherever it blows from: Garda's dawn Pelèr (from the north, against the
+// venue's southerly gradient) raises a sea, and the afternoon Ora a full fetch-limited one (8 km fetch)
+{
+  const v = VENUES.find(x => x.id === 'garda');
+  const e = envAt('garda', '2026-07-15', v.windKt, v.wind, { fetchKm: 8 });
+  e.waves.update(5 * 3600); const dawn = e.waves.Hs;
+  e.waves.update(15 * 3600); const aft = e.waves.Hs, m = e.wind.mean(15 * 3600);
+  const U = m.speed, hsFL = 0.0016 * U * Math.sqrt(8000 / 9.81);     // JONSWAP fetch-limited estimate
+  check(dawn > 0.15, `sea under the Pelèr against the gradient: Hs ${dawn.toFixed(2)} m at dawn`);
+  check(Math.abs(aft / hsFL - 1) < 0.35, `sea under the Ora: Hs ${aft.toFixed(2)} m (fetch-limited ${hsFL.toFixed(2)} m in ${kt(m).toFixed(1)} kn)`);
+}
+
 console.log(fails ? `${fails} FAILED` : 'all thermal checks passed');
 process.exit(fails ? 1 : 0);
