@@ -799,7 +799,10 @@ export class Boat {
       let Raw = 0;
       if (wv) {
         const enc = Math.max(0, -(fx * env.waves.comps[0].dx + fz * env.waves.comps[0].dz));
-        Raw = 0.12 * RHO_W * G * (env.waves.Hs / 2) ** 2 * C.beam * (0.3 + enc) * clamp(Math.abs(uw) / 2, 0, 1);
+        // (the waves reflect off the hulls' waterline beam: a multihull's two slender hulls, not its overall beam,
+        // which made a beach cat in a 20 kn sea drag a kilonewton, a third of its weight)
+        const Bw = C.multihull ? 2 * C.hullBeam : C.beam;
+        Raw = 0.12 * RHO_W * G * (env.waves.Hs / 2) ** 2 * Bw * (0.3 + enc) * clamp(Math.abs(uw) / 2, 0, 1);
       }
       // going astern the flat transom leads: separated flow, several times the forward drag
       const astern = uw < 0 ? 1 + 3.5 + 0.5 * RHO_W * uw * uw * C.beam * C.freeboard * 0.5 / Math.max(1, Rf + Rr) : 1;
