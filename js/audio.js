@@ -1,6 +1,16 @@
-// Procedural sound: wind in the rig, water along the hull, flogging sails, boom slams, start horn, thunder.
+// Procedural sound: wind in the rig, water along the hull, flogging sails, boom slams, start horn, rain, thunder.
 // Smoothness matters more than detail: seamless noise loops, slow parameter glides at a fixed
 // update rate, and flog sound shaped by a smooth LFO instead of hard gating.
+// the rain's voices for a rain rate r (0..1, the squall model's at the listener): silent when dry; the patter
+// comes in first, the drumming and the roar only as it gets heavy; heavier rain has bigger drops, so the hiss
+// on the water falls in pitch as it grows louder
+export function rainLevels(r, o = {}) {
+  r = Math.max(0, Math.min(1, r || 0));
+  const hv = Math.max(0, Math.min(1, (r - 0.3) / 0.55));
+  o.hiss = 0.2 * Math.pow(r, 0.7); o.hissF = 4200 - 1800 * hv; o.wash = 0.16 * r;
+  o.pat = 0.45 * Math.min(1, 3 * r) * (1 - 0.4 * hv); o.drum = 0.5 * hv * hv * (3 - 2 * hv); o.roar = 0.22 * hv * hv;
+  return o;
+}
 export class Audio {
   constructor() {
     this.ctx = null; this.on = true; this.acc = 0;
@@ -25,6 +35,28 @@ export class Audio {
       const t = i / fade;
       d[i] = raw[i] * Math.sin(t * Math.PI / 2) + raw[len + i] * Math.cos(t * Math.PI / 2);
     }
+    return buf;
+  }
+
+  // rain as drops: a seamless loop of single drop impacts at a fixed density. Each is a damped ring (a drop
+  // on the deck or taut sailcloth rings at 1.5-5 kHz for a few ms) with a click on the front; a heavy loop adds
+  // the low thuds of big drops drumming on the cabin top and the sails. Seeded: the same loop every start.
+  _drops(ctx, seconds, seed, perSec, heavy) {
+    const sr = ctx.sampleRate, len = Math.floor(sr * seconds), buf = ctx.createBuffer(1, len, sr), d = buf.getChannelData(0);
+    let s = seed >>> 0; const rnd = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296;
+    const n = Math.round(perSec * seconds);
+    for (let k = 0; k < n; k++) {
+      const i0 = Math.floor(rnd() * len), a = Math.exp(-2.2 * rnd()) * (0.35 + 0.65 * rnd());   // a few loud drops, many faint
+      const low = heavy && rnd() < 0.3;
+      const f = low ? 140 + 300 * rnd() : 1500 + 3500 * rnd() * rnd(), tau = (low ? 0.012 + 0.02 * rnd() : 0.0015 + 0.005 * rnd()) * sr;
+      const w = 2 * Math.PI * f / sr, m = Math.min(Math.floor(tau * 6), len);
+      for (let j = 0; j < m; j++) {
+        const e = Math.exp(-j / tau), click = j < 12 ? (rnd() * 2 - 1) * (1 - j / 12) * 0.6 : 0;
+        d[(i0 + j) % len] += a * (e * Math.sin(w * j) + click) * (low ? 0.9 : 0.5);   // (wraps: the loop has no seam)
+      }
+    }
+    let mx = 0; for (let i = 0; i < len; i++) mx = Math.max(mx, Math.abs(d[i]));
+    for (let i = 0; i < len; i++) d[i] *= 0.9 / mx;
     return buf;
   }
 
@@ -57,10 +89,18 @@ export class Audio {
     const lfoDepth = ctx.createGain(); lfoDepth.gain.value = 0.25;
     lfo.connect(lfoDepth); lfoDepth.connect(mod.gain); lfo.start();
     this.lfo = lfo;
+    // rain (level from the squall's rain at the listener, update()): hiss of drops on the water, a wash of the
+    // whole downpour, the patter of single drops on deck and sails, and in heavy rain a drumming roar
+    this.rainHiss = chain(nB, 1.6, 'highpass', 4200, 0.5);
+    this.rainWash = chain(nA, 1.25, 'bandpass', 1300, 0.45);
+    this.rainRoar = chain(nC, 0.8, 'lowpass', 450, 0.5);
+    this.rainPat = chain(this._drops(ctx, 5.3, 41, 45, false), 1, 'highpass', 300, 0.5);
+    this.rainDrum = chain(this._drops(ctx, 3.7, 77, 260, true), 1, 'highpass', 70, 0.5);
   }
 
-  // called every frame; parameters glide at 10 Hz with long time constants
-  update(b, dt) {
+  // called every frame; parameters glide at 10 Hz with long time constants. rain: the rain rate at the
+  // listener, 0..1 (the squall model's, as the rain drawn around the camera)
+  update(b, dt, rain = 0) {
     if (!this.ctx || !b) return;
     this.acc += dt;
     if (this.acc < 0.1) return;
@@ -81,6 +121,11 @@ export class Audio {
     const heavy = Math.max(0, flog - 0.35) / 0.65;          // only a properly flogging sail is heard
     glide(this.flog.g.gain, on * heavy * heavy * Math.min(1, aws / 9) * 0.12, 0.6);
     glide(this.lfo.frequency, 4 + aws * 0.45, 1.0);
+    // rain (rainLevels)
+    const rl = rainLevels(on * rain, this._rl || (this._rl = {}));
+    glide(this.rainHiss.g.gain, rl.hiss, 0.8); glide(this.rainHiss.flt.frequency, rl.hissF, 0.8);
+    glide(this.rainWash.g.gain, rl.wash, 0.8); glide(this.rainPat.g.gain, rl.pat, 0.8);
+    glide(this.rainDrum.g.gain, rl.drum, 0.8); glide(this.rainRoar.g.gain, rl.roar, 1.0);
     if (b.slam > 1.2 && on) { this.thump(Math.min(1, b.slam / 3)); b.slam = 0; }
   }
 
@@ -88,8 +133,10 @@ export class Audio {
   // time). A near strike: a sharp crack, then the rumble; a far one only a low rumble, because the air
   // absorbs the highs with distance. It rolls on while sound from farther parts of the channel keeps
   // arriving ((far - near) / 343 s), in irregular peals. Level falls with distance (spherical spreading,
-  // softened: the compressor and the sim's scale).
-  thunder({ d = 3000, spread = 2000, seed = 1, cg = true } = {}) {
+  // softened: the compressor and the sim's scale). pan (-1 left .. +1 right) and front (+1 ahead .. -1 behind):
+  // the strike's bearing from the camera. The crack comes from the channel itself; the rumble less so the
+  // farther it is (echoes off the cloud base and the sea), and a strike behind sounds a little duller.
+  thunder({ d = 3000, spread = 2000, seed = 1, cg = true, pan = 0, front = 1 } = {}) {
     if (!this.ctx || !this.on) return;
     const ctx = this.ctx, t0 = ctx.currentTime + 0.01, sr = ctx.sampleRate;
     if (!this._white) {
@@ -101,10 +148,16 @@ export class Audio {
     const loud = Math.min(1, 650 / (d + 250)), dur = Math.min(16, 2.2 + spread / 343 + d / 4000);
     const noise = (off, len, loop) => { const n = ctx.createBufferSource(); n.buffer = this._white; n.loop = loop; n.start(t0, off); n.stop(t0 + len); return n; };
     const filt = (type, f, q = 0.7) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; };
+    const out = (p) => {
+      if (!ctx.createStereoPanner) return this.master;
+      const n = ctx.createStereoPanner(); n.pan.value = Math.max(-1, Math.min(1, p)); n.connect(this.master);
+      return n;
+    };
+    const shade = 1 + 0.35 * Math.min(0, front);
     // crack: within a couple of kilometres, the leader and return strokes tearing the air
     const near = cg ? Math.max(0, 1 - d / 2200) : 0;
     if (near > 0) {
-      const g = ctx.createGain(), hp = filt('highpass', 500), lp = filt('lowpass', 2500 + 9000 * near);
+      const g = ctx.createGain(), hp = filt('highpass', 500), lp = filt('lowpass', (2500 + 9000 * near) * shade);
       g.gain.setValueAtTime(0.0001, t0);
       let tc = t0;
       for (let k = 0, n = 2 + Math.floor(rnd() * 3); k < n; k++) {      // a ripping sequence of snaps
@@ -113,10 +166,10 @@ export class Audio {
         tc += 0.07 + 0.09 * rnd();
       }
       g.gain.exponentialRampToValueAtTime(0.0001, tc + 0.25);
-      noise(rnd() * 3, tc - t0 + 0.3, false).connect(hp); hp.connect(lp); lp.connect(g); g.connect(this.master);
+      noise(rnd() * 3, tc - t0 + 0.3, false).connect(hp); hp.connect(lp); lp.connect(g); g.connect(out(0.9 * pan));
     }
     // rumble: noise through two low-passes whose cutoff falls with distance, under an envelope of peals
-    const fc = 90 + 2600 * Math.exp(-d / 1300);
+    const fc = (90 + 2600 * Math.exp(-d / 1300)) * shade;
     const l1 = filt('lowpass', fc), l2 = filt('lowpass', fc * 1.4), g = ctx.createGain();
     const N = Math.ceil(dur * 60), env = new Float32Array(N);
     const peals = 3 + Math.floor(rnd() * 5 + spread / 1500);
@@ -132,8 +185,9 @@ export class Audio {
     for (let i = 0; i < N; i++) env[i] = Math.max(0.0001, env[i] / mx * loud * (0.55 + 0.35 * (1 - near))) * Math.min(1, (N - 1 - i) / 20);
     env[0] = 0.0001; env[N - 1] = 0;
     g.gain.setValueCurveAtTime(env, t0, dur);
-    noise(rnd() * 3, dur + 0.05, true).connect(l1); l1.connect(l2); l2.connect(g); g.connect(this.master);
-    this.lastThunder = { d, dur, fc, at: t0 };
+    const rp = pan * (0.3 + 0.55 * Math.exp(-d / 6000));
+    noise(rnd() * 3, dur + 0.05, true).connect(l1); l1.connect(l2); l2.connect(g); g.connect(out(rp));
+    this.lastThunder = { d, dur, fc, at: t0, pan: rp };
   }
 
   thump(a) {

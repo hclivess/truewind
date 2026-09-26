@@ -278,6 +278,7 @@ uniform vec3 uCamPos; uniform float uSteps; uniform float uFrame;
 uniform sampler2D uHist; uniform mat4 uPrevVP; uniform float uHistOK; uniform float uHistMin;
 uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uAmbTop; uniform vec3 uAmbBot;
 uniform vec4 uFlash;       // lightning: where (world), how bright (scene units); lights the cloud from inside
+uniform float uFlashCG;    // 1 when that flash is a bolt to the sea (a lit channel below the base)
 ${SKY_LUT_GLSL}
 ${CLOUD_GLSL}
 float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -303,6 +304,24 @@ void shadeCloud(vec3 p, float ds, float phase, inout vec3 L, inout float T) {
   float a = exp(-sig * ds);
   L += T * S * (1.0 - a);
   T *= a;
+}
+// a flash as the shelf cloud under the storm sees it. The flash is up inside the storm, so what reaches the
+// shelf is (a) the storm's base glowing with the light diffused down through it, brightest over the flash,
+// seen through the shelf's own tiers above the point (Tu: tops and upper ledges lit, the underside and the
+// lower tiers in shadow), and (b) for a bolt to the sea, the channel below the base lighting the shelf's face
+// directly, through the shelf between (scattered forward toward the eye when the bolt is behind the shelf).
+// Not a flat glow: the light comes from somewhere and the shelf's own depth shades it.
+vec3 shelfFlash(vec3 p, vec3 rd, float hb, float Tu) {
+  float lit = 0.55 * exp(-length(p.xz - uFlash.xz) / 1800.0) * exp(-max(0.0, uFlash.y - hb) / 3000.0) * Tu;
+  if (uFlashCG > 0.5) {
+    vec3 c = vec3(uFlash.x, clamp(p.y, hb * 0.2, hb * 0.8), uFlash.z), l = c - p;
+    float ld = length(l); l /= max(ld, 1.0);
+    float oc = 0.0, sl = 40.0; vec3 lp = p;
+    for (int k = 0; k < 4; k++) { if (sl > ld) break; lp += l * sl; oc += shelfCloud(lp) * sl; sl *= 2.3; }
+    float cth = dot(rd, l), ph = mix(hg(cth, 0.25), hg(cth, -0.2), 0.4) * 12.566;
+    lit += exp(-ld / 1300.0) * (exp(-oc * 0.015) + 0.08 * exp(-oc * 0.003)) * ph * 0.2;
+  }
+  return vec3(0.78, 0.82, 1.0) * uFlash.w * lit;
 }
 void main() {
   vec3 rd = normalize(vDir);
@@ -337,8 +356,15 @@ void main() {
           if (d > 0.003) {
             if (firstHit < 0.0) firstHit = ts;
             float lift = clamp((p.y - lo * 0.3) / (lo * 0.5), 0.0, 1.0);
-            vec3 S = mix(uAmbBot, uAmbTop, 0.6) * vec3(0.86, 0.95, 0.92) * mix(0.45, 1.05, lift) + uSunCol * phase * 2.0 * lift;
-            if (uFlash.w > 0.0) S += vec3(0.78, 0.82, 1.0) * uFlash.w * exp(-length(p - uFlash.xyz) / 1000.0);
+            // the light from above (the open sky ahead of the storm, a flash in its base) reaches into the shelf
+            // through its own tiers: the tops and ledges lit, the underside and the lower tiers in shadow
+            // (through the shelf's smooth body, not its ragged detail: the light diffuses and a noisy estimate
+            // would sparkle in a flash that lasts a frame or two)
+            float odu = 0.0, dy = max(lo - p.y, 0.0) * 0.25;
+            for (int k = 0; k < 4; k++) odu += shelfCloud(vec3(p.x, p.y + dy * (float(k) + 0.5), p.z)) * dy;
+            float Tu = min(1.0, exp(-odu * 0.02) + 0.08 * exp(-odu * 0.004));
+            vec3 S = mix(uAmbBot, uAmbTop, 0.6) * vec3(0.86, 0.95, 0.92) * mix(0.45, 1.05, lift) * mix(0.6, 1.0, Tu) + uSunCol * phase * 2.0 * lift * Tu;
+            if (uFlash.w > 0.0) S += shelfFlash(p, rd, lo, Tu);
             float a = exp(-d * 0.045 * ds);
             L += T * S * (1.0 - a); T *= a;
           }
@@ -535,7 +561,7 @@ export class SkySystem {
       uCover: { value: 0.4 }, uCloudBase: { value: 1100 }, uCloudThick: { value: 1300 }, uCloudTime: { value: 0 },
       uCells: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, 0, 0, 0)) },
       uCellsB: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, 1, 0, 1000)) },
-      uTower: { value: 0 }, uStrat: { value: 0 }, uFlash: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uTower: { value: 0 }, uStrat: { value: 0 }, uFlash: { value: new THREE.Vector4(0, 0, 0, 0) }, uFlashCG: { value: 0 },
       uMist: MIST_U.uMist, uMistCol: MIST_U.uMistCol,
       uSunDir: { value: this.sunDir }, uSunCol: { value: new THREE.Vector3(1, 1, 1) },
       uAmbTop: { value: new THREE.Vector3(0.3, 0.4, 0.6) }, uAmbBot: { value: new THREE.Vector3(0.2, 0.22, 0.25) },

@@ -1,6 +1,7 @@
-// Thermal winds: sea/lake breeze by day, land breeze by night, diurnal stability. Checks determinism,
-// timing and direction at real venues from the real sun, the calm zone against an opposing gradient,
-// and that open water (no thermal) is untouched. Run: node test/thermal.mjs
+// Thermal winds: sea/lake breeze by day, land breeze by night, diurnal stability, and the regional
+// forcing a venue's map cannot see (Garda's Ora and Pelèr, the Golden Gate westerly). Checks determinism,
+// timing, strength and direction at real venues from the real sun, the calm zone against an opposing
+// gradient, the menu's clock change, and that open water (no thermal) is untouched. Run: node test/thermal.mjs
 import { Environment, KT, DEG } from '../js/env.js';
 import { VENUES, World } from '../js/world.js';
 import { readFileSync } from 'node:fs';
@@ -14,7 +15,7 @@ const envAt = (id, date, gustKt = 0.01, twd = 0, extra = {}) => {
   const v = VENUES.find(x => x.id === id);
   const clock0 = Date.parse(date + 'T00:00:00Z') - v.lon / 15 * 3600e3;
   return new Environment({ tws: gustKt * KT, twd, gust: 0.5, shift: 6, seed: 9, weather: 'steady', ...extra,
-    thermal: { lat: v.lat, lon: v.lon, clock0, land: world(id) } });
+    thermal: { lat: v.lat, lon: v.lon, clock0, land: world(id), regional: v.regional } });
 };
 const kt = (m) => m.speed / KT, deg = (m) => ((m.dir / DEG) % 360 + 360) % 360;
 const angIn = (a, lo, hi) => lo <= hi ? a >= lo && a <= hi : a >= lo || a <= hi;
@@ -47,19 +48,59 @@ const fmt = (m) => `${kt(m).toFixed(1)} kn from ${deg(m).toFixed(0).padStart(3, 
   check(dmax < 1e-9, `open water: an all-water venue at noon is unchanged (max diff ${dmax.toExponential(1)})`);
 }
 
-// 3. Lake Garda (Riva, north end, calm gradient, midsummer): morning Pelèr from the north, afternoon Ora from the south
+// 3. Lake Garda (Riva, north end, calm gradient, midsummer), local solar time (CEST = solar + 1.3 h): the Pelèr
+//    down the lake from the small hours to late morning (10-20 kn), a lull, the Ora up it from about noon
+//    (15-25 kn mid-afternoon), gone by the evening; in January no Ora
 {
-  const e = envAt('garda', '2026-07-15');
-  const m6 = e.wind.mean(6 * 3600), m8 = e.wind.mean(8 * 3600), m15 = e.wind.mean(15 * 3600), m21 = e.wind.mean(20.5 * 3600);
-  console.log(`     garda 06:00 ${fmt(m6)} | 08:00 ${fmt(m8)} | 15:00 ${fmt(m15)} | 20:30 ${fmt(m21)}`);
-  check(kt(m6) > 2.5 && angIn(deg(m6), 330, 60), 'garda: Pelèr (N-NE) at dawn');
-  check(kt(m8) < 1.5, 'garda: morning lull as the Pelèr dies and before the Ora');
-  check(kt(m15) > 5 && angIn(deg(m15), 180, 240), 'garda: Ora (S-SW) mid-afternoon');
-  check(kt(m21) < 1.5, 'garda: the Ora has died after sunset');
+  const e = envAt('garda', '2026-07-15'), m = (h) => e.wind.mean(h * 3600);
+  const m3 = m(3), m6 = m(6), m8 = m(8), m10 = m(10.2), m12 = m(12), m15 = m(15), m17 = m(17), m20 = m(20.3);
+  console.log(`     garda 03:00 ${fmt(m3)} | 06:00 ${fmt(m6)} | 08:00 ${fmt(m8)} | 10:12 ${fmt(m10)} | 12:00 ${fmt(m12)}`);
+  console.log(`           15:00 ${fmt(m15)} | 17:00 ${fmt(m17)} | 20:18 ${fmt(m20)}`);
+  const N = (w) => angIn(deg(w), 345, 35), S = (w) => angIn(deg(w), 180, 220);
+  check([m3, m6, m8].every(w => kt(w) >= 9 && kt(w) <= 20 && N(w)), 'garda: Pelèr (N-NNE) 10-20 kn from the small hours through the early morning');
+  check(kt(m10) < 4, 'garda: late-morning lull as the Pelèr dies and before the Ora');
+  check(kt(m12) > 10 && S(m12), 'garda: the Ora is in by noon');
+  check([m15, m17].every(w => kt(w) >= 15 && kt(w) <= 25 && S(w)), 'garda: Ora (S-SSW) 15-25 kn through the afternoon');
+  check(kt(m20) < 3, 'garda: the Ora has died by the evening');
+  const jan = envAt('garda', '2026-01-15').wind.mean(15 * 3600);
+  console.log(`     garda jan 15:00 ${fmt(jan)}`);
+  check(kt(jan) < 6 && !S(jan), 'garda: no Ora under the January sun');
   // Ora with a southerly gradient adds; against a northerly gradient it makes a calm zone
   const up = envAt('garda', '2026-07-15', 8, 195).wind.mean(15 * 3600), dn = envAt('garda', '2026-07-15', 8, 15).wind.mean(15 * 3600);
   console.log(`     garda 15:00 with 8 kn from 195: ${fmt(up)} | with 8 kn from 015: ${fmt(dn)}`);
-  check(kt(up) > 11 && kt(dn) < 5, 'garda: breeze adds to a gradient along it, calms one against it');
+  check(kt(up) > 25 && kt(dn) < kt(up) - 14, 'garda: breeze adds to a gradient along it, is cut down by one against it');
+}
+
+// 3b. San Francisco (City Front, calm gradient): the Gate westerly is the Pacific against the Central Valley,
+//     far off the map. July: light in the morning, 15-25 kn WSW through the afternoon, still blowing at dusk;
+//     January: little of it. (PDT = solar + 1.2 h)
+{
+  const e = envAt('sfbay', '2026-07-15'), m = (h) => e.wind.mean(h * 3600);
+  const m9 = m(9), m13 = m(13), m16 = m(16), m20 = m(20), m4 = m(4);
+  console.log(`     sfbay jul 04:00 ${fmt(m4)} | 09:00 ${fmt(m9)} | 13:00 ${fmt(m13)} | 16:00 ${fmt(m16)} | 20:00 ${fmt(m20)}`);
+  const W = (w) => angIn(deg(w), 235, 275);
+  check(kt(m9) < 8, 'sfbay: light in the morning');
+  check([m13, m16].every(w => kt(w) >= 15 && kt(w) <= 25 && W(w)), 'sfbay: 15-25 kn W-WSW through the afternoon (not the map\'s own north-easterly)');
+  check(kt(m16) > kt(m13) && kt(m20) > 10 && W(m20), 'sfbay: peaks late in the afternoon and is still blowing at dusk');
+  const jan = envAt('sfbay', '2026-01-15').wind.mean(15 * 3600);
+  console.log(`     sfbay jan 15:00 ${fmt(jan)}`);
+  check(kt(jan) < kt(m16) / 2, 'sfbay: weak in winter');
+  // uniform over the area, as a regional flow is: the same westerly at the Gate side and off the city
+  const f = envAt('sfbay', '2026-07-15', 0.01, 0, { gust: 0 }), a = f.wind.sample(-2500, -500, 16 * 3600, {}), b = f.wind.sample(2000, 1000, 16 * 3600, {});
+  check(Math.abs(kt(a) - kt(b)) < 3 && W(a) && W(b), `sfbay: the westerly across the area, not a local breeze (puffs aside: ${fmt(a)} / ${fmt(b)})`);
+}
+
+// 3c. the menu's time of day: moving the clock of a built environment gives the breeze of one built at that clock
+{
+  const v = VENUES.find(x => x.id === 'garda'), c = (h) => Date.parse('2026-07-15T00:00:00Z') + (h - v.lon / 15) * 3600e3;
+  const mk = (h) => new Environment({ tws: 0.01 * KT, twd: 0, gust: 0.5, shift: 6, seed: 9, weather: 'steady', thermal: { lat: v.lat, lon: v.lon, clock0: c(h), land: world('garda'), regional: v.regional } });
+  const a = mk(6), b = mk(15);
+  const before = a.wind.mean(600).speed; a.waves.update(600);
+  a.setClock(c(15), 600);
+  const pa = a.wind.sample(300, -800, 600, {}), pb = b.wind.sample(300, -800, 600, {});
+  b.waves.update(600);
+  console.log(`     garda: built at 06:00 ${(before / KT).toFixed(1)} kn -> clock moved to 15:00 ${(pa.speed / KT).toFixed(1)} kn (built at 15:00: ${(pb.speed / KT).toFixed(1)} kn)`);
+  check(pa.speed === pb.speed && pa.dir === pb.dir && a.wind.mean(600).speed === b.wind.mean(600).speed && a.waves.Hs === b.waves.Hs, 'setClock: wind, mean wind and sea as if built at the new clock');
 }
 
 // 4. Kiel (north of the fjord mouth, 54 N): a summer sea breeze veering through the afternoon; none in December
