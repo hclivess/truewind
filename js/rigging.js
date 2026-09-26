@@ -904,7 +904,7 @@ export class Rigging {
     }
     if (this.cabinWinch) {
       const cw = this.cabinWinch;
-      list.push({ id: 'cwinch', label: `Cabin-top winch — ${Rigging.lineName(this.cabinLine)}`, hint: 'wind the handle round to tension; click to take another line from the clutches', kind: 'crank', key: this.cabinLine, trim: 1, role: 'cabin', onClick: 'cycleCabin', pos: toW(cw.position.clone().add(_v.set(0, 0.16, 0))), info: () => `${Math.round((b.ctrl[this.cabinLine] || 0) * 100)}%` });
+      list.push({ id: 'cwinch', label: `${this.mastWinch ? 'Mast-foot winch' : 'Cabin-top winch'} — ${Rigging.lineName(this.cabinLine)}`, hint: this.cabinLines.length > 1 ? 'wind the handle round to tension; click to take another line from the clutches' : 'wind the handle round to tension (it comes off its horn cleat first)', kind: 'crank', key: this.cabinLine, trim: 1, role: 'cabin', onClick: 'cycleCabin', pos: toW(cw.position.clone().add(_v.set(0, 0.16, 0))), info: () => `${Math.round((b.ctrl[this.cabinLine] || 0) * 100)}%` });
     }
     if (S.gennaker) {
       list.push({ id: 'gen', label: b.ctrl.gen ? 'Gennaker halyard — douse' : 'Gennaker halyard — hoist', hint: 'click', kind: 'click', action: 'gen', pos: toW(V(C.mastX - 0.1, -0.1, this.vis.mastBase + 0.3)), info: () => `${Math.round(b.genDeploy * 100)}% up` });

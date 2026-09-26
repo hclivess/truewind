@@ -207,20 +207,20 @@ export function makeClutch(labelCSS = '#ffffff') {
   add(g, prof([[-0.06, 0.004], [-0.06, 0.016], [-0.045, 0.026], [-0.02, 0.033], [0.01, 0.035], [0.04, 0.033], [0.058, 0.026], [0.06, 0.004]], 0.04), mDark());
   for (const z of [-0.061, 0.061]) { const hole = add(g, new THREE.CylinderGeometry(0.0075 * k, 0.0075 * k, 0.002, 12), mat('hole', () => new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 1 })), 0, 0.013 * k, z * k); hole.rotation.x = Math.PI / 2; }
   // the lever: hinged at the aft end, lying along the hump, its handle curling up at the front
-  const hinge = new THREE.Group(); hinge.position.set(0, 0.036 * k, 0.045 * k); g.add(hinge);
+  const hinge = new THREE.Group(); hinge.position.set(0, 0.041 * k, 0.045 * k); g.add(hinge);
   const lv = [[-0.108, 0.004], [-0.112, -0.002], [-0.1, -0.01], [-0.07, -0.006], [-0.035, 0.002], [0, 0.006], [0.012, 0.004], [0.012, -0.004], [0, -0.002], [-0.035, -0.006], [-0.07, -0.013], [-0.1, -0.018], [-0.117, -0.006], [-0.115, 0.007]];
   add(hinge, prof(lv, 0.032, 0.0015), mat('lever', () => new THREE.MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.4, metalness: 0.3 })));
   const lab = add(hinge, new THREE.BoxGeometry(0.022 * k, 0.0015, 0.036 * k), new THREE.MeshStandardMaterial({ color: new THREE.Color(labelCSS), roughness: 0.5 }), 0, 0.0065 * k, -0.05 * k); void lab;
-  add(g, new THREE.CylinderGeometry(0.0035 * k, 0.0035 * k, 0.044 * k, 8), mSS(), 0, 0.036 * k, 0.045 * k).rotation.z = Math.PI / 2;
+  add(g, new THREE.CylinderGeometry(0.0035 * k, 0.0035 * k, 0.044 * k, 8), mSS(), 0, 0.041 * k, 0.045 * k).rotation.z = Math.PI / 2;
   // under the lever, on the hump: a red flag that only shows with the lever up (open)
-  add(g, new THREE.BoxGeometry(0.02 * k, 0.002, 0.05 * k), mRed(), 0, 0.0352 * k, -0.005 * k);
+  const flag = add(g, new THREE.BoxGeometry(0.02 * k, 0.002, 0.05 * k), mRed(), 0, 0.0352 * k, -0.005 * k);
   const bd = band(g, 0.04 * k, 0.004); bd.scale.set(0.7, 1.7, 1);
   common(g, bd);
   g.userData.cue = (st, t) => { bd.visible = !!st.slip; if (st.slip) bd.material.emissiveIntensity = 0.4 + 0.6 * (Math.sin(t * 25) > 0); };
   g.userData.throat = () => new THREE.Vector3(0, 0.013 * k, 0);
   g.userData.set = (st, t) => {
     const open = st.s === 'free' ? 1 : st.s === 'locking' ? 1 - st.p : st.s === 'releasing' ? st.p : 0;
-    hinge.rotation.x = 1.05 * open;                                    // the front of the lever swings up
+    hinge.rotation.x = 0.8 * open; flag.visible = open > 0.2;                                 // the front of the lever swings up
     g.userData.cue(st, t);
   };
   g.userData.kind = 'clutch'; g.userData.k = k;
@@ -250,7 +250,7 @@ export function makeRatchet(opts = {}) {
   // the pawl and the on/off switch (red when the ratchet is on)
   const pawl = new THREE.Group(); pawl.position.set(0.0155, R * 0.55, -R * 0.35); blk.add(pawl);
   add(pawl, new THREE.BoxGeometry(0.003, 0.004, 0.014), mSS(), 0, 0, 0.006);
-  const sw = add(blk, new THREE.CylinderGeometry(0.004, 0.004, 0.036, 8), mRed(), 0, -R * 0.55, -R * 0.45); sw.rotation.z = Math.PI / 2;
+  for (const s of [-1, 1]) { const sw = add(blk, new THREE.CylinderGeometry(0.0045, 0.0045, 0.004, 10), mRed(), s * 0.0148, -R * 0.5, -R * 0.45); sw.rotation.z = Math.PI / 2; }
   let cam = null;
   if (opts.cam) { cam = makeCam('std'); cam.position.set(0, hb - R - 0.004, 0.045); cam.rotation.x = -0.25; g.add(cam); add(g, new THREE.BoxGeometry(0.02, 0.006, 0.05), mSS(), 0, hb - R - 0.012, 0.022); }
   const bd = band(g, 0.034, 0.008);
