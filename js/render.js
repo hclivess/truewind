@@ -6,10 +6,11 @@ import { STRIP_F, REEF, clamp, lerp } from './physics.js';
 import { buildBoatModel, updateBoatModel } from './models.js';
 import { Rigging, tickGlow } from './rigging.js';
 import { buildStructures, indexFeatures, structureMask } from './structures.js';
-import { HullSplash, SeaSpray } from './splash.js';
+import { HullSplash, SeaSpray, NOISE as FOAM_NOISE } from './splash.js';
 import { loadLand, buildTerrain, buildScenery, setSceneryNight, tickScenery } from './scenery.js';
 import { SkySystem, SKY_LUT_GLSL, CLOUD_GLSL, withCloudShadows, sunPosition, MIST_U } from './sky.js';
-import { strikes, flashAt, thunderDue, boltSegments, convection, heatFromSun, mist, mistTau } from './wx.js';
+import { strikes, flashAt, thunderDue, thunderBearing, boltSegments, convection, heatFromSun, mist, mistTau } from './wx.js';
+import { SeamarkLayer } from './seamark-render.js';
 
 const MAXW = 20;
 const FOAM_N = 512;   // persistent-foam map resolution (texels a side)
@@ -24,9 +25,15 @@ uniform int uWn;
 uniform float uTime;
 uniform float uK2;   // second-order (Tayfun) coefficient k_m / 2: WaveField.update
 // the whitecap measure shared by the water and the persistent-foam pass: a z-score of crest compression
-// (1 - Jacobian, long waves) plus the short waves riding them (which bits break)
+// (1 - Jacobian, long waves) plus the short waves riding them (which bits break). Scaled by the spread of
+// every wave (T) though a pixel may resolve only some of them (R): the drawn part keeps its place in the
+// distribution and the rest is returned as variance. R, T = (var 1-J, var Cs + 0.16 var Cd, cov(1-J, Cs))
+vec2 crestZV(float J, float Csd, vec3 R, vec3 T) {
+  float a = 0.5 / sqrt(T.x + 1e-5), b = 0.85 / sqrt(T.y + 1e-5);
+  return vec2((a * (1.0 - J) + b * Csd) / 1.3, max(dot(vec3(a * a, b * b, 2.0 * a * b), T - R), 0.0) / 1.69);
+}
 float crestZ(float J, float sJ2, float Cs, float sS2, float Cd, float sd2) {
-  return (0.5 * (1.0 - J) / sqrt(sJ2 + 1e-5) + 0.85 * (Cs + 0.4 * Cd) / sqrt(sS2 + 0.16 * sd2 + 1e-5)) / 1.3;
+  vec3 T = vec3(sJ2, sS2 + 0.16 * sd2, 0.0); return crestZV(J, Cs + 0.4 * Cd, T, T).x;
 }
 // hash without sin() (whose precision varies by GPU and blocks up at large arguments), lattice wrapped
 float hash(vec2 p){ p = mod(p, 4096.0); vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -36,9 +43,24 @@ vec2 hash2(vec2 p){ p = mod(p, 4096.0); vec3 p3 = fract(vec3(p.xyx) * vec3(0.103
 float qn(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
   float a = dot(hash2(i), f), b = dot(hash2(i + vec2(1, 0)), f - vec2(1, 0)), c = dot(hash2(i + vec2(0, 1)), f - vec2(0, 1)), d = dot(hash2(i + vec2(1, 1)), f - vec2(1, 1));
   return clamp(0.5 + 1.28 * mix(mix(a, b, u.x), mix(c, d, u.x), u.y), 0.0, 1.0); }
-// fbm with octaves finer than the footprint w (in p units) replaced by their mean (no shimmer)
-float sfbmA(vec2 p, float w){ float a = 0.55, s = 0.0, f = 1.0; mat2 r = mat2(0.8, -0.6, 0.6, 0.8);
-  for (int i = 0; i < 4; i++) { s += a * mix(0.5, qn(p), smoothstep(0.8, 0.3, w * f)); p = r * p * 2.1 + 3.7; f *= 2.1; a *= 0.5; } return s; }
+// fbm with octaves finer than the footprint w (in p units) replaced by their mean (no shimmer); v: the
+// variance so taken out (what varies inside the pixel: qn's sd 0.23 times 1 - kept^2)
+float sfbmV(vec2 p, float w, out float v){ float a = 0.55, s = 0.0, f = 1.0; mat2 r = mat2(0.8, -0.6, 0.6, 0.8); v = 0.0;
+  for (int i = 0; i < 4; i++) { float k = smoothstep(0.8, 0.3, w * f); s += a * mix(0.5, qn(p), k); v += a * a * (1.0 - k * k) * 0.053;
+    p = r * p * 2.1 + 3.7; f *= 2.1; a *= 0.5; } return s; }
+float sfbmA(vec2 p, float w){ float v; return sfbmV(p, w, v); }
+// E[smoothstep(c - h, c + h, x + u)] for u ~ N(0, v) left unresolved in the pixel: near enough a smoothstep
+// of the same centre, its spread (sd 0.447 h) widened by u's. The pixel shows the mean foam cover of what it
+// spans, not a threshold of the mean (which paints sharp blobs that thin out and vanish with distance)
+float ssV(float c, float h, float x, float v){ float H = sqrt(h * h + 5.0 * v); return smoothstep(c - H, c + H, x); }
+// the pixel's footprint on the water, an ellipse (eR: semi-axis along the line of sight, stretched by
+// 1/sin of the grazing angle; eT: across it): its extent along a direction d...
+float fpAlong(vec2 d, vec2 eR, vec2 eT){ return length(vec2(dot(d, eR), dot(d, eT))); }
+// ...and its long axis in noise coordinates q = s * (x.fl, x.pr) (the octaves turn: a round filter)
+float fpQ(vec2 s, vec2 eR, vec2 eT, vec2 fl, vec2 pr){
+  vec2 r = s * vec2(dot(eR, fl), dot(eR, pr)), t = s * vec2(dot(eT, fl), dot(eT, pr));
+  float F = dot(r, r) + dot(t, t), D = r.x * t.y - r.y * t.x;
+  return sqrt(0.5 * (F + sqrt(max(F * F - 4.0 * D * D, 0.0)))); }
 // z such that a normal variable exceeds it with probability p (p <= 0.5; Abramowitz-Stegun 26.2.23)
 float invTail(float p){ float t = sqrt(-2.0 * log(max(p, 1e-6)));
   return t - (2.515517 + 0.802853 * t + 0.010328 * t * t) / (1.0 + 1.432788 * t + 0.189269 * t * t + 0.001308 * t * t * t); }
@@ -152,7 +174,6 @@ export class Renderer {
       uFlow: { value: new THREE.Vector2(0, 1) }, uWind: { value: 6 }, uK2: { value: 0 },
       uHs: { value: 0 }, uJSig: { value: 0.1 }, uLmin: { value: 4 },
       uFoam: { value: null }, uFoamC: { value: new THREE.Vector2() }, uFoamS: { value: 320 }, uFoamOff: { value: new THREE.Vector2() }, uFoamOn: { value: 0 },
-      uHullA: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uHullB: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uHullN: { value: 0 },
       uDeep: { value: new THREE.Color(0x0a2f40) }, uShallow: { value: new THREE.Color(0x2e9c9a) },
       fogColor: { value: new THREE.Color(0xb7c8d4) }, fogDensity: { value: 0.00011 },
       uEnv: { value: this.skySys.cubeRT.texture }, uAmbF: { value: 1 }, uLightDir: { value: this.skySys.lightV }, uSkyRT: this.skySys.compU.uSkyTex, uSkyVP: this.skySys.marchDome.material.uniforms.uPrevVP,
@@ -203,7 +224,6 @@ export class Renderer {
         ${CLOUD_GLSL}
         uniform vec3 uSunDir; uniform vec3 uSunCol; uniform samplerCube uEnv; uniform float uAmbF; uniform vec3 uLightDir; uniform sampler2D uSkyRT; uniform mat4 uSkyVP;
         uniform vec3 uCam; uniform sampler2D uGust; uniform vec2 uGustO; uniform float uGustS;
-        uniform vec4 uHullA[4]; uniform vec4 uHullB[4]; uniform int uHullN;   // A = (x, z, sinψ, cosψ), B = (halfL, halfB, xOff, n)
         uniform vec2 uFlow; uniform float uWind; uniform float uHs; uniform float uJSig; uniform float uLmin;
         uniform sampler2D uFoam; uniform vec2 uFoamC; uniform float uFoamS; uniform vec2 uFoamOff; uniform float uFoamOn;
         uniform vec3 uDeep; uniform vec3 uShallow; uniform vec3 fogColor; uniform float fogDensity;
@@ -225,21 +245,29 @@ export class Renderer {
           vec3 V0 = normalize(uCam - vPos);
           float fp = dist * 0.0022 / max(abs(V0.y), 0.06);
           float lost = 0.0;
-          // analytic Gerstner normal + Jacobian (crest sharpness) for whitecaps
-          vec3 n = vec3(0.0, 1.0, 0.0); float J = 1.0, sJ2 = 0.0, Cs = 0.0, sS2 = 0.0;
+          // the foam's footprint: the ellipse itself, stretched along the line of sight right down to grazing
+          // (the drawn normals keep the gentler round one above: the geometry still carries those waves)
+          vec2 rH = normalize(-V0.xz + 1e-5), eT = vec2(-rH.y, rH.x) * dist * 0.0022, eRf = rH * dist * 0.0022 / max(abs(V0.y), 0.01);
+          // analytic Gerstner normal + Jacobian (crest sharpness) for whitecaps: the crests this pixel resolves
+          // (R), and the spread of all of them (T) for the rest, which it can only show as a mean
+          vec3 n = vec3(0.0, 1.0, 0.0); float J = 1.0, sJ2 = 0.0, Cs = 0.0, sS2 = 0.0, sC = 0.0, sJ2T = 0.0, sS2T = 0.0, sCT = 0.0, lostF = 0.0;
           float e1 = 0.0, eH = 0.0; vec2 gH = vec2(0.0), g2 = vec2(0.0);    // second order: height, Hilbert partner, slopes
           for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break;
             vec4 a = uWa[i]; vec4 b = uWb[i];
             float th = a.z * dot(a.xy, x0) + phaseOff(i, x0) - a.w * uTime + b.z;
             float kw = kDepth(b.w, hd);
-            float WA0 = kw * b.x * shoal(b.w, hd) * vFade * vShore;
+            float WAt = kw * b.x * shoal(b.w, hd) * vShore, WA0 = WAt * vFade;
             float att = smoothstep(fp * 2.0, fp * 6.0, 6.2832 / kw);
             lost += (1.0 - att) * WA0 * WA0 * 0.5;
             float WA = WA0 * att, C = cos(th), S = sin(th), A = WA / kw;
             n.x -= a.x * WA * C; n.z -= a.y * WA * C; n.y -= b.y * WA * S;
-            J -= b.y * WA * S; sJ2 += b.y * b.y * WA * WA * 0.5;
+            // resolved along its own direction (a crest seen end-on survives foreshortening) and only where
+            // the geometry still draws it: no whitecap bands on a sea gone flat
+            float fw = fpAlong(a.xy, eRf, eT), WF = WA0 * smoothstep(2.0 * fw, 6.0 * fw, 6.2832 / kw);
+            float jR = b.y * WF, jT = b.y * WAt;
+            J -= jR * S; sJ2 += jR * jR * 0.5; sJ2T += jT * jT * 0.5; lostF += (WAt * WAt - WF * WF) * 0.5;
             float ws = smoothstep(80.0, 20.0, 6.2832 / kw);                  // the short waves break on the long crests
-            Cs += ws * b.y * WA * S; sS2 += ws * ws * b.y * b.y * WA * WA * 0.5;
+            Cs += ws * jR * S; sS2 += ws * ws * jR * jR * 0.5; sS2T += ws * ws * jT * jT * 0.5; sC += ws * jR * jR * 0.5; sCT += ws * jT * jT * 0.5;
             e1 += A * S; eH += A * C; gH += a.xy * WA * S; g2 -= a.xy * 4.0 * b.y * A * WA * S * C;
           }
           // slope of eta2 = K2 (eta^2 - H^2 + Q-self): n.xz here is minus the first-order slope
@@ -252,7 +280,7 @@ export class Renderer {
           // would feel): equilibrium-range steepness, jittered wavelengths, fanned about the wind
           vec2 fl = uFlow, pr = vec2(-fl.y, fl.x);
           float wk = smoothstep(0.8, 6.0, lw) * sqrt(clamp(gw, 0.3, 2.0));
-          float Cd = 0.0, sd2 = 0.0, wl = uLmin;
+          float Cd = 0.0, sd2 = 0.0, sdR = 0.0, sdT = 0.0, wl = uLmin;
           #ifdef LOWQ
           const int ND = 5, NR = 2;
           #else
@@ -269,10 +297,11 @@ export class Renderer {
             float ph = kk * dot(d, x0) - om * uTime + fk * 2.39996 + 1.7;
             float kA = 0.038 * wk * (0.7 + 0.6 * hash(vec2(fk, 1.3))), att = smoothstep(fp * 2.0, fp * 6.0, wj);
             lost += (1.0 - att) * kA * kA * 0.5;
+            float fw = fpAlong(d, eRf, eT), kAt = kA * vShore, kAf = kAt * smoothstep(2.0 * fw, 6.0 * fw, wj);
             kA *= att * vShore;
             float s = sin(ph), c = cos(ph);
             n.x -= d.x * kA * c; n.z -= d.y * kA * c; n.y -= 0.5 * kA * s;
-            Cd += kA * s; sd2 += kA * kA * 0.5;
+            Cd += kAf * s; sd2 += kA * kA * 0.5; sdR += kAf * kAf * 0.5; sdT += kAt * kAt * 0.5; lostF += (kAt * kAt - kAf * kAf) * 0.5;
           }
           // below that, wind ripples: gradient noise (no periodic pattern), octaves drifting downwind at
           // their own phase speeds
@@ -347,15 +376,19 @@ export class Renderer {
           // on the steepest crests: a z-score of crest compression (1 - Jacobian) against its local spread
           float Wc = clamp(3.84e-6 * pow(max(lw, 0.0), 3.41), 0.0, 0.3);
           // long waves say where (their crests), the short waves riding them say exactly which bits break
-          float zc = crestZ(J, sJ2, Cs, sS2, Cd, sd2);
+          vec2 zv = crestZV(J, Cs + 0.4 * Cd, vec3(sJ2, sS2 + 0.16 * sdR, sC), vec3(sJ2T, sS2T + 0.16 * sdT, sCT));
+          float zc = zv.x;
           // foam texture is fixed in the water (x0 is the undisplaced, Lagrangian position): it rides the
           // orbital motion of the waves and moves with their mean (Stokes) drift, as the foam pass does
           vec2 xd = x0 - uFoamOff;
           vec2 sw = vec2(dot(xd, uFlow), dot(xd, vec2(-uFlow.y, uFlow.x)));    // (downwind, across)
-          float fAA = smoothstep(0.4, 3.0, fp);                                // texture detail lost to distance
+          // the detail finer than the footprint goes to its mean and its variance (v*) into the thresholds:
+          // far water shows the mean cover of what each pixel spans (a whitening, as the sea is seen from
+          // afar), not a sharp pattern that shimmers and then fades to nothing
           vec2 q = vec2(sw.x * 0.28, sw.y * 0.6);
-          float f1 = sfbmA(q, fp * 0.6), f2 = sfbmA(q * 3.1 + 7.1, fp * 1.9);
-          float lace = smoothstep(0.32, 0.68, f1 * 0.6 + f2 * 0.4);
+          float fq = fpQ(vec2(0.28, 0.6), eRf, eT, fl, pr), v1, v2;
+          float f1 = sfbmV(q, fq, v1), f2 = sfbmV(q * 3.1 + 7.1, fq * 3.1, v2);
+          float lace = ssV(0.5, 0.18, f1 * 0.6 + f2 * 0.4, 0.36 * v1 + 0.16 * v2);
           float foam = 0.0;
           // persistent foam around the player (the foam pass: whitecaps and wakes that linger, drift and
           // gather into windrows): dense while fresh, thinning to a lace of bubbles as it decays
@@ -366,14 +399,21 @@ export class Renderer {
           if (pm > 0.0) {
             // cubic B-spline read (4 bilinear taps): plain bilinear leaves its texel creases in the thresholded
             // foam as straight edges and diamonds
-            vec2 tp = fuv * ${FOAM_N}.0 - 0.5, ti = floor(tp), tf = tp - ti, tf2 = tf * tf, tf3 = tf2 * tf;
-            vec2 w0 = (1.0 - 3.0 * tf + 3.0 * tf2 - tf3) / 6.0, w1 = (4.0 - 6.0 * tf2 + 3.0 * tf3) / 6.0, w3 = tf3 / 6.0, g0 = w0 + w1, g1 = 1.0 - g0;
-            vec2 h0 = (ti - 0.5 + w1 / g0) / ${FOAM_N}.0, h1 = (ti + 1.5 + w3 / g1) / ${FOAM_N}.0;
-            vec2 PP = g0.y * (g0.x * texture2D(uFoam, h0).rg + g1.x * texture2D(uFoam, vec2(h1.x, h0.y)).rg)
-                    + g1.y * (g0.x * texture2D(uFoam, vec2(h0.x, h1.y)).rg + g1.x * texture2D(uFoam, h1).rg);
+            // foam, and once a texel is smaller than the footprint the map's mip level for it (a texel's
+            // mean, not whichever texel the pixel centre hits); explicit levels, as the taps jump per texel
+            float lodF = log2(max(length(eRf) * ${FOAM_N}.0 / uFoamS, 1e-3));
+            vec2 PP = vec2(0.0);
+            if (lodF < 0.5) {
+              vec2 tp = fuv * ${FOAM_N}.0 - 0.5, ti = floor(tp), tf = tp - ti, tf2 = tf * tf, tf3 = tf2 * tf;
+              vec2 w0 = (1.0 - 3.0 * tf + 3.0 * tf2 - tf3) / 6.0, w1 = (4.0 - 6.0 * tf2 + 3.0 * tf3) / 6.0, w3 = tf3 / 6.0, g0 = w0 + w1, g1 = 1.0 - g0;
+              vec2 h0 = (ti - 0.5 + w1 / g0) / ${FOAM_N}.0, h1 = (ti + 1.5 + w3 / g1) / ${FOAM_N}.0;
+              PP = g0.y * (g0.x * textureLod(uFoam, h0, 0.0).rg + g1.x * textureLod(uFoam, vec2(h1.x, h0.y), 0.0).rg)
+                 + g1.y * (g0.x * textureLod(uFoam, vec2(h0.x, h1.y), 0.0).rg + g1.x * textureLod(uFoam, h1, 0.0).rg);
+            }
+            if (lodF > -0.5) PP = mix(PP, textureLod(uFoam, fuv, max(lodF, 0.0)).rg, clamp(lodF + 0.5, 0.0, 1.0));
             float P = max(PP.x, min(1.0, PP.y * 1.5));                         // whitecap foam, wake foam (shows sooner)
-            float det = f1 * 0.45 + f2 * 0.35 + lace * 0.2, pw = 0.1 + 0.3 * fAA;
-            pers = smoothstep(1.0 - 0.7 * P - pw, 1.0 - 0.7 * P + pw, det) * min(1.0, P * 2.0) * 0.85 * pm;
+            float det = f1 * 0.45 + f2 * 0.35 + lace * 0.2;
+            pers = ssV(1.0 - 0.7 * P, 0.1, det, 0.2 * v1 + 0.12 * v2) * min(1.0, P * 2.0) * 0.85 * pm;
           }
           #endif
           // gale streak rows: across-wind coordinate, meandering (and its change per pixel, outside any branch)
@@ -381,36 +421,48 @@ export class Renderer {
           float fwY = length(vec2(dFdx(ya), dFdy(ya)));
           if (Wc > 2e-4) {
             float zA = invTail(0.4 * Wc);                                      // active breaking crests
-            float act = smoothstep(zA - 0.15, zA + 0.4, zc + (f1 - 0.5) * 1.1) * (0.5 + 0.5 * lace);
+            // (the crests a pixel cannot resolve still break: their variance zv.y widens the threshold, so a
+            // far crest carries its share of the whitecaps and the flat far sea the mean of them all)
+            float act = ssV(zA + 0.125, 0.275, zc + (f1 - 0.5) * 1.1, zv.y + 1.21 * v1) * (0.5 + 0.5 * lace);
             // residual foam: thinning lace around the crests, and (beyond the foam pass) patches of old foam
-            float big = sfbmA(sw * vec2(0.02, 0.05) + vec2(0.0, 3.3), fp * 0.05);
+            float vb, big = sfbmV(sw * vec2(0.02, 0.05) + vec2(0.0, 3.3), fpQ(vec2(0.02, 0.05), eRf, eT, fl, pr), vb);
             float thrB = 0.5 + 0.12 * invTail(clamp(0.6 * Wc, 1e-4, 0.5));
-            float resid = max(smoothstep(zA - 0.6, zA, zc), smoothstep(thrB - 0.03, thrB + 0.08, big) * (1.0 - pm)) * 0.35 * lace;
+            float resid = max(ssV(zA - 0.3, 0.3, zc, zv.y), ssV(thrB + 0.025, 0.055, big, vb) * (1.0 - pm)) * 0.35 * lace;
             // gale: foam blown into streaks along the wind (Beaufort 8 and up) — windrows ~9 m apart that
             // meander, break into runs tens of metres long, each run its own width; box-filtered across the
             // pixel, so a far streak fades with its width instead of staying a bright hairline
             float st = smoothstep(13.0, 24.0, lw);
             float row = floor(ya / 9.0), fy = ya - 9.0 * (row + 0.3 + 0.4 * hash(vec2(row, 3.7)));
             float rh = hash(vec2(row, 1.9)) * 97.0 + 0.5;                      // this row's own noise (off the lattice)
-            float wdt = 0.3 + 1.2 * qn(vec2(sw.x * 0.03, rh));                 // half-width, m
-            // runs tens of metres long with gaps, beaded with thicker clots every 10-20 m
-            float run = smoothstep(0.45, 0.7, qn(vec2(sw.x * 0.02, rh + 0.5))) * (0.35 + 0.65 * smoothstep(0.3, 0.7, qn(vec2(sw.x * 0.08, rh + 0.25))));
+            float fx = fpAlong(fl, eRf, eT), k1 = smoothstep(0.8, 0.3, fx * 0.03), k2 = smoothstep(0.8, 0.3, fx * 0.02), k3 = smoothstep(0.8, 0.3, fx * 0.08);
+            float wdt = 0.3 + 1.2 * mix(0.5, qn(vec2(sw.x * 0.03, rh)), k1);   // half-width, m
+            // runs tens of metres long with gaps, beaded with thicker clots every 10-20 m (filtered along the wind)
+            float run = ssV(0.575, 0.125, mix(0.5, qn(vec2(sw.x * 0.02, rh + 0.5)), k2), 0.053 * (1.0 - k2 * k2))
+                      * (0.35 + 0.65 * ssV(0.5, 0.2, mix(0.5, qn(vec2(sw.x * 0.08, rh + 0.25)), k3), 0.053 * (1.0 - k3 * k3)));
             float fw = fwY + 0.4 * wdt;                                        // plus a soft edge
-            float line = clamp((min(fy + 0.5 * fw, wdt) - max(fy - 0.5 * fw, -wdt)) / fw, 0.0, 1.0) * run;
-            float streak = st * line * mix(smoothstep(0.3, 0.8, f2) * (0.4 + 0.6 * lace), 0.3, fAA);
+            // once the footprint spans rows the neighbours' streaks fall in it too: their mean cover
+            float line = mix(clamp((min(fy + 0.5 * fw, wdt) - max(fy - 0.5 * fw, -wdt)) / fw, 0.0, 1.0), 2.0 * wdt / 9.0, smoothstep(3.0, 9.0, fwY)) * run;
+            float streak = st * line * ssV(0.55, 0.25, f2, v2) * (0.4 + 0.6 * lace);
             foam = max(act * (0.7 + 0.3 * f2), max(resid, streak * 0.55));
           }
           foam = max(foam, pers);
           // up close foam is bubbles and holes, not paint (faded out before the bubbles shrink to a pixel)
           #ifndef LOWQ
-          float gfp = fp * 3.0;
+          float gfp = length(eRf) * 3.0;
           float grain = sfbmA(mat2(0.8, 0.6, -0.6, 0.8) * xd * 3.0, gfp);
-          foam *= mix(1.0, smoothstep(0.25, 0.6, grain) * 1.15, 0.6 * smoothstep(0.6, 0.15, gfp));
+          foam *= mix(1.0, smoothstep(0.25, 0.6, grain) * 1.4, 0.6 * smoothstep(0.6, 0.15, gfp));   // x1.4: its mean, 1
           #endif
           // depth-limited breaking on real bathymetry
-          foam = max(foam, smoothstep(1.0 - vBreak * 0.9, 1.25 - vBreak * 0.9, f1 * 0.7 + f2 * 0.3) * vBreak);
+          foam = max(foam, ssV(1.125 - vBreak * 0.9, 0.125, f1 * 0.7 + f2 * 0.3, 0.49 * v1 + 0.09 * v2) * vBreak);
+          // at a grazing angle the waves no pixel draws hide their own troughs (Smith masking, from the slope
+          // variance lostF + mssSub) but not the crests that carry the foam: a sight line skims 1/G1 = 1 + L
+          // of surface for each unit it sees, and sees white where any crest it grazes is white (at most 4
+          // deep: the foam lies on the crest's face, not only on its top)
+          float nu = abs(V0.y) / max(length(V0.xz), 1e-4) / sqrt(lostF + mssSub + 1e-4);
+          float Lam = nu < 1.6 ? (1.0 - 1.259 * nu + 0.396 * nu * nu) / (3.535 * nu + 2.181 * nu * nu) : 0.0;
+          foam = 1.0 - pow(1.0 - clamp(foam, 0.0, 0.99), min(1.0 + Lam, 4.0));
           vec3 foamCol = vec3(0.9, 0.94, 0.96) * (uAmbF * (0.72 + 0.2 * shadow) + uSunCol * 0.25 * NdL * shadow);
-          col = mix(col, foamCol, clamp(foam, 0.0, 0.92) * vFade);
+          col = mix(col, foamCol, clamp(foam, 0.0, 0.92));
           // shoreline surf
           if (uHasMap > 0.5) {
             float band = smoothstep(9.0, 0.0, sd) * (0.55 + 0.45 * sin(sd * 1.2 - uTime * 1.6 + vnoise(x0 * 0.1) * 6.0));
@@ -437,7 +489,8 @@ export class Renderer {
   // little and fades over 5-15 s; new foam comes from the breaking crests (the water shader's whitecap
   // measure) and from the boats' sterns. ?q=low goes without (procedural old foam and the wake ribbon).
   _buildFoam() {
-    const mk = () => new THREE.WebGLRenderTarget(FOAM_N, FOAM_N, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
+    // mipmapped: the water reads the level that matches a far pixel's footprint (this pass reads level 0)
+    const mk = () => new THREE.WebGLRenderTarget(FOAM_N, FOAM_N, { type: THREE.HalfFloatType, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: true, depthBuffer: false });
     this.foamRT = [mk(), mk()]; this.foamI = 0; this.foamT = null;
     const U = this.waterU, v4 = () => [0, 1, 2, 3].map(() => new THREE.Vector4());
     const fu = { uPrev: { value: null }, uCp: { value: new THREE.Vector2() }, uDt: { value: 0 }, uDrift: { value: new THREE.Vector2() }, uLang: { value: 0 }, uKeep: { value: 0 }, uWake: { value: v4() }, uWakeW: { value: v4() } };
@@ -485,8 +538,8 @@ export class Renderer {
           vec2 uv = (p - v * uDt - uCp) / uFoamS + 0.5, e = vec2(uTexel, 0.0);
           vec2 old = vec2(0.0);
           if (uKeep > 0.5 && all(greaterThan(uv, e.xx)) && all(lessThan(uv, 1.0 - e.xx))) {
-            vec2 c = texture2D(uPrev, uv).rg;
-            vec2 nb = texture2D(uPrev, uv + e.xy).rg + texture2D(uPrev, uv - e.xy).rg + texture2D(uPrev, uv + e.yx).rg + texture2D(uPrev, uv - e.yx).rg;
+            vec2 c = textureLod(uPrev, uv, 0.0).rg;
+            vec2 nb = textureLod(uPrev, uv + e.xy, 0.0).rg + textureLod(uPrev, uv - e.xy, 0.0).rg + textureLod(uPrev, uv + e.yx, 0.0).rg + textureLod(uPrev, uv - e.yx, 0.0).rg;
             old = c + (nb - 4.0 * c) * min(vec2(0.2), vec2(0.08, 0.15) * uDt / (cell.x * cell.x));
           }
           float tau = 3.0 + 6.0 * qn(xd * 0.04 + 1.3);                   // e-folding, patchy: gone in ~5-15 s
@@ -674,7 +727,7 @@ export class Renderer {
     // visibility: heavy rain closes it to ~1-2 km, and the haze turns rain-grey (applied to the fog colour in update)
     this.scene.fog.density = 0.00011 + 0.0012 * sky.rain;
     this.waterU.fogDensity.value = this.scene.fog.density;
-    this._rainFog = sky.rain;
+    this._rainFog = this.rainNow = sky.rain;     // (rainNow: what the listener hears, audio.js)
     // mist and sea fog (wx.mist): a layer at the surface, eased like the clouds
     const hour = ((ms / 3.6e6 + lon / 15) % 24 + 24) % 24;
     const mi = this.mistState = mist(W.mode, W.seed ?? 0, t, S.sunEl ?? 0.5, hour, lat, kts, sky.cold || 0, this.mistState || {});
@@ -730,7 +783,10 @@ export class Renderer {
       }
     }
     for (let i = nb; i < this.bolts.length; i++) this.bolts[i].visible = false;
-    if (best) U.uFlash.value.set(best.x, best.cg ? base + 400 : best.y, best.z, bestI * (2 + 5 * clamp((0.05 - (this.skySys.sunEl ?? 0.5)) / 0.15, 0, 1)))   // (a flash is far brighter against a night sky); else U.uFlash.value.w = 0;
+    // (a flash is far brighter against a night sky; none now: the cloud goes dark, not left at the last flash)
+    if (best) U.uFlash.value.set(best.x, best.cg ? base + 400 : best.y, best.z, bestI * (2 + 5 * clamp((0.05 - (this.skySys.sunEl ?? 0.5)) / 0.15, 0, 1)));
+    else U.uFlash.value.w = 0;
+    U.uFlashCG.value = best && best.cg ? 1 : 0;
     if (bestI > 0) this._lastFlashT = t;
     this.skySys.noHist = bestI > 0 || t - (this._lastFlashT ?? -1e9) < 0.25;
     this._flashLight = light;
@@ -738,10 +794,15 @@ export class Renderer {
     // the camera, so it waits through a pause and hurries with time warp; audio.js listens for the event
     const due = thunderDue(list, cam.x, cam.y, cam.z, this._thT ?? t, t, base, this._due || (this._due = []));
     this._thT = t;
-    for (const e of due) {
-      this.thunderLog.push({ id: e.s.id, ts: e.s.ts, t, d: e.d, cg: e.s.cg });
-      if (this.thunderLog.length > 50) this.thunderLog.shift();
-      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('truewind:thunder', { detail: { d: e.d, spread: e.far - e.d, seed: e.s.seed, cg: e.s.cg } }));
+    if (due.length) {
+      // the strike's bearing from the camera: pan across the camera's right, and how far ahead of it
+      const cd = this.camera.getWorldDirection(this._thDir || (this._thDir = new THREE.Vector3()));
+      for (const e of due) {
+        const { pan, front } = thunderBearing(e.s, cam.x, cam.z, cd.x, cd.z);
+        this.thunderLog.push({ id: e.s.id, ts: e.s.ts, t, d: e.d, cg: e.s.cg, pan });
+        if (this.thunderLog.length > 50) this.thunderLog.shift();
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('truewind:thunder', { detail: { d: e.d, spread: e.far - e.d, seed: e.s.seed, cg: e.s.cg, pan, front } }));
+      }
     }
     due.length = 0;
   }
@@ -761,6 +822,7 @@ export class Renderer {
     this.sdfTex = new THREE.DataTexture(world.sdfTextureData(S), S, S, THREE.RGBAFormat);
     this.sdfTex.magFilter = THREE.LinearFilter; this.sdfTex.minFilter = THREE.LinearFilter; this.sdfTex.needsUpdate = true;
     U.uSdf.value = this.sdfTex;
+    (this.seamarks || (this.seamarks = new SeamarkLayer(this.scene, { low: this.low }))).set(world, geo && geo.seamarks);   // lighthouses, buoys, beacons, lights
     if (world.open) return;
     // terrain, buildings, streets and trees from the venue's OSM land data (built once it has loaded;
     // everything stands on the same height function, so buildings neither float nor sink)
@@ -934,17 +996,6 @@ export class Renderer {
       this.sun.position.set(player.x + Ld.x * 60, Math.max(Ld.y, 0.05) * 60, player.z + Ld.z * 60);
       this.sun.target.position.set(player.x, 0, player.z);
     }
-    // hull footprints for the water cut-out: the four boats nearest the camera
-    {
-      const U = this.waterU, list = [...this.boats.keys()].sort((a, c) => Math.hypot(a.x - cam.x, a.z - cam.z) - Math.hypot(c.x - cam.x, c.z - cam.z)).slice(0, 4);
-      list.forEach((b, i) => {
-        const C = b.cls, P = b.pose || b, cx = (C.bowX + C.sternX) / 2;
-        const fx = Math.sin(P.psi), fz = -Math.cos(P.psi);
-        U.uHullA.value[i].set(P.x + fx * cx, P.z + fz * cx, fx, -fz);
-        U.uHullB.value[i].set((C.bowX - C.sternX) / 2 * 0.97, (C.hullBeam ?? C.beam) / 2 * 0.9 * Math.abs(Math.cos(P.phi)) + 0.02, C.multihull ? C.hullSpacing / 2 : 0, C.multihull ? 2 : 1);
-      });
-      U.uHullN.value = 0; // cut-out disabled
-    }
     for (const [b, vis] of this.boats) {
       updateBoatModel(vis, b, t);
       // detail near the camera: ropes only where they can be seen
@@ -973,6 +1024,7 @@ export class Renderer {
     }
     if (this.showForces && player) this._updateForces(player);
     else if (this.forceArrows) this.forceArrows.visible = false;
+    if (this.seamarks) this.seamarks.update(dt, t, this.camera, env, this.sunDir.y, this.scene.fog.density || 0, this.r.getPixelRatio(), this.r.domElement.clientHeight || 800);
     this.r.render(this.scene, this.camera);
   }
 
@@ -1203,18 +1255,10 @@ class Wake {
       transparent: true, depthWrite: false, uniforms: { uT: { value: 0 } },
       vertexShader: `attribute float alpha; attribute float across; varying float vA; varying float vX; varying vec2 vW;
         void main(){ vA = alpha; vX = across; vW = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-      fragmentShader: `uniform float uT; varying float vA; varying float vX; varying vec2 vW; 
-float fh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float fn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(fh(i), fh(i + vec2(1, 0)), f.x), mix(fh(i + vec2(0, 1)), fh(i + vec2(1, 1)), f.x), f.y); }
-// soft bubbly foam: cells of bubbles over a streaky base, sharpened by coverage
-float foam(vec2 p, float t, float cover) {
-  float n = fn(p * 3.0 + vec2(t * 0.3, 0.0)) * 0.5 + fn(p * 7.0 - vec2(0.0, t * 0.5)) * 0.3 + fn(p * 17.0 + t) * 0.2;
-  float bub = smoothstep(0.35, 0.6, fn(p * 26.0 - t * 0.4)) * smoothstep(0.2, 0.5, fn(p * 9.0));
-  float v = n * 0.75 + bub * 0.35;
-  return smoothstep(1.0 - cover, 1.0 - cover + 0.35, v);
-}
-
+      // the splash foam's gradient noise on an integer-style hash (the old sin() hash lost its precision at
+      // world coordinates x 20 and broke into blocks), each octave faded to its mean below a pixel
+      fragmentShader: /* glsl */`uniform float uT; varying float vA; varying float vX; varying vec2 vW;
+        ${FOAM_NOISE}
         void main(){
           float mid = 1.0 - abs(vX * 2.0 - 1.0);                 // denser in the middle of the wake, frayed edges
           float f = foam(vW * 0.8, uT, clamp(vA * 1.4 * (0.4 + 0.6 * mid), 0.0, 0.85));

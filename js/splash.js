@@ -11,7 +11,7 @@
 import * as THREE from 'three';
 
 const DROPS = 2400, PATCHES = 520, Q = 16, RWS = 7;
-const NOISE = /* glsl */`
+export const NOISE = /* glsl */`   // also the ?q=low wake ribbon's (render.js)
 // hash without sin() (at world coordinates x 26 its precision ran out and the foam broke into blocks)
 vec2 fh(vec2 p){ p = mod(p, 4096.0); vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy) * 2.0 - 1.0; }
 // gradient noise with value-noise statistics (value noise's flat lattice spots made foam a mosaic of cells)
