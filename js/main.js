@@ -124,7 +124,7 @@ class Game {
   pickVenue(id, fromUser, keepWind = false) {
     this.settings.venue = id;
     const v = VENUES.find(x => x.id === id) || this.customV;
-    if (v && !v.open && !keepWind) { this.setSlider('twd', v.wind); this.setSlider('tws', v.windKt); this.setSlider('current', v.current?.kt ?? 0); }
+    if (v && (!v.open || v.preset) && !keepWind) { this.setSlider('twd', v.wind); this.setSlider('tws', v.windKt); this.setSlider('current', v.current?.kt ?? 0); if (v.swell !== undefined) this.setSlider('swell', v.swell); }
     this.refreshMenu();
   }
   setSlider(k, v) { const el = $('#' + k); el.value = v; el.dispatchEvent(new Event('input')); }
@@ -182,7 +182,7 @@ class Game {
     } catch (e) { st.textContent = 'Could not reach OpenStreetMap (offline or blocked). Try a built-in venue.'; }
   }
   // where on Earth we are (for the sun and moon); open water is somewhere in the North Atlantic
-  skyPlace() { const v = this.currentVenueDef(); return !v || v.open ? { lat: 32, lon: -40 } : { lat: v.lat, lon: v.lon }; }
+  skyPlace() { const v = this.currentVenueDef(); return !v || (v.open && !v.preset) ? { lat: 32, lon: -40 } : { lat: v.lat, lon: v.lon }; }
   // UTC time for the chosen time of day, today, in local solar time at the venue (Live = now)
   clockFor() {
     const tod = this.settings.tod || 'afternoon';
@@ -438,11 +438,14 @@ class Game {
     const fetchM = world.open ? 60000 : world.fetchAt(0, 0, twd, 6000);
     // open ocean: effectively unlimited fetch, the sea grows to fully developed (Pierson-Moskowitz)
     const fetchKm = world.open ? 2000 : fetchM >= 6000 ? 25 : Math.max(0.4, fetchM / 1000);
+    // an open-ocean gale brings its own swell, raised in its earlier hours and its other sectors, running
+    // under the local sea and crossing it (0.4 of the fully developed sea by 50 kn); the slider's if bigger
+    const U = cond.tws * KT, sw = world.open ? Math.max(cond.swell, 0.4 * 0.21 * U * U / 9.81 * clamp((cond.tws - 30) / 20, 0, 1)) : cond.swell;
     const env = new Environment({
       tws: cond.tws * KT, twd: cond.twd, gust: cond.gust, shift: cond.shift, seed: cond.seed, weather: cond.weather ?? 'changing',
-      fetchKm, swellH: cond.swell, swellT: 5 + 3.2 * Math.sqrt(Math.max(0.1, cond.swell)),   // longer swell for bigger swell
+      fetchKm, swellH: sw, swellT: 6 + 3.4 * Math.sqrt(Math.max(0.1, sw)),   // longer swell for bigger swell: 1 m 9 s, 8 m 16 s, 16 m 20 s
       currentKt: cond.current, currentDir: cond.currentDir,
-      hemi: v && !v.open && v.lat < 0 ? -1 : 1,     // puffs and squalls veer north of the equator, back south of it
+      hemi: v && v.lat < 0 ? -1 : 1,     // puffs and squalls veer north of the equator, back south of it
       // sea/lake and land breezes by the real sun at the venue. clock0 = UTC ms at t = 0: online it is the
       // room's shared epoch (every peer's clock is epoch + t), offline the chosen time of day
       thermal: world.open || !v ? null : { lat: v.lat, lon: v.lon, land: world, regional: v.regional,
