@@ -26,6 +26,7 @@ export class Nav {
     this.chartOpen = false;
     this.track = [];
     this.hazards = [];                                         // buoys and beacons near a boat: solid, like the race marks
+    this.overlays = [];                                        // { chart(ctx, P, nav), mini(ctx, lw) }: the MOB mark (js/gear.js)
     this.view = { cx: 0, cz: 0, s: 0.12, follow: true };      // s: chart pixels (css) per metre
     this.cv = $('#chart-cv'); this.ctx = this.cv.getContext('2d');
     this.tape = $('#compass-tape'); this.tctx = this.tape.getContext('2d');
@@ -165,6 +166,7 @@ export class Nav {
 
   // ------------------------------------------------------------------ minimap overlay (called inside its transform)
   drawMini(ctx, lw) {
+    for (const o of this.overlays) if (o.mini) o.mini(ctx, lw);
     if (!this.marks) return;
     for (const m of this.marks) {
       if (m.far || /^(wreck|rock|obstruction|landmark)$/.test(m.t)) continue;
@@ -317,6 +319,7 @@ export class Nav {
     }
     // seamarks
     this.drawMarks(ctx, W, H);
+    for (const o of this.overlays) if (o.chart) o.chart(ctx, P, this);
     // other boats, then the player with the 6-minute COG/SOG vector
     for (const o of g.boats) {
       if (o === b) continue;

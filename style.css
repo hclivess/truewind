@@ -87,6 +87,20 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 .loads span { color: var(--muted); }
 .toggles { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .chip.on { color: var(--ink); background: var(--accent); border-color: var(--accent); }
+/* the rig panel's Boat section: damage, water, anchor, lines, crew fatigue (js/gear.js) */
+.dmg { display: grid; grid-template-columns: 52px 1fr; gap: 2px 8px; font: 500 12px/1.3 var(--cond); font-variant-numeric: tabular-nums; }
+.dmg > span { color: var(--muted); }
+.dmg b { font-weight: 500; }
+.dmg small { color: var(--muted); font-size: 11px; }
+.dmg .warn, .dmg em.warn { color: var(--amber); } .dmg .bad, .dmg em.bad { color: #ff8a84; }
+.dmg em { font-style: normal; }
+.dmg .crew { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.meter { display: inline-block; width: 38px; height: 5px; background: var(--ink-2); border-radius: 3px; overflow: hidden; vertical-align: middle; }
+.meter > i { display: block; height: 100%; background: #6fe0a2; }
+#gear-rg h3 .chip { margin-left: auto; font-size: 11px; padding: 1px 6px; }
+#gear-rg h3 .muted { margin-left: 6px; }
+.chip.mob { color: #ff8a84; border-color: rgba(224,65,58,.5); }
+.chip.mob.on { color: #fff; background: #d0102a; border-color: #d0102a; }
 
 #polar-card { position: absolute; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); width: 240px; }
 #polar { width: 100%; display: block; }

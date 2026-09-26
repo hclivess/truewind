@@ -125,6 +125,7 @@ export class Net {
       cy: q(me.crewY), cx: q(me.crewX), rud: q(me.rudder, 1000), gd: q(me.genDeploy), gf: q(me.genFill), sj: q(me.side.jib), sg: q(me.side.gennaker),
       rf: q(me.reefPos),
       b: booms, ctrl: c, cap: me.capsized ? 1 : 0, race: raceInfo || null,
+      dm: me.dmg ? me.dmg.netState() : null, an: me.anchor && me.anchor.state !== 'up' ? [q(me.anchor.x), q(me.anchor.z)] : null,
     });
   }
 
@@ -160,6 +161,8 @@ export class Net {
       if (b.sailSys && b.sailSys.active(b)) b.sailSys.follow(b, { booms: d.b, jib: d.sj, gennaker: d.sg }, dt);
       b.capsized = !!d.cap;
       b.netRace = d.race;
+      if (b.dmg && d.dm) b.dmg.applyNet(d.dm);                                  // (a dismasted, torn or sinking boat looks it)
+      b.lights = b.lights || {}; b.lights.anchor = !!d.an;
     }
   }
 

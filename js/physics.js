@@ -436,7 +436,7 @@ export class Boat {
       b.a = sg * limit;
       if (b.rate * sg > 0) {
         const J = s.Iboom * b.rate * 1.2;
-        if (key === 'main') { this.slam = Math.max(this.slam, Math.abs(b.rate)); if (Math.abs(b.rate) > 1.2) this.slamEvents++; }
+        if (key === 'main') { this.slam = Math.max(this.slam, Math.abs(b.rate)); if (Math.abs(b.rate) > 1.2) this.slamEvents++; this.slamJ = Math.max(this.slamJ || 0, Math.abs(J)); }
         this.r -= J / this.Izz * 0.6;
         b.rate *= -0.2;
       }
@@ -468,6 +468,8 @@ export class Boat {
       flogging = 1 - sstep(0.5, 0.95, Math.abs(this.side.gennaker));
       fill = this.genFill;
     }
+    if (this.sailHealth) areaF *= this.sailHealth[key] ?? 1;   // torn, blown out or the rig down (js/damage.js)
+    if (this.furl) areaF *= 1 - this.furl;                       // lowered at anchor or alongside (js/gear.js)
     o.areaF = areaF; o.baseAngle = baseAngle; o.pivotX = pivotX; o.pivotZ = pivotZ; o.side = side;
     o.flogging = flogging; o.fill = fill; o.luff = luff;
     return o;
@@ -582,6 +584,7 @@ export class Boat {
     const fx = sps, fz = -cps, sx = cps, sz = sps;
     const cphi = Math.cos(this.phi), sphi = Math.sin(this.phi);
     const disp = this.mass;
+    const SP = C.sheetPower * (this.crewPower ?? 1);   // the crew's pulling power, less when tired (js/fatigue.js)
 
     // ---- environment at the boat ----
     const cur = env.current.at(this.x, this.z, this._c);
@@ -633,7 +636,7 @@ export class Boat {
     for (const k of LOCKABLE) {
       if (this.held[k] > 0) { this.held[k] -= dt; continue; }
       if (this.locks[k] !== false || ctrl[k] === undefined) continue;
-      const ld = k === 'main' || k === 'jib' || k === 'stay' ? (d.rig[k + 'Load'] || 0) / C.sheetPower : k === 'lazy' ? (d.rig.lazyLoad || 0) / C.sheetPower : k === 'trav' ? (d.rig.mainLoad || 0) / C.sheetPower : 0.35 * (ctrl[k] || 0) + 0.1;
+      const ld = k === 'main' || k === 'jib' || k === 'stay' ? (d.rig[k + 'Load'] || 0) / SP : k === 'lazy' ? (d.rig.lazyLoad || 0) / SP : k === 'trav' ? (d.rig.mainLoad || 0) / SP : 0.35 * (ctrl[k] || 0) + 0.1;
       if (ld < 0.01) continue;
       const rate = Math.min(2.5, 0.25 + 1.6 * ld) * dt;
       if (RUNS_UP.has(k)) ctrl[k] = Math.min(1, ctrl[k] + rate);        // sheets and tack line ease, the car goes to leeward
@@ -643,7 +646,7 @@ export class Boat {
     // ---- running rigging: lines move at crew/winch speed, slower under load ----
     for (const k of ['main', 'jib', 'stay', 'lazy']) {
       const target = ctrl[k] ?? (k === 'lazy' ? 1 : 0.3);
-      const load = (d.rig[(k === 'lazy' ? 'lazy' : k) + 'Load'] || 0) / C.sheetPower;
+      const load = (d.rig[(k === 'lazy' ? 'lazy' : k) + 'Load'] || 0) / SP;
       const rate = target > this.lines[k] ? 0.7 : 0.45 / (1 + load * load);
       this.lines[k] = clamp(this.lines[k] + clamp(target - this.lines[k], -rate * dt, rate * dt), 0, 1);
     }
@@ -711,7 +714,8 @@ export class Boat {
     ax.Wbx = Wbx; ax.Wby = Wby; ax.ug = ug; ax.vg = vg; ax.rhoA = rhoA; ax.awaMid = awaMid; ax.qMid = qMid;
     ax.bend = bend; ax.sag = sag; ax.aeroOn = aeroOn;
     ax.X = 0; ax.Y = 0; ax.K = 0; ax.N = 0; ax.sailX = 0; ax.sailY = 0; ax.sailK = 0;
-    if (this.sailSys && this.sailSys.active(this)) this.sailSys.step(this, ax);
+    if (this.rigDown) { /* dismasted: no sails (the wreck's drag comes in through ext, js/damage.js) */ }
+    else if (this.sailSys && this.sailSys.active(this)) this.sailSys.step(this, ax);
     else this.sailsStrip(ax);
     X += ax.X; Y += ax.Y; K += ax.K; N += ax.N;
     sailX = ax.sailX; sailY = ax.sailY; sailK = ax.sailK;
@@ -754,7 +758,7 @@ export class Boat {
       const F = C.keel;
       let board = F.board ? clamp(ctrl.board, 0.05, 1) : 1;
       if (F.twin) board *= 0.5 + 0.5 * this.flyIn;           // the windward board lifts out with its hull
-      const area = F.area * board, ARe = F.ARe * Math.max(0.3, board), zk = F.z * (0.4 + 0.6 * board);
+      const area = F.area * board * (this.keelEff ?? 1), ARe = F.ARe * Math.max(0.3, board), zk = F.z * (0.4 + 0.6 * board);
       const ul = this.u - 0.3 * orbU;
       const vl = (this.v - 0.3 * orbV + this.r * F.x + this.p * zk) * cphi;
       const V2 = ul * ul + vl * vl, V = Math.sqrt(V2) + 1e-9;
@@ -776,7 +780,7 @@ export class Boat {
       const eps = 1.2 * keelCl / (Math.PI * d.keelARe) * (ul > 0 ? 1 : 0) * (F.transom ? 0.35 : 1);
       foilCoef(wrap(Math.atan2(vl, ul) - eps + this.rudder), F, F.ARe, fc);
       const vent = (1 - sstep(38 * DEG, 70 * DEG, Math.abs(this.phi))) * (F.twin ? 0.5 + 0.5 * this.flyIn : 1);
-      const q = 0.5 * RHO_W * V2 * F.area * vent;
+      const q = 0.5 * RHO_W * V2 * F.area * vent * (this.rudderEff ?? 1);   // (a bent blade: js/damage.js)
       const rx = q * (fc.cl * vl / V - fc.cd * ul / V), rn = q * (-fc.cl * ul / V - fc.cd * vl / V);
       X += rx; Y += rn * cphi; K += rn * F.z; N += F.x * rn * cphi;
       d.Nrud = F.x * rn * cphi; d.rudAlpha = wrap(Math.atan2(vl, ul) - eps + this.rudder); d.eps = eps;
@@ -847,7 +851,7 @@ export class Boat {
     // hull + ballast weight at its real height, crew weight where the crew is
     const Fb = RHO_W * G * imm.V;
     K -= RHO_W * G * imm.My;
-    K += C.massHull * G * C.zG * sphi;
+    K += (this.mHull ?? C.massHull) * G * (this.zG ?? C.zG) * sphi;          // (less, and higher, with the keel gone)
     K -= this.cRoll * this.p;
     if (this.righting) {
       if (C.multihull) K -= (Math.sign(this.phi) || 1) * this.crewMass * G * (C.hullSpacing * 0.75) * Math.abs(cphi) ** 0.3; // hanging off the righting line
@@ -861,7 +865,7 @@ export class Boat {
     // ---- mast in the water: a sealed spar floats, which is what holds a capsized boat on its side ----
     {
       const r0 = C.id === 'dinghy' ? 0.032 : C.id === 'sportboat' ? 0.05 : 0.055;
-      const base = C.boomZ - 0.8, L = C.mastHeight - base, nSeg = 6;
+      const base = C.boomZ - 0.8, L = (this.mastTop ?? C.mastHeight) - base, nSeg = 6;   // (a broken mast: its stump)
       for (let k = 0; k < nSeg; k++) {
         const zseg = base + (k + 0.5) * L / nSeg;
         const hW = zseg * cphi + heaveH - waveH;
@@ -875,6 +879,9 @@ export class Boat {
     this.capsized = !!(C.canCapsize && Math.abs(this.phi) > 75 * DEG);
     if (this.righting && Math.abs(this.phi) < 20 * DEG) this.righting = false;
 
+    // external loads: anchor rode, mooring lines, fenders, a wreck over the side, water aboard (js/anchor.js, mooring.js, damage.js)
+    const E = this.ext;
+    if (E) { X += E.X; Y += E.Y; N += E.N; K += E.K; }
     // ---- integrate rigid body ----
     const m11 = this.m11, m22 = this.m22;
     let du = (X + m22 * this.v * this.r) / m11;
@@ -904,14 +911,14 @@ export class Boat {
     if (this.phi > Math.PI) this.phi -= 2 * Math.PI; if (this.phi < -Math.PI) this.phi += 2 * Math.PI;
 
     // ---- rudder: slew rate limited by hydrodynamic load on the blade ----
-    const target = clamp(ctrl.helm, -1, 1) * C.rudder.max;
+    const target = clamp(ctrl.helm, -1, 1) * C.rudder.max * (this.rudderLim ?? 1) + (this.rudderBias || 0);   // (a bent stock)
     const slew = 1.5 / (1 + (d.rudderLoad || 0) / C.rudder.loadRef);
     this.rudder += clamp(target - this.rudder, -slew * dt, slew * dt);
 
     // ---- crew: hiking (athwartships) and fore-aft ----
     let crewTarget;
     const windSide = -Math.sign(awaMid) || 1;
-    const lim = C.crewMaxOut;
+    const lim = C.crewMaxOut * (this.hikeLimit ?? 1);   // (tired legs: js/fatigue.js)
     if (this.auto.hike) {
       const upwindness = 1 - sstep(80 * DEG, 150 * DEG, Math.abs(awaMid));
       const tgt = windSide * C.targetHeel * 0.6 * upwindness;
@@ -966,7 +973,7 @@ export class Boat {
     // ---- diagnostics / instruments ----
     d.X = X; d.Y = Y; d.K = K; d.N = N;
     d.sailX = sailX; d.sailY = sailY; d.sailK = sailK;
-    d.RM = RHO_W * G * imm.My - C.massHull * G * C.zG * sphi - this.crewMass * G * (this.crewY * cphi + C.crewZ * sphi);
+    d.RM = RHO_W * G * imm.My - (this.mHull ?? C.massHull) * G * (this.zG ?? C.zG) * sphi - this.crewMass * G * (this.crewY * cphi + C.crewZ * sphi);
     d.rig.backstayLoad = (C.hasBackstay ? 350 + 5200 * ctrl.backstay ** 1.5 : 0) + 0.35 * (d.rig.mainLoad || 0);
     d.rig.bendMM = bend * M0.luff * 18;
     d.rig.sagMM = sag * (this.sailBy.jib ? this.sailBy.jib.luff * 12 * (this.sailBy.jib.sagK ?? 1) : 0);

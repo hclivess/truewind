@@ -1025,6 +1025,7 @@ export class Renderer {
     if (this.showForces && player) this._updateForces(player);
     else if (this.forceArrows) this.forceArrows.visible = false;
     if (this.seamarks) this.seamarks.update(dt, t, this.camera, env, this.sunDir.y, this.scene.fog.density || 0, this.r.getPixelRatio(), this.r.domElement.clientHeight || 800);
+    if (this.hooks) for (const h of this.hooks) h(dt, t, sim);      // (js/gear-render.js: wrecks, rodes, lines, MOB marker)
     this.r.render(this.scene, this.camera);
   }
 

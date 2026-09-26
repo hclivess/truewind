@@ -140,6 +140,7 @@ export class Race {
     const C = this.course;
     const score = (r) => {
       if (r.finished) return 1e9 - r.finishTime;
+      if (r.retired) return -1e9;                   // (RET: dismasted, sinking, keel or rudder gone: js/gear.js)
       const tgt = C.target(C.legs[r.leg], r.boat);
       return r.leg * 1e5 - Math.hypot(r.boat.x - tgt.x, r.boat.z - tgt.z);
     };
@@ -470,7 +471,7 @@ export function resolveCollisions(boats, marks, piers, onEvent) {
     if (vn < 0) {
       const nvx = vx - 1.4 * vn * nx, nvz = vz - 1.4 * vn * nz;
       b.u = (nvx * fx + nvz * fz) * 0.8; b.v = (nvx * sx + nvz * sz) * 0.8;
-      if (-vn > 0.4 && onEvent) onEvent(b, other, -vn);
+      if (-vn > 0.4 && onEvent) onEvent(b, other, -vn, nx, nz);   // (nx, nz: the contact normal, for the damage model)
     }
   };
   const S = boats.map(seg);
