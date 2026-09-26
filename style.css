@@ -194,6 +194,7 @@ body.online .online-only { display: block; }
 .sl2 { display: flex; justify-content: space-between; align-items: center; font: 500 12px var(--cond); color: var(--muted); padding: 1px 0; }
 .wseg { margin-top: 10px; }
 .wseg .seg-b { font-size: 13px; padding: 7px; }
+.trseg { grid-template-columns: repeat(4, 1fr); margin-top: 6px; }
 .tseg { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
 .tseg .seg-b { font-size: 12px; padding: 6px 8px; flex: 1 1 22%; }
 .lk { font: 600 9px/1 "Barlow Condensed", sans-serif; letter-spacing: .04em; padding: 3px 4px; margin-right: 4px; border-radius: 3px; border: 1px solid var(--line); background: rgba(255,255,255,.06); color: #cfd8df; cursor: pointer; min-width: 30px; }

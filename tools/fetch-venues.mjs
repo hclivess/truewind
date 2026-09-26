@@ -2,8 +2,9 @@
 // Usage: node tools/fetch-venues.mjs [venueId...]
 //        node tools/fetch-venues.mjs --land [venueId...]   (buildings, roads, land use -> data/venues/<id>.land.json)
 import { VENUES, overpassQuery, processOSM, landQueries, processLand, World } from '../js/world.js';
+import { trafficQuery, processTraffic } from '../js/traffic.js';
 import { writeFileSync, readFileSync } from 'node:fs';
-const LAND = process.argv.includes('--land');
+const LAND = process.argv.includes('--land'), TRAFFIC = process.argv.includes('--traffic');
 const want = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const UA = 'truewind-sailing-sim/1.0 (https://github.com/hclivess/truewind)';
 const ENDPOINTS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
@@ -12,7 +13,7 @@ async function overpass(q) {
   for (let attempt = 0; attempt < 6; attempt++) {
     const url = ENDPOINTS[attempt % ENDPOINTS.length];
     try {
-      const r = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA } });
+      const r = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA, Accept: 'application/json' } });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
       if (j.remark && /runtime error|timed out/i.test(j.remark)) throw new Error(j.remark.slice(0, 120));
@@ -20,6 +21,18 @@ async function overpass(q) {
     } catch (e) { const w = 10000 * (attempt + 1); console.log('  overpass retry', url.split('/')[2], e.message, `waiting ${w / 1000}s`); await sleep(w); }
   }
   throw new Error('overpass failed');
+}
+// marinas, pontoons, moorings, anchorages and ferry routes for the harbour traffic (js/traffic.js)
+if (TRAFFIC) {
+  for (const v of VENUES) {
+    if (v.open || (want.length && !want.includes(v.id))) continue;
+    const R = (v.R ?? 6000) + 600, out = processTraffic(await overpass(trafficQuery(v.lat, v.lon, R)), v.lat, v.lon, R);
+    const s = JSON.stringify({ id: v.id, lat: v.lat, lon: v.lon, source: 'OpenStreetMap contributors (ODbL)', fetched: new Date().toISOString().slice(0, 10), ...out });
+    writeFileSync(`data/venues/${v.id}.traffic.json`, s);
+    console.log(v.id, Object.entries(out).map(([k, a]) => `${k} ${a.length}`).join(', '), (s.length / 1024).toFixed(0) + ' KB');
+    await sleep(5000);
+  }
+  process.exit(0);
 }
 if (LAND) {
   for (const v of VENUES) {

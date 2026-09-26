@@ -13,6 +13,9 @@ import { Rigging } from './rigging.js';
 import { sunPosition } from './sky.js';
 import { attachSails } from './sail/sailsim.js';   // (also registers the cloth / lattice sail model with physics.js)
 import { loadBakedPolars, bakedPolars } from './sail/surrogate.js';
+import { Traffic, fetchTrafficGeo } from './traffic.js';
+import { TrafficView } from './traffic-render.js';
+import { fleetLevels, clothBudget } from './fleet.js';
 
 // every boat's sail model: cloth (cloth shaped by the wind and the rig, forces from a vortex lattice over it; the
 // default), ?sails=strip (three strips per sail: the light fallback) or ?sails=vlm (vortex lattice on the rig-set
@@ -26,7 +29,9 @@ const C_RIGHT = (b) => (b.cls.multihull ? 8 : 4); // grab radius on screen, also
 // the touch pad's third line (in order of use), with the labels for its two buttons (d = -1, +1)
 const TOUCH_LINES = { stay: ['Stay', 'Trim', 'Ease', 'Staysail sheet'], trav: ['Trav', 'Up', 'Down', 'Traveler'], hike: ['Hike', 'In', 'Out', 'Crew weight'],
   vang: ['Vang', '−', '+', 'Vang'], tackLine: ['Tack', 'Down', 'Ease', 'Gennaker tack line'], backstay: ['Bstay', '−', '+', 'Backstay'], board: ['Board', 'Up', 'Down', 'Daggerboard'], pushBoom: ['Boom', 'Port', 'Stbd', 'Push the boom out'] };
-const NAMES = ['Tern', 'Petrel', 'Skua', 'Gannet', 'Fulmar', 'Shearwater', 'Kittiwake', 'Albatross', 'Puffin', 'Cormorant'];
+const NAMES = ['Tern', 'Petrel', 'Skua', 'Gannet', 'Fulmar', 'Shearwater', 'Kittiwake', 'Albatross', 'Puffin', 'Cormorant',
+  'Osprey', 'Curlew', 'Plover', 'Heron', 'Egret', 'Merlin', 'Kestrel', 'Dunlin', 'Sanderling', 'Guillemot',
+  'Razorbill', 'Avocet', 'Redshank', 'Whimbrel', 'Godwit', 'Shag', 'Eider', 'Scoter', 'Grebe', 'Noddy'];
 
 // reefs the crew ties in at the dock for this much wind (the same rule the AI crews use)
 function startReef(C, kn) {
@@ -46,7 +51,7 @@ class Game {
     this.keys = new Set();
     this.settings = {
       cls: 'blackwatch', venue: 'progreso', mode: 'free', tws: 14, twd: 70, gust: 0.5, shift: 7, swell: 0, current: 0.4,
-      fleet: 5, countdown: 120, laps: 1, weather: 'changing', tod: 'afternoon', autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true,
+      fleet: 5, countdown: 120, laps: 1, weather: 'changing', tod: 'afternoon', traffic: 'normal', autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true,
     };
     this.venueTouched = false;
     // the last setup is remembered (a custom location is not: its coastline is downloaded per visit)
@@ -64,6 +69,7 @@ class Game {
     this.t = 0;
     this.boats = [];
     this.showLaylines = true;
+    this.trafficView = new TrafficView(this.renderer.scene);
     this.buildMenu();
     this.bindInput();
     this.bindTouch();
@@ -96,6 +102,7 @@ class Game {
     document.querySelectorAll('.seg-b[data-mode]').forEach(b => b.addEventListener('click', () => { this.settings.mode = b.dataset.mode; this.refreshMenu(); }));
     document.querySelectorAll('.seg-b[data-weather]').forEach(b => b.addEventListener('click', () => { this.settings.weather = b.dataset.weather; this.refreshMenu(); }));
     document.querySelectorAll('.seg-b[data-tod]').forEach(b => b.addEventListener('click', () => { this.settings.tod = b.dataset.tod; this.refreshMenu(); if (this.idle) this.clockBase = this.clockFor(); }));
+    document.querySelectorAll('.seg-b[data-traffic]').forEach(b => b.addEventListener('click', () => { this.settings.traffic = b.dataset.traffic; this.refreshMenu(); }));
     const sliders = { tws: v => `${v} kn`, twd: v => `${String(v).padStart(3, '0')}°`, gust: v => `${Math.round(v * 100)}%`, shift: v => `±${v}°`, swell: v => v > 0 ? `${v} m` : 'none', current: v => v > 0 ? `${v} kn` : 'none', fleet: v => `${v}`, countdown: v => `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`, laps: v => `${v}` };
     for (const k in sliders) {
       const el = $('#' + k);
@@ -133,6 +140,7 @@ class Game {
     document.querySelectorAll('.seg-b[data-mode]').forEach(b => { const on = b.dataset.mode === this.settings.mode; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
     document.querySelectorAll('.seg-b[data-weather]').forEach(b => { const on = b.dataset.weather === this.settings.weather; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
     document.querySelectorAll('.seg-b[data-tod]').forEach(b => { const on = b.dataset.tod === this.settings.tod; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
+    document.querySelectorAll('.seg-b[data-traffic]').forEach(b => { const on = b.dataset.traffic === this.settings.traffic; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
     this.windNote();
     document.body.classList.toggle('racing', this.settings.mode === 'race');
     document.body.classList.toggle('online', this.settings.mode === 'online');
@@ -173,6 +181,8 @@ class Game {
       const geo = await fetchVenueGeo(lat, lon);
       this.customV = { id: 'custom', name: 'Custom location', place: `${lat.toFixed(3)}, ${lon.toFixed(3)}`, lat, lon, wind: this.settings.twd, windKt: this.settings.tws, depth: 12, note: '' };
       this.geoCache.set('custom', geo);
+      this.geoCache.delete('custom-traffic');
+      fetchTrafficGeo(lat, lon).then(d => this.geoCache.set('custom-traffic', d)).catch(() => {});   // (harbour traffic: if it comes)
       this.settings.venue = 'custom';
       this.venueTouched = true;
       st.textContent = `Loaded ${geo.coast.length} coastline pieces, ${geo.water.length} water areas. Press Cast off.`;
@@ -293,6 +303,27 @@ class Game {
     return g;
   }
 
+  // marinas, moorings, anchorages and ferry routes for the harbour traffic (data/venues/<id>.traffic.json)
+  async loadTraffic(v) {
+    if (v.open) return null;
+    if (v.id === 'custom') return this.geoCache.get('custom-traffic') || null;
+    const key = v.id + '-traffic';
+    if (!this.geoCache.has(key)) this.geoCache.set(key, await fetch(`data/venues/${v.id}.traffic.json`).then(r => r.ok ? r.json() : null).catch(() => null));
+    return this.geoCache.get(key);
+  }
+  // background traffic: moored and anchored boats, ferries on their routes, boats under way (kept off a race course)
+  async buildTraffic(v, world, cond, player) {
+    const dens = this.settings.traffic || 'normal';
+    this.traffic = null;
+    if (dens !== 'off') {
+      const data = await this.loadTraffic(v), keepOut = [{ x: player.x, z: player.z, r: 50 }];
+      const C = this.course;
+      if (C) { const r = Math.max(220, Math.hypot(C.committee.x - C.pin.x, C.committee.z - C.pin.z) / 2 + 120); for (let s = -250; s <= C.L + 150; s += 120) keepOut.push({ x: C.origin.x + C.ux * s, z: C.origin.z + C.uz * s, r }); }
+      try { this.traffic = new Traffic(world, data, { density: dens, seed: cond.seed, twd: cond.twd * DEG, keepOut }); } catch (e) { console.error('traffic', e); }
+    }
+    this.trafficView.setTraffic(this.traffic);
+  }
+
   async startSession(idle) {
     const S = this.settings;
     const v = this.currentVenueDef();
@@ -351,8 +382,11 @@ class Game {
       }
       player.reset(spots[0][0], spots[0][1], twd + Math.PI / 2);
       this.presetTrim(player);
+      // a big fleet: only as many boats in cloth as the frame budget carries, the nearest (the rest on the strip
+      // model; the governor then moves the cloth to whichever boats are near the camera)
+      const L = this._sailLevel, nCloth = L && L.ms ? clothBudget(n, L.ms, L.ms1 ?? L.ms * 0.6, (L.ms1 ?? L.ms * 0.6) * 0.1) : n;
       for (let i = 1; i <= n; i++) {
-        const b = new Boat(cls, { id: i, name: NAMES[(i - 1) % NAMES.length], sailModel: SAIL_MODEL, lod: this.fleetSailLevel() });
+        const b = new Boat(cls, { id: i, name: NAMES[(i - 1) % NAMES.length], sailModel: SAIL_MODEL, lod: i <= Math.max(nCloth, 6) ? this.fleetSailLevel() : 2 });
         b.reset(spots[i][0], spots[i][1], twd + Math.PI / 2);
         b.auto.hike = true;
         this.boats.push(b);
@@ -374,6 +408,7 @@ class Game {
       if (idle) { player.auto.trim = true; }
     }
     for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (cls.id === 'blackwatch' ? '79' : '7') : String(100 + b.id * 7), hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9] });
+    await this.buildTraffic(v, world, cond, player);
     this.hud.buildRig(player);
     document.body.classList.toggle('no-jib', !player.sailBy.jib);
     this.buildTouch(player);
@@ -944,6 +979,12 @@ class Game {
     }
     if (steps >= maxSteps) this.acc = 0;
     this.sailGovernor(performance.now() - tPhys, wall);
+    // harbour traffic: moves at the simulation's pace (time warp, pause), drawn every frame
+    if (this.traffic) {
+      this.traffic.update(steps * PHYS_DT, this.t, this.env, this.boats);
+      const night = clamp((-this.renderer.sunDir.y + 0.02) / 0.12, 0, 1);
+      this.trafficView.update(dt, this.t, this.env, this.renderer.camera, night, this.renderer.r.domElement.height);
+    }
     // draw the boats between the last two physics states so motion is smooth at any refresh rate
     const alpha = clamp(this.acc / PHYS_DT, 0, 1);
     const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -989,7 +1030,7 @@ class Game {
   // time warp beyond x2 every boat sails at L2.
   sailLevelFor(cls) {
     if (this._sailLevel && this._sailLevel.cls === cls.id) return this._sailLevel.lod;
-    let lod = 0;
+    let lod = 0, ms = 0, ms1;
     try {
       for (lod = 0; lod < 2; lod++) {
         const b = new Boat(cls, { sailModel: SAIL_MODEL, lod }), env = makeSteadyEnv(6);
@@ -997,11 +1038,12 @@ class Game {
         for (let i = 0; i < 40; i++) b.step(PHYS_DT, env, 0);                 // warm up (and the first factorisation)
         const t0 = performance.now();
         for (let i = 0; i < 120; i++) b.step(PHYS_DT, env, 0);
-        const ms = (performance.now() - t0) / 120;
+        ms = (performance.now() - t0) / 120;
+        if (lod === 1) ms1 = ms;
         if (ms < 1.6) break;
       }
     } catch (e) { console.warn('sail benchmark', e); lod = 2; }
-    this._sailLevel = { cls: cls.id, lod, start: lod };
+    this._sailLevel = { cls: cls.id, lod, start: lod, ms, ms1 };
     return lod;
   }
   fleetSailLevel() {
@@ -1044,6 +1086,12 @@ class Game {
       const up = this.player.lod > L.start ? this.player : fleet.filter((b) => b.lod > start(b)).sort((a, b) => dist(a) - dist(b))[0];
       if (up) this.setSailLevel(up, up.lod - 1);
     }
+    // a big fleet: keep the cloth on the boats near the camera (as many as now sail in it), the strip model far off
+    g.swap = (g.swap || 0) + dt;
+    if (g.swap > 2 && fleet.length > 6 && this.fleetSailLevel() === 1) {
+      g.swap = 0;
+      for (const [b, lod] of fleetLevels(fleet, cam, fleet.filter((b) => b.lod < 2).length)) this.setSailLevel(b, lod);
+    }
   }
 
   step(dt) {
@@ -1064,6 +1112,12 @@ class Game {
     const marks = this.course ? [...this.course.marks(), this.course.committee] : this.waypoint ? [this.waypoint] : [];
     resolveCollisions(this.boats, marks, this.obstacles || [], (boat, other, v) => {
       if (boat === this.player && v > 0.6) { this.hud.toast(other && other.cls ? `Collision with ${other.name}!` : other && other.kind === 'pier' || other?.pts ? 'You hit the pier!' : 'Mark touched!', 2); this.audio.thump(Math.min(1, v / 2)); }
+    });
+    if (this.traffic) this.traffic.collide(this.boats, (boat, v, sp) => {
+      if (boat !== this.player || this.t - (this._bumpT || -9) < 2) return;
+      this._bumpT = this.t;
+      this.hud.toast(`Collision with ${v.name ? 'the ' + v.name + ' ' + v.T.name : v.mode === 'rail' ? 'a ' + v.T.name : 'a moored ' + v.T.name}!`, 2.5);
+      this.audio.thump(Math.min(1, sp / 2));
     });
     if (this.race) {
       this.race.update(dt);
