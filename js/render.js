@@ -7,6 +7,7 @@ import { buildBoatModel, updateBoatModel } from './models.js';
 import { Rigging, tickGlow } from './rigging.js';
 import { buildStructures, indexFeatures, structureMask } from './structures.js';
 import { HullSplash, SeaSpray } from './splash.js';
+import { buildEngineModel, updateEngineModel } from './engine-model.js';
 import { loadLand, buildTerrain, buildScenery, setSceneryNight, tickScenery } from './scenery.js';
 import { SkySystem, SKY_LUT_GLSL, CLOUD_GLSL, withCloudShadows, sunPosition, MIST_U } from './sky.js';
 import { strikes, flashAt, thunderDue, boltSegments, convection, heatFromSun, mist, mistTau } from './wx.js';
@@ -807,6 +808,7 @@ export class Renderer {
     vis.rigging = new Rigging(boat, vis, { player: !!opts.player });
     vis.player = !!opts.player;
     vis.splash = new HullSplash(this.scene, vis, boat, this.skySys);
+    vis.engineVis = buildEngineModel(boat, vis);        // outboard on its bracket / inboard exhaust (js/engine-model.js)
     this.scene.add(vis.root);
     this.boats.set(boat, vis);
     const wake = new Wake(); this.scene.add(wake.mesh); this.wakes.set(boat, wake);
@@ -947,6 +949,7 @@ export class Renderer {
     }
     for (const [b, vis] of this.boats) {
       updateBoatModel(vis, b, t);
+      if (vis.engineVis) updateEngineModel(vis, b, t, dt);
       // detail near the camera: ropes only where they can be seen
       const dist = Math.hypot(b.x - cam.x, b.z - cam.z);
       const near = vis.player || dist < 150;

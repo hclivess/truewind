@@ -92,6 +92,9 @@ The lighter model splits each sail into three horizontal strips. Each strip's ca
   - Extra terms for heel drag, fore-aft trim, added resistance in waves, cross-flow drag, yaw damping and the heeled hull's asymmetry.
 - **Stability** combines a GZ curve (weight and form terms) with crew weight at its real height. With the crew hiked and the boat heeled past about 50°, the crew adds to the capsizing moment instead of fighting it.
 
+### Engines
+The keelboats carry an auxiliary; the dinghy and the beach cat do not. The Blackwatch has a long-shaft 4 hp outboard on a transom bracket beside its rudder (what owners fit: the boats were built without an inboard). The sportboat carries the 3.5 hp outboard its class rules require, on the bracket for free sailing and stowed below for racing. The propeller follows the Wageningen B-series open-water polynomials (thrust and torque against advance ratio), extended smoothly to all four quadrants: going astern, crash stops, and a stopped prop's drag (a folding prop folds; a fixed one windmills or, left in gear, is locked; an outboard is tilted clear). It has a wake fraction and thrust deduction, and it drives an engine with a torque curve, friction, a governor and a gearbox that shifts through neutral. Prop walk pushes the stern to port going astern with a right-handed prop. A rudder behind an inboard's prop sits in its slipstream, so a burst ahead kicks the stern round at no speed. The engine's weight sits where the engine is. Motoring after the preparatory signal retires you from a race. `test/engine.mjs` checks bollard pull (about 13 kg/hp), speed under power (4.9 kn and 5.6 kn), crash stops, prop walk, the propwash turn, and the drag of a stopped prop under sail.
+
 ### Environment
 - **Wind.** Puffs and lulls are noise in space and time: they are carried downwind at about the mean wind speed, stretched along it, and grow and die as they go, so the pattern never repeats. Puffs come down from aloft carrying a veered wind (backed south of the equator) and fan out as they land, lifting you on one edge and heading you on the other. Oscillating and spatial shifts are layered on top. Land upwind shelters the wind, which recovers over roughly a kilometre of open water.
 - **Weather.** Steady, changing or squally. The gradient wind drifts in speed and direction over tens of minutes, and a sea breeze or land breeze builds and fades with the real sun at the venue. In squally weather a cumulonimbus cell comes through about every 11 minutes. Each one is born, towers up to an anvil, and dies over about 70 minutes while it tracks across with the wind aloft. Ahead of it the wind lulls into the updraft; under it the gust front hits, veered on one flank and backed on the other, with heavy rain that closes the visibility. Behind it the air is light and fitful. Mature cells throw lightning. Everything is a function of the seed and the clock, so everyone in a shared room gets the same squall at the same moment.
@@ -146,6 +149,8 @@ These are the honest limits:
 | `R` | Reef, or right a capsized dinghy |
 | `Y` | Daggerboard |
 | `T` `H` | Auto-trim / auto-hike |
+| `B` | Start / stop the engine (boats that have one) |
+| `PgUp` `PgDn` / `]` `[` | Throttle ahead / astern, through a neutral detent |
 | `1`–`7` | Cameras: chase, helm, bow, masthead, overhead, orbit, on deck |
 | `L` `K` `I` | Laylines, force vectors, physics readout |
 | `-` `=` | Time warp |
@@ -157,7 +162,7 @@ With the mouse, drag to look around and use the wheel to zoom; zooming all the w
 
 Every line is also in the rig panel as press-and-hold buttons, with a LOCK/FREE toggle for its cleat. Menu options include tiller steering (push the tiller and the bow goes the other way).
 
-On a phone or tablet, drag to look around, pinch to zoom, and tap a rope, winch or cleat on deck to grab it. The touch pad holds the helm (◀ ▶ and Centre), the mainsheet and jib sheet, and one more line of the class (traveler, staysail, vang, crew weight, tack line, backstay or daggerboard): tap its name to pick the next. Auto trim and the gennaker hoist sit under it. The **Rig** button opens every line.
+On a phone or tablet, drag to look around, pinch to zoom, and tap a rope, winch or cleat on deck to grab it. The touch pad holds the helm (◀ ▶ and Centre), the mainsheet and jib sheet, and one more line of the class (traveler, staysail, vang, crew weight, tack line, backstay or daggerboard): tap its name to pick the next. Auto trim and the gennaker hoist sit under it. On a boat with an engine, a throttle lever and a Start button sit beside it. The **Rig** button opens every line.
 
 ## Graphics
 

@@ -169,4 +169,67 @@ export class Audio {
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.025);
     o.connect(g); g.connect(this.master); o.start(t); o.stop(t + 0.04);
   }
+
+  // Engines: a synthesised four-stroke for each running engine (the three nearest the camera). The firing frequency
+  // rpm / 60 x cylinders / 2 through a pulse-rich periodic wave (a diesel's brighter), a slightly detuned copy for the
+  // cycle-to-cycle unevenness, a combustion bark (noise gated at the firing rate) that grows with load, all through a
+  // low-pass that opens with rpm and load; a starter whine chopped by the compression strokes while it cranks.
+  // Panned and attenuated from the camera.
+  engines(boats, cam, dt) {
+    if (!this.ctx || !cam) return;
+    this._eAcc = (this._eAcc || 0) + dt; if (this._eAcc < 0.05) return; this._eAcc = 0;
+    const ctx = this.ctx, t = ctx.currentTime, V = this._eng || (this._eng = new Map());
+    const cp = cam.position, m = cam.matrixWorld.elements, rx = m[0], rz = m[2];
+    const dist = (b) => Math.hypot(b.x - cp.x, b.z - cp.z);
+    const live = boats.filter((b) => b.engine && (b.engine.active || b.engine.rpm > 60)).sort((a, c) => dist(a) - dist(c)).slice(0, 3);
+    for (const [b, v] of V) if (!live.includes(b)) { v.out.gain.setTargetAtTime(0, t, 0.08); if (!v.end) { v.end = t + 0.5; for (const o of v.oscs) o.stop(t + 0.6); } }
+    for (const [b, v] of V) if (v.end && t > v.end) V.delete(b);
+    for (const b of live) {
+      let v = V.get(b);
+      if (!v || v.end) { if (v) V.delete(b); v = this._engineVoice(b.engine.spec); V.set(b, v); }
+      const e = b.engine, S = e.spec, on = this.on ? 1 : 0;
+      const f = Math.max(1, e.rpm / 60 * (S.cyl || 1) / 2), load = e.rack, x = e.rpm / S.rpmMax;
+      const d = dist(b), att = 1 / (1 + (d / 6) ** 1.3);
+      v.o1.frequency.setTargetAtTime(f, t, 0.03); v.o2.frequency.setTargetAtTime(f * 1.007, t, 0.03); v.am.frequency.setTargetAtTime(f, t, 0.03);
+      v.lp.frequency.setTargetAtTime(300 + 45 * f + 1600 * load + (S.fuel === 'diesel' ? 900 : 0), t, 0.05);
+      v.bark.gain.setTargetAtTime((0.08 + 0.5 * load) * (S.fuel === 'diesel' ? 1.3 : 1), t, 0.05);
+      v.tone.gain.setTargetAtTime(e.running ? 0.35 + 0.25 * x : 0.12, t, 0.05);
+      const crank = e.starting && (e.down > 0.98 || !S.tilts) ? 1 : 0;
+      v.st.gain.setTargetAtTime(crank * 0.06, t, 0.03);
+      v.pan.pan.setTargetAtTime(Math.max(-1, Math.min(1, ((b.x - cp.x) * rx + (b.z - cp.z) * rz) / Math.max(1, d))) * 0.85, t, 0.05);
+      const level = e.active ? (0.22 + 0.45 * load) * (0.45 + 0.55 * Math.min(1, x)) : 0;
+      v.out.gain.setTargetAtTime(on * att * Math.max(level, crank * 0.25), t, 0.06);
+    }
+  }
+  _engineVoice(S) {
+    const ctx = this.ctx, t = ctx.currentTime, N = 40, diesel = S.fuel === 'diesel';
+    // a firing pulse: every harmonic of the firing frequency, falling off slower for the diesel's hard combustion
+    const re = new Float32Array(N), im = new Float32Array(N);
+    for (let n = 1; n < N; n++) im[n] = Math.pow(n, diesel ? -0.55 : -0.8) * (1 + 0.35 * Math.sin(n * 1.7));
+    const wave = ctx.createPeriodicWave(re, im);
+    const o1 = ctx.createOscillator(), o2 = ctx.createOscillator(); o1.setPeriodicWave(wave); o2.setPeriodicWave(wave);
+    const tone = ctx.createGain(); tone.gain.value = 0;
+    const g2 = ctx.createGain(); g2.gain.value = 0.45; o1.connect(tone); o2.connect(g2); g2.connect(tone);
+    // bark: band-passed noise amplitude-modulated at the firing rate
+    if (!this._eNoise) this._eNoise = this._noise(ctx, 3.1, 29);
+    const ns = ctx.createBufferSource(); ns.buffer = this._eNoise; ns.loop = true;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = diesel ? 2200 : 1300; bp.Q.value = 0.8;
+    const gate = ctx.createGain(); gate.gain.value = 0.5;
+    const am = ctx.createOscillator(); am.frequency.value = 10; const amD = ctx.createGain(); amD.gain.value = 0.5; am.connect(amD); amD.connect(gate.gain);
+    const bark = ctx.createGain(); bark.gain.value = 0;
+    ns.connect(bp); bp.connect(gate); gate.connect(bark);
+    // starter: a whine chopped by the compression strokes
+    const so = ctx.createOscillator(); so.type = 'sawtooth'; so.frequency.value = diesel ? 780 : 420;
+    const sAm = ctx.createOscillator(); sAm.frequency.value = diesel ? 4.5 : 6; const sAmD = ctx.createGain(); sAmD.gain.value = 0.5;
+    const sg = ctx.createGain(); sg.gain.value = 0.5; sAm.connect(sAmD); sAmD.connect(sg.gain);
+    const st = ctx.createGain(); st.gain.value = 0; so.connect(sg); sg.connect(st);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 800; lp.Q.value = 0.7;
+    const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.createGain();
+    if (!pan.pan) pan.pan = { setTargetAtTime() {} };
+    const out = ctx.createGain(); out.gain.value = 0;
+    tone.connect(lp); bark.connect(lp); st.connect(lp); lp.connect(pan); pan.connect(out); out.connect(this.master);
+    const oscs = [o1, o2, am, so, sAm, ns];
+    for (const o of oscs) o.start(t);
+    return { o1, o2, am, tone, bark, st, lp, pan, out, oscs, end: 0 };
+  }
 }

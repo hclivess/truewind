@@ -90,7 +90,7 @@ export class Race {
       const cur = { x: b.x, z: b.z };
       if (!r.prev) { r.prev = cur; continue; }
       const leg = C.legs[r.leg];
-      if (r.finished) { r.prev = cur; continue; }
+      if (r.finished || r.retired) { r.prev = cur; continue; }   // (retired: e.g. motored after the preparatory signal)
       if (leg.type === 'start') {
         const [a] = C.frame(b.x, b.z, C.pin.x, C.pin.z);
         const [aC] = C.frame(b.x, b.z, C.committee.x, C.committee.z);
@@ -140,6 +140,7 @@ export class Race {
     const C = this.course;
     const score = (r) => {
       if (r.finished) return 1e9 - r.finishTime;
+      if (r.retired) return -1e9;
       const tgt = C.target(C.legs[r.leg], r.boat);
       return r.leg * 1e5 - Math.hypot(r.boat.x - tgt.x, r.boat.z - tgt.z);
     };
