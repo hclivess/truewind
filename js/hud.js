@@ -164,8 +164,25 @@ export class HUD {
     if (!$('#physics').hidden) this.updatePhysics(b);
     this.drawPolar(b, twaDeg);
     this.updateRaceCard();
+    this.updateEngine(b);
     this.fitRig();
     if (!$('#results').hidden) this.fillResults();
+  }
+
+  // engine readout: only while it runs (or is being started)
+  updateEngine(b) {
+    const e = b.engine, el = $('#engine-card');
+    if (!el) return;
+    const on = !!(e && e.active);
+    if (el.hidden === on) el.hidden = !on;
+    if (e && this.g.syncEngineTouch) this.g.syncEngineTouch();
+    if (!on) return;
+    const shifting = e.running && (Math.abs(e.throttle) >= 0.1 ? Math.sign(e.throttle) : 0) !== e.gear;
+    $('#eng-rpm').textContent = e.starting ? '—' : Math.round(e.rpm / 10) * 10;
+    $('#eng-gear').textContent = e.starting ? (e.down < 0.98 ? 'LOWERING' : 'STARTING') : shifting ? 'SHIFTING' : e.gearName;
+    $('#eng-gear').className = e.gear > 0 ? 'ahead' : e.gear < 0 ? 'astern' : '';
+    $('#eng-thr').textContent = `${Math.round(Math.abs(e.throttle) * 100)}%`;
+    $('#eng-fuel').textContent = `${fmt(e.lh, 1)} L/h`;
   }
 
   // the rig panel lives between the race card and the bottom edge: never under the standings
@@ -182,7 +199,7 @@ export class HUD {
     const g = this.g; if (!g.race) return;
     const st = g.raceStandings(), me = g.race.racers[0];
     $('#res-sub').textContent = `${g.venue.name} · ${g.course.laps} lap${g.course.laps > 1 ? 's' : ''} · ${me.finished ? 'you finished ' + ordinal(me.place) : 'racing'}`;
-    const html = st.map((r, i) => `<li class="${r.me ? 'me' : ''}"><span>${r.finished ? i + 1 : ''}</span><span>${esc(r.name)}</span><span>${r.finished ? fmtT(r.time) : `<span class="muted">${legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span>`}</span></li>`).join('');
+    const html = st.map((r, i) => `<li class="${r.me ? 'me' : ''}"><span>${r.finished ? i + 1 : ''}</span><span>${esc(r.name)}</span><span>${r.finished ? fmtT(r.time) : r.retired ? 'RET' : `<span class="muted">${legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span>`}</span></li>`).join('');
     if (this._resHtml !== html) { this._resHtml = html; $('#res-list').innerHTML = html; }
   }
 
@@ -292,14 +309,14 @@ export class HUD {
       const me = g.race.racers[0];
       const leg = g.course.legs[me.leg];
       document.getElementById('rc-mode').textContent = online ? 'Online race' : 'Race';
-      let legTxt = me.finished ? `Finished · ${ordinal(me.place)}` : leg.type === 'start' ? (c < 0 ? 'Start sequence' : me.ocs ? 'OCS — return below the line' : 'Cross the line') : leg.name;
-      if (!me.finished && leg.type !== 'start') {
+      let legTxt = me.retired ? 'Retired — engine used after the preparatory signal' : me.finished ? `Finished · ${ordinal(me.place)}` : leg.type === 'start' ? (c < 0 ? 'Start sequence' : me.ocs ? 'OCS — return below the line' : 'Cross the line') : leg.name;
+      if (!me.finished && !me.retired && leg.type !== 'start') {
         const tgt = g.course.target(leg, g.player);
         legTxt += ` · ${Math.round(Math.hypot(tgt.x - g.player.x, tgt.z - g.player.z))} m`;
       }
       document.getElementById('rc-leg').textContent = legTxt;
       const st = g.raceStandings();
-      document.getElementById('rc-standings').innerHTML = st.map((r, i) => `<li class="${r.me ? 'me' : ''}"><span>${i + 1}</span><span>${esc(r.name)}</span><span>${r.finished ? fmtT(r.time) : legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span></li>`).join('');
+      document.getElementById('rc-standings').innerHTML = st.map((r, i) => `<li class="${r.me ? 'me' : ''}"><span>${i + 1}</span><span>${esc(r.name)}</span><span>${r.finished ? fmtT(r.time) : r.retired ? 'RET' : legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span></li>`).join('');
       if (online && (me.finished || c > 1800)) actions = `<button class="chip" id="rc-newrace">Start another race</button>`;
     } else {
       document.getElementById('rc-mode').textContent = online ? 'Online' : 'Free sail';

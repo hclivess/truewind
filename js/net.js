@@ -135,6 +135,7 @@ export class Net {
       cy: q(me.crewY), cx: q(me.crewX), rud: q(me.rudder, 1000), gd: q(me.genDeploy), gf: q(me.genFill), sj: q(me.side.jib), sg: q(me.side.gennaker),
       rf: q(me.reefPos),
       b: booms, ctrl: c, cap: me.capsized ? 1 : 0, race: raceInfo || null,
+      e: me.engine ? me.engine.packet() : undefined,   // engine: the throttle while it runs, absent when stopped
     });
   }
 
@@ -144,6 +145,7 @@ export class Net {
       const b = p.boat, d = p.pkt; if (!b || !d) continue;
       for (const k of CTRL_KEYS) if (d.ctrl[k] !== undefined) b.ctrl[k] = d.ctrl[k];
       b.ctrl.gen = !!d.ctrl.gen; b.ctrl.hike = 0;
+      if (b.engine) b.engine.follow(d.e);
     }
   }
   postStep(dt) {

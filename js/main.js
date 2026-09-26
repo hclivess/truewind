@@ -416,6 +416,8 @@ class Game {
       this.renderer.setMarks([], null);
       if (idle) { player.auto.trim = true; }
     }
+    // engines: on the bracket for free sailing, stowed below for racing where the class rules say so (the sportboat's)
+    for (const b of this.boats) if (b.engine) b.engine.setStowed(S.mode === 'race' && !idle);
     for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (this.settings.sailNo || (cls.id === 'blackwatch' ? '79' : '7')) : (b.sailNo || String(100 + b.id * 7)), name: b === player ? this.settings.boatName : b.name, hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9] });
     this.hud.buildRig(player);
     document.body.classList.toggle('no-jib', !player.sailBy.jib);
@@ -532,7 +534,7 @@ class Game {
   raceStandings() {
     if (!this.race) return [];
     const C = this.course;
-    const list = this.race.standings().map(r => ({ name: r.boat === this.player ? (this.settings.boatName ? `${this.settings.boatName} (you)` : 'You') : `${r.boat.name}${r.boat.sailNo ? ' · ' + r.boat.sailNo : ''}`, me: r.boat === this.player, finished: r.finished, time: r.finishTime, leg: r.leg, boat: r.boat }));
+    const list = this.race.standings().map(r => ({ name: r.boat === this.player ? (this.settings.boatName ? `${this.settings.boatName} (you)` : 'You') : `${r.boat.name}${r.boat.sailNo ? ' · ' + r.boat.sailNo : ''}`, me: r.boat === this.player, finished: r.finished, retired: r.retired, time: r.finishTime, leg: r.leg, boat: r.boat }));
     if (this.sharedRace) {
       for (const b of this.boats) {
         if (!b.remote || !b.netRace || b.netRace.id !== this.sharedRace.id) continue;
@@ -593,7 +595,7 @@ class Game {
   navTarget() {
     if (this.race) {
       const r = this.race.racers[0];
-      if (r.finished) return null;
+      if (r.finished || r.retired) return null;
       return this.course.target(this.course.legs[r.leg], this.player);
     }
     return this.waypoint;
@@ -647,6 +649,26 @@ class Game {
     b.ctrl.gen = !b.ctrl.gen; this.hud.toast(b.ctrl.gen ? 'Gennaker going up' : 'Dousing the gennaker');
     this.syncTouch();
   }
+  // the engine (B / the touch pad's Start): the crew lowers an outboard, puts the lever in neutral and starts it
+  toggleEngine() {
+    const e = this.player.engine;
+    if (!e) { this.hud.toast(`The ${this.player.cls.name} has no engine`, 1.5); return; }
+    const r = e.toggle();
+    this.hud.toast(r === 'stowed' ? 'The outboard is stowed below for racing' : r === 'starting' ? (e.spec.tilts ? 'Lowering the outboard — starting' : 'Starting the engine') : r === 'stopped' ? 'Engine stopped' + (e.spec.tilts ? ' — outboard tilted up' : '') : '', 1.8);
+    if (r === 'starting' && this.race && this.race.clock >= -240) this.hud.toast('Engine on after the preparatory signal: you retire (RRS 42)', 3);
+    this.syncEngineTouch();
+  }
+  syncEngineTouch() {
+    const e = this.player && this.player.engine, pad = $('#tp-eng');
+    if (!pad) return;
+    pad.hidden = !e || e.stowed;
+    if (!e) return;
+    const thr = $('#tp-thr');
+    if (!this._thrDrag && Math.abs(+thr.value - e.throttle) > 0.01) thr.value = e.throttle;
+    $('#tp-thr-l').textContent = e.gear > 0 ? 'F' : e.gear < 0 ? 'R' : 'N';
+    $('#tp-engine').textContent = e.active ? 'Stop' : 'Start';
+    $('#tp-engine').classList.toggle('on', e.active);
+  }
   // touch pad: helm, main and jib, plus one more line of the class, picked by tapping its name
   buildTouch(b) {
     const rows = this.hud.rows || [];
@@ -654,7 +676,7 @@ class Game {
     this.touchSel = 0;
     $('#tp-gen').hidden = !b.sailBy.gennaker;
     $('#touch .tp-trim').classList.toggle('has-gen', !!b.sailBy.gennaker);
-    this.syncTouch();
+    this.syncTouch(); this.syncEngineTouch();
   }
   syncTouch() {
     const b = this.player; if (!b || !this.touchLines) return;
@@ -881,6 +903,7 @@ class Game {
       else if (b.sailBy.main.reefs) this.setReef(((b.ctrl.reef | 0) + 1) % (b.sailBy.main.reefs + 1));
     }
     else if (k === 'f' && b.sailBy.jib) this.letFly();
+    else if (k === 'b') this.toggleEngine();
     else if (k === ' ') b.ctrl.helm = 0;
     else if (k === '=' || k === '+') this.warp(2);
     else if (k === '-') this.warp(0.5);
@@ -915,6 +938,13 @@ class Game {
     tap('#tp-auto', () => this.toggleAutoTrim());
     tap('#tp-sel', () => { this.touchSel = (this.touchSel + 1) % Math.max(1, this.touchLines.length); this.syncTouch(); this.hud.toast(TOUCH_LINES[this.touchLines[this.touchSel]]?.[3] || '', 1); });
     tap('#tp-gen', () => this.toggleGen());
+    tap('#tp-engine', () => this.toggleEngine());
+    { // the throttle lever: neutral detent in the middle
+      const thr = $('#tp-thr');
+      thr.addEventListener('input', () => { const e = this.player && this.player.engine; if (!e) return; this._thrDrag = true; const v = +thr.value; e.throttle = Math.abs(v) < 0.1 ? 0 : v; });
+      thr.addEventListener('change', () => { this._thrDrag = false; });
+      thr.addEventListener('pointerup', () => { this._thrDrag = false; });
+    }
     // press and hold: the helm / sheet keeps moving while the finger stays down
     document.querySelectorAll('#touch .tbtn[data-k]').forEach(bt => {
       let timer = null;
@@ -960,6 +990,10 @@ class Game {
       if (b.sailBy.jib) { this.userTouched('lazy'); const load = (b.diag.rig.jibLoad || 0) / C.sheetPower; c.lazy = clamp(c.lazy + (shift ? 1 : -1 / (1 + load * load)) * rate, 0, 1); }
       else c.pushBoom = shift ? 1 : -1;
     } else if (!this.pushHeld) c.pushBoom = 0;
+    // throttle lever (PgUp / ] ahead, PgDn / [ astern): it stops in the neutral detent until the key is let go
+    if (b.engine) {
+      if (has('PageUp', ']')) b.engine.nudge(1, dt); else if (has('PageDown', '[')) b.engine.nudge(-1, dt); else b.engine.release();
+    }
   }
 
   // ------------------------------------------------------------ loop
@@ -1023,6 +1057,7 @@ class Game {
       this.hud.update(dt);
       this.nav.update(dt);
       this.audio.update(p, dt, this.renderer.rainNow || 0);
+      this.audio.engines && this.audio.engines(this.boats, this.renderer.camera, dt);
       this.checkAlerts();
     }
   }
@@ -1079,6 +1114,12 @@ class Game {
     resolveCollisions(this.boats, marks, this.obstacles || [], (boat, other, v) => {
       if (boat === this.player && v > 0.6) { this.hud.toast(other && other.cls ? `Collision with ${other.name}!` : other && other.kind === 'pier' || other?.pts ? 'You hit the pier!' : 'Mark touched!', 2); this.audio.thump(Math.min(1, v / 2)); }
     });
+    // racing rules: motoring after the preparatory signal (4 minutes before the gun, at once in a shorter sequence) is
+    // not sailing the course (RRS 42): the boat retires. The AI never motors.
+    if (this.race && b.engine && b.engine.active && this.race.clock >= -240) {
+      const r0 = this.race.racers[0];
+      if (!r0.retired && !r0.finished) { r0.retired = true; this._retT = this.t; this.audio.horn(false); }
+    }
     if (this.race) {
       this.race.update(dt);
       if (this.timeWarp > 1 && !this.canWarp()) { this.timeWarp = 1; this.hud.toast('Time ×1 — 20 seconds to the gun', 2); }
@@ -1116,10 +1157,12 @@ class Game {
 
   checkAlerts() {
     const b = this.player, C = b.cls;
+    if (b.engine && b.engine.stalled) { b.engine.stalled = false; this.hud.toast('The engine stalled', 2); this.syncEngineTouch(); }
     if (b.capsized && b.righting) this.hud.alert(`Righting… ${Math.round(Math.abs(b.phi) * 57.3)}° — keep your weight out`, true);
     else if (b.capsized) this.hud.alert('Capsized — press R to stand on the board and right her', true);
     else if (b.reefing) this.hud.alert(`${(b.ctrl.reef | 0) > b.reefPos ? 'Reefing' : 'Shaking out'} · ${Math.round(b.diag.reefProgress * 100)}% · main depowered`);
     else if (b.aground > 0.02) this.hud.alert(`Aground — ${this.world.depthAt(b.x, b.z).toFixed(1)} m of water`, true);
+    else if (this.race && this.race.racers[0].retired && this.t - (this._retT ?? 0) < 10) this.hud.alert('Retired — engine used after the preparatory signal (RRS 42)', true);
     else if (this.race && this.race.racers[0].ocs) this.hud.alert('OCS — dip back below the line', true);
     else if (Math.abs(b.phi) > C.targetHeel + 14 * 0.01745) this.hud.alert(b.sailBy.main.reefs ? 'Overpowered — ease, depower or reef' : 'Overpowered — ease the main');
     else if (b.u < 0.3 && Math.abs(b.diag.twa || 0) < 35 * DEG) this.hud.alert(b.sailBy.jib ? 'In irons — ease the main, let the jib sheet fly (F) and haul the lazy sheet (J) to back the jib, reverse the tiller while going astern' : 'In irons — ease the main, push the boom out (J / Shift+J), reverse the tiller while going astern');
