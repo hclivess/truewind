@@ -42,6 +42,19 @@ You can also type any latitude and longitude on Earth. The game then downloads t
 - **Free sail.** You sail anywhere. Click the tactical map to drop a waypoint, and the instruments switch to VMC (velocity made good on course) with laylines. Time warp is available up to ×8.
 - **Race.** A windward–leeward course is laid automatically in open water on the real map. It has a start sequence with signals, an OCS (over the line early) call with a dip-back requirement, a windward mark rounded to port, a leeward gate and a finish. The AI fleet sails the same physics as you do.
 
+## Racing rules
+
+Races are sailed under the Racing Rules of Sailing 2025–2028, Part 2 (*When Boats Meet*), with an umpire on the water as in match racing (`js/rules.js`; a race-settings checkbox turns it off).
+
+- **Right of way.** Every pair of boats near each other is judged each twentieth of a second: rule 10 (port keeps clear of starboard), 11 (on the same tack, overlapped, windward keeps clear), 12 (clear astern keeps clear), 13 (from head to wind until close-hauled, the tacking boat keeps clear), 22 (a boat returning to start or taking a penalty keeps clear), 23 (avoid a capsized or grounded boat). Tack is the windward side (by the mainsail's side when running by the lee); overlap is the rule's definition, lines abeam from the aftermost point of hull and equipment including a bowsprit (a retractable one while it is out), and a boat between two others overlapping both makes them overlap. The right-of-way boat is limited by 15 (acquiring right of way she first gives room to keep clear), 16.1 (changing course she gives room to keep clear) and 17 (overlapped to leeward from clear astern within two lengths, no sailing above her proper course).
+- **Marks and obstructions.** Rule 18 at the zone of three hull lengths: who is owed mark-room is fixed when the first boat of a pair reaches it (overlapped, the inside boat; else the one clear ahead) and lasts until she has left the zone or tacked; 18.3 (tacking in the zone of a mark left to port) and 18.4 (the inside boat that must gybe). Rule 19 (the outside boat gives the inside one room to pass an obstruction: shallows, a pier) and 20 (hailing for room to tack at an obstruction; the hailed boat tacks at once or answers "You tack"; a hail with no obstruction near breaks 20.1). Rule 21 exonerates a boat sailing within the room she is owed, and 43.1 one pushed onto a mark by another's breach.
+- **Infringements.** Keeping clear is the definition's: the right-of-way boat can sail her course without taking avoiding action and, overlapped, change course both ways without immediately making contact. An infringement is contact, or both boats' present motion closing to contact within two seconds (she must act now), or an overlap too close to turn. The umpire acts on contact (14) and on touching a mark (31) by itself; otherwise the boat infringed against protests — AI crews at once, you with `B`. A penalty is two turns promptly in the same direction, each a tack and a gybe (one turn for 31), counted from the boat's heading and her tacks and gybes, within a countdown of about two minutes; not taken, or still owed at the finish, is DSQ. The start has the X flag (29.1): a boat over at the gun must return, keeps clear while she does, and is scored OCS if she never does. Results list every incident with its rule and outcome.
+- **AI crews** keep clear early enough (5–12 s ahead, more for bigger boats) by the smallest change of course that clears (a port tacker ducks, or tacks if the duck is deep and the tack is clean), slow down when boxed in astern, give room and mark-room, never tack or gybe into anyone's way, hail for room to tack at the shallows, hold their course as the right-of-way boat (but still avoid contact), protest, and sail clear to take their turns.
+- **Your HUD.** A ring on the water round each boat within 45 m: green, she keeps clear of you; red, you keep clear of her; amber, you owe her room or mark-room; each labelled with the rule, and flashing when contact is two seconds off. The zone circle is drawn round your next mark. Alerts tell you whom to keep clear of, when you are hailed, and your penalty turns (turns done, tack and gybe made, seconds left). The tactical map colours boats the same way.
+- **Online** every browser computes the same relationships from the shared state and rules on its own boat: your penalties are yours to take, and a protest you win is sent to the other sailor's browser.
+
+`node test/rules.mjs` scripts each rule's classic encounter (port–starboard, windward–leeward, clear astern, tacking too close, acquiring right of way, changing course, proper course, mark-room at a windward and a leeward mark with and without an inside overlap at the zone, tacking in the zone, an obstruction, room to tack and its hail, touching a mark, penalty turns, OCS) and then AI crews: a port–starboard crossing and penalty turns in every class. `node test/race.mjs solent sportboat 12 30` sails a 12-boat race and prints collisions, incidents and penalties (`RULES=0` for the old swerve-only traffic avoidance).
+
 ## Navigation
 
 Every venue carries its real seamarks from OpenStreetMap / OpenSeaMap (`data/venues/<id>.seamarks.json`; a custom location fetches them live with its coastline): lighthouses and harbour lights, lateral, cardinal, isolated-danger, safe-water and special marks, light floats, wrecks and rocks. Major lights up to about 28 km outside the sailing area are included, so their loom shows from the water (the Needles from the Solent, Point Judith from Newport).
@@ -138,7 +151,8 @@ These are the honest limits:
 - **Light air.** In 6–8 kn the Blackwatch's upwind VMG is 9–11% below the strip model's (its heavy cruising Dacron weighs a fifth to a third of the wind's pressure on it there; whether that is the whole cause is not established).
 - **Depth is estimated.** It comes from distance to shore and the venue's typical depth, because OSM carries no bathymetry.
 - **The hull model is simplified.** Heave and pitch follow the waves as a response model, not a full 6-DOF seakeeping solution. Slamming and green water are not modelled.
-- **AI tactics are simple.** Crews use laylines, header tacks, starts and traffic avoidance. They do not apply the racing rules (right of way), and neither is a protest system.
+- **AI tactics are simple.** Crews use laylines, header tacks, the tide and starts, and sail by the racing rules, but they do not luff, cover, or fight for the inside at marks; big packs at the start and the windward mark still produce the odd incident.
+- **The umpire sees geometry.** It judges by predicted contact and the rules' definitions; it knows nothing of hails other than rule 20's, of damage (14's exoneration of a right-of-way boat without damage is assumed), or of rule 2 and Part 4 beyond turns, recalls and touching marks.
 
 ## Controls
 
@@ -163,6 +177,8 @@ These are the honest limits:
 | `-` `=` | Time warp |
 | `P` `Esc` | Pause, menu |
 | `O` | Sound on / off |
+| `B` | Racing: "Protest!" |
+| `U` | Racing: hail for room to tack at an obstruction; when hailed, answer "You tack" |
 | `?` | Help |
 
 With the mouse, drag to look around and use the wheel to zoom; zooming all the way in puts you at the helm. Click the tactical map to drop a waypoint. On deck you can grab the lines themselves: pull ropes, slide cars along their tracks, wind winch handles round (clockwise is the fast gear), push the tiller, and click a cleat to release or cleat its line.

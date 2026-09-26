@@ -182,9 +182,11 @@ export class AIHelm {
     this.capT = 0;
     const R = sim.rules;
     // a penalty flagged by the umpire: two turns (one for a mark) at once, each a tack and a gybe, same way round
-    // (22.2: she keeps clear while turning, so first she sails clear of the boats around her, 20 s at most)
+    // (22.2: she keeps clear while turning, so first she sails clear of the boats around her and out of the mark's
+    // zone, 40 s at most)
     const pen = R && racer && !racer.finished ? R.penaltyOf(b) : null;
-    if (pen && (pen.dir || R.t - pen.t0 > 20 || R.relsOf(b).every(pr => pr.d > 2.5 * b.cls.loa + 4))) return this.penaltyTurns(dt, pen);
+    if (pen && (pen.dir || this.penGo || R.t - pen.t0 > 40 || (R.relsOf(b).every(pr => pr.d > 4 * b.cls.loa + 6) && ![...R.S(b).zone.values()].some(z => z.d < 5 * b.cls.loa)))) { this.penGo = true; return this.penaltyTurns(dt, pen, sim, t); }
+    this.penGo = false;
     this.penD = 0;
     this.twdMean = this.twdMean === null ? twd : this.twdMean + wrap(twd - this.twdMean) * dt / 90;
     const up = (targets?.up ?? 42) * DEG, dn = (targets?.dn ?? 145) * DEG;
@@ -307,13 +309,18 @@ export class AIHelm {
 
   // penalty turns (44.2): bear away first (the gybe keeps her speed for the tack), then round and round the same
   // way at a steady helm until the umpire's count says done; she keeps clear of everyone meanwhile (22.2)
-  penaltyTurns(dt, pen) {
-    const b = this.b, twa = wrap((b.diag.twd ?? 0) - b.psi);
-    if (!this.penD) this.penD = pen.dir || -(Math.sign(twa) || 1);
+  penaltyTurns(dt, pen, sim, t) {
+    const b = this.b, twd = b.diag.twd ?? 0, twa = wrap(twd - b.psi), tack = Math.sign(twa) || 1;
+    if (!this.penD) this.penD = pen.dir || -tack;
     autoTrim(b, dt, this.bias);
     if (b.sailBy.gennaker) b.ctrl.gen = false;
-    this.steer(dt, b.psi + this.penD * 70 * DEG, true);
     this.mode = 'penalty';
+    // too slow to come through the wind: first a reach to build speed (a stalled turn ends in irons)
+    const vT = Math.max(1, Math.min(this.targetsUpBsp ?? 2, 0.45 * (b.diag.tws ?? 5)));
+    if (!pen.dir && b.u < 0.7 * vT) { this.steer(dt, twd - tack * 100 * DEG); return; }
+    // about to hit someone (she keeps clear of them all: 22.2): break off the turn
+    if (sim && sim.rules && sim.rules.relsOf(b).some(pr => pr.clr < 1 && pr.when <= 2)) { this.steer(dt, aiRules(this, sim, b.psi, 'reach', t, this.upAngle ?? 40 * DEG)); return; }
+    this.steer(dt, b.psi + this.penD * 70 * DEG, true);
   }
 
   preStart(dt, t, sim, racer, course, up) {

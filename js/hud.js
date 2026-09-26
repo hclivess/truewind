@@ -182,11 +182,11 @@ export class HUD {
   // a ring on the water round each boat near you — green: you have right of way (she keeps clear), red: you keep
   // clear of her, amber: you owe her room or mark-room — with the rule; and the three-length zone round your mark
   relColour(pr, b) {
-    const R = this.g.rules;
-    if (pr.room && pr.room.giver === b) return ['#f2b33d', `Give ${pr.room.rule === '18.2' ? 'mark-room' : 'room'} · ${pr.room.rule}`];
-    if (R.owes(pr, b)) return ['#e0413a', `Keep clear · ${pr.rule} ${RULE_SHORT[pr.rule] || ''}`];
-    if (pr.room && pr.room.ent === b) return ['#27b36a', `${pr.room.rule === '18.2' ? 'Mark-room' : 'Room'} owed you · ${pr.room.rule}`];
-    return ['#27b36a', `Right of way · ${pr.rule} ${RULE_SHORT[pr.rule] || ''}`];
+    const R = this.g.rules, o = pr.a === b ? pr.b : pr.a, n = o.name || '', room = (r) => (r === '18.2' ? 'mark-room' : 'room');
+    if (pr.room && pr.room.giver === b) return ['#f2b33d', `Give ${n} ${room(pr.room.rule)} · ${pr.room.rule}`];
+    if (R.owes(pr, b)) return ['#e0413a', `Keep clear of ${n} · ${pr.rule} ${RULE_SHORT[pr.rule] || ''}`];
+    if (pr.room && pr.room.ent === b) return ['#27b36a', `${n} owes you ${room(pr.room.rule)} · ${pr.room.rule}`];
+    return ['#27b36a', `${n} keeps clear of you · ${pr.rule} ${RULE_SHORT[pr.rule] || ''}`];
   }
   drawRules() {
     const g = this.g, R = g.rules, b = g.player, cv = this.rulesCv || (this.rulesCv = $('#rules-cv'));
@@ -225,7 +225,7 @@ export class HUD {
       const pts = ring(o.x, o.z, o.cls.loa * 0.8, hot && Math.sin(performance.now() / 110) > 0 ? '#ffffff' : col, hot ? 4 : 2.5);
       if (!pts) continue;
       const lp = g.project(o.x, (o.cls.mastHeight || 8) + 1.2, o.z);
-      if (lp[2]) tag(lp[0], lp[1] - 10, (o.name || '') + ' · ' + txt, col);
+      if (lp[2]) tag(lp[0], lp[1] - 10, txt, col);
     }
     // the hail: who is to answer
     const h = R.hailTo(b) || R.hailOf(b);

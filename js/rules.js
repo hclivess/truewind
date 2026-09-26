@@ -560,12 +560,15 @@ export class RuleEngine {
     return v;
   }
   turnClear(b, h, H) {
+    // (a slow boat takes longer over it: four seconds at speed, up to ten when she is barely moving)
+    const vT = Math.min(3.5, 0.4 * (b.diag.tws ?? 5)), T1 = clamp(4 * vT / Math.max(b.u, 0.4), 4, 10);
+    H += T1 - 4;
     const V = Math.max(b.u, 1) * 0.6, dt = 0.5, me = { cls: b.cls, sailBy: b.sailBy, genDeploy: b.genDeploy };
     const tb = [];
     const mid = b.psi + wrap(h - b.psi) / 2;
     let x = b.x, z = b.z;
     for (let t = 0; t <= H + 1e-6; t += dt) {
-      const p = t < 4 ? mid + (h - mid) * t / 4 : h, v = t < 4 ? V * 0.6 : V;
+      const p = t < T1 ? mid + wrap(h - mid) * t / T1 : h, v = t < T1 ? V * 0.6 : V;
       tb.push(x, z, p);
       x += Math.sin(p) * v * dt + ((b.vgx ?? 0) - b.u * Math.sin(b.psi)) * dt;     // (plus the tide and leeway she makes now)
       z += -Math.cos(p) * v * dt + ((b.vgz ?? 0) + b.u * Math.cos(b.psi)) * dt;

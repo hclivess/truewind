@@ -1159,7 +1159,7 @@ class Game {
     for (const pr of this.rules.relsOf(b)) if (this.rules.owes(pr, b) && pr.clr < 2.5 && pr.when <= 2 && (!best || pr.clr < best.clr)) best = pr;
     if (!best) return null;
     const o = best.a === b ? best.b : best.a, rule = best.room && best.room.giver === b ? best.room.rule : best.rule;
-    return `Keep clear of ${o.name} — rule ${rule} (${RULE_SHORT[rule] || ''})`;
+    return best.room && best.room.giver === b ? `Give ${o.name} ${rule === '18.2' ? 'mark-room' : 'room'} — rule ${rule}` : `Keep clear of ${o.name} — rule ${rule} (${RULE_SHORT[rule] || ''})`;
   }
 
   checkAlerts() {
