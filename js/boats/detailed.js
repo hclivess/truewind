@@ -98,6 +98,19 @@ function buildDetailed(boat, opts = {}) {
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
     kit.add(glassT(), g);
   }
+  // ---- the boat's name on both sides (painted or carved letters on the topsides)
+  if (D.hullName) {
+    const N = D.hullName, tex = canvasTex(`hullname-${C.id}-${N.text}`, 512, 128, (g, w, h) => {
+      g.clearRect(0, 0, w, h); g.fillStyle = N.color ?? '#1d2a44'; g.textAlign = 'center';
+      g.font = N.font ?? 'italic 700 78px Georgia, "Times New Roman", serif'; g.fillText(N.text, w / 2, 92);
+    });
+    const x = bx(N.t), len = N.len ?? 1.2;
+    for (const side of [-1, 1]) {
+      const y = hullHalfBreadth(Lx, N.t, N.z) + 0.01;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(len, len / 4), new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.4 }));
+      m.position.copy(V(x, side * y, N.z)); m.rotation.y = side > 0 ? Math.PI / 2 : -Math.PI / 2; inner.add(m);
+    }
+  }
   // ---- cockpit
   if (D.cockpit) buildCockpit(kit, C, D, Lx, ck, ckD, deckH0, bx);
   // ---- cabins / houses

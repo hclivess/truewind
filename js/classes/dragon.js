@@ -21,7 +21,7 @@ export default {
   massHull: M, zG: MP.zG, crewN: 3, crewEach: 90, crewZ: 0.75, crewMaxOut: 0.85, crewLee: -0.3, hikeRate: 0.6,
   gm: 0.8, bmForm: 0.5, Ixx: MP.Ixx, Izz: MP.Izz, amX: 0.05, amY: 0.8, amYaw: 0.55, amRoll: 0.3,
   rr: rrTable(LWL, M + 270),   // (her long overhangs lengthen the heeled waterline: the lines do that, js/hull.js)
-  keel: { x: 0.2, z: -0.8, area: 1.75, ARe: 1.4, stall: 20 * DEG, cd0: 0.011, span: 0.72, chord: 2.5, long: true },
+  keel: { x: -0.3, z: -0.8, area: 1.75, ARe: 1.4, stall: 20 * DEG, cd0: 0.011, span: 0.72, chord: 2.5, long: true },
   rudder: { x: -1.45, z: -0.75, area: 0.34, ARe: 2.2, stall: 20 * DEG, cd0: 0.012, max: 35 * DEG, span: 0.72, chord: 0.45, loadRef: 900 },
   hullLat: { area: 1.3, cd: 0.9, z: -0.2 },
   windage: { area: 2.7, z: 1.8, cd: 0.95 },

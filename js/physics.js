@@ -454,7 +454,8 @@ export class Boat {
     if (s.kind === 'boom') {
       const b = this.booms[key];
       baseAngle = b.a; side = Math.sign(b.a) || 1;
-      if (key === 'main') { pivotX = C.mastX; pivotZ = C.boomZ; areaF = reef.a; luff = s.luff * reef.l; }
+      // (a lateen's luff starts at its tack, forward of the mast on the boom)
+      if (key === 'main') { pivotX = C.mastX + (s.rig === 'lateen' ? s.tackFwd : 0); pivotZ = C.boomZ; areaF = reef.a; luff = s.luff * reef.l; }
       else { pivotX = s.tackX; pivotZ = s.tackZ; }
     } else if (s.kind === 'loose') {
       areaF = genDef && genDef.replaces === key ? 1 - this.genDeploy : 1;

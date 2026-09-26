@@ -440,6 +440,7 @@ export class Rigging {
     this.halyards = [rope(0.004, col.hal, 12), rope(0.004, 0xd9412b, 12), rope(0.004, 0x2f6fd6, 12)];
     if (C.hasBackstay) this.backstayTackle = [rope(0.0035, 0x9b5de5, 10), rope(0.0035, 0x9b5de5, 10), rope(0.0035, 0x9b5de5, 16)];
     if (boat.sailBy.stay) { this.staySheet = [rope(0.005, col.jib, 10), rope(0.005, col.jib, 10), rope(0.005, col.jib, 40)]; this.stayBlock = makeBlock(0.04); inner.add(this.stayBlock); }
+    if (boat.sailBy.mizzen) { this.mizzenSheet = [rope(0.005, col.main, 10), rope(0.005, col.main, 10)]; this.mizzenBlock = makeBlock(0.04); inner.add(this.mizzenBlock); }
     if (boat.sailBy.main.reefs) this.reefLines = [rope(0.004, 0xd24a3a, 20), rope(0.004, 0x3a8ad2, 20)];
     if (isDinghy(C)) { this.ratchet = makeBlock(0.05); this.ratchet.position.copy(V(hw.ratchetX, 0, hw.ratchetZ)); this.seat(this.ratchet.position, 0.06); hw.ratchetZ = this.ratchet.position.y; inner.add(this.ratchet); this.midBlock = makeBlock(0.04); inner.add(this.midBlock); this.strap = rope(0.012, 0x2a3140, 12); }
     this.lastLines = { ...boat.lines };
@@ -641,6 +642,14 @@ export class Rigging {
         const tk = V(G.tackX, 0, G.tackZ);
         this.tackLine.set([tk.clone().add(_v.set(0, 0.3 * b.ctrl.tackLine, 0)), V(C.bowX - 0.5, 0, vis.deckH(C.bowX - 0.5, 0) + 0.05), V(C.mastX - 0.9, 0.3, vis.deckH(C.mastX - 0.9, 0.3) + 0.03)], 200, g);
       }
+    }
+    // --- mizzen sheet: boom end -> a block on the deck or out on the boomkin, 2:1
+    if (this.mizzenSheet) {
+      const Z = b.sailBy.mizzen, xb = Z.tackX - Z.foot * 0.92, bk = C.model && C.model.bumpkin ? C.model.bumpkin.len : 0;
+      const xs = Math.max(xb, C.sternX - bk + 0.05), zs = xs < C.sternX + 0.1 ? vis.lines.sheer(0) + 0.12 : vis.deckH(xs, 0) + 0.05;
+      const bl = V(xs, 0, zs), mb = this.boomPt('mizzen', Z.foot * 0.92, -0.06), mt = Math.max(4, (L.mizzenLoad || 0) / 2);
+      this.mizzenBlock.position.copy(bl);
+      this.mizzenSheet[0].set([mb, bl], mt, g); this.mizzenSheet[1].set([mb.clone().add(_v.set(0.02, 0, 0)), bl.clone().add(_w.set(0.02, 0, 0))], mt, g);
     }
     // --- self-tacking staysail: club block -> deck traveler -> aft along the cabin
     if (this.staySheet) {

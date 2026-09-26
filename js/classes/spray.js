@@ -76,7 +76,7 @@ export default {
       main: { mat: 'wood', r: 0.13, rTop: 0.085, round: true, spreaders: [], crosstrees: { f: 0.82, len: 0.55 }, deadeyes: true, ratlines: true, hounds: 10.6, chainIn: 1.0, lowerX: [0.5, -0.4] },
       mizzen: { mat: 'wood', r: 0.07, rTop: 0.05, round: true, spreaders: [], hounds: 6.6, stayTo: -6.7, stayToZ: 1.7 },
     },
-    backstay: false, windex: false, noNumber: true,
+    backstay: false, windex: false, noNumber: true, hullName: { text: 'SPRAY', t: 0.9, z: 1.2, len: 1.1, color: '#1e1e1e' },
     extras: ['sprayDetails'],
   },
   hw: { trav: [-5.1, 1.2], boomS: 0.97, winch: [-3.6, 1.75], jibTrack: [0.8, -0.8, 1.9], helm: 'Tiller', bronze: true, winchR: 0.06 },

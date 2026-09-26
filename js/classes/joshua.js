@@ -76,7 +76,7 @@ export default {
       main: { mat: 'white', r: 0.11, rTop: 0.07, round: true, spreaders: [{ f: 0.55, len: 0.95, sweep: 0 }], ratlines: true, chainIn: 1.0 },
       mizzen: { mat: 'white', r: 0.08, rTop: 0.055, round: true, spreaders: [{ f: 0.55, len: 0.6, sweep: 0 }], stayTo: -6.25, stayToZ: 1.5, triatic: 13.8 },
     },
-    backstay: false, windex: false, noNumber: true,
+    backstay: false, windex: false, noNumber: true, hullName: { text: 'JOSHUA', t: 0.86, z: 1.05, len: 1.3, color: '#f2efe6', font: '700 80px "Barlow Condensed", "Arial Narrow", sans-serif' },
     extras: ['joshuaDetails'],
   },
   hw: { trav: [-1.4, 0.7], boomS: 0.6, winch: [-4.2, 1.2], jibTrack: [1.4, 0.2, 1.6], helm: 'Tiller', winchR: 0.07, bronze: true },

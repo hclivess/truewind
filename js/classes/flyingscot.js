@@ -20,7 +20,7 @@ export default {
   massHull: M, zG: 0.3, crewN: 3, crewEach: 75, crewZ: 0.5, crewMaxOut: 0.98, crewLee: -0.35, hikeRate: 0.9,
   gm: 0.6, bmForm: 0.55, Ixx: 420, Izz: 900, amX: 0.05, amY: 0.6, amYaw: 0.45, amRoll: 0.25,
   rr: rrTable(LWL, M + 225, { dinghy: true }),
-  keel: { x: 0.35, z: -0.6, area: 0.52, ARe: 4.0, stall: 13 * DEG, cd0: 0.011, span: 1.0, chord: 0.55, board: true },
+  keel: { x: 0.75, z: -0.6, area: 0.52, ARe: 4.0, stall: 13 * DEG, cd0: 0.011, span: 1.0, chord: 0.55, board: true },
   rudder: { x: -2.95, z: -0.3, area: 0.2, ARe: 3.0, stall: 15 * DEG, cd0: 0.012, max: 35 * DEG, span: 0.72, chord: 0.3, transom: true, loadRef: 420 },
   hullLat: { area: 0.6, cd: 0.9, z: -0.06 },
   windage: { area: 1.6, z: 1.0, cd: 1.0 },

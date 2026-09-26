@@ -23,7 +23,7 @@ export default {
   gm: 0.9, bmForm: 0.65, Ixx: 1500, Izz: 3200, amX: 0.06, amY: 0.75, amYaw: 0.5, amRoll: 0.28,
   rr: rrTable(LWL, M + 240),
   // swing keel: a cast iron plate ~1.0 m below the hull, ~0.55 m chord, pivoting down from its trunk (a board to the physics)
-  keel: { x: 0.32, z: -0.8, area: 0.52, ARe: 3.0, stall: 15 * DEG, cd0: 0.012, span: 1.0, chord: 0.55, board: true },
+  keel: { x: 0.8, z: -0.8, area: 0.52, ARe: 3.0, stall: 15 * DEG, cd0: 0.012, span: 1.0, chord: 0.55, board: true },
   rudder: { x: -3.34, z: -0.35, area: 0.24, ARe: 2.8, stall: 16 * DEG, cd0: 0.012, max: 35 * DEG, span: 0.85, chord: 0.33, transom: true, loadRef: 650 },
   hullLat: { area: 1.0, cd: 0.9, z: -0.12 },
   windage: { area: 2.5, z: 1.9, cd: 0.95 },

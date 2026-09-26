@@ -22,7 +22,7 @@ export default {
   massHull: M, zG: MP.zG, crewN: 5, crewEach: 80, crewZ: 1.35, crewMaxOut: 1.8, crewLee: -0.8, hikeRate: 0.45,
   gm: 1.4, bmForm: 1.0, Ixx: MP.Ixx, Izz: MP.Izz, amX: 0.05, amY: 0.75, amYaw: 0.5, amRoll: 0.3,
   rr: rrTable(LWL, M + 400, { prism: 0.15, planing: 0.15 }),
-  keel: { x: 0.45, z: -1.35, area: 1.62, ARe: 3.3, stall: 15 * DEG, cd0: 0.01, span: 1.5, chord: 1.08 },
+  keel: { x: 0.8, z: -1.35, area: 1.62, ARe: 3.3, stall: 15 * DEG, cd0: 0.01, span: 1.5, chord: 1.08 },
   rudder: { x: -4.25, z: -1.0, area: 0.72, ARe: 3.4, stall: 16 * DEG, cd0: 0.011, max: 32 * DEG, span: 1.38, chord: 0.54, loadRef: 2600 },
   hullLat: { area: 3.2, cd: 0.9, z: -0.25 },
   windage: { area: 6.8, z: 3.1, cd: 0.95 },
