@@ -219,19 +219,21 @@ function lightsFor(v) {
   const out = [];
   if (v.mode === 'berth') return v.seed < 0.3 ? [[0, f + 0.7, 0, 'cabin']] : out;
   if (v.mode === 'mooring') return v.seed < 0.5 ? [[0, H, -L * 0.08, 'all']] : out;
-  if (v.mode === 'anchor') return v.type === 'ship' ? [[0, f + 9, -L * 0.46, 'all'], [0, f + 5, L * 0.46, 'all'], [0, f + 3, -L * 0.2, 'deck'], [0, f + 3, L * 0.1, 'deck'], [0, f + 12, L * 0.38, 'deck']] : [[0, H, -L * 0.08, 'all']];
+  if (v.mode === 'anchor') return v.type === 'ship' ? [[0, f + 9, -L * 0.46, 'all'], [0, f + 5, L * 0.46, 'all'], [B * 0.5, f + 1, -L * 0.2, 'deck'], [-B * 0.5, f + 1, L * 0.1, 'deck'], [B * 0.5, f + 9, L * 0.36, 'deck'], [-B * 0.5, f + 9, L * 0.36, 'deck']] : [[0, H, -L * 0.08, 'all']];
   if (v.hidden) return out;
-  out.push([B * 0.52, f + 0.3, -L * 0.3, 'stbd'], [-B * 0.52, f + 0.3, -L * 0.3, 'port'], [0, f + 0.4, L * 0.5 + 0.1, 'stern']);
+  const sy = f + (L > 30 ? 1.2 : 0.3);                        // (on a ship, out on the bridge wings)
+  out.push([B * 0.53, sy, -L * 0.3, 'stbd'], [-B * 0.53, sy, -L * 0.3, 'port'], [0, f + 0.4, L * 0.5 + 0.1, 'stern']);
   if (v.type === 'yacht') { if (!v.sails) out.push([0, H * 0.55, -L * 0.08, 'mh']); return out; }
   if (v.type === 'fishing' && v.fishing) out.push([0, H + 0.4, -L * 0.15, 'green'], [0, H - 0.6, -L * 0.15, 'all']);
   out.push([0, H, -L * 0.2, 'mh']);
   if (L > 50) out.push([0, H * 0.7, -L * 0.42, 'mh']);
-  if (v.type === 'ferry' || v.type === 'carferry' || v.type === 'fastcat') out.push([0, f + 4, 0, 'deck'], [0, f + 6, L * 0.2, 'deck']);
+  // the saloon windows, lit along both sides
+  if (v.type === 'ferry' || v.type === 'carferry' || v.type === 'fastcat') for (const sx of [-1, 1]) for (const z of [-0.2, 0, 0.2]) out.push([sx * B * 0.48, f + 1.4, L * z, 'deck']);
   return out;
 }
 const JIB_AXIS = new THREE.Vector3(0, 1, 0.28).normalize();
 const LCOL = { mh: [1, 0.96, 0.88], stern: [1, 0.96, 0.88], all: [1, 0.96, 0.88], stbd: [0.2, 1, 0.45], port: [1, 0.15, 0.1], green: [0.2, 1, 0.45], red: [1, 0.15, 0.1], cabin: [1, 0.68, 0.32], deck: [1, 0.85, 0.6] };
-const LSIZE = { mh: 1, stern: 0.8, all: 0.9, stbd: 0.8, port: 0.8, green: 0.9, red: 0.9, cabin: 0.7, deck: 1.6 };
+const LSIZE = { mh: 1, stern: 0.9, all: 0.9, stbd: 1, port: 1, green: 0.9, red: 0.9, cabin: 0.7, deck: 1.6 };
 
 // ------------------------------------------------------------------ the view
 export class TrafficView {
@@ -271,7 +273,7 @@ export class TrafficView {
       this.meshes[type] = { list, parts };
     }
     // lights
-    let nl = 0; for (const v of traffic.vessels) nl += 9;
+    let nl = 0; for (const v of traffic.vessels) nl += 12;
     this.lightCap = nl;
     const lg = new THREE.BufferGeometry();
     this.lPos = new Float32Array(nl * 3); this.lCol = new Float32Array(nl * 3); this.lSize = new Float32Array(nl);
@@ -283,7 +285,7 @@ export class TrafficView {
       vertexShader: `attribute float size; attribute vec3 color; uniform float uScale; uniform float uOn; varying vec3 vC;
         void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); float d = -mv.z;
           // a point of light stays a point far away (the eye sees a lamp miles off), dimmed by haze
-          vC = color * uOn * exp(-d * 0.00012); gl_PointSize = clamp(size * 2.6 * uScale / d, 3.5, 30.0); gl_Position = projectionMatrix * mv; }`,
+          vC = color * uOn * exp(-d * 0.00012); gl_PointSize = clamp(size * 2.2 * uScale / d, 3.5, 14.0); gl_Position = projectionMatrix * mv; }`,
       fragmentShader: `varying vec3 vC; void main(){ vec2 p = gl_PointCoord * 2.0 - 1.0; float r = dot(p, p); if (r > 1.0) discard;
         float a = exp(-r * 7.0) * 1.4 + 0.35 * exp(-r * 1.5); gl_FragColor = vec4(vC * a * 2.2, 1.0); }`,
     });
@@ -353,7 +355,7 @@ export class TrafficView {
         if (v.mode === 'rail') v._sc = undefined;
         // the nearest boats under way take the full sea state (the one the water is drawn with)
         const o = v.mode === 'rail' && d < 350 && full++ < 10 && env.wavesOn ? env.waves.sample(v.x, v.z, t, wo) : this._cheap(v.x, v.z, t, sc, wo);
-        const resp = clamp(14 / v.L, 0.12, 1), rr = clamp(10 / v.B, 0.1, 1);
+        const resp = clamp(12 / v.L, 0.1, 1), rr = clamp(5 / v.B, 0.06, 1);   // (a big hull spans the short waves)
         const fx = Math.sin(v.psi), fz = -Math.cos(v.psi);
         v.heave = o.h * (0.35 + 0.65 * resp);
         v.pitch = Math.atan(o.sx * fx + o.sz * fz) * resp + (v.trim || 0);

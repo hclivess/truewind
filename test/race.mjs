@@ -18,10 +18,11 @@ env.wind.sample = (x,z,t,o)=>{ base(x,z,t,o); o.speed *= world.shelterAt(x,z); r
 await loadBakedPolars(cls);   // (the cloth sails' polar, as the game has it)
 const polar = solvePolar(cls, v.windKt*KT); const vt = vmgTargets(polar);
 console.log('targets up', vt.up.twa, 'dn', vt.dn.twa);
-const course = new Course(world, env.wind.twd, { length: 800, laps: 1 });
+const course = new Course(world, env.wind.twd, { length: 800, laps: 1, lineLength: 60 + 14 * +nb });   // (the game's line: longer for a bigger fleet)
 console.log('course len', course.L.toFixed(0), 'origin', course.origin.x.toFixed(0), course.origin.z.toFixed(0), 'depth at W', world.depthAt(course.windward.x, course.windward.z).toFixed(1));
-const boats = [], ais = [];   // (the AI fleet sails at L1 in the game: LOD=0/1/2 to change it)
-for (let i=0;i<+nb;i++){ const b=new Boat(cls,{id:i, lod: +(process.env.LOD ?? 1)}); const off=(i-(+nb)/2)*15; b.reset(course.origin.x - course.ux*150 + course.rx*off, course.origin.z - course.uz*150 + course.rz*off, env.wind.twd+Math.PI/2); boats.push(b); const a=new AIHelm(b,{startFrac:i/(+nb), skill: 0.85+0.03*i}); a.targetsUpBsp=vt.up.bsp; ais.push(a);}
+const boats = [], ais = [];   // (the AI fleet sails at L1 in the game: LOD=0/1/2 to change it; a big fleet has only
+// the NCLOTH nearest the camera in cloth, the rest on the strip model: NCLOTH=n puts boats n.. at L2)
+for (let i=0;i<+nb;i++){ const b=new Boat(cls,{id:i, lod: i < +(process.env.NCLOTH ?? 1e9) ? +(process.env.LOD ?? 1) : 2}); const off=(i-(+nb)/2)*16; b.reset(course.origin.x - course.ux*150 + course.rx*off, course.origin.z - course.uz*150 + course.rz*off, env.wind.twd+Math.PI/2); boats.push(b); const a=new AIHelm(b,{startFrac:i/(+nb), skill: 0.85+0.03*i}); a.targetsUpBsp=vt.up.bsp; ais.push(a);}
 const race = new Race(course, boats, { countdown: 90 });
 const sim = { boats, world, race, env };   // as in the game: the AI reads the tide field
 const dt=1/120; let t=0; let aground=0;   // (dt: the game's physics step)
