@@ -41,22 +41,27 @@ function sampler(sim) {
     return (sim.hd(i, j) * (1 - a) + sim.hd(i + 1, j) * a) * (1 - c) + (sim.hd(i, j + 1) * (1 - a) + sim.hd(i + 1, j + 1) * a) * c;
   };
 }
+// the grid: ~12 cells a transverse wavelength, long enough for the hull and K wavelengths of wake behind it.
+// The boat runs at U from the start and its pressure grows in over 8 wave periods (a speed ramp would leave
+// a start-up ring spreading through the wake); the run lasts until the steady pattern (its energy trails at
+// U/2) reaches K wavelengths aft.
 function tow(C, U, opts) {
-  const lam = 2 * Math.PI * U * U / G, dx = Math.min(0.5, lam / 12), N = 256, Ld = N * dx;
+  const lam = 2 * Math.PI * U * U / G, K = opts.K ?? 10, N = opts.N ?? 256, dx = Math.min(0.5, lam / 12, (C.loa + K * lam + 2) / 0.6 / N), Ld = N * dx;
   const sim = new HullWaveSim({ N, L: Ld });
   const b = new Boat(C); b.reset(0, 0, Math.PI / 2);                  // heading +x
-  const T = opts.T ?? (U > 0 ? 30 * lam / U : 20), ramp = 5 * Math.max(lam, 1) / Math.max(U, 0.5);
+  const ramp = U > 0 ? 8 * lam / U : 3, T = opts.T ?? (U > 0 ? ramp + (C.loa + K * lam) / (0.45 * U) : 20);
   const dt = Math.min(HW.maxDt, U > 0 ? dx / U : 0.05);
   let x = 0, t = 0, hmax = 0;
   while (t < T) {
-    const u = U * Math.min(1, t / ramp) ** 2 * (3 - 2 * Math.min(1, t / ramp));
-    x += u * dt; t += dt;
+    x += U * dt; t += dt;
+    const f = Math.min(1, t / ramp), w = f * f * (3 - 2 * f);
     const list = hullEntries(b, { x, z: 0, psi: Math.PI / 2, heave: 0, pitch: 0, phi: 0 }, []);
+    for (const e of list) for (let j = 0; j < HW.NS; j++) e.st[j * 4 + 2] *= w;
     sim.recentre(x - 0.28 * Ld, 0);
     sim.step(dt, list);
     for (let k = 0; k < sim.h.length; k += 97) hmax = Math.max(hmax, Math.abs(sim.h[k] + sim.q[k]));
   }
-  return { sim, x, lam, dx, hmax, Ld, at: sampler(sim) };
+  return { sim, x, lam, dx, hmax, Ld, N, at: sampler(sim) };
 }
 
 // ---- at rest: flat (the head is exactly the hull's own depression)
@@ -71,10 +76,12 @@ function tow(C, U, opts) {
 for (const Fn of fns.split(',').map(Number)) {
   const C = CLASSES[cls], U = Fn * Math.sqrt(G * C.lwl);
   const t0 = Date.now();
-  const r = tow(C, U, {});
+  // (at low Fn the hull is several wavelengths long: its divergent waves cancel along it and the cusp
+  // only outgrows the transverse waves far aft, so the wake is followed further)
+  const K = Fn < 0.25 ? 20 : 10, r = tow(C, U, Fn < 0.25 ? { K, N: 512 } : { K });
   const { at, lam, x } = r, bow = x + C.bowX;
   // transverse wavelength: up-crossings on the track behind the stern
-  const xs = [], X0 = x + C.sternX - 0.5 * lam, X1 = bow - 11 * lam, step = lam / 64;
+  const xs = [], X0 = x + C.sternX - 0.5 * lam, X1 = bow - C.loa - (K - 1) * lam, step = lam / 64;
   let prev = at(X0, 0);
   for (let X = X0 - step; X > X1; X -= step) {
     const v = at(X, 0);
@@ -86,24 +93,28 @@ for (const Fn of fns.split(',').map(Number)) {
   // along, both sides added). The divergent and transverse waves meet in a caustic, across which the
   // envelope is an Airy function: its peak (Ai(-1.02)) lies inside the cusp line, which sits where the
   // envelope has fallen to Ai(0) / max Ai = 0.662 of the peak on the outer side. Both are fitted
-  // y = a + D tan(angle) (a: the wedge starts from the whole hull, not a point).
+  // y = a + D tan(angle) (a: the wedge starts from the whole hull, not a point), robustly.
   const pk = [], ca = [];
-  for (let D = 3 * lam; D <= 10 * lam; D += lam / 4) {
+  // (from two wavelengths behind the stern: along the hull the bow and stern systems still overlap)
+  for (let D = C.loa + (K > 10 ? 6 : 2) * lam; D <= C.loa + (K - 1) * lam; D += lam / 4) {
     const ys = [], es = [];
-    for (let y = 0.1 * D; y <= 0.62 * D; y += lam / 48) {
+    for (let y = 0.1 * D; y <= 0.55 * D; y += lam / 48) {
       let e = 0;
       for (let s = -0.5; s <= 0.5; s += 1 / 24) e = Math.max(e, Math.abs(at(bow - D + s * lam, y)) + Math.abs(at(bow - D + s * lam, -y)));
       ys.push(y); es.push(e);
     }
-    let by = 0; for (let i = 1; i < es.length; i++) if (es[i] > es[by]) by = i;
+    // the outermost envelope maximum that stands out (the cusp's), not the transverse waves' on the track
+    let emax = 0; for (const e of es) emax = Math.max(emax, e);
+    let by = 0; for (let i = 1; i < es.length - 1; i++) if (es[i] >= es[i - 1] && es[i] >= es[i + 1] && es[i] > 0.3 * emax) by = i;
     let yp = ys[by], ep = es[by];
     if (by > 0 && by < ys.length - 1) { const a = es[by - 1], b = es[by], c = es[by + 1], den = a - 2 * b + c; if (den < 0) { const o = 0.5 * (a - c) / den; yp += o * (ys[1] - ys[0]); ep = b - 0.25 * (a - c) * o; } }
     pk.push([D, yp]);
     for (let i = by; i < es.length - 1; i++) if (es[i + 1] < 0.662 * ep) { const f = (es[i] - 0.662 * ep) / (es[i] - es[i + 1]); ca.push([D, ys[i] + f * (ys[i + 1] - ys[i])]); break; }
   }
-  const fit = (pts) => { let sx = 0, sy = 0, sxx = 0, sxy = 0; for (const [d, y] of pts) { sx += d; sy += y; sxx += d * d; sxy += d * y; } const n = pts.length; return Math.atan((n * sxy - sx * sy) / (n * sxx - sx * sx)) * 180 / Math.PI; };
+  // Theil-Sen: the median of the slopes between every pair of rows (a row that caught the wrong peak moves it little)
+  const fit = (pts) => { const sl = []; for (let i = 0; i < pts.length; i++) for (let j = i + 4; j < pts.length; j++) sl.push((pts[j][1] - pts[i][1]) / (pts[j][0] - pts[i][0])); sl.sort((a, b) => a - b); return Math.atan(sl[sl.length >> 1]) * 180 / Math.PI; };
   const angP = fit(pk), ang = fit(ca);
-  console.log(`Fn ${Fn.toFixed(2)}: U ${U.toFixed(2)} m/s (${(U / 0.5144).toFixed(1)} kn), grid ${r.dx.toFixed(3)} m x 256 (${r.Ld.toFixed(0)} m), ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  console.log(`Fn ${Fn.toFixed(2)}: U ${U.toFixed(2)} m/s (${(U / 0.5144).toFixed(1)} kn), grid ${r.dx.toFixed(3)} m x ${r.N} (${r.Ld.toFixed(0)} m), ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   check(Math.abs(lamT / lam - 1) < 0.1, `  transverse wavelength ${lamT.toFixed(3)} m vs 2 pi U^2/g ${lam.toFixed(3)} m (${((lamT / lam - 1) * 100).toFixed(1)} %, ${xs.length} crests)`);
   check(Math.abs(ang - 19.47) < 2, `  cusp line ${ang.toFixed(2)} deg (Kelvin 19.47; the amplitude peak inside it: ${angP.toFixed(2)} deg)`);
   check(isFinite(r.hmax) && r.hmax < 1.0, `  stable: max |h| ${r.hmax.toFixed(3)} m`);

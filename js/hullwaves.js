@@ -287,7 +287,7 @@ float headCell(ivec2 ij) {
 }`;
 // sampling for the water (and the foam pass): uHWC = (centre x, z, size, on)
 export const HW_GLSL = /* glsl */`
-uniform sampler2D uHW; uniform vec4 uHWC;
+uniform sampler2D uHW; uniform vec4 uHWC; uniform float uHWK;   // uHWK: the player's transverse wavenumber g / U^2
 vec4 hwAt(vec2 x, float lod) {
   vec2 uv = (x - uHWC.xy) / uHWC.z + 0.5;
   float w = uHWC.w * (1.0 - smoothstep(0.38, 0.47, max(abs(uv.x - 0.5), abs(uv.y - 0.5))));
@@ -299,7 +299,7 @@ export class HullWaves {
     const P = this.P = { ...HW, ...opts }, N = P.N;
     this.T = THREE; this.r = renderer; this.dx = P.L / N;
     this.ok = !!(renderer.capabilities.isWebGL2 && renderer.extensions.has('EXT_color_buffer_float'));
-    this.uniforms = { uHW: { value: null }, uHWC: { value: new THREE.Vector4(0, 0, P.L, 0) } };
+    this.uniforms = { uHW: { value: null }, uHWC: { value: new THREE.Vector4(0, 0, P.L, 0) }, uHWK: { value: 1 } };
     this.t = null; this.ci = 0; this.cj = 0; this.dir = null; this.nSteps = 0; this.cpuMs = 0; this.frames = 0; this.passes = 0;
     if (!this.ok) return;
     const mk = (o) => new THREE.WebGLRenderTarget(N, N, { type: THREE.FloatType, format: THREE.RGFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, generateMipmaps: false, ...o });
@@ -348,15 +348,23 @@ export class HullWaves {
     this.surf = mat(/* glsl */`
       uniform sampler2D uSrc; uniform float uDx;
       ${hullHeadGLSL(P.NS, P.MAXH)}
-      float hd(ivec2 p) { p = clamp(p, ivec2(0), ivec2(N - 1)); return texelFetch(uSrc, p, 0).x + headCell(p); }
+      float qn[4];
+      float hd(ivec2 p, int k) { p = clamp(p, ivec2(0), ivec2(N - 1)); float q = headCell(p); qn[k] = q; return texelFetch(uSrc, p, 0).x + q; }
       void main(){
         ivec2 ij = ivec2(gl_FragCoord.xy);
         float q = headCell(ij), h0 = texelFetch(uSrc, ij, 0).x + q;
-        float x1 = hd(ij + ivec2(1, 0)), x0 = hd(ij - ivec2(1, 0)), z1 = hd(ij + ivec2(0, 1)), z0 = hd(ij - ivec2(0, 1));
+        float x1 = hd(ij + ivec2(1, 0), 0), x0 = hd(ij - ivec2(1, 0), 1), z1 = hd(ij + ivec2(0, 1), 2), z0 = hd(ij - ivec2(0, 1), 3);
         vec2 g = vec2(x1 - x0, z1 - z0) / (2.0 * uDx);
         float lap = (x1 + x0 + z1 + z0 - 4.0 * h0) / (uDx * uDx);
-        // breaking: a crest steeper than ~0.25 (Stokes' limit 0.58) and sharp (curving down), outside the hulls
-        float brk = smoothstep(0.2, 0.42, length(g)) * smoothstep(0.0, 0.03, h0) * smoothstep(0.1, -0.4, lap) * (1.0 - smoothstep(0.005, 0.04, q));
+        // breaking: a crest steeper than ~0.12 on this grid (which rounds off the sharp crests of the waves
+        // it resolves: a real crest there is about twice as steep; Stokes' limit 0.58) and curving down,
+        // outside the hulls: the divergent crests once the boat goes fast
+        float dry = 1.0 - smoothstep(0.005, 0.04, q);
+        float brk = smoothstep(0.12, 0.3, length(g)) * smoothstep(0.0, 0.03, h0) * smoothstep(0.1, -0.4, lap) * dry;
+        // and the bow wave: water standing up against the hull (the cell at the waterline, a hull cell next
+        // to it) spills as white water past ~6 cm (an entry at Fn ~0.3)
+        float edge = smoothstep(0.02, 0.08, max(max(qn[0], qn[1]), max(qn[2], qn[3]))) * dry;
+        brk = max(brk, edge * smoothstep(0.04, 0.16, h0));
         gl_FragColor = vec4(h0, g, brk);
       }`, { ...this.hu, uSrc: { value: null } });
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.prep); this.quad.frustumCulled = false;
@@ -404,7 +412,7 @@ export class HullWaves {
     const dt0 = this.t === null ? 0 : t - this.t, jump = this.t === null || dt0 < 0 || dt0 > 3;
     this.t = t;
     const r = this.r, prevRT = r.getRenderTarget(), ac = r.autoClear;
-    if (jump) { this.clear(); this.prev.clear(); this.dir = null; }
+    if (jump) { this.clear(); this.prev.clear(); this.dir = null; if (this.wt) this.wt.clear(); }
     const pp = player.pose || player;
     // the grid follows the player, set back along its (slowly followed) track so the wake has the room
     const sp = Math.hypot(player.vgx || 0, player.vgz || 0), hx = sp > 0.3 ? player.vgx / sp : Math.sin(pp.psi), hz = sp > 0.3 ? player.vgz / sp : -Math.cos(pp.psi);
@@ -414,16 +422,25 @@ export class HullWaves {
     const shift = jump ? [0, 0] : [ni - this.ci, nj - this.cj];
     this.ci = ni; this.cj = nj;
     const cx = ni * dx, cz = nj * dx;
-    // the hulls: the player's, then the nearest boats on the grid that are moving (at rest a hull makes nothing)
-    const cand = [];
+    // the hulls: the player's, then the nearest boats on the grid. A hull's pressure comes in over 2 s and
+    // goes out over the grid's last few metres (one appearing or vanishing at once would ring like a
+    // dropped stone)
+    const cand = [], wt = this.wt || (this.wt = new Map()), seen = new Set();
     for (const b of boats) {
-      const q = b.pose || b, d = Math.hypot(q.x - cx, q.z - cz);
-      if (b !== player && (d > 0.34 * P.L || Math.hypot(b.vgx || 0, b.vgz || 0) < 0.25)) continue;
-      cand.push([b === player ? -1 : d, b]);
+      const q = b.pose || b, d = b === player ? 0 : Math.max(Math.abs(q.x - cx), Math.abs(q.z - cz));
+      if (d > 0.34 * P.L) continue;
+      const w = Math.min(1, (wt.get(b) ?? 0) + (jump ? 0 : dt0) / 2);
+      wt.set(b, w); seen.add(b);
+      cand.push([b === player ? -1 : d, b, w * Math.min(1, (0.34 * P.L - d) / (0.06 * P.L))]);
     }
+    for (const b of wt.keys()) if (!seen.has(b)) wt.delete(b);
     cand.sort((a, b) => a[0] - b[0]);
     const list = this.list; list.length = 0;
-    for (const [, b] of cand) { if (list.length >= P.MAXH) break; hullEntries(b, b.pose, list, P.MAXH); }
+    for (const [, b, w] of cand) {
+      if (list.length >= P.MAXH) break;
+      const n0 = list.length; hullEntries(b, b.pose, list, P.MAXH);
+      for (let i = n0; i < list.length; i++) for (let j = 0; j < P.NS; j++) list[i].st[j * 4 + 2] *= w;
+    }
     const n = jump ? 1 : Math.min(8, Math.ceil(dt0 / P.maxDt - 1e-9));
     r.autoClear = false;
     this.passes = 0;
@@ -445,6 +462,7 @@ export class HullWaves {
     }
     r.autoClear = ac; r.setRenderTarget(prevRT);
     this.uniforms.uHWC.value.set(cx, cz, P.L, 1);
+    this.uniforms.uHWK.value = G / Math.max(sp * sp, 1);
     this.frames++; this.cpuMs += performance.now() - c0;
   }
   stats() { return { N: this.P.N, L: this.P.L, steps: this.nSteps, frames: this.frames, passesLastFrame: this.passes, cpuMsPerFrame: +(this.cpuMs / Math.max(1, this.frames)).toFixed(3), hulls: this.list.length }; }

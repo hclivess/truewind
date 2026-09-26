@@ -307,6 +307,22 @@ export class Renderer {
           // would feel): equilibrium-range steepness, jittered wavelengths, fanned about the wind
           vec2 fl = uFlow, pr = vec2(-fl.y, fl.x);
           float wk = smoothstep(0.8, 6.0, lw) * sqrt(clamp(gw, 0.3, 2.0));
+          // ---- hull waves: the short waves ride steeper on the wake's crests and flatter in its troughs
+          // (hydrodynamic modulation, a ~ 1 + M k h with M ~ 6), and the turbulent strip behind a hull damps
+          // them for a minute or more (the slick: the foam map's third channel). This is what draws a wake's
+          // crest lines at a distance, and the long smooth lane down its middle
+          float hwMod = 1.0;
+          #ifdef HWSIM
+          hwMod = 1.0 + clamp(6.0 * uHWK * hwv.x, -0.7, 0.9);
+          #endif
+          #ifdef HWKELVIN
+          hwMod = 1.0 + clamp(6.0 * 6.2832 / uKS[0].x * kwv.x, -0.7, 0.9);
+          #endif
+          #ifndef LOWQ
+          { vec2 suv = (x0 - uFoamC) / uFoamS + 0.5;
+            hwMod *= 1.0 - 0.65 * uFoamOn * textureLod(uFoam, suv, 1.0).b * (1.0 - smoothstep(0.4, 0.49, max(abs(suv.x - 0.5), abs(suv.y - 0.5)))); }
+          #endif
+          wk *= hwMod;
           float Cd = 0.0, sd2 = 0.0, sdR = 0.0, sdT = 0.0, wl = uLmin;
           #ifdef LOWQ
           const int ND = 5, NR = 2;
@@ -355,7 +371,7 @@ export class Renderer {
           vec3 R = reflect(-V, n); R.y = abs(R.y);
           // roughness: slopes too small to draw — the filtered-out waves plus the capillary rest of the
           // Cox-Munk mean square slope (0.003 + 0.00512 U) — blur the reflection and widen the sun's path
-          float mssSub = max(0.0015, 0.003 + 0.00512 * lw - uJSig * uJSig - sd2) * 0.7;
+          float mssSub = max(0.0015, 0.003 + 0.00512 * lw - uJSig * uJSig - sd2) * 0.7 * hwMod * hwMod;
           float a2 = clamp(lost + mssSub, 2e-4, 0.5);
           float sig = sqrt(a2);
           float gloss = clamp(log2(1.0 + sig * 45.0), 0.0, 6.0);
@@ -567,28 +583,30 @@ export class Renderer {
           // carried foam (semi-Lagrangian), spreading (the wake, r g, faster: its turbulence widens it);
           // nothing comes in from beyond the map
           vec2 uv = (p - v * uDt - uCp) / uFoamS + 0.5, e = vec2(uTexel, 0.0);
-          vec2 old = vec2(0.0);
+          // (b: the wake's slick, the turbulent strip that smooths the short waves long after its foam is gone)
+          vec3 old = vec3(0.0);
           if (uKeep > 0.5 && all(greaterThan(uv, e.xx)) && all(lessThan(uv, 1.0 - e.xx))) {
-            vec2 c = textureLod(uPrev, uv, 0.0).rg;
-            vec2 nb = textureLod(uPrev, uv + e.xy, 0.0).rg + textureLod(uPrev, uv - e.xy, 0.0).rg + textureLod(uPrev, uv + e.yx, 0.0).rg + textureLod(uPrev, uv - e.yx, 0.0).rg;
-            old = c + (nb - 4.0 * c) * min(vec2(0.2), vec2(0.08, 0.15) * uDt / (cell.x * cell.x));
+            vec3 c = textureLod(uPrev, uv, 0.0).rgb;
+            vec3 nb = textureLod(uPrev, uv + e.xy, 0.0).rgb + textureLod(uPrev, uv - e.xy, 0.0).rgb + textureLod(uPrev, uv + e.yx, 0.0).rgb + textureLod(uPrev, uv - e.yx, 0.0).rgb;
+            old = c + (nb - 4.0 * c) * min(vec3(0.2), vec3(0.08, 0.15, 0.3) * uDt / (cell.x * cell.x));
           }
           float tau = 3.0 + 6.0 * qn(xd * 0.04 + 1.3);                   // e-folding, patchy: gone in ~5-15 s
-          old *= exp(-uDt / vec2(tau, 12.0)) * (1.0 + conv * uDt);
-          float src = act * 2.0 * uDt, wake = 0.0;                       // ~0.5 s of breaking to full cover
+          old *= exp(-uDt / vec3(tau, 12.0, 70.0)) * (1.0 + conv * uDt);
+          float src = act * 2.0 * uDt, wake = 0.0, slk = 0.0;            // ~0.5 s of breaking to full cover
           for (int i = 0; i < 6; i++) {
             vec4 w = uWake[i]; vec4 ww = uWakeW[i];
             if (ww.y <= 0.0) continue;
             vec2 ab = w.zw - w.xy, ap = p - w.xy;
             float d = length(ap - ab * clamp(dot(ap, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0));
             wake += ww.y * smoothstep(ww.x, ww.x * 0.3, d) * (0.6 + 0.8 * f1) * 5.0 * uDt;
+            slk += min(ww.y, 1.0) * smoothstep(ww.x * 1.5, ww.x * 0.5, d) * 3.0 * uDt;
           }
           // ---- hull waves (hullwaves.js): white water where the boats' own waves break (the bow wave, and
           // the divergent crests once the boat goes fast), laid down with the wake's foam
           #ifdef HWSIM
           wake += hwAt(p, 0.0).w * (0.5 + f1) * 4.0 * uDt;
           #endif
-          gl_FragColor = vec4(min(old + vec2(src, wake), 1.0), 0.0, 1.0);
+          gl_FragColor = vec4(min(old + vec3(src, wake, slk), 1.0), 1.0);
         }`,
     });
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); quad.frustumCulled = false;
