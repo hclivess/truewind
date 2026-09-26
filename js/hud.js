@@ -68,7 +68,7 @@ export class HUD {
     let h = `<div class="rg"><h3>Sails ${''}</h3>`;
     h += `<div class="sl2"><span>Main</span>${tt('main')}</div>`;
     if (S.stay) h += `<div class="sl2"><span>${stayName}</span>${tt('stay')}</div>`;
-    if (S.jib) h += `<div class="sl2"><span id="hs-name">Jib</span>${tt('jib')}</div>`;
+    if (S.jib) h += `<div class="sl2"><span id="hs-name">${S.jib.label ?? 'Jib'}</span>${tt('jib')}</div>`;
     if (S.gennaker) h += `<div class="sl2"><span>${genName}</span>${tt('gennaker')}</div>`;
     h += `</div><div class="rg"><h3>Lines <span class="muted" style="font-weight:500;letter-spacing:.02em;text-transform:none">or grab them on deck (7)</span></h3><div class="lines">`;
     // every control is here as press-and-hold buttons, and on deck as the real line / car / winch
