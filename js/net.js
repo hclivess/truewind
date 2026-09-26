@@ -39,12 +39,13 @@ export class Net {
       if (Array.isArray(a)) return { send: a[0], on: (cb) => a[1]((d, peerId) => cb(d, peerId)) };
       return { send: (d, o) => a.send(d, o), on: (cb) => { a.onMessage = (d, meta) => cb(d, meta && meta.peerId !== undefined ? meta.peerId : meta); } };
     };
-    this.aHello = act('hello'); this.aState = act('state'); this.aCond = act('cond'); this.aRace = act('race'); this.aBye = act('bye');
+    this.aHello = act('hello'); this.aState = act('state'); this.aCond = act('cond'); this.aRace = act('race'); this.aBye = act('bye'); this.aPen = act('pen');
     this.aHello.on((d, id) => this.onHello(d, id));
     this.aState.on((d, id) => this.onState(d, id));
     this.aCond.on((d, id) => this.onCond(d, id));
     this.aRace.on((d, id) => this.g.onNetRace(d, id));
     this.aBye.on((d, id) => this.dropPeer(id));
+    this.aPen.on((d, id) => this.g.onNetPenalty(d, id));   // a protest upheld against our boat (racing rules)
     const join = (id) => {
       this.aHello.send(this.helloMsg(), { target: id });
       this.aCond.send({ cond: this.cond, since: this.condSince }, { target: id });
@@ -164,5 +165,10 @@ export class Net {
   }
 
   broadcastRace(msg) { if (this.connected) this.aRace.send(msg); }
+  // a protest against the sailor of a remote boat: her own browser gives her the penalty
+  sendPenalty(boat, msg) {
+    if (!this.connected || !this.aPen) return;
+    for (const [id, p] of this.peers) if (p.boat === boat) this.aPen.send(msg, { target: id });
+  }
   get count() { return this.peers.size + 1; }
 }

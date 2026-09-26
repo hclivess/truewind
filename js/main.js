@@ -6,6 +6,7 @@ import { VENUES, World, makeProjection, fetchVenueGeo, fetchLiveWind } from './w
 import { fetchSeamarks } from './seamarks.js';
 import { Nav } from './nav.js';
 import { Course, Race, AIHelm, aiRandom, applyWindShadow, resolveCollisions } from './race.js';
+import { RuleEngine, RULE_SHORT } from './rules.js';
 import { Renderer } from './render.js';
 import { HUD, pref } from './hud.js';
 import { Audio } from './audio.js';
@@ -50,7 +51,7 @@ class Game {
     this.keys = new Set();
     this.settings = {
       cls: 'blackwatch', venue: 'progreso', mode: 'free', tws: 14, twd: 70, gust: 0.5, shift: 7, swell: 0, current: 0.4,
-      fleet: 5, countdown: 120, laps: 1, weather: 'changing', tod: 'afternoon', autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true,
+      fleet: 5, countdown: 120, laps: 1, weather: 'changing', tod: 'afternoon', autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true, rules: true,
     };
     this.venueTouched = false;
     // the last setup is remembered (a custom location is not: its coastline is downloaded per visit)
@@ -108,7 +109,7 @@ class Game {
       const upd = () => { this.settings[k] = parseFloat(el.value); out.textContent = sliders[k](this.settings[k]); if (k === 'tws') this.windNote(); };
       el.addEventListener('input', upd); upd();
     }
-    const checks = { 'opt-trim': 'autoTrim', 'opt-hike': 'autoHike', 'opt-tiller': 'tiller', 'opt-laylines': 'laylines', 'opt-sound': 'sound' };
+    const checks = { 'opt-trim': 'autoTrim', 'opt-hike': 'autoHike', 'opt-tiller': 'tiller', 'opt-laylines': 'laylines', 'opt-sound': 'sound', 'opt-rules': 'rules' };
     for (const id in checks) { const el = $('#' + id); el.checked = this.settings[checks[id]]; el.addEventListener('change', () => { this.settings[checks[id]] = el.checked; }); }
     $('#start').addEventListener('click', () => this.castOff());
     $('#resume').addEventListener('click', () => this.closeMenu());
@@ -340,7 +341,7 @@ class Game {
     // boats
     this.renderer.removeAllBoats();
     this.boats = []; this.ais = [];
-    this.race = null; this.course = null; this.waypoint = null;
+    this.race = null; this.course = null; this.waypoint = null; this.rules = null;
     $('#results').hidden = true;
     const cls = CLASSES[S.cls];
     const player = new Boat(cls, { id: 0, name: 'You', sailModel: SAIL_MODEL, lod: SAIL_MODEL === 'strip' ? 2 : this.sailLevelFor(cls) });
@@ -382,6 +383,8 @@ class Game {
         this.ais.push(ai);
       }
       this.race = new Race(course, this.boats, { countdown: S.countdown });
+      // the racing rules, with an umpire on the water (js/rules.js): the AI crews sail by them too
+      if (S.rules) this.rules = new RuleEngine({ race: this.race, course, world, piers: this.obstacles || [], human: (b) => b === player });
       this.renderer.setMarks(course.marks(), course.committee);
     } else {
       let x = 0, z = 0, hdg = twd + Math.PI / 2;
@@ -502,6 +505,10 @@ class Game {
     const course = new Course(this.world, msg.twd, { length: msg.length, laps: msg.laps, lineLength: 140 });
     this.course = course;
     this.race = new Race(course, [this.player], { countdown });
+    // online: every browser runs the same rules on the shared state and rules on its own boat only (the others'
+    // penalties are theirs to take); a protest against another sailor goes to her browser
+    this.rules = this.settings.rules ? new RuleEngine({ race: this.race, course, world: this.world, piers: this.obstacles || [], raceId: msg.id, owned: (b) => !b.remote, human: () => true }) : null;
+    if (this.rules && this.targets) this.rules.upTwa = this.targets.up.twa;
     this.renderer.setMarks(course.marks(), course.committee);
     this.waypoint = null;
     this.hud.toast(`${from ? msg.by : 'You'} started a race — gun in ${Math.max(0, Math.round(countdown))} s`, 4);
@@ -511,13 +518,14 @@ class Game {
   raceStandings() {
     if (!this.race) return [];
     const C = this.course;
-    const list = this.race.standings().map(r => ({ name: r.boat === this.player ? 'You' : r.boat.name, me: r.boat === this.player, finished: r.finished, time: r.finishTime, leg: r.leg, boat: r.boat }));
+    const code = (r) => r.dsq ? 'DSQ' : r.ocsAtGun && !r.started ? 'OCS' : null;
+    const list = this.race.standings().map(r => ({ name: r.boat === this.player ? 'You' : r.boat.name, me: r.boat === this.player, finished: r.finished, time: r.finishTime, leg: r.leg, boat: r.boat, code: code(r), pen: !!(this.rules && this.rules.penaltyOf(r.boat)) }));
     if (this.sharedRace) {
       for (const b of this.boats) {
         if (!b.remote || !b.netRace || b.netRace.id !== this.sharedRace.id) continue;
-        list.push({ name: b.name, me: false, finished: !!b.netRace.fin, time: b.netRace.fin, leg: b.netRace.leg, boat: b });
+        list.push({ name: b.name, me: false, finished: !!b.netRace.fin, time: b.netRace.fin, leg: b.netRace.leg, boat: b, code: b.netRace.dsq ? 'DSQ' : null, pen: !!b.netRace.pen });
       }
-      const score = (e) => e.finished ? 1e9 - e.time : e.leg * 1e5 - (() => { const t = C.target(C.legs[Math.min(e.leg, C.legs.length - 1)], e.boat); return Math.hypot(e.boat.x - t.x, e.boat.z - t.z); })();
+      const score = (e) => e.code ? -2e9 + e.leg : e.finished ? 1e9 - e.time : e.leg * 1e5 - (() => { const t = C.target(C.legs[Math.min(e.leg, C.legs.length - 1)], e.boat); return Math.hypot(e.boat.x - t.x, e.boat.z - t.z); })();
       list.sort((a, b) => score(b) - score(a));
     }
     return list;
@@ -566,6 +574,7 @@ class Game {
   }
   setPolar(p) {
     this.polar = p; this.targets = vmgTargets(p);
+    if (this.rules) this.rules.upTwa = this.targets.up.twa;
     for (const ai of this.ais) ai.targetsUpBsp = this.targets.up.bsp;
   }
 
@@ -747,6 +756,8 @@ class Game {
       tip.innerHTML = `<b>${best.label}</b><span>${best.info()}</span><em>${best.hint}</em>`;
     } else tip.hidden = true;
   }
+  // a point of the world on the screen (CSS px), and whether it is in front of the camera
+  project(x, y, z) { const v = (this._pv || (this._pv = new THREE_V())).set(x, y, z).project(this.renderer.camera); return [(v.x + 1) / 2 * window.innerWidth, (1 - v.y) / 2 * window.innerHeight, v.z < 1 && v.z > -1]; }
   screenOf(v) { const p = v.clone().project(this.renderer.camera); return [(p.x + 1) / 2 * window.innerWidth, (1 - p.y) / 2 * window.innerHeight]; }
   onGrabStart(g) {
     const b = this.player;
@@ -860,6 +871,8 @@ class Game {
       else if (b.sailBy.main.reefs) this.setReef(((b.ctrl.reef | 0) + 1) % (b.sailBy.main.reefs + 1));
     }
     else if (k === 'f' && b.sailBy.jib) this.letFly();
+    else if (k === 'b') this.protestKey();
+    else if (k === 'u') this.hailKey();
     else if (k === ' ') b.ctrl.helm = 0;
     else if (k === '=' || k === '+') this.warp(2);
     else if (k === '-') this.warp(0.5);
@@ -998,7 +1011,7 @@ class Game {
     this.renderer.update(dt, this.t, { env: this.env, boats: this.boats, player: p });
     if (!this.idle && this.running) {
       const r0 = this.race && this.race.racers[0];
-      this.net.update(dt, p, this.sharedRace && r0 ? { id: this.sharedRace.id, leg: r0.leg, fin: r0.finished ? r0.finishTime : 0 } : null);
+      this.net.update(dt, p, this.sharedRace && r0 ? { id: this.sharedRace.id, leg: r0.leg, fin: r0.finished ? r0.finishTime : 0, dsq: r0.dsq ? 1 : 0, ocs: r0.ocs ? 1 : 0, pen: this.rules && this.rules.penaltyOf(p) ? 1 : 0 } : null);
       this.hud.update(dt);
       this.nav.update(dt);
       this.audio.update(p, dt, this.renderer.rainNow || 0);
@@ -1057,11 +1070,12 @@ class Game {
     if (this.nav.hazards.length) marks.push(...this.nav.hazards);        // the real buoys and beacons around
     resolveCollisions(this.boats, marks, this.obstacles || [], (boat, other, v) => {
       if (boat === this.player && v > 0.6) { this.hud.toast(other && other.cls ? `Collision with ${other.name}!` : other && other.kind === 'pier' || other?.pts ? 'You hit the pier!' : 'Mark touched!', 2); this.audio.thump(Math.min(1, v / 2)); }
-    });
+    }, this.rules ? (b, o) => this.rules.touch(b, o) : null);
     if (this.race) {
       this.race.update(dt);
       if (this.timeWarp > 1 && !this.canWarp()) { this.timeWarp = 1; this.hud.toast('Time ×1 — 20 seconds to the gun', 2); }
       for (const ev of this.race.events.splice(0)) this.onRaceEvent(ev);
+      if (this.rules) { this.rules.step(dt, this.boats); for (const ev of this.rules.events.splice(0)) this.onRulesEvent(ev); }
     }
   }
 
@@ -1078,7 +1092,11 @@ class Game {
       else if (ev.s === -60) { this.audio.horn(false); this.hud.toast('One minute', 2); }
       else if (ev.s === -30) { this.audio.beep(); this.hud.toast('30 seconds', 1.5); }
       else if (ev.s === -10) { this.audio.beep(); this.hud.toast('10 seconds', 1.2); }
-    } else if (me && ev.type === 'ocs') { this.audio.horn(false); this.hud.alert('OCS — you were over early. Dip back below the line.', true); }
+    } else if (ev.type === 'ocs') {
+      // 29.1: the X flag and one sound signal, for all; the boat over is not told by name (a real one might hear a hail)
+      if (!this._xUp) { this._xUp = true; this.audio.horn(false); if (!me) this.hud.toast('X flag — individual recall', 3); }
+      if (me) this.hud.alert('OCS — X flag: you were over early. Dip back below the line.', true);
+    } else if (ev.type === 'xflag') this._xUp = false;
     else if (me && ev.type === 'cleared') { this.hud.alert(null); this.hud.toast('Cleared — now start', 2); }
     else if (me && ev.type === 'started') this.hud.toast('Clean start', 2);
     else if (me && ev.type === 'rounded') this.hud.toast(`${ev.name} rounded`, 2);
@@ -1093,6 +1111,57 @@ class Game {
     }
   }
 
+  // the umpire and the other crews: protests, penalties, hails (js/rules.js)
+  onRulesEvent(ev) {
+    const P = this.player, rt = (r) => `rule ${r} (${RULE_SHORT[r] || ''})`;
+    const near = (b) => b && Math.hypot(b.x - P.x, b.z - P.z) < 150;
+    if (ev.type === 'incident') {
+      const i = ev.inc;
+      if (i.vic === P && i.kind !== 'contact' && i.kind !== 'mark') this.hud.toast(`${i.off.name} infringed ${rt(i.rule)} — B to protest`, 5);
+    } else if (ev.type === 'protest') {
+      const i = ev.inc;
+      if (ev.by !== P && (i.off === P || near(ev.by))) { this.hud.toast(`${ev.by.name}: “Protest!” — ${rt(i.rule)}`, 3); this.audio.beep(); }
+      // online: my protest against another sailor goes to her browser, whose umpire gives her the penalty
+      if (ev.by === P && i.off && i.off.remote && this.sharedRace) this.net.sendPenalty(i.off, { race: this.sharedRace.id, rule: i.rule });
+    } else if (ev.type === 'penalty') {
+      if (ev.boat === P) { this.audio.horn(false); this.hud.toast(`Umpire: penalty, ${rt(ev.inc.rule)} — ${ev.pen.turns === 1 ? 'one turn' : ev.pen.turns + ' turns'} now`, 4); }
+      else if (near(ev.boat) || ev.inc.vic === P) this.hud.toast(`Umpire: penalty for ${ev.boat.name} — ${rt(ev.inc.rule)}`, 3);
+    } else if (ev.type === 'penaltyDone' && ev.boat === P) this.hud.toast('Penalty taken — race on', 2.5);
+    else if (ev.type === 'dsq' && ev.boat === P) { this.audio.horn(false); this.hud.toast(`Disqualified (DSQ) — ${ev.why}`, 5); }
+    else if (ev.type === 'dsq' && near(ev.boat)) this.hud.toast(`${ev.boat.name} disqualified — ${ev.why}`, 3);
+    else if (ev.type === 'noPenalty') this.hud.toast('Umpire: green and white flag — no penalty', 3);
+    else if (ev.type === 'hail') {
+      if (ev.to === P) { this.hud.toast(`${ev.from.name}: “Room to tack!” — tack now (U: “You tack”)`, 4); this.audio.beep(); }
+      else if (ev.from === P) this.hud.toast(`“Room to tack!”${ev.valid ? ` — ${ev.to.name} must answer` : ' — no obstruction near: that hail breaks rule 20.1'}`, 3);
+    } else if (ev.type === 'respond' && ev.to === P) this.hud.toast(ev.youTack ? `${ev.from.name}: “You tack!” — tack now` : `${ev.from.name} tacks — now tack yourself`, 3);
+  }
+  // B: protest (the umpire rules at once on what it saw); U: hail for room to tack at an obstruction, or, hailed,
+  // answer 'You tack' (and then keep clear while she tacks)
+  protestKey() {
+    if (!this.rules) { this.hud.toast(this.race ? 'Racing rules are off' : 'Protests are for races', 1.5); return; }
+    this.hud.toast('“Protest!”', 1.2);
+    this.rules.protest(this.player);
+  }
+  hailKey() {
+    if (!this.rules) { this.hud.toast(this.race ? 'Racing rules are off' : 'Hails are for races', 1.5); return; }
+    if (this.rules.hailTo(this.player)) { this.rules.respond(this.player, true); this.hud.toast('“You tack!” — give her room to tack', 2.5); return; }
+    if (!this.rules.hail(this.player)) this.hud.toast('No boat on your tack to windward to hail', 2);
+  }
+  onNetPenalty(d, from) {
+    if (!this.rules || !this.sharedRace || !d || d.race !== this.sharedRace.id || this.race.racers[0].finished) return;
+    const p = this.net.peers.get(from);
+    this.hud.toast(`${p ? p.name : 'A sailor'} protested — rule ${d.rule}: take your turns`, 4);
+    this.rules.remotePenalty(this.player, String(d.rule));
+  }
+  // the boat you must keep clear of, when it is getting close (the ring on her says the same)
+  keepClearAlert(b) {
+    let best = null;
+    for (const pr of this.rules.relsOf(b)) if (this.rules.owes(pr, b) && pr.clr < 2.5 && pr.when <= 2 && (!best || pr.clr < best.clr)) best = pr;
+    if (!best) return null;
+    const o = best.a === b ? best.b : best.a, rule = best.room && best.room.giver === b ? best.room.rule : best.rule;
+    return `Keep clear of ${o.name} — rule ${rule} (${RULE_SHORT[rule] || ''})`;
+  }
+
   checkAlerts() {
     const b = this.player, C = b.cls;
     if (b.capsized && b.righting) this.hud.alert(`Righting… ${Math.round(Math.abs(b.phi) * 57.3)}° — keep your weight out`, true);
@@ -1100,6 +1169,14 @@ class Game {
     else if (b.reefing) this.hud.alert(`${(b.ctrl.reef | 0) > b.reefPos ? 'Reefing' : 'Shaking out'} · ${Math.round(b.diag.reefProgress * 100)}% · main depowered`);
     else if (b.aground > 0.02) this.hud.alert(`Aground — ${this.world.depthAt(b.x, b.z).toFixed(1)} m of water`, true);
     else if (this.race && this.race.racers[0].ocs) this.hud.alert('OCS — dip back below the line', true);
+    else if (this.rules && this.rules.penaltyOf(b)) {
+      // a penalty to take: two turns (one for a mark), each a tack and a gybe, the same way round, now
+      const p = this.rules.penaltyOf(b), left = Math.max(0, Math.ceil(p.deadline - this.rules.t));
+      const cur = p.dir ? Math.round((p.max % (2 * Math.PI)) / DEG) : 0, tk = p.tk > p.made, gy = p.gy > p.made;
+      this.hud.alert(`Penalty · rule ${p.rule} · ${p.turns === 1 ? 'one turn' : p.turns + ' turns'}, each a tack and a gybe · ${p.made}/${p.turns} done${p.dir ? ` · this turn ${cur}° ${tk ? 'tack ✓' : 'tack –'} ${gy ? 'gybe ✓' : 'gybe –'}` : ''} · ${left} s`, true);
+    }
+    else if (this.rules && this.rules.hailTo(b)) this.hud.alert(`${this.rules.hailTo(b).from.name} hails for room to tack — tack now, or U: “You tack”`, true);
+    else if (this.rules && this.keepClearAlert(b)) this.hud.alert(this.keepClearAlert(b), true);
     else if (Math.abs(b.phi) > C.targetHeel + 14 * 0.01745) this.hud.alert(b.sailBy.main.reefs ? 'Overpowered — ease, depower or reef' : 'Overpowered — ease the main');
     else if (b.u < 0.3 && Math.abs(b.diag.twa || 0) < 35 * DEG) this.hud.alert(b.sailBy.jib ? 'In irons — ease the main, let the jib sheet fly (F) and haul the lazy sheet (J) to back the jib, reverse the tiller while going astern' : 'In irons — ease the main, push the boom out (J / Shift+J), reverse the tiller while going astern');
     else this.hud.alert(null);
