@@ -68,6 +68,17 @@ if (!isMainThread) {
   const out = {};
   for (const cls of todo) out[cls] = { rows: {} };
   const t0 = Date.now(); let done = 0;
+  mkdirSync(new URL('../data/sails/', import.meta.url), { recursive: true });
+  const r3 = (v) => Math.round(v * 1000) / 1000, r1 = (v) => Math.round(v * 10) / 10;
+  // each class is written as soon as its last angle is in (a long bake that is stopped keeps what it finished)
+  const write = (cls) => {
+    const R = out[cls].rows, tab = (f) => TWS.map((t) => POLAR_TWAS.map((a) => f(R[`${t}:${a}`])));
+    const data = { class: cls, model: 'cloth', lod: 0, secs, hz: 120, biases: BIASES, baked: new Date().toISOString().slice(0, 10),
+      tws: TWS, twa: POLAR_TWAS, bsp: tab((r) => r3(r.bsp)), heel: tab((r) => r1(r.heel)), leeway: tab((r) => r1(r.leeway)), gen: tab((r) => r.gen), bias: tab((r) => r.bias) };
+    writeFileSync(new URL(`../data/sails/${cls}.json`, import.meta.url), JSON.stringify(data) + '\n');
+    const i12 = TWS.indexOf(12);
+    if (i12 >= 0) console.log(`\n${cls} 12 kn: ` + POLAR_TWAS.map((a, j) => `${a}:${data.bsp[i12][j].toFixed(2)}${data.gen[i12][j] ? 'g' : ''}`).join(' '));
+  };
   await new Promise((resolve) => {
     let next = 0, alive = 0;
     const workers = Array.from({ length: Math.min(nJobs, jobs.length) }, () => new Worker(new URL(import.meta.url), { workerData: { secs } }));
@@ -76,21 +87,12 @@ if (!isMainThread) {
       alive++;
       w.on('message', (m) => {
         out[m.cls].rows[`${m.tws}:${m.twa}`] = m.r; done++;
+        if (Object.keys(out[m.cls].rows).length === TWS.length * POLAR_TWAS.length) write(m.cls);
         if (done % 20 === 0) process.stdout.write(`\r${done}/${jobs.length} ${((Date.now() - t0) / 1000).toFixed(0)} s`);
         if (!feed(w) && --alive === 0) resolve();
       });
       feed(w);
     }
   });
-  mkdirSync(new URL('../data/sails/', import.meta.url), { recursive: true });
-  const r3 = (v) => Math.round(v * 1000) / 1000, r1 = (v) => Math.round(v * 10) / 10;
-  for (const cls of todo) {
-    const R = out[cls].rows, tab = (f) => TWS.map((t) => POLAR_TWAS.map((a) => f(R[`${t}:${a}`])));
-    const data = { class: cls, model: 'cloth', lod: 0, secs, hz: 120, biases: BIASES, baked: new Date().toISOString().slice(0, 10),
-      tws: TWS, twa: POLAR_TWAS, bsp: tab((r) => r3(r.bsp)), heel: tab((r) => r1(r.heel)), leeway: tab((r) => r1(r.leeway)), gen: tab((r) => r.gen), bias: tab((r) => r.bias) };
-    writeFileSync(new URL(`../data/sails/${cls}.json`, import.meta.url), JSON.stringify(data) + '\n');
-    const i12 = TWS.indexOf(12);
-    if (i12 >= 0) console.log(`\n${cls} 12 kn: ` + POLAR_TWAS.map((a, j) => `${a}:${data.bsp[i12][j].toFixed(2)}${data.gen[i12][j] ? 'g' : ''}`).join(' '));
-  }
   console.log(`\nbaked ${todo.join(', ')} in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
 }
