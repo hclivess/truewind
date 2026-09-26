@@ -4,12 +4,15 @@
 // through WaveField.sample(). Used by `node test/coastal.mjs --gpu`; alone: node tools/verify-coastal.mjs [venue]
 // Needs Playwright (PLAYWRIGHT=/path/to/playwright/index.mjs) and a Chromium (CHROMIUM=/path/to/chrome).
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-export async function gpuCheck({ venue = 'marseille', tws = '18', twd = '225', swell = '2.5', port = 8700 + Math.floor(Math.random() * 90) } = {}) {
+const freePort = () => new Promise(r => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
+export async function gpuCheck({ venue = 'marseille', tws = '18', twd = '225', swell = '2.5', port } = {}) {
   const pw = await import(process.env.PLAYWRIGHT || 'playwright');
+  port = port || await freePort();
   const server = spawn('python3', ['-m', 'http.server', String(port), '--bind', '127.0.0.1'], { cwd: root, stdio: 'ignore' });
   await new Promise(r => setTimeout(r, 1200));
   const b = await pw.chromium.launch({ executablePath: process.env.CHROMIUM || undefined, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });

@@ -400,7 +400,9 @@ export function buildCoastal(inp) {
       // through b0 |d . n|), run straight until inside the map, and straight over land unhindered; the first wall
       // a ray meets (while it has crossed no land) reflects a ray of flux R^2 F (times the shelter there),
       // traced until its second wall.
-      const b0 = cs / div, ds = cs / div, lim = R + 2 * cs, area = cs * cs, queue = [], ic = 1 / cs;
+      // (one ray per cell where the refraction factor is to be smoothed over two cells or more anyway)
+      const sg = Math.min(6, Math.max(0.7, 0.5 * Math.sqrt(lam * 1000) / cs));
+      const b0 = cs / (sg >= 2 ? 1 : div), ds = cs / div, lim = R + 2 * cs, area = cs * cs, queue = [], ic = 1 / cs;
       const splat = (E, fx, fz, v) => {
         const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, t = fz - j;
         if (j >= 0 && j < M) { if (i >= 0 && i < M) E[j * M + i] += v * (1 - u) * (1 - t); if (i + 1 >= 0 && i + 1 < M) E[j * M + i + 1] += v * u * (1 - t); }
@@ -448,7 +450,6 @@ export function buildCoastal(inp) {
       // refraction's ray-tube factor, smoothed over the Fresnel scale 0.5 sqrt(lambda 1 km): a ray caustic is a
       // singularity no real (spectrally spread) sea shows; the shoaling stays local
       // (over the water only: land's cells hold no rays' energy)
-      const sg = Math.min(6, Math.max(0.7, 0.5 * Math.sqrt(lam * 1000) / cs));
       for (let k = 0; k < N; k++) { wet[k] = blocked[k] ? 0 : 1; rho[k] = blocked[k] ? 0 : Math.min(6, Ef[k] * cg[k] / cgDeep); }
       blur(rho, M, sg); blur(wet, M, sg);
       for (let k = 0; k < N; k++) rho[k] = wet[k] > 1e-3 ? rho[k] / wet[k] : 1;
