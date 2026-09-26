@@ -89,6 +89,18 @@ for (const kt of [40, 60, 80]) {
   console.log(`   crest / Hs: median ${cr[cr.length >> 1].toFixed(2)}, 90 % ${cr[Math.floor(cr.length * 0.9)].toFixed(2)}, max ${maxC.toFixed(2)}; within 1.5 km of a boat: ${(rate * Math.PI * 1.5 * 1.5).toFixed(1)} an hour`);
   check(rate / theory > 0.5 && rate / theory < 6, 'group rate not within the kurtosis-enhanced range of second-order theory');
   check(maxC <= 1.46 && cr[0] >= 1.1, 'group crests outside 1.1-1.45 Hs');
+  // a room: another peer, who joined later and asks in another order, has the same groups
+  {
+    const W2 = openSea(kt).waves; W2.update(7777);
+    let same = 0, diff = 0;
+    for (let s = 40; s >= 10; s--) for (let i = 0; i < 12; i++) for (let j = 0; j < 12; j++) {
+      const a = W._rgEvent(i, j, s), b = W2._rgEvent(i, j, s);
+      if (!a && !b) continue;
+      if (a && b && a.x === b.x && a.t === b.t && Math.abs(a.crest - b.crest) < 1e-9 && a.rs.every((v, k) => Math.abs(v - b.rs[k]) < 1e-9)) same++; else diff++;
+    }
+    console.log(`   another peer's groups: ${same} the same, ${diff} different`);
+    check(diff === 0 && same > 0, 'peers disagree on the rogue groups');
+  }
   // a Draupner: a crest of 1.25 Hs, focused; the surface at the focus, and the wave height there
   const tf = 900, E = W.forceEvent({ x: 400, z: -300, t: tf, crestHs: 1.25 }), o = {};
   let best = -1e9, bx = 0, bz = 0; const Lm = G * E.Tm * E.Tm / (2 * Math.PI);

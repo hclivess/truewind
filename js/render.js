@@ -426,7 +426,8 @@ export class Renderer {
           vec3 col = mix(body + sss, refl, F) + uSunCol * spec * 1.5;
           // ---- whitecaps and foam, Beaufort coverage from the wind (Monahan: W = 3.84e-6 U^3.41), placed
           // on the steepest crests: a z-score of crest compression (1 - Jacobian) against its local spread
-          float Wc = clamp(3.84e-6 * pow(max(lw, 0.0), 3.41), 0.0, 0.3);
+          // (past storm force Monahan's fit is beyond its data; at hurricane force the sea is white: Beaufort 12)
+          float Wc = clamp(3.84e-6 * pow(max(lw, 0.0), 3.41), 0.0, mix(0.3, 0.55, smoothstep(25.0, 34.0, lw)));
           // long waves say where (their crests), the short waves riding them say exactly which bits break
           vec2 zv = crestZV(J, Cs + 0.4 * Cd, vec3(sJ2, sS2 + 0.16 * sdR, sC), vec3(sJ2T, sS2T + 0.16 * sdT, sCT));
           float zc = zv.x;
@@ -487,15 +488,16 @@ export class Renderer {
             float row = floor(ya / 9.0), fy = ya - 9.0 * (row + 0.3 + 0.4 * hash(vec2(row, 3.7)));
             float rh = hash(vec2(row, 1.9)) * 97.0 + 0.5;                      // this row's own noise (off the lattice)
             float fx = fpAlong(fl, eRf, eT), k1 = smoothstep(0.8, 0.3, fx * 0.03), k2 = smoothstep(0.8, 0.3, fx * 0.02), k3 = smoothstep(0.8, 0.3, fx * 0.08);
-            float wdt = 0.3 + 1.2 * mix(0.5, qn(vec2(sw.x * 0.03, rh)), k1);   // half-width, m
+            float hur = smoothstep(25.0, 34.0, lw);                            // hurricane: streaks broaden and merge
+            float wdt = (0.3 + 1.2 * mix(0.5, qn(vec2(sw.x * 0.03, rh)), k1)) * (1.0 + 0.6 * hur);   // half-width, m
             // runs tens of metres long with gaps, beaded with thicker clots every 10-20 m (filtered along the wind)
             float run = ssV(0.575, 0.125, mix(0.5, qn(vec2(sw.x * 0.02, rh + 0.5)), k2), 0.053 * (1.0 - k2 * k2))
                       * (0.35 + 0.65 * ssV(0.5, 0.2, mix(0.5, qn(vec2(sw.x * 0.08, rh + 0.25)), k3), 0.053 * (1.0 - k3 * k3)));
-            float fw = fwY + 0.4 * wdt;                                        // plus a soft edge
+            float fw = fwY + (0.4 + 0.6 * hur) * wdt;                          // plus a soft edge
             // once the footprint spans rows the neighbours' streaks fall in it too: their mean cover
             float line = mix(clamp((min(fy + 0.5 * fw, wdt) - max(fy - 0.5 * fw, -wdt)) / fw, 0.0, 1.0), 2.0 * wdt / 9.0, smoothstep(3.0, 9.0, fwY)) * run;
             float streak = st * line * ssV(0.55, 0.25, f2, v2) * (0.4 + 0.6 * lace);
-            foam = max(act * (0.7 + 0.3 * f2), max(resid, streak * 0.55));
+            foam = max(act * (0.7 + 0.3 * f2), max(resid, streak * (0.55 + 0.3 * hur)));
           }
           foam = max(foam, pers);
           // up close foam is bubbles and holes, not paint (faded out before the bubbles shrink to a pixel)
@@ -512,13 +514,15 @@ export class Renderer {
           // it), so the pattern rides the crest rather than the water; across it, streaks a few % of a wavelength
           float Ea = sqrt(e1 * e1 + eH * eH);
           if (lb.w > 0.01 && Ea > 1e-3) {
-            float ph = atan(e1, -eH), kb = max(uBrk.x, 1e-3), acr = dot(x0, vec2(-uDm.y, uDm.x)) * kb * 5.0;
-            float wq = fpAlong(vec2(-uDm.y, uDm.x), eRf, eT) * kb * 5.0, vs;
-            float st = sfbmV(vec2(acr, ph * 2.4 - uTime * 0.9), wq, vs);
-            float rol = smoothstep(0.25, 0.9, ph) * (1.0 - smoothstep(1.55, 2.3, ph));
-            float cas = smoothstep(-0.9, 0.0, ph) * (1.0 - smoothstep(0.25, 0.9, ph)) * ssV(0.45, 0.12, st, vs);
-            float bk = (1.0 - smoothstep(1.55, 3.0, ph)) * step(1.5, ph) * lace * 0.5;      // torn foam left behind
-            foam = max(foam, lb.w * min(1.0, max(rol * (0.8 + 0.4 * st), max(cas, bk)) * 1.2));
+            float ph = atan(e1, -eH), kb = max(uBrk.x, 1e-3), acr = dot(x0, vec2(-uDm.y, uDm.x)) * kb * 30.0;
+            float wq = fpAlong(vec2(-uDm.y, uDm.x), eRf, eT) * kb * 30.0, vs;
+            float st = sfbmV(vec2(acr, ph * 1.2 - uTime * 0.5), wq, vs);                  // streaks down the face
+            float rol = smoothstep(0.85, 1.25, ph) * (1.0 - smoothstep(1.7, 2.0, ph));   // the crest's top, a little ahead
+            // (broken along their length, thinning toward the foot of the face)
+            float st2 = st * 0.7 + 0.3 * qn(vec2(acr * 0.4 + 3.1, ph * 4.0 - uTime * 1.3));
+            float cas = smoothstep(-0.3, 0.3, ph) * (1.0 - smoothstep(0.85, 1.25, ph)) * ssV(0.5 + 0.12 * (1.0 - smoothstep(0.0, 1.1, ph)), 0.1, st2, vs);
+            float bk = smoothstep(1.7, 1.9, ph) * (1.0 - smoothstep(1.9, 2.5, ph)) * lace * 0.35;   // torn foam left behind
+            foam = max(foam, lb.w * lb.w * min(1.0, max(rol * (0.75 + 0.5 * st), max(cas * 0.9, bk))));
           }
           // at a grazing angle the waves no pixel draws hide their own troughs (Smith masking, from the slope
           // variance lostF + mssSub) but not the crests that carry the foam: a sight line skims 1/G1 = 1 + L
@@ -593,9 +597,10 @@ export class Renderer {
           }
           // a breaking crest (WaveField._lean's B) leaves a sheet of foam on the water it has run over
           float Ea = sqrt(e1 * e1 + eH * eH), ph = atan(e1, -eH);
-          float brk = smoothstep(uBrk.y, uBrk.z, uBrk.x * Ea) * smoothstep(0.0, 0.8, ph) * (1.0 - smoothstep(1.6, 2.4, ph));
+          float brk = smoothstep(uBrk.y, uBrk.z, uBrk.x * Ea); brk *= brk * smoothstep(0.6, 1.0, ph) * (1.0 - smoothstep(1.7, 2.1, ph));
           float lw = uWind * texture2D(uGust, (p - uGustO) / uGustS + 0.5).r * 2.0;
-          float Wc = clamp(3.84e-6 * pow(max(lw, 0.0), 3.41), 0.0, 0.3);
+          // (past storm force Monahan's fit is beyond its data; at hurricane force the sea is white: Beaufort 12)
+          float Wc = clamp(3.84e-6 * pow(max(lw, 0.0), 3.41), 0.0, mix(0.3, 0.55, smoothstep(25.0, 34.0, lw)));
           vec2 xd = p - uFoamOff, pr = vec2(-uFlow.y, uFlow.x);
           vec2 sw = vec2(dot(xd, uFlow), dot(xd, pr));
           float f1 = sfbmA(vec2(sw.x * 0.28, sw.y * 0.6), cell.x * 0.28);
@@ -616,7 +621,7 @@ export class Renderer {
           }
           float tau = 3.0 + 6.0 * qn(xd * 0.04 + 1.3);                   // e-folding, patchy: gone in ~5-15 s
           old *= exp(-uDt / vec2(tau, 12.0)) * (1.0 + conv * uDt);
-          float src = (act * 2.0 + brk * 3.0) * uDt, wake = 0.0;         // ~0.5 s of breaking to full cover
+          float src = (act * 2.0 + brk * 2.0) * uDt, wake = 0.0;         // ~0.5 s of breaking to full cover
           for (int i = 0; i < 4; i++) {
             vec4 w = uWake[i]; vec4 ww = uWakeW[i];
             if (ww.y <= 0.0) continue;

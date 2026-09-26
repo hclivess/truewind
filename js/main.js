@@ -416,6 +416,12 @@ class Game {
     this.showLaylines = S.laylines;
     this.polar = null; this.targets = null;
     this.computePolar(cls, env.wind.mean(0).speed);
+    // ?rogue (offline only: a room's sea is the seed's): a rogue group brought to the boat, focusing a
+    // minute and a half from now where it will be
+    if (!idle && !online && /[?&]rogue\b/.test(location.search)) {
+      const E = env.waves.forceEvent({ x: player.x + Math.sin(player.psi) * 90 * player.u, z: player.z - Math.cos(player.psi) * 90 * player.u, t: 90, crestHs: 1.3 });
+      if (E) setTimeout(() => this.hud.toast(`A rogue group is gathering: ${E.crest.toFixed(0)} m crest in 90 s`, 4), 4000);
+    }
     $('#loading').hidden = true;
     if (!idle) {
       $('#hud').hidden = false;

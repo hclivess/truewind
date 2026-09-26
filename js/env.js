@@ -800,13 +800,13 @@ export class WaveField {
   _mkEvent(xf, zf, tf, u, crest) {
     const comps = this.comps, N = comps.length, h = this.depthFn ? this.depthFn(xf, zf) : null;
     const A = new Float64Array(N), psi = new Float64Array(N), af = new Float64Array(N);
-    let m0 = 0, m0s = 0, m1 = 0, ex = 0, ez = 0, kp = 0, best = 0, er = 0, hr = 0;
+    let m0 = 0, m0s = 0, m1 = 0, m1a = 0, ex = 0, ez = 0, kp = 0, best = 0, er = 0, hr = 0;
     for (let q = 0; q < N; q++) {
       const c = comps[q], a = this._ampOf(c, tf) * (c.curAmp ?? 1);
       af[q] = this._ampFactor(c, h); A[q] = a;
       psi[q] = (c.kRef ?? c.k) * (c.dx * xf + c.dz * zf) + this._pf(q, xf, zf) - (c.omegaEff ?? c.omega) * tf + c.phase;
       er += a * af[q] * Math.sin(psi[q]); hr += a * af[q] * Math.cos(psi[q]);   // the sea already there (and its Hilbert part)
-      m0 += a * a;
+      m0 += a * a; m1a += a * a * c.omega;
       if (c.kind !== 'sea') continue;
       m0s += a * a; m1 += a * a * c.omega; ex += a * a * c.dx; ez += a * a * c.dz;
       if (a > best) { best = a; kp = c.k; }
@@ -821,8 +821,9 @@ export class WaveField {
     const aF = 0.3536 + 0.2568 * S1 + 0.08 * Ur, bF = 2 - 1.7912 * S1 - 0.5302 * Ur + 0.284 * Ur * Ur;
     const P0 = Math.exp(-Math.pow(RG_C0 / aF, bF));
     const cr = crest ?? Math.min(RG_CMAX, aF * Math.pow(-Math.log(P0 * (1 - u)), 1 / bF)) * Hs;
-    // the linear crest that the second-order (Tayfun) term raises to cr: cr = a + K2 a^2
-    const K2 = this.k2 || 0, al = K2 > 1e-7 ? (Math.sqrt(1 + 4 * K2 * cr) - 1) / (2 * K2) : cr;
+    // the linear crest that the second-order (Tayfun) term raises to cr: cr = a + K2 a^2 (K2 of the sea at t_f,
+    // as update() will have it: everything here is a function of the seed and the focus alone)
+    const K2 = 0.5 * (m1a / m0) ** 2 / G, al = K2 > 1e-7 ? (Math.sqrt(1 + 4 * K2 * cr) - 1) / (2 * K2) : cr;
     // NewWave weights a_i = A_i^2 / sum A^2 (wind sea only); constrained: the sea already at the focus is
     // made up to the crest and its Hilbert part taken out, so the envelope peaks there at exactly cr
     let F = 0, Sk = 0;
