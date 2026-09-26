@@ -27,6 +27,7 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <div id="grab-tip" hidden></div>
   <div id="alert" role="alert"></div>
+  <div id="engine-card" hidden aria-live="off"><span class="eyebrow">Engine</span><b id="eng-rpm">0</b><small>rpm</small><span id="eng-gear">NEUTRAL</span><span id="eng-thr">0%</span><span id="eng-fuel" class="muted"></span></div>
 
   <section id="map-card" class="panel">
     <canvas id="minimap" width="480" height="480" aria-label="Tactical map, wind at the top"></canvas>
@@ -87,6 +88,11 @@
       <span class="tl tl-jib" id="tp-jibl">Jib</span><button class="tbtn tp-jib" data-k="jib" data-d="-1">Trim</button><button class="tbtn tp-jib" data-k="jib" data-d="1">Ease</button>
       <button class="tbtn tsm tp-sel" id="tp-sel" title="Tap for the next line">Trav ▸</button><button class="tbtn" id="tp-x0" data-k="trav" data-d="-1">Up</button><button class="tbtn" id="tp-x1" data-k="trav" data-d="1">Down</button>
       <button class="tbtn tsm" id="tp-auto">Auto trim</button><button class="tbtn tsm" id="tp-gen" hidden>Hoist</button>
+    </div>
+    <div class="tp tp-eng" id="tp-eng" hidden>
+      <span class="tl" id="tp-thr-l">N</span>
+      <input type="range" id="tp-thr" min="-1" max="1" step="0.02" value="0" aria-label="Throttle: astern, neutral, ahead">
+      <button class="tbtn tsm" id="tp-engine">Start</button>
     </div>
   </div>
 </div>
@@ -211,6 +217,8 @@
       <div><kbd>R</kbd><span>Reef (cycles 0 → 1 → 2) · rights a capsized dinghy</span></div>
       <div><kbd>Y</kbd><span>Daggerboard up / down</span></div>
       <div><kbd>T</kbd> <kbd>H</kbd><span>Automatic trim / automatic weight</span></div>
+      <div><kbd>B</kbd><span>Start / stop the engine (keelboats: the Blackwatch's outboard, the sportboat's outboard outside races). Racing, using it after the preparatory signal retires you</span></div>
+      <div><kbd>PgUp</kbd><kbd>PgDn</kbd> / <kbd>]</kbd><kbd>[</kbd><span>Throttle ahead / astern — one lever through a neutral detent; the gear shifts once the engine is back at idle</span></div>
       <div><kbd>1</kbd>–<kbd>7</kbd><span>Chase · Helm · Bow · Masthead · Overhead · Orbit · On deck</span></div>
       <div>On deck<span>Point at a rope, car, winch or the tiller: pull ropes up/down, slide cars along their tracks, wind winch handles round either way (clockwise = fast gear, anticlockwise = slow powerful gear; the drum only turns one way — drag a sheet tail down to ease), push the tiller sideways, click the reef line or gennaker halyard.</span></div>
       <div><kbd>L</kbd> <kbd>K</kbd> <kbd>I</kbd><span>Laylines · force vectors · physics readout</span></div>

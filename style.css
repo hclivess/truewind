@@ -312,3 +312,15 @@ body.menu-open #hud { visibility: hidden; }
 .boat-id input.bad { outline: 2px solid #e0302a; outline-offset: -2px; }
 #boat-id-msg:empty { display: none; }
 #boat-id-msg.bad { color: #ff8a80; }
+/* engine readout (only while the engine runs) and the touch throttle */
+#engine-card { position: absolute; top: calc(88px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); display: flex; align-items: baseline; gap: 8px; padding: 4px 12px; border-radius: 4px; background: rgba(11,22,31,.72); border: 1px solid rgba(233,238,242,.16); font: 600 14px var(--cond); letter-spacing: .06em; white-space: nowrap; }
+#engine-card[hidden] { display: none; }
+#engine-card b { font: 700 22px/1 var(--display); min-width: 3.2ch; text-align: right; }
+#engine-card small { color: var(--muted); font-size: 11px; margin-left: -4px; }
+#eng-gear { text-transform: uppercase; }
+#eng-gear.ahead { color: var(--stbd); } #eng-gear.astern { color: var(--amber); }
+.tp-eng { grid-template-columns: 54px; justify-items: center; }
+.tp-eng[hidden] { display: none; }
+.tp-eng #tp-thr { writing-mode: vertical-lr; direction: rtl; width: 44px; height: 120px; accent-color: var(--accent); touch-action: none; }
+.tp-eng #tp-engine.on { background: var(--stbd); color: var(--ink); }
+.tp-eng .tl { font: 700 14px var(--cond); letter-spacing: .08em; }
