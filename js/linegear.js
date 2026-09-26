@@ -44,6 +44,7 @@ const mSS = () => mat('ss', () => new THREE.MeshStandardMaterial({ color: 0xdfe3
 const mBronze = () => mat('bz', () => new THREE.MeshStandardMaterial({ color: 0xb58a50, roughness: 0.3, metalness: 0.85 }));
 const mRed = () => mat('red', () => new THREE.MeshStandardMaterial({ color: 0xd8342a, roughness: 0.4, emissive: 0x3a0806 }));
 const mBand = () => new THREE.MeshStandardMaterial({ color: 0xe0413a, emissive: 0xe0413a, emissiveIntensity: 0.6 });
+const lerp = (a, b, t) => a + (b - a) * t;
 const add = (g, geo, m, x = 0, y = 0, z = 0) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; g.add(o); return o; };
 // a rounded rectangle plate (x by z, t thick), sitting on y = 0
 function plate(w, l, t, r) {
@@ -133,18 +134,27 @@ export function makeClam(size = 'std') {
 // ------------------------------------------------------------------ V-jammer: a toothed V narrowing toward the load
 export function makeJam(bronze = false, ropeMat = null, ropeR = 0.006) {
   const k = 1.25, g = new THREE.Group(), m = bronze ? mBronze() : mSS();
-  add(g, plate(0.05 * k, 0.085 * k, 0.005 * k, 0.01 * k), m);
+  add(g, plate(0.052 * k, 0.08 * k, 0.005 * k, 0.012 * k), m);
+  // two wedge jaws seen from above: straight outside, the inside faces closing from a 24 mm mouth (tail side, +z)
+  // to 10 mm at the load end; their inner edges toothed
+  const inner = (z) => lerp(0.005, 0.012, (z + 0.03) / 0.06);
   for (const s of [-1, 1]) {
-    const j = add(g, new THREE.BoxGeometry(0.011 * k, 0.024 * k, 0.07 * k), m, s * 0.013 * k, 0.016 * k, 0.004 * k);
-    j.rotation.y = s * 0.2;                                          // jaws converge toward -z
-    for (let i = 0; i < 6; i++) { const z = (-0.024 + i * 0.009) * k, t = add(g, new THREE.BoxGeometry(0.003 * k, 0.02 * k, 0.003 * k), m, s * (0.0065 + (z / k + 0.03) * 0.2) * k, 0.016 * k, z); t.rotation.y = s * 0.2 + s * 0.7; }
+    const sh = new THREE.Shape(), P = [[s * inner(-0.03), -0.03], [s * 0.024, -0.03], [s * 0.024, 0.03], [s * inner(0.03), 0.03]];
+    P.forEach(([x, z], i) => (i ? sh.lineTo(x * k, -z * k) : sh.moveTo(x * k, -z * k)));
+    const ge = new THREE.ExtrudeGeometry(sh, { depth: 0.017 * k, bevelEnabled: true, bevelThickness: 0.0015, bevelSize: 0.0015, bevelSegments: 2 });
+    ge.rotateX(-Math.PI / 2); ge.translate(0, 0.005 * k, 0);
+    add(g, ge, m);
+    for (let i = 0; i < 7; i++) {
+      const z = -0.026 + i * 0.0085, t = add(g, new THREE.BoxGeometry(0.004 * k, 0.015 * k, 0.0025 * k), m, s * (inner(z) - 0.0012) * k, 0.0135 * k, z * k);
+      t.rotation.y = s * 0.9;                                        // teeth raked so the load pulls the line deeper
+    }
   }
   // the turn taken round the base before the line is wedged
   const turn = add(g, new THREE.TorusGeometry(0.03 * k, ropeR, 6, 24), ropeMat || mDark(), 0, 0.009 * k, 0.012 * k);
   turn.rotation.x = Math.PI / 2; turn.scale.set(0.95, 1.35, 1); turn.visible = false;
   const bd = band(g, 0.034 * k, 0.004);
   common(g, bd);
-  g.userData.throat = (free) => new THREE.Vector3(0, free ? 0.04 * k : 0.014 * k, -0.018 * k);
+  g.userData.throat = (free) => new THREE.Vector3(0, free ? 0.04 * k : 0.012 * k, -0.01 * k);
   g.userData.set = (st, t) => { turn.visible = st.s === 'locked' || (st.s === 'locking' && st.p > 0.4) || st.s === 'releasing'; g.userData.cue(st, t); };
   g.userData.ropeMat = (m2) => { turn.material = m2; };
   g.userData.kind = 'jam'; g.userData.k = k;

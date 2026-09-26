@@ -732,7 +732,7 @@ export class Rigging {
         if (!this.car) return null;
         const side = Math.sign(b.booms.main.a) || 1, car = this.car.position;
         if (h === 'carCam') return [car.clone().add(_v.set(0, -0.02, 0.06)), car.clone().add(_w.set(-side, -0.02, 0.06))];
-        if (h === 'pinStop') return [car.clone().add(_v.set(0, 0.022, 0)), car.clone().add(_w.set(0, 0.022, -1))];
+        if (h === 'pinStop') return [car.clone().add(_v.set(0.068, -0.03, 0)), car.clone().add(_w.set(0.068, -0.03, -1))];   // the plunger on the end of the car, over the track's holes
         const y = -side * (hw.travHalf - 0.06);                       // on the floor ahead of the track's windward end
         const p = this.seat(V(hw.travX + 0.12, y, hw.travZ + 0.3), 0);
         return [p, V(hw.travX - 1, y, p.y)];
