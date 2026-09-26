@@ -41,7 +41,11 @@ for (const cls of classes) {
   console.log(`${cls}: ${(base.b.u / KT).toFixed(2)} kn  main (depth/draft/twist at 17/50/82%) ${fmt(m)}${base.sh.jib ? '  jib ' + fmt(base.sh.jib) : ''}`);
   check(m[1][0] > 0.10 && m[1][0] < 0.14, `${cls}: mid main depth ${(m[1][0] * 100).toFixed(1)}% in 10-14%`);
   check(m[1][1] > 0.40 && m[1][1] < 0.50, `${cls}: mid main draft ${(m[1][1] * 100).toFixed(0)}% in 40-50%`);
-  check(m[2][2] > 8 * DEG && m[2][2] < 15 * DEG, `${cls}: upper main twist ${(m[2][2] / DEG).toFixed(0)}° in 8-15°`);
+  // (an una-rig on an unstayed bendy mast (no traveller) twists more: its tip bends aft and to leeward under load and
+  // the head falls off, the rig's automatic depower. Held to 11 degrees by the vang, the dinghy sailed 12% faster
+  // upwind in 12 kn than a Laser does (VMG 4.1 kn against ~3.6): 8-22 degrees there)
+  const twMax = C.sails.find((x) => x.key === 'main').trav ? 15 : 22;
+  check(m[2][2] > 8 * DEG && m[2][2] < twMax * DEG, `${cls}: upper main twist ${(m[2][2] / DEG).toFixed(0)}° in 8-${twMax}°`);
   // sign checks: one control each way, from the auto crew's setting
   const pair = (k, lo, hi) => [settle(cls, { [k]: lo }), settle(cls, { [k]: hi })];
   {

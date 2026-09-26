@@ -133,7 +133,6 @@ export const CLASSES = {
     sails: [
       { key: 'main', kind: 'boom', area: 7.06, luff: 5.1, foot: 2.75, head: 0.25, depth: [0.12, 0.14, 0.12], twistMax: 24 * DEG,
         cd0: 0.06, ARe: 3.9, min: 3 * DEG, max: 88 * DEG, trav: null, Iboom: 12, boomMass: 6, reefs: 0,
-        luffRoundK: 0.6,        // (luff round cut into the sail, fraction of the full mast bend: a bendy unstayed mast's sail is cut for the bend it sails with)
         vangBend: 0.6, sheetBend: 0.45, color: 0xf4f3ee },
     ],
     hull: { color: 0xf6f6f2, stripe: 0xc8412c, deck: 0xe6e3da, boot: 0xc8412c, sectionN: 2.2, transom: 0.72, bowRake: 0.15, sheer: 0.05 },
@@ -1009,12 +1008,12 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
     c.outhaul = lerp(c.outhaul, lerp(clothMain ? 0 : 0.25, lerp(0.35, 1, flat), shapeUp), k);
     c.cunn = lerp(c.cunn, lerp(0, flat, shapeUp), k);
     if (C.hasBackstay) c.backstay = lerp(c.backstay, lerp(0.05, lerp(0.15, 1, flat), shapeUp), k);
-    const twTop = clothMain && d.shape.main ? d.shape.main[2].tw : null;
+    const twTop = clothMain && boat.sailBy.main.trav && d.shape.main ? d.shape.main[2].tw : null;
     if (clothMain && shapeUp > 0.5 && Number.isFinite(twTop)) {
-      // a cloth main upwind: the vang (with the sheet) sets the leech twist to the sailmaker's target, about 11
-      // degrees at the top batten, more when overpowered to spill wind from the head (as crews set it by eye: the
-      // speed barely changes with it, the look of the sail does). (On the una-rig dinghy the vang also bends the mast:
-      // its sail is cut with the luff round for that bend, js/sail/rigsim.js)
+      // a cloth main on a traveller upwind: the vang (with the sheet) sets the leech twist to the sailmaker's target,
+      // about 11 degrees at the top batten, more when overpowered to spill wind from the head (as crews set it by
+      // eye: the speed barely changes with it, the look of the sail does). (The una-rig dinghy's vang is its leech
+      // and mast-bend control in one: it keeps its rule, which is also its fastest.)
       c.vang = clamp(c.vang + clamp(twTop - (11 + 8 * over) * DEG, -0.1, 0.1) * k * 1.5, 0, 1);
     } else {
       // (off the wind the vang holds the leech: a cloth main twists off as far as its vang lets it, so it goes on
