@@ -221,7 +221,7 @@ function lightsFor(v) {
   if (v.mode === 'mooring') return v.seed < 0.5 ? [[0, H, -L * 0.08, 'all']] : out;
   if (v.mode === 'anchor') return v.type === 'ship' ? [[0, f + 9, -L * 0.46, 'all'], [0, f + 5, L * 0.46, 'all'], [0, f + 3, -L * 0.2, 'deck'], [0, f + 3, L * 0.1, 'deck'], [0, f + 12, L * 0.38, 'deck']] : [[0, H, -L * 0.08, 'all']];
   if (v.hidden) return out;
-  out.push([B * 0.42, f + 0.3, -L * 0.3, 'stbd'], [-B * 0.42, f + 0.3, -L * 0.3, 'port'], [0, f + 0.4, L * 0.5, 'stern']);
+  out.push([B * 0.52, f + 0.3, -L * 0.3, 'stbd'], [-B * 0.52, f + 0.3, -L * 0.3, 'port'], [0, f + 0.4, L * 0.5 + 0.1, 'stern']);
   if (v.type === 'yacht') { if (!v.sails) out.push([0, H * 0.55, -L * 0.08, 'mh']); return out; }
   if (v.type === 'fishing' && v.fishing) out.push([0, H + 0.4, -L * 0.15, 'green'], [0, H - 0.6, -L * 0.15, 'all']);
   out.push([0, H, -L * 0.2, 'mh']);
@@ -283,9 +283,9 @@ export class TrafficView {
       vertexShader: `attribute float size; attribute vec3 color; uniform float uScale; uniform float uOn; varying vec3 vC;
         void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); float d = -mv.z;
           // a point of light stays a point far away (the eye sees a lamp miles off), dimmed by haze
-          vC = color * uOn * exp(-d * 0.00012); gl_PointSize = clamp(size * uScale / d, 2.5, 26.0); gl_Position = projectionMatrix * mv; }`,
+          vC = color * uOn * exp(-d * 0.00012); gl_PointSize = clamp(size * 2.6 * uScale / d, 3.5, 30.0); gl_Position = projectionMatrix * mv; }`,
       fragmentShader: `varying vec3 vC; void main(){ vec2 p = gl_PointCoord * 2.0 - 1.0; float r = dot(p, p); if (r > 1.0) discard;
-        float a = exp(-r * 5.0) + 0.5 * exp(-r * 1.2); gl_FragColor = vec4(vC * a * 1.6, 1.0); }`,
+        float a = exp(-r * 7.0) * 1.4 + 0.35 * exp(-r * 1.5); gl_FragColor = vec4(vC * a * 2.2, 1.0); }`,
     });
     this.lights = new THREE.Points(lg, this.lightMat); this.lights.frustumCulled = false; this.lights.renderOrder = 5;
     this.group.add(this.lights);
@@ -347,7 +347,7 @@ export class TrafficView {
       const d = Math.hypot(v.x - cx, v.z - cz);
       v._d = d; idx++;
       if (v.mode === 'berth' && d > 1500 && v._posed) continue;           // (far off in a marina: leave it)
-      if (d > 700 && v._posed && (fr + idx) % 3) continue;
+      if (v._posed && (d > 1200 ? (fr + idx) % 6 : d > 400 ? (fr + idx) % 3 : 0)) continue;
       if (d < 2500 || !v._posed) {
         const sc = v._sc ?? (v._sc = W.open ? 1 : clamp(W.sdfAt(v.x, v.z) / 60, 0.08, 1));
         if (v.mode === 'rail') v._sc = undefined;
@@ -371,7 +371,7 @@ export class TrafficView {
         if (v.hidden) { for (const k in parts) parts[k].setMatrixAt(i, this._zero); v._hid = true; continue; }
         v._hid = false;
         e.set(v.pitch, -v.psi, -v.roll); q.setFromEuler(e); p.set(v.x, v.heave, v.z); s.setScalar(v.scale);
-        m.compose(p, q, s);
+        m.compose(p, q, s); (v._mat || (v._mat = new THREE.Matrix4())).copy(m);
         parts.hull.setMatrixAt(i, m); parts.body.setMatrixAt(i, m);
         if (parts.cover) {
           parts.cover.setMatrixAt(i, v.sails ? this._zero : m);
@@ -397,7 +397,7 @@ export class TrafficView {
     this.wakeMat.uniforms.uT.value = t; this.wakeMat.uniforms.uLight.value = 1 - 0.8 * night;
     T.movers.forEach((v, mi) => {
       const cr = this.crumbs[mi], base = mi * WN * 2;
-      if (v.hidden || v._d > 2500) { cr.length = 0; for (let i = 0; i < WN * 2; i++) A[base + i] = 0; return; }
+      if (v.hidden || v._d > 1500) { cr.length = 0; for (let i = 0; i < WN * 2; i++) A[base + i] = 0; return; }
       const fx = Math.sin(v.psi), fz = -Math.cos(v.psi);
       if (!cr.length || t - cr[0].t > 0.4 || t < cr[0].t) {
         cr.unshift({ x: v.x - fx * v.L * 0.48, z: v.z - fz * v.L * 0.48, t, sp: v.u, px: Math.cos(v.psi), pz: Math.sin(v.psi), B: v.B });
@@ -407,9 +407,10 @@ export class TrafficView {
         const c = cr[Math.min(i, cr.length - 1)], k = (base + i * 2);
         if (!c || i >= cr.length) { A[k] = A[k + 1] = 0; continue; }
         const age = t - c.t, w = c.B * 0.45 + age * c.sp * 0.33;
-        const h = this._cheap(c.x, c.z, t, 1, wo).h * 0.5 + 0.12;
+        if (c.h === undefined || (i + this.frameN) % 4 === 0) c.h = this._cheap(c.x, c.z, t, 1, wo).h * 0.5 + 0.12;
+        const h = c.h;
         const a = clamp(c.sp / 5, 0, 1) * Math.exp(-age / (4 + c.B * 0.3)) * (i === 0 ? 0 : 1);
-        P.set([c.x + c.px * w, h, c.z + c.pz * w, c.x - c.px * w, h, c.z - c.pz * w], k * 3);
+        const o3 = k * 3; P[o3] = c.x + c.px * w; P[o3 + 1] = h; P[o3 + 2] = c.z + c.pz * w; P[o3 + 3] = c.x - c.px * w; P[o3 + 4] = h; P[o3 + 5] = c.z - c.pz * w;
         A[k] = A[k + 1] = a;
       }
     });
@@ -420,16 +421,16 @@ export class TrafficView {
     this.lights.visible = night > 0.02;
     if (!this.lights.visible) return;
     this.lightMat.uniforms.uScale.value = px / (2 * Math.tan(cam.fov * Math.PI / 360));
-    const T = this.traffic, P = this.lPos, C = this.lCol, S = this.lSize, m = this._m, e = this._e, q = this._q, p = this._p, s = this._s, vv = new THREE.Vector3();
+    const T = this.traffic, P = this.lPos, C = this.lCol, S = this.lSize, vv = this._vv || (this._vv = new THREE.Vector3()), fr = this.frameN;
     let n = 0;
     for (const v of T.vessels) {
-      if (v._d > 6000 || v.hidden) continue;
-      const Ls = v._lights || (v._lights = lightsFor(v));
-      if (v.mode === 'rail') v._lights = null;                 // (under way the set changes: sails, trawling)
+      if (v._d > 6000 || v.hidden || !v._mat) continue;
+      // (under way the set changes — sails, trawling, dwelling — so it is looked at again now and then)
+      if (!v._lights || (v.mode === 'rail' && (fr + v.seed * 30 | 0) % 30 === 0)) v._lights = lightsFor(v);
+      const Ls = v._lights, m = v._mat;
       if (!Ls.length) continue;
       // which arc the camera is in: bearing of the camera from the bow, + = starboard
       const brg = Math.atan2(cx - v.x, -(cz - v.z)) - v.psi, b = Math.atan2(Math.sin(brg), Math.cos(brg));
-      e.set(v.pitch, -v.psi, -v.roll); q.setFromEuler(e); p.set(v.x, v.heave, v.z); s.setScalar(v.scale); m.compose(p, q, s);
       for (const [x, y, z, kind] of Ls) {
         if (n >= this.lightCap) break;
         const ab = Math.abs(b), vis = kind === 'mh' ? ab <= 1.9635 : kind === 'stbd' ? b >= -0.05 && b <= 1.9635 : kind === 'port' ? b <= 0.05 && b >= -1.9635 : kind === 'stern' ? ab >= 1.9635 : true;

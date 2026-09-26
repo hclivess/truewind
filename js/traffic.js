@@ -166,8 +166,10 @@ export class NavGrid {
       }
       size.push(qt);
     }
-    this.comp = comp; this.compNeed = need; this.big = size.indexOf(Math.max(0, ...size));
+    return { comp, big: size.indexOf(Math.max(0, ...size)) };
   }
+  // (labelled once per clearance a vessel type needs)
+  comps(need) { const c = this._comps || (this._comps = new Map()); if (!c.has(need)) c.set(need, this.label(need)); return c.get(need); }
   // nearest open cell (breadth-first over rings), or -1
   snap(k, need, maxR = 40) {
     if (this.open(k, need)) return k;
@@ -610,7 +612,7 @@ export class Traffic {
       else { x = (r() * 2 - 1) * (W.R - 400); z = (r() * 2 - 1) * (W.R - 400); }
       if (Math.abs(x) > W.R - 300 || Math.abs(z) > W.R - 300) continue;
       const k = nav.cell(x, z);
-      if (nav.open(k, need + 15) && !this.kept(x, z, 80) && (comp < 0 || nav.comp[k] === comp)) return [x, z];
+      if (nav.open(k, need + 15) && !this.kept(x, z, 80) && (comp < 0 || nav.comps(need).comp[k] === comp)) return [x, z];
     }
     return null;
   }
@@ -627,9 +629,8 @@ export class Traffic {
     v.cruise = (v.T.kn[0] + r() * (v.T.kn[1] - v.T.kn[0])) * KT;
     const H = this.homes(), home = H.length ? H[Math.floor(r() * H.length)] : null;
     v.home = home;
-    if (!this.nav.comp) this.nav.label(10);
-    const hc = home ? this.nav.comp[this.nav.snap(this.nav.cell(home[0], home[1]), 10, 60)] : -1;
-    v.comp = hc >= 0 ? hc : this.nav.big;
+    const L = this.nav.comps(v.need), hk = home ? this.nav.snap(this.nav.cell(home[0], home[1]), v.need, 60) : -1, hc = hk >= 0 ? L.comp[hk] : -1;
+    v.comp = hc >= 0 ? hc : L.big;
     const a = this.pickWater(v.need, home, 2500, v.comp);
     if (!a) { this.vessels.splice(this.vessels.indexOf(v), 1); return null; }
     v.x = a[0]; v.z = a[1]; v.psi = r() * 6.283;
@@ -685,9 +686,16 @@ export class Traffic {
         v.x = v.ax - Math.sin(v.psi) * v.scope * (1 - 0.1 * Math.cos(t * 0.05 + v.seed * 9)); v.z = v.az + Math.cos(v.psi) * v.scope * (1 - 0.1 * Math.cos(t * 0.05 + v.seed * 9));
       }
     }
-    const all = this.movers;
-    for (const v of all) this.move(v, dt, t, env, boats, o);
+    const q = this.queue;
+    if (q && q.length) {
+      const v = q.shift(); v.queued = false;
+      const keep = v.dwell > 1e8 ? 0 : v.dwell;
+      v.dwell = this.newLeg(v, false, this.twd) ? Math.max(keep, 2 + this.rnd() * 20) : 30;
+    }
+    for (const v of this.movers) this.move(v, dt, t, env, boats, o);
   }
+  // a new leg is planned later (one A* a frame, so a frame never hitches on several), meanwhile the boat waits
+  replan(v) { if (!v.queued) { v.queued = true; (this.queue || (this.queue = [])).push(v); } v.dwell = Math.max(v.dwell || 0, 1e9); }
   move(v, dt, t, env, boats, o) {
     const W = this.world, r = this.rnd;
     if (v.dwell > 0) {                            // alongside at a terminal, or away past the edge of the chart
@@ -702,8 +710,7 @@ export class Traffic {
         v.dwell = end === 'edge' ? 120 + r() * 240 : v.type === 'chain' ? 50 + r() * 30 : 70 + r() * 110;
         v.hidden = end === 'edge';
       } else {
-        v.dwell = v.fishing ? 0 : 5 + r() * 25;
-        if (!this.newLeg(v, false, this.twd)) v.dwell = 30;
+        this.replan(v);
       }
       return;
     }
@@ -756,8 +763,8 @@ export class Traffic {
     if (!v.ferry) {
       if (v.s - v.lastS < 0.2 * dt) v.stuck += dt; else v.stuck = 0;
       v.lastS = v.s;
-      if (v.stuck > 90) { v.stuck = 0; this.newLeg(v, false, this.twd); }
-      if (v.sails && Math.abs(wrap(this.twd - v.twdPlan)) > 35 * DEG && v.s > 50) this.newLeg(v, false, this.twd);
+      if (v.stuck > 90) { v.stuck = 0; this.replan(v); }
+      else if (v.sails && Math.abs(wrap(this.twd - v.twdPlan)) > 35 * DEG && v.s > 50 && !v.queued) this.replan(v);
     }
   }
 
