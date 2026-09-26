@@ -89,9 +89,12 @@ class Game {
     // class's specs and blurb in one card below
     const groups = CLASS_GROUPS.filter(([g]) => CLASS_ORDER.some(id => (CLASSES[id].group || 'keelboat') === g));
     const gName = (g) => (CLASS_GROUPS.find(x => x[0] === g) || [0, ''])[1];
+    // (in group order; a class of a group this menu does not know goes at the end, under 'All')
+    const grouped = groups.flatMap(([g]) => CLASS_ORDER.filter(id => (CLASSES[id].group || 'keelboat') === g));
+    const listed = [...grouped, ...CLASS_ORDER.filter(id => !grouped.includes(id))];
     bl.innerHTML = `<div class="cls-tools"><div class="cls-tabs" role="tablist">${[['all', 'All'], ...groups].map(([g, label]) => `<button class="cls-tab${g === 'all' ? ' on' : ''}" role="tab" data-g="${g}" aria-selected="${g === 'all'}">${label}</button>`).join('')}</div>`
       + `<input id="cls-search" class="cls-search" type="search" placeholder="Search boats" aria-label="Search boats" autocomplete="off"></div>`
-      + `<div class="cls-list" aria-label="Boats">${CLASS_ORDER.map(id => { const C = CLASSES[id], g = C.group || 'keelboat'; return `<button class="card cls-row" data-cls="${id}" data-g="${g}"><span class="n">${C.name}</span><span class="g">${gName(g)}</span></button>`; }).join('')}</div>`
+      + `<div class="cls-list" aria-label="Boats">${listed.map(id => { const C = CLASSES[id], g = C.group || 'keelboat'; return `<button class="card cls-row" data-cls="${id}" data-g="${g}"><span class="n">${C.name}</span><span class="g">${gName(g)}</span></button>`; }).join('')}</div>`
       + `<div id="cls-detail" class="cls-detail" aria-live="polite"></div>`;
     const filter = () => {
       const tab = bl.querySelector('.cls-tab.on'), g = tab ? tab.dataset.g : 'all', q = ($('#cls-search').value || '').trim().toLowerCase();

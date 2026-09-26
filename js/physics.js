@@ -189,7 +189,7 @@ export const CLASSES = {
     // residuary resistance / weight: a light, flat-run skiff hull (D/L ~ 45) that is over its hump by Fn 0.6
     rr: [[0.1, 0.0001], [0.2, 0.001], [0.3, 0.0045], [0.35, 0.009], [0.4, 0.016], [0.45, 0.026], [0.5, 0.034],
          [0.55, 0.039], [0.6, 0.041], [0.7, 0.04], [0.8, 0.037], [1.0, 0.034], [1.2, 0.034], [1.5, 0.038]],
-    keel: { x: -0.2, z: -0.7, area: 0.34, ARe: 6.5, stall: 13 * DEG, cd0: 0.009, span: 1.25, chord: 0.27, board: true },
+    keel: { x: -0.25, z: -0.7, area: 0.34, ARe: 6.5, stall: 13 * DEG, cd0: 0.009, span: 1.25, chord: 0.27, board: true },
     rudder: { x: -2.35, z: -0.4, area: 0.14, ARe: 4.2, stall: 15 * DEG, cd0: 0.01, max: 32 * DEG, span: 0.8, chord: 0.19, loadRef: 300, lifting: true },
     hullLat: { area: 0.4, cd: 0.9, z: -0.05 },
     windage: { area: 1.3, z: 1.0, cd: 1.0 },
@@ -467,7 +467,7 @@ export const CLASSES = {
     // residuary resistance / weight of the main hull and the leeward float (slender hulls, L/vol^(1/3) ~ 10): the
     // Southampton-series level the beach cat uses, a little higher past the hump for the heavier build
     rr: [[0.1, 0.0004], [0.2, 0.002], [0.3, 0.0076], [0.35, 0.0145], [0.4, 0.024], [0.45, 0.034], [0.5, 0.04], [0.6, 0.045], [0.7, 0.047], [0.8, 0.05], [1.0, 0.054], [1.2, 0.058], [1.5, 0.065]],
-    keel: { x: 1.4, z: -1.8, area: 1.8, ARe: 6.0, stall: 13 * DEG, cd0: 0.009, span: 2.15, chord: 0.8, board: true },
+    keel: { x: 0.3, z: -1.8, area: 1.8, ARe: 6.0, stall: 13 * DEG, cd0: 0.009, span: 2.15, chord: 0.8, board: true },
     rudder: { x: -8.3, z: -1.2, area: 0.75, ARe: 4.0, stall: 15 * DEG, cd0: 0.01, max: 30 * DEG, span: 1.55, chord: 0.48, loadRef: 4000 },
     hullLat: { area: 3.0, cd: 0.9, z: -0.2 },
     windage: { area: 16, z: 2.8, cd: 0.95 },

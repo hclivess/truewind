@@ -4,18 +4,18 @@
 //     outhaul in -> flatter foot; cunningham on -> draft forward; backstay on -> flatter main, less headstay sag
 //     (flatter jib); vang on -> less twist; jib car aft -> flatter jib foot, more jib twist
 // Run: node test/sailshape.mjs [class]
-import { Boat, autoTrim, makeSteadyEnv, CLASSES } from '../js/physics.js';
+import { Boat, autoTrim, makeSteadyEnv, CLASSES, CLASS_ORDER } from '../js/physics.js';
 import { attachSails } from '../js/sail/sailsim.js';
 const KT = 0.514444, DEG = Math.PI / 180;
 let fails = 0;
 const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (!ok) fails++; };
-const classes = process.argv[2] ? [process.argv[2]] : ['blackwatch', 'sportboat', 'dinghy', 'cat'];
+const classes = process.argv[2] ? [process.argv[2]] : CLASS_ORDER;
 
 // settle a boat close-hauled (heading and helm held), auto crew, then hold a set of controls and settle again
 function settle(cls, set = null, secs = 14) {
   const env = makeSteadyEnv(12 * KT), b = new Boat(cls);
   attachSails(b, 'cloth', 0);
-  const twa = cls === 'cat' ? 50 : 45;
+  const twa = CLASSES[cls].multihull || CLASSES[cls].amas ? 50 : 45;
   b.reset(0, 0, twa * DEG); b.u = 2.5; for (const k in b.booms) b.booms[k].a = 0.15;
   const dt = 1 / 120;
   for (let i = 0; i < 120 * secs; i++) {
