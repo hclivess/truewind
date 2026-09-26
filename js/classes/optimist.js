@@ -43,7 +43,7 @@ export default {
   },
   model: {
     nameAt: false,
-    cockpit: { t0: 0.02, t1: 0.9, w: 0.84, sole: 0.02, seats: false, coaming: 0 },
+    cockpit: { t0: 0.02, t1: 0.97, w: 0.86, sole: 0.02, seats: false, coaming: 0 },
     bowTransom: true,
     deck: 'nonskid', deckTint: '#f0efe8', toerail: 'teak', cleats: false, navLights: false, windex: false,
     steering: { kind: 'tiller', len: 0.7, rise: 0.06, mat: 'wood', extension: 0.75, r: 0.018 },

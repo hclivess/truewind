@@ -32,7 +32,7 @@ export default {
   // outboard: a 6 hp long-shaft four-stroke on a transom bracket (the class's usual fit: Tohatsu/Honda/Yamaha 6)
   engine: { type: 'outboard', kW: 6 * HP, rpmMax: 5500, gear: 2.33, prop: { D: 0.197, P: 0.165, Z: 3, folding: false, rh: true }, pos: [-3.42, -0.35, -0.45], shaftAngle: 0, tiltable: true },
   sails: [
-    { key: 'main', kind: 'boom', area: 101.4 * SQFT, luff: 21.0 * FT, foot: 9.66 * FT, head: 0.12, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
+    { key: 'main', kind: 'boom', area: 101.4 * SQFT, luff: 21.0 * FT, foot: 9.66 * FT, head: 0.12, depth: [0.11, 0.125, 0.12], twistMax: 20 * DEG,
       cd0: 0.07, ARe: 3.4, min: 2 * DEG, max: 80 * DEG, trav: [-3 * DEG, 10 * DEG], Iboom: 26, boomMass: 9, reefs: 1,
       vangBend: 0.05, sheetBend: 0.04, color: 0xf3f1ea, pockets: [[0.25, 0.18], [0.5, 0.2], [0.75, 0.18]] },
     { key: 'jib', kind: 'loose', area: 10.5, tackX: 3.26, tackZ: 0.98, luff: 7.6, foot: 2.95, head: 0.05, footRise: 0.45,

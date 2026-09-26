@@ -21,11 +21,12 @@ const RR_LIGHT = [[0.1, 0.0001], [0.15, 0.0004], [0.2, 0.0009], [0.25, 0.0018], 
 const RR_DINGHY = [[0.1, 0.0001], [0.15, 0.0005], [0.2, 0.0012], [0.25, 0.0027], [0.3, 0.0055], [0.35, 0.011], [0.4, 0.021],
   [0.45, 0.035], [0.5, 0.048], [0.55, 0.055], [0.6, 0.057], [0.7, 0.055], [0.8, 0.052], [1.0, 0.049], [1.2, 0.05], [1.5, 0.056]];
 const at = (tab, x) => { for (let i = 1; i < tab.length; i++) if (x <= tab[i][0]) { const [x0, y0] = tab[i - 1], [x1, y1] = tab[i]; return y0 + (y1 - y0) * (x - x0) / (x1 - x0); } return tab[tab.length - 1][1]; };
-export function rrTable(lwl, massKg, { planing = 0, prism = 0, dinghy = false } = {}) {
+export function rrTable(lwl, massKg, { planing = 0, prism = 0, dinghy = false, k = 1 } = {}) {
   const s = lwl / Math.cbrt(massKg / 1025);
   // a dinghy hull: the dinghy's table, scaled as slenderness squared (a fuller, heavier-for-its-length hull makes
   // more wave per tonne: Rr/W ~ (vol^(1/3) / L)^2 near the hump)
-  if (dinghy) return RR_DINGHY.map(([fn, r]) => [fn, Math.round(r * (7.4 / s) ** 2 * 1e5) / 1e5]);
+  // (k: a hull's own factor on that, where its shape is known to be fuller or finer than the reference's)
+  if (dinghy) return RR_DINGHY.map(([fn, r]) => [fn, Math.round(k * r * (7.4 / s) ** 2 * 1e5) / 1e5]);
   // (no lighter than the sportboat's: beyond it there is nothing to calibrate against)
   const w = Math.max(0, Math.min(1.6, Math.log(5.93 / s) / Math.log(5.93 / 4.3)));
   return RR_HEAVY.map(([fn]) => {
