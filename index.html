@@ -33,6 +33,7 @@
     <div class="map-foot"><span id="map-orient">Wind up</span><span class="muted" id="map-scale"></span></div>
     <div id="nav-read" aria-label="Navigation">
       <div><span>COG</span><b id="nv-cog">–</b></div><div><span>SOG</span><b id="nv-sog">–</b></div><div><span>DPT</span><b id="nv-dpt">–</b></div>
+      <div class="td" title="The tidal stream here: the direction it sets toward"><span>SET</span><b id="nv-set">–</b></div><div class="td" title="The tidal stream's speed (knots)"><span>DRIFT</span><b id="nv-drift">–</b></div><div class="td ht" title="Height of tide above chart datum, rising or falling"><span>TIDE</span><b id="nv-tide">–</b></div>
       <div class="pos"><b id="nv-pos">–</b></div>
       <div class="tn"><em id="nv-tname"></em></div>
       <div class="wp"><span>BRG</span><b id="nv-brg">–</b></div><div class="wp"><span>DTW</span><b id="nv-dtw">–</b></div><div class="wp"><span>XTE</span><b id="nv-xte">–</b></div>
@@ -156,7 +157,7 @@
         <div class="field"><label for="gust">Puffs &amp; lulls <b id="gust-v"></b></label><input type="range" id="gust" min="0" max="1" step="0.05" value="0.5"></div>
         <div class="field"><label for="shift">Oscillating shifts <b id="shift-v"></b></label><input type="range" id="shift" min="0" max="20" step="1" value="7"></div>
         <div class="field"><label for="swell">Ocean swell <b id="swell-v"></b></label><input type="range" id="swell" min="0" max="8" step="0.1" value="0"></div>
-        <div class="field"><label for="current">Tidal current <b id="current-v"></b></label><input type="range" id="current" min="0" max="3" step="0.1" value="0.4"></div>
+        <div class="field tide-f"><label for="current">Tide <b id="current-v"></b></label><div class="tide-row"><div class="seg tseg2" role="radiogroup" aria-label="Tide"><button class="seg-b on" data-tide="real" role="radio" aria-checked="true" title="The real tide for the date: level and streams from harmonic constants">Real</button><button class="seg-b" data-tide="steady" role="radio" aria-checked="false" title="A steady current you set, no rise and fall">Steady</button></div><input type="date" id="tide-date" aria-label="Date of the tide"><input type="range" id="current" min="0" max="3" step="0.1" value="0.4" aria-label="Steady current"></div></div>
         <div class="field race-only"><label for="fleet">AI boats <b id="fleet-v"></b></label><input type="range" id="fleet" min="0" max="9" step="1" value="5"></div>
         <div class="field race-only"><label for="countdown">Start sequence <b id="countdown-v"></b></label><input type="range" id="countdown" min="30" max="300" step="30" value="120"></div>
         <div class="field race-only"><label for="laps">Laps <b id="laps-v"></b></label><input type="range" id="laps" min="1" max="3" step="1" value="1"></div>

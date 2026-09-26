@@ -1,5 +1,6 @@
 // Real-world venues from OpenStreetMap: coastlines + water polygons -> land/water grid,
-// signed distance to shore, estimated bathymetry, land-sheltered wind and wave fetch.
+// signed distance to shore, real bathymetry (js/bathy.js) under the tide (js/tide.js) or, where no survey grid
+// exists (lakes, custom places offline), estimated depths; land-sheltered wind and wave fetch.
 // Shared by the browser (live "custom location" fetch) and tools/fetch-venues.mjs (baked venues).
 
 import { noise2 } from './env.js';
@@ -8,12 +9,13 @@ export const VENUES = [
   { id: 'progreso', features: true, name: 'Puerto Progreso', place: 'Progreso, Yucatán, Mexico', lat: 21.315, lon: -89.668, R: 8000, wind: 70, windKt: 14, depth: 6.5, shelf: 1400,
     current: { kt: 0.4, dir: 270 }, spawn: { lat: 21.2925, lon: -89.6635, heading: 330 },
     note: 'Gulf of Mexico trade-wind sea breeze over the shallow Yucatán shelf, beside the 6.5 km Progreso pier — the longest in the world.' },
-  { id: 'solent', name: 'The Solent', place: 'Cowes, Isle of Wight, UK', lat: 50.772, lon: -1.285, wind: 225, windKt: 13, depth: 14, current: { kt: 1.2, dir: 90 }, note: 'Home of Cowes Week. Strong tides along the shore, Bramble Bank shallows.' },
+  // (the whole Solent, the Needles to Spithead: the tide runs in at both ends and through Hurst Narrows)
+  { id: 'solent', name: 'The Solent', place: 'Cowes, Isle of Wight, UK', lat: 50.772, lon: -1.285, R: 24000, wind: 225, windKt: 13, depth: 14, current: { kt: 1.2, dir: 90 }, note: 'Home of Cowes Week. The tide races through Hurst Narrows, double high water, Bramble Bank dries at low springs.' },
   { id: 'sfbay', name: 'San Francisco Bay', place: 'City Front, California, USA', lat: 37.822, lon: -122.425, wind: 255, windKt: 6, depth: 16, current: { kt: 1.5, dir: 80 }, note: 'The summer sea breeze pours through the Golden Gate. Alcatraz to leeward.',
     // the Gate westerly: the cold Pacific against the Central Valley's heat, slow to build and slow to fade
     // (windKt is the gradient under it: the thermal brings the summer afternoon's 15-25 kn)
     regional: { name: 'Golden Gate westerly', tau: 6, cool: 2.5, local: 0.25, day: { from: 252, gain: 5.1, thr: 0.7 } } },
-  { id: 'garda', name: 'Lake Garda', place: 'Riva del Garda, Italy', lat: 45.846, lon: 10.853, wind: 195, windKt: 4, depth: 90, note: 'Afternoon Ora from the south, funnelled between the mountains.',
+  { id: 'garda', lake: true, name: 'Lake Garda', place: 'Riva del Garda, Italy', lat: 45.846, lon: 10.853, wind: 195, windKt: 4, depth: 90, note: 'Afternoon Ora from the south, funnelled between the mountains.',
     // the valley winds of the Sarca and Adige: the Ora up the lake by day, the Pelèr down it from the night to late morning
     regional: { name: 'Ora (and the morning Pelèr)', tau: 4, cool: 5, local: 0.4, day: { from: 198, gain: 5.5, thr: 0.6 }, night: { from: 15, gain: 4, thr: 0.5 } } },
   { id: 'sydney', name: 'Sydney Harbour', place: 'New South Wales, Australia', lat: -33.845, lon: 151.255, wind: 45, windKt: 14, depth: 18, note: 'Summer nor-easter sea breeze, ferries, headlands and bays.' },
@@ -21,7 +23,7 @@ export const VENUES = [
   { id: 'newport', name: 'Narragansett Bay', place: 'Newport, Rhode Island, USA', lat: 41.47, lon: -71.36, wind: 215, windKt: 14, depth: 20, current: { kt: 0.6, dir: 20 }, note: 'Classic America\'s Cup ground, reliable afternoon southwesterly.' },
   { id: 'auckland', name: 'Hauraki Gulf', place: 'Auckland, New Zealand', lat: -36.83, lon: 174.82, wind: 230, windKt: 15, depth: 18, note: 'Waitematā Harbour entrance, Rangitoto to the north.' },
   { id: 'marseille', name: 'Rade de Marseille', place: 'Marseille, France', lat: 43.27, lon: 5.33, wind: 315, windKt: 20, depth: 40, note: 'Mistral country. Frioul islands offshore.' },
-  { id: 'meredith', name: 'Lake Meredith', place: 'near Amarillo, Texas, USA', lat: 35.69, lon: -101.565, wind: 200, windKt: 14, depth: 25, note: 'Panhandle lake near Amarillo, where Blue Water Boatworks built the Blackwatch 19/24.' },
+  { id: 'meredith', lake: true, name: 'Lake Meredith', place: 'near Amarillo, Texas, USA', lat: 35.69, lon: -101.565, wind: 200, windKt: 14, depth: 25, note: 'Panhandle lake near Amarillo, where Blue Water Boatworks built the Blackwatch 19/24.' },
   { id: 'open', name: 'Open Water', place: 'No land in sight', lat: 0, lon: 0, wind: 0, windKt: 12, depth: 200, open: true, note: 'Just you, the wind and the waves.' },
 ];
 
@@ -150,7 +152,7 @@ export class World {
   constructor(venue, geo, opts = {}) {
     this.venue = venue;
     this.R = opts.R ?? venue.R ?? MAP_RADIUS;
-    this.N = opts.N ?? Math.round(1024 * this.R / MAP_RADIUS / 64) * 64;
+    this.N = opts.N ?? Math.min(2048, Math.round(1024 * this.R / MAP_RADIUS / 64) * 64);   // (the big Solent: 23 m cells)
     this.cs = 2 * this.R / this.N;
     this.maxDepth = venue.depth ?? 20;
     this.open = !!venue.open || !geo;
@@ -293,13 +295,51 @@ export class World {
   }
   isWater(x, z) { return this.sdfAt(x, z) > 0; }
 
-  // Estimated bathymetry: shelving from the shore to the venue's typical depth, with shoals.
-  depthAt(x, z) {
-    const d = this.sdfAt(x, z);
-    if (d <= 0) return d * 0.05;
+  // Estimated bathymetry (no survey grid): shelving from the shore to the venue's typical depth, with shoals.
+  estDepth(x, z, d = this.sdfAt(x, z)) {
     const shoal = 0.75 + 0.5 * (0.5 + 0.5 * noise2(x / 520, z / 520, 91));
     return (0.4 + this.maxDepth * (1 - Math.exp(-d / (this.venue.shelf ?? 220)))) * shoal;
   }
+  // Real bathymetry (a Bathy grid of depth below MSL) laid onto the OSM shoreline: the coastline is mean high water,
+  // so on its water side the bed is at least 10 cm below MHW (drying banks stay, but the shore is wet at high
+  // water); where a coarse survey grid still has land on the water side (a harbour narrower than its cells) the
+  // estimate stands in; on the land side the bed rises just clear of MHW, so the shore ramps up within a cell.
+  // tide: the venue's Tide (js/tide.js), for the level and the chart datum; null in tideless water.
+  setBathy(bathy, tide = null) {
+    this.tide = tide;
+    if (!bathy) { this.bed = null; return; }
+    const n = bathy.nx, m = bathy.nz, bed = new Float32Array(n * m);
+    for (let j = 0; j < m; j++) for (let i = 0; i < n; i++) {
+      const x = bathy.x0 + (i + 0.5) * bathy.dx, z = bathy.z0 + (j + 0.5) * bathy.dx, k = j * n + i;
+      const s = this.sdfAt(x, z), hw = tide ? Math.max(0.05, tide.mhwAt(x, z)) : 0.05, d = bathy.d[k] * 0.1;
+      if (s > 0) bed[k] = Math.max(d > -hw && bathy.d[k] > -32000 ? d : this.estDepth(x, z, s), -hw + 0.1);
+      else bed[k] = -hw - 0.3;
+    }
+    this.bed = bed; this.bedG = { nx: n, nz: m, x0: bathy.x0, z0: bathy.z0, dx: bathy.dx };
+    this.bathySource = bathy.source;
+  }
+  // bed depth below MSL (m; negative: a drying bank or land above MSL)
+  bedAt(x, z) {
+    const s = this.sdfAt(x, z);
+    if (!this.bed) return s <= 0 ? s * 0.05 : this.estDepth(x, z, s);
+    if (s <= 0 && s < -this.bedG.dx) return s * 0.05 - 0.3;
+    const g = this.bedG, b = this.bed;
+    let fx = (x - g.x0) / g.dx - 0.5, fz = (z - g.z0) / g.dx - 0.5;
+    fx = Math.max(0, Math.min(g.nx - 1.001, fx)); fz = Math.max(0, Math.min(g.nz - 1.001, fz));
+    const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j, k = j * g.nx + i;
+    const d = (b[k] * (1 - u) + b[k + 1] * u) * (1 - v) + (b[k + g.nx] * (1 - u) + b[k + g.nx + 1] * u) * v;
+    return s <= 0 ? Math.min(d, s * 0.05 - 0.3) : d;
+  }
+  // the tide's level above MSL here, now
+  levelAt(x, z) { return this.tide ? this.tide.levelAt(x, z) : 0; }
+  // Water depth now (m): the bed under the tide's level. Negative over land and over a bank dried out by the tide.
+  depthAt(x, z) {
+    const d = this.sdfAt(x, z);
+    if (d <= 0) return d * 0.05;
+    return (this.bed ? this.bedAt(x, z) : this.estDepth(x, z, d)) + this.levelAt(x, z);
+  }
+  // charted depth: below chart datum (LAT, or MLLW in US waters); negative = drying height
+  chartDepthAt(x, z) { return this.bedAt(x, z) - (this.tide ? this.tide.z0At(x, z) : 0); }
   gradDepth(x, z) {
     const e = this.cs;
     return [(this.depthAt(x + e, z) - this.depthAt(x - e, z)) / (2 * e), (this.depthAt(x, z + e) - this.depthAt(x, z - e)) / (2 * e)];
@@ -373,7 +413,8 @@ export class World {
     return best || { x: 0, z: 0, len: L };
   }
 
-  // Encode the SDF for the GPU: 0..255 over -128..+128 m (plus shelter in G)
+  // Encode the SDF for the GPU: 0..255 over -128..+128 m; G: the bed below MSL (1/8 m, from 4 m above MSL: the
+  // shader adds the tide's level); B: shelter
   sdfTextureData(size = 512) {
     const data = new Uint8Array(size * size * 4);
     const c = 2 * this.R / size;
@@ -381,7 +422,7 @@ export class World {
       const x = -this.R + (i + 0.5) * c, z = -this.R + (j + 0.5) * c;
       const s = this.sdfAt(x, z), k = (j * size + i) * 4;
       data[k] = Math.max(0, Math.min(255, Math.round(128 + s)));
-      data[k + 1] = Math.max(0, Math.min(255, Math.round(this.depthAt(x, z) * 8)));
+      data[k + 1] = Math.max(0, Math.min(255, Math.round((this.bedAt(x, z) + 4) * 8)));
       data[k + 2] = Math.round(this.shelterAt(x, z) * 255);
       data[k + 3] = 255;
     }

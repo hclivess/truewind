@@ -1,6 +1,8 @@
-// Navigation: a paper-style chart (north up: coastline, estimated depths, seamarks with IALA symbols and their
-// light characteristics, the boat, its COG/SOG vector and track, the waypoint or the race's next mark), the nav
-// readout (COG, SOG, depth, position, BRG / DTW / XTE / VMC / ETA to the waypoint) and a steering compass tape.
+// Navigation: a paper-style chart (north up: coastline, charted depths below chart datum with the drying banks,
+// seamarks with IALA symbols and their light characteristics, the tidal streams as arrows, the boat, its COG/SOG
+// vector and track, the waypoint or the race's next mark, and the day's tide curve), the nav readout (COG, SOG,
+// depth, the stream's set and drift, the height of tide, position, BRG / DTW / XTE / VMC / ETA to the waypoint)
+// and a steering compass tape.
 // Tab (or the toolbar's Chart button) opens the chart; click or tap it to set a waypoint (a seamark: steer for it).
 import { DEG, KT } from './env.js';
 import { pref } from './hud.js';
@@ -108,6 +110,16 @@ export class Nav {
     const C = this.g.player.cls;
     set('dpt', s.depth > 99 ? '99+' : s.depth.toFixed(1), s.depth < C.draft + 1 ? 'bad' : s.depth < C.draft + 3 ? 'warn' : '');
     set('pos', `${fmtLat(s.lat)} ${fmtLon(s.lon)}`);
+    // the stream here (set: where it goes; drift: its speed) and the height of tide above chart datum
+    const b = this.g.player, cur = this.g.env && this.g.env.current ? this.g.env.current.at(b.x, b.z, this._cur || (this._cur = {})) : { x: 0, z: 0 };
+    const drift = Math.hypot(cur.x, cur.z), tide = this.g.tide, real = tide && !tide.still;
+    el.classList.toggle('has-td', drift > 0.01 || !!real); el.classList.toggle('has-ht', !!real);
+    set('set', drift > 0.01 ? pad3(brgOf(cur.x, cur.z) / DEG) + '°' : '–'); set('drift', (drift / KT).toFixed(1));
+    if (real) {
+      const g = tide.gaugeNear(b.x, b.z), h = tide.levelAt(b.x, b.z) + tide.z0At(b.x, b.z), ms = tide.now();
+      const rising = g ? g.level(ms + 600e3) > g.level(ms) : false;
+      set('tide', `${h.toFixed(1)} ${rising ? '↑' : '↓'}`);
+    }
     el.classList.toggle('has-wp', !!s.tgt);
     if (s.tgt) {
       set('tname', s.tname);
@@ -177,7 +189,7 @@ export class Nav {
   // ------------------------------------------------------------------ chart
   baseImage() {
     if (this.base && this.base.world === this.world) return this.base;
-    const w = this.world, S = 768, R = w.R, cv = document.createElement('canvas'); cv.width = cv.height = S;
+    const w = this.world, S = w.R > 10000 ? 1536 : 768, R = w.R, cv = document.createElement('canvas'); cv.width = cv.height = S;
     const ctx = cv.getContext('2d'), img = ctx.createImageData(S, S), band = new Uint8Array(S * S);
     const BANDS = [0, 2, 5, 10, 20];
     const PAL = [[150, 196, 224], [176, 212, 236], [204, 228, 244], [226, 240, 249], [246, 250, 252]];
@@ -186,7 +198,8 @@ export class Nav {
       const s = w.sdfAt(x, z);
       let c;
       if (s <= 0) { c = [238, 222, 166]; band[k] = 255; }
-      else { const d = w.depthAt(x, z); let bi = 0; while (bi + 1 < BANDS.length && d >= BANDS[bi + 1]) bi++; band[k] = bi; c = d < 0.6 ? [172, 196, 150] : PAL[bi]; }
+      // (charted depth below chart datum: negative = a drying bank, green as on a paper chart)
+      else { const d = w.chartDepthAt(x, z); let bi = 0; while (bi + 1 < BANDS.length && d >= BANDS[bi + 1]) bi++; band[k] = d < 0 ? 254 : bi; c = d < 0 ? [172, 196, 150] : PAL[bi]; }
       img.data[k * 4] = c[0]; img.data[k * 4 + 1] = c[1]; img.data[k * 4 + 2] = c[2]; img.data[k * 4 + 3] = 255;
     }
     // depth contours and the coastline where the band changes
@@ -291,6 +304,7 @@ export class Nav {
       ctx.drawImage(B.cv, x0, y0, 2 * w.R * V.s, 2 * w.R * V.s);
     }
     this.graticule(ctx, W, H);
+    this.streamArrows(ctx, W, H);
     const P = (x, z) => this.toPx(x, z);
     // track, race course, waypoint
     ctx.strokeStyle = 'rgba(210,90,20,.85)'; ctx.lineWidth = 1.6; ctx.beginPath();
@@ -413,7 +427,78 @@ export class Nav {
     // north arrow
     ctx.fillStyle = '#1d2530'; ctx.beginPath(); ctx.moveTo(W - 24, 14); ctx.lineTo(W - 30, 32); ctx.lineTo(W - 24, 28); ctx.lineTo(W - 18, 32); ctx.closePath(); ctx.fill();
     ctx.textAlign = 'center'; ctx.font = '700 12px "Barlow Condensed", sans-serif'; ctx.fillText('N', W - 24, 45);
-    $('#chart-scale').textContent = `${(W / V.s / NM).toFixed(W / V.s / NM < 3 ? 2 : 1)} nm across · depths estimated`;
+    const w = this.world, tide = this.g.tide;
+    $('#chart-scale').textContent = `${(W / V.s / NM).toFixed(W / V.s / NM < 3 ? 2 : 1)} nm across · ` + (w.bed ? `depths in m below ${tide ? tide.cd : 'MSL'}` : 'depths estimated');
+    if (tide && !tide.still && tide.ref) this.tidePanel(ctx, W, H);
+  }
+
+  // tidal streams: an arrow every ~52 px, as long as the stream is strong (1 kn: 16 px), labelled in knots when strong
+  streamArrows(ctx, W, H) {
+    const g = this.g, cur = g.env && g.env.current, w = this.world;
+    if (!cur || w.open || (g.tide && g.tide.still && !cur.speed)) return;
+    const step = 52, o = this._sa || (this._sa = {});
+    ctx.save(); ctx.lineCap = 'round'; ctx.font = '600 10px "Barlow Condensed", sans-serif'; ctx.textAlign = 'left';
+    for (let py = step / 2; py < H; py += step) for (let px = step / 2; px < W; px += step) {
+      const [x, z] = this.toWorld(px, py);
+      if (Math.abs(x) > w.R || Math.abs(z) > w.R || w.sdfAt(x, z) < 15) continue;
+      cur.at(x, z, o);
+      const sp = Math.hypot(o.x, o.z) / KT; if (sp < 0.08) continue;
+      const L = Math.min(40, 16 * sp), ux = o.x / (sp * KT), uz = o.z / (sp * KT);
+      const ax = px - ux * L / 2, ay = py - uz * L / 2, bx = px + ux * L / 2, by = py + uz * L / 2;
+      const col = sp < 0.5 ? 'rgba(40,90,160,.55)' : sp < 1.5 ? 'rgba(40,70,170,.8)' : sp < 3 ? 'rgba(120,40,170,.9)' : 'rgba(190,20,110,.95)';
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = sp < 0.5 ? 1.2 : 2;
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+      const a = Math.atan2(uz, ux), hl = Math.min(7, 3 + L * 0.2);
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx - hl * Math.cos(a - 0.45), by - hl * Math.sin(a - 0.45)); ctx.lineTo(bx - hl * Math.cos(a + 0.45), by - hl * Math.sin(a + 0.45)); ctx.closePath(); ctx.fill();
+      if (sp >= 1) ctx.fillText(sp.toFixed(1), px + 5, py + 12);
+    }
+    ctx.restore();
+  }
+
+  // the day's tide (local solar day) at the nearest gauge: curve, high and low waters, now; the stream at the boat
+  tidePanel(ctx, W, H) {
+    const g = this.g, tide = g.tide, b = g.player, st = tide.gaugeNear(b.x, b.z) || tide.ref, v = this.venue;
+    const now = tide.now(), lon = v && !v.open ? v.lon : 0, loc = (t) => ((t / 3600e3 + lon / 15) % 24 + 24) % 24;
+    const day0 = now - loc(now) * 3600e3;
+    // (cache the day's curve: it is the same all day)
+    if (!this._tc || this._tc.st !== st || this._tc.day0 !== day0) {
+      const pts = []; for (let i = 0; i <= 96; i++) { const t = day0 + i * 900e3; pts.push(st.level(t) + st.z0); }
+      this._tc = { st, day0, pts, ex: st.extremes(day0, day0 + 24 * 3600e3) };
+    }
+    const { pts, ex } = this._tc;
+    const pw = 250, ph = 118, x0 = W - pw - 10, y0 = H - ph - 10, gx = x0 + 26, gy = y0 + 20, gw = pw - 36, gh = ph - 46;
+    let lo = Math.min(0, ...pts), hi = Math.max(...pts); if (hi - lo < 0.4) { hi += 0.2; lo -= 0.2; }
+    const X = (t) => gx + (t - day0) / 86400e3 * gw, Y = (h) => gy + gh - (h - lo) / (hi - lo) * gh;
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,.86)'; ctx.strokeStyle = 'rgba(30,40,50,.35)'; ctx.lineWidth = 1;
+    ctx.fillRect(x0, y0, pw, ph); ctx.strokeRect(x0 + 0.5, y0 + 0.5, pw - 1, ph - 1);
+    const d = new Date(day0 + 12 * 3600e3 - lon / 15 * 3600e3);
+    ctx.fillStyle = '#1d2530'; ctx.font = '600 12px "Barlow Condensed", sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText(`Tide · ${st.name} · ${d.toISOString().slice(0, 10)}`, x0 + 6, y0 + 13);
+    ctx.textAlign = 'right'; ctx.font = '500 10px "Barlow Condensed", sans-serif'; ctx.fillStyle = 'rgba(30,40,50,.7)';
+    ctx.fillText(`m above ${st.cd}`, x0 + pw - 6, y0 + 13);
+    // axes: hours 0 6 12 18 24, heights
+    ctx.strokeStyle = 'rgba(30,40,50,.18)';
+    for (let hr = 0; hr <= 24; hr += 6) { const x = gx + hr / 24 * gw; ctx.beginPath(); ctx.moveTo(x, gy); ctx.lineTo(x, gy + gh); ctx.stroke(); ctx.textAlign = 'center'; ctx.fillText(String(hr).padStart(2, '0'), x, gy + gh + 11); }
+    const hstep = hi - lo > 3 ? 1 : 0.5;
+    for (let h = Math.ceil(lo / hstep) * hstep; h <= hi; h += hstep) { const y = Y(h); ctx.beginPath(); ctx.moveTo(gx, y); ctx.lineTo(gx + gw, y); ctx.stroke(); ctx.textAlign = 'right'; ctx.fillText(h.toFixed(hstep < 1 ? 1 : 0), gx - 3, y + 3); }
+    // the curve, filled to chart datum
+    ctx.beginPath(); pts.forEach((h, i) => { const x = gx + i / 96 * gw, y = Y(h); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.strokeStyle = '#1690c8'; ctx.lineWidth = 1.8; ctx.stroke();
+    ctx.lineTo(gx + gw, Y(Math.max(lo, 0))); ctx.lineTo(gx, Y(Math.max(lo, 0))); ctx.closePath(); ctx.fillStyle = 'rgba(22,144,200,.12)'; ctx.fill();
+    // high and low waters
+    ctx.font = '600 10px "Barlow Condensed", sans-serif'; ctx.fillStyle = '#1d2530'; ctx.textAlign = 'center';
+    const hm = (t) => { const h = loc(t); return `${String(Math.floor(h)).padStart(2, '0')}${String(Math.floor(h % 1 * 60)).padStart(2, '0')}`; };
+    for (const e of ex) { const x = X(e.t), y = Y(e.h + st.z0); ctx.beginPath(); ctx.arc(x, y, 2, 0, 6.3); ctx.fill(); ctx.fillText(`${hm(e.t)} ${(e.h + st.z0).toFixed(1)}`, Math.max(gx + 14, Math.min(gx + gw - 14, x)), e.hw ? y - 4 : y + 11); }
+    // now
+    const xn = X(now), hn = st.level(now) + st.z0;
+    ctx.strokeStyle = '#c0268f'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(xn, gy); ctx.lineTo(xn, gy + gh); ctx.stroke();
+    ctx.fillStyle = '#c0268f'; ctx.beginPath(); ctx.arc(xn, Y(hn), 3.2, 0, 6.3); ctx.fill();
+    // the stream at the boat
+    const c = g.env.current.at(b.x, b.z, {}), sp = Math.hypot(c.x, c.z) / KT;
+    ctx.textAlign = 'left'; ctx.font = '600 11px "Barlow Condensed", sans-serif'; ctx.fillStyle = '#1d2530';
+    ctx.fillText(`Now ${hn.toFixed(2)} m ${st.level(now + 600e3) > st.level(now) ? 'rising' : 'falling'} · stream ${sp.toFixed(1)} kn → ${pad3(brgOf(c.x, c.z) / DEG)}°`, x0 + 6, y0 + ph - 5);
+    ctx.restore();
   }
 }
 

@@ -636,13 +636,15 @@ export class WaveField {
     return this;
   }
 
-  // mean current (uniform part) for the Doppler shift and wave-current steepening
-  setCurrent(cx, cz) {
+  // mean current (uniform part) for the Doppler shift and wave-current steepening. When the stream changes at
+  // time t (the tide turning), each component's phase takes up the change of frequency so no crest jumps.
+  setCurrent(cx, cz, t = 0) {
     this.cur.x = cx; this.cur.z = cz;
     for (const c of this.comps) {
       const Ud = cx * c.dx + cz * c.dz;                          // current along the wave direction
-      const cph = c.omega / c.k;
-      c.omegaEff = c.omega + c.k * Ud;                            // Doppler shift
+      const cph = c.omega / c.k, w = c.omega + c.k * Ud;
+      if (t && c.omegaEff !== undefined) c.phase = (c.phase + (w - c.omegaEff) * t) % (2 * Math.PI);
+      c.omegaEff = w;                                             // Doppler shift
       c.curAmp = 1 / Math.sqrt(Math.max(0.35, 1 + 2 * Ud / cph)); // opposing current steepens the sea
     }
   }
@@ -781,7 +783,8 @@ export function kOfDepth(w, h) {
   return k0 / Math.sqrt(Math.tanh(k0 * h));
 }
 
-// ---------- tidal current ----------
+// ---------- current ----------
+// A steady stream set by hand (open water, custom places, or the menu's 'Steady' tide), flowing TOWARD dir.
 export class Current {
   constructor(opts = {}) {
     this.speed = (opts.speed ?? 0) * KT;
@@ -795,6 +798,12 @@ export class Current {
   }
 }
 
+// The real tide's stream (js/tide.js Tide: harmonic maps over the venue, advanced by Environment.tick)
+export class TideCurrent {
+  constructor(tide) { this.tide = tide; this.speed = 0; this.dir = 0; }
+  at(x, z, out = {}) { return this.tide.streamAt(x, z, out); }
+}
+
 export class Environment {
   constructor(opts = {}) {
     this.opts = opts;
@@ -803,14 +812,20 @@ export class Environment {
     if (opts.thermal) this.weather.thermal = new Thermal({ ...opts.thermal, cloud: this.weather.cloudBase() });
     this.wind = new WindField({ ...opts, weather: this.weather });
     this.waves = new WaveField({ tws: this.wind.tws, twd: this.wind.twd, fetchKm: opts.fetchKm, swellH: opts.swellH, swellT: opts.swellT, seaScale: opts.seaScale, weather: this.weather, seed: (opts.seed ?? 3) + 5 });
-    this.current = new Current({ speed: opts.currentKt ?? 0, dir: opts.currentDir ?? 90 });
+    // the tide: the real one (level and streams from the venue's harmonic constants and baked maps) or a steady stream
+    this.tide = opts.tide || null;
+    if (this.tide) { this.tide.setClock(opts.tideClock0 ?? opts.thermal?.clock0 ?? Date.now()); this.tide.setTime(0); }
+    this.current = this.tide && opts.tideMode !== 'steady' ? new TideCurrent(this.tide) : new Current({ speed: opts.currentKt ?? 0, dir: opts.currentDir ?? 90 });
+    this.focus = { x: 0, z: 0 };                  // where the sea's Doppler shift takes its stream from (the game sets it)
     const c0 = this.current.at(0, 0, {});
     this.waves.setCurrent(c0.x, c0.z);
+    this._curT = 0;
     this.wavesOn = opts.wavesOn ?? true;
     this._lastWaveT = -1e9;
   }
   // the thermal's clock moved (the menu's time of day): drop everything cached by t, raise the sea anew
   setClock(clock0, t = 0) {
+    if (this.tide) { this.tide.setClock(clock0); this.tide.setTime(t); }
     const th = this.weather.thermal; if (!th) return;
     th.setClock(clock0); this.weather._ct = NaN;
     // the day ahead now blows from elsewhere: lay the sea's components out anew (current and depth kept)
@@ -818,9 +833,17 @@ export class Environment {
     W.set(W.opts); W.setCurrent(cur.x, cur.z); if (world) W.buildDepthField(world); W.update(t);
     this._lastWaveT = t;
   }
-  // advance the slowly-changing sea state (cheap; call every frame)
+  // advance the slowly-changing sea state (cheap; call every frame). The sea's stream follows the tide at the focus
+  // (the boat), refreshed every 20 s of game time.
   tick(t) {
+    if (this.tide) this.tide.setTime(t);
+    let changed = false;
+    if (this.tide && this.current instanceof TideCurrent && Math.abs(t - this._curT) >= 20) {
+      this._curT = t;
+      const c = this.current.at(this.focus.x, this.focus.z, this._cf || (this._cf = {})), W = this.waves;
+      if (Math.hypot(c.x - W.cur.x, c.z - W.cur.z) > 0.02) { W.setCurrent(c.x, c.z, t); changed = true; }
+    }
     if (Math.abs(t - this._lastWaveT) > 1) { this.waves.update(t); this._lastWaveT = t; return true; }
-    return false;
+    return changed;
   }
 }

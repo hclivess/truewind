@@ -64,7 +64,7 @@ float fpQ(vec2 s, vec2 eR, vec2 eT, vec2 fl, vec2 pr){
 // z such that a normal variable exceeds it with probability p (p <= 0.5; Abramowitz-Stegun 26.2.23)
 float invTail(float p){ float t = sqrt(-2.0 * log(max(p, 1e-6)));
   return t - (2.515517 + 0.802853 * t + 0.010328 * t * t) / (1.0 + 1.432788 * t + 0.189269 * t * t + 0.001308 * t * t * t); }
-uniform sampler2D uSdf; uniform float uWorldR; uniform float uHasMap;
+uniform sampler2D uSdf; uniform float uWorldR; uniform float uHasMap; uniform float uTide;
 uniform sampler2D uPF; uniform float uHasPF; uniform float uPFN;
 // GLSL tanh/sinh overflow to NaN for large arguments on many GPUs: keep them bounded
 float tanhS(float x) { x = clamp(x, -9.0, 9.0); float e = exp(2.0 * x); return (e - 1.0) / (e + 1.0); }
@@ -79,7 +79,7 @@ float shoal(float w, float h) {
 float depthAt(vec2 x) {
   if (uHasMap < 0.5) return 99.0;
   vec4 s = texture2D(uSdf, (x + uWorldR) / (2.0 * uWorldR));
-  return s.r * 255.0 - 128.0 > 0.0 ? max(0.05, s.g * 255.0 / 8.0) : 0.05;
+  return s.r * 255.0 - 128.0 > 0.0 ? max(0.05, s.g * 255.0 / 8.0 - 4.0 + uTide) : 0.05;   // (the bed from 4 m above MSL, under the tide)
 }
 float phaseOff(int i, vec2 x) {
   if (uHasPF < 0.5) return 0.0;
@@ -169,7 +169,7 @@ export class Renderer {
       uWa: { value: Wa }, uWb: { value: Wb }, uWn: { value: 0 }, uTime: { value: 0 },
       uSunDir: { value: this.sunDir }, uCam: { value: new THREE.Vector3() }, uOffset: { value: new THREE.Vector2() },
       uGust: { value: this.gustTex }, uGustO: { value: new THREE.Vector2() }, uGustS: { value: 2048 },
-      uSdf: { value: this.sdfTex }, uWorldR: { value: 6000 }, uHasMap: { value: 0 }, uOvercast: this.overcastU,
+      uSdf: { value: this.sdfTex }, uWorldR: { value: 6000 }, uHasMap: { value: 0 }, uTide: { value: 0 }, uOvercast: this.overcastU,
       uPF: { value: this.pfTex }, uHasPF: { value: 0 }, uPFN: { value: 96 },
       uFlow: { value: new THREE.Vector2(0, 1) }, uWind: { value: 6 }, uK2: { value: 0 },
       uHs: { value: 0 }, uJSig: { value: 0.1 }, uLmin: { value: 4 },
@@ -494,7 +494,7 @@ export class Renderer {
     this.foamRT = [mk(), mk()]; this.foamI = 0; this.foamT = null;
     const U = this.waterU, v4 = () => [0, 1, 2, 3].map(() => new THREE.Vector4());
     const fu = { uPrev: { value: null }, uCp: { value: new THREE.Vector2() }, uDt: { value: 0 }, uDrift: { value: new THREE.Vector2() }, uLang: { value: 0 }, uKeep: { value: 0 }, uWake: { value: v4() }, uWakeW: { value: v4() } };
-    for (const k of ['uWa', 'uWb', 'uWn', 'uTime', 'uK2', 'uSdf', 'uWorldR', 'uHasMap', 'uPF', 'uHasPF', 'uPFN', 'uGust', 'uGustO', 'uGustS', 'uFlow', 'uWind', 'uFoamC', 'uFoamS', 'uFoamOff']) fu[k] = U[k];
+    for (const k of ['uWa', 'uWb', 'uWn', 'uTime', 'uK2', 'uSdf', 'uWorldR', 'uHasMap', 'uTide', 'uPF', 'uHasPF', 'uPFN', 'uGust', 'uGustO', 'uGustS', 'uFlow', 'uWind', 'uFoamC', 'uFoamS', 'uFoamOff']) fu[k] = U[k];
     this.foamU = fu;
     const mat = new THREE.ShaderMaterial({
       uniforms: fu, depthTest: false, depthWrite: false,
@@ -817,7 +817,7 @@ export class Renderer {
     const U = this.waterU;
     U.uHasMap.value = world.open ? 0 : 1;
     U.uWorldR.value = world.R;
-    const S = 512;
+    const S = world.R > 10000 ? 1024 : 512;
     this.sdfTex.dispose();
     this.sdfTex = new THREE.DataTexture(world.sdfTextureData(S), S, S, THREE.RGBAFormat);
     this.sdfTex.magFilter = THREE.LinearFilter; this.sdfTex.minFilter = THREE.LinearFilter; this.sdfTex.needsUpdate = true;
@@ -840,6 +840,15 @@ export class Renderer {
     // piers, breakwaters, viaducts, causeways and terminals (labelled ones drawn as what they are)
     const pierGroup = buildStructures(world, geo, byId);
     this.piersMesh = pierGroup; this.scene.add(pierGroup);
+  }
+
+  // the tide's level (m above MSL): everything that stands on the ground (terrain, town, piers, beacons and
+  // lighthouses) sinks by it while the sea (y = 0) and all that floats stays put, so the bed the water covers and
+  // the banks it uncovers are where the physics' depth has them; the shader's depths follow
+  setTide(eta) {
+    this.waterU.uTide.value = eta;
+    for (const o of [this.land, this.town, this.piersMesh]) if (o && o.position.y !== -eta) { o.position.y = -eta; o.updateMatrix(); }
+    if (this.seamarks) this.seamarks.setLevel(eta);
   }
 
   // ---------------------------------------------------------------- gust texture (CPU-baked wind field)
