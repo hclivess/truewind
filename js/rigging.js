@@ -311,9 +311,11 @@ export class Rigging {
     const hw = this.hw = {};
     const M = boat.sailBy.main;
     if (C.id === 'sportboat') {
-      hw.travX = C.mastX - M.foot * 0.55; hw.travZ = vis.ck.sole + 0.06; hw.travHalf = 0.55; hw.boomS = M.foot * 0.55;
-      hw.winchX = C.mastX - 1.35; hw.winchY = 0.78; hw.winchZ = dH(C.mastX - 1.35, 0.78) + 0.02;
-      hw.jibTrack = [C.mastX - 0.2, C.mastX - 1.0]; hw.jibTrackY = bw(C.mastX - 0.6) * 0.72;
+      // J/70 (measured from the stem): mainsheet bridle / traveller ~5.15 m aft, Harken B8 primaries ~4.6 m aft,
+      // short jib tracks 2.6-2.9 m aft
+      hw.travX = C.bowX - 5.15; hw.travZ = vis.ck.sole + 0.06; hw.travHalf = 0.55; hw.boomS = Math.min(M.foot * 0.95, C.mastX - hw.travX);
+      hw.winchX = C.bowX - 4.6; hw.winchY = 0.78; hw.winchZ = dH(hw.winchX, 0.78) + 0.02;
+      hw.jibTrack = [C.bowX - 2.6, C.bowX - 2.9]; hw.jibTrackY = bw(C.bowX - 2.75) * 0.72;
     } else if (C.id === 'blackwatch') {
       hw.travX = C.sternX + 0.35; hw.travZ = dH(C.sternX + 0.35, 0) + 0.06; hw.travHalf = 0.55; hw.boomS = M.foot * 0.96;
       const cx = lerp(C.sternX, C.bowX, 0.27);
@@ -386,7 +388,7 @@ export class Rigging {
     const onWinch = ['jibHalyard', 'cunn', 'outhaul', 'vang'].filter(k => LS[k] && LS[k].winch === 'cabin' && (k !== 'jibHalyard' || boat.sailBy.jib));
     if (!C.noWinches && onWinch.length) {
       this.mastWinch = LS[onWinch[0]].at === 'mast';                    // a winch at the mast foot, not aft on the cabin top
-      const x = this.mastWinch ? C.mastX - 0.3 : C.id === 'blackwatch' ? C.mastX - 1.3 : C.mastX - 1.1, y = this.mastWinch ? 0.2 : C.id === 'blackwatch' ? 0.36 : 0.42;
+      const x = this.mastWinch ? C.mastX - 0.3 : C.id === 'blackwatch' ? C.mastX - 1.3 : C.mastX - 0.78, y = this.mastWinch ? 0.2 : C.id === 'blackwatch' ? 0.36 : 0.46;
       const w = makeWinch(bronze, 0.045); w.position.copy(V(x, y, this.surfaceAt(x, y, vis.deckH(x, y) + 0.6) ?? vis.deckH(x, y))); inner.add(w);
       w.userData.side = 0; this.cabinWinch = w; this.winches.push(w);
       this.cabinLead = rope(0.0045, onWinch[0], 40);
@@ -676,7 +678,7 @@ export class Rigging {
       const st = Math.max(4, (L.stayLoad || 0) / 2);
       this.staySheet[0].set([cb, dk], st, g); this.staySheet[1].set([cb.clone().add(_v.set(0.02, 0, 0)), dk.clone().add(_w.set(0.02, 0, 0))], st, g);
       this.staySheet[2].tailRest = 0.5 + (1 - b.lines.stay) * 1.2;
-      lead(this.staySheet[2], 'stay', [dk, V(C.mastX + 0.1, 0.08, vis.deckH(C.mastX + 0.1, 0.08) + 0.04), V(C.mastX - 1.1, 0.25, vis.deckH(C.mastX - 1.1, 0.25) + 0.04), this.hands.stay || V(C.mastX - 1.4, 0.3, vis.deckH(C.mastX - 1.4, 0.3) + 0.03)], st);
+      lead(this.staySheet[2], 'stay', [dk, V(C.mastX + 0.1, 0.08, vis.deckH(C.mastX + 0.1, 0.08) + 0.04), V(C.mastX - 0.8, 0.25, vis.deckH(C.mastX - 0.8, 0.25) + 0.04), this.hands.stay || V(C.mastX - 1.4, 0.3, vis.deckH(C.mastX - 1.4, 0.3) + 0.03)], st);
     }
     // --- winch drums turn with the line (trimming in turns them clockwise), handle on the working winch
     if (this.cabinWinch) this.updateCabinLead(g);
@@ -725,7 +727,7 @@ export class Rigging {
         const x = hw.winchX - (h === 'winchHorn' ? 0.28 : 0.22), y = s * (Math.abs(-w.position.x) - (h === 'winchHorn' ? 0.0 : 0.1));
         return [dk(x, y), w.position];
       }
-      case 'stay': return [dk(C.mastX - 1.45, 0.3), V(C.mastX - 1.1, 0.25, vis.deckH(C.mastX - 1.1, 0.25))];
+      case 'stay': return [dk(C.mastX - 1.12, 0.27), V(C.mastX - 0.8, 0.25, vis.deckH(C.mastX - 0.8, 0.25))];   // aft end of the cabin top
       case 'trav': {
         if (!this.car) return null;
         const side = Math.sign(b.booms.main.a) || 1, car = this.car.position;

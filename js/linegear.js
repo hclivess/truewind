@@ -75,7 +75,7 @@ function band(g, r, y) {
 function common(g, bandObj) {
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   g.userData.band = bandObj;
-  g.userData.cue = (st, t) => { const on = st.s === 'free' || st.slip; bandObj.visible = on; if (on) bandObj.material.emissiveIntensity = st.slip ? 0.4 + 0.6 * (Math.sin(t * 25) > 0) : 0.6; if (on) bandObj.material.emissive.setHex(st.slip ? 0xffa21a : 0xe0413a); };
+  g.userData.cue = (st, t) => { const on = st.s === 'free' || !!st.slip; bandObj.visible = on; if (on) bandObj.material.emissiveIntensity = st.slip ? 0.4 + 0.6 * (Math.sin(t * 25) > 0) : 0.6; if (on) bandObj.material.emissive.setHex(st.slip ? 0xffa21a : 0xe0413a); };
 }
 
 // ------------------------------------------------------------------ cam cleat (Harken Cam-Matic 150 / 468)
