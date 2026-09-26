@@ -10,6 +10,7 @@ import { Audio } from './audio.js';
 import { Net } from './net.js';
 import { Vector3 as THREE_V } from 'three';
 import { Rigging } from './rigging.js';
+import { work, letFly as flyLine, handlerOf, lineName } from './linehandlers.js';
 import { sunPosition } from './sky.js';
 import './sail/sailsim.js';   // (registers the cloth / lattice sail model with physics.js)
 import { SailGovernor, setSailLevel } from './governor.js';
@@ -567,16 +568,27 @@ class Game {
   toggleAutoHike() { this.player.auto.hike = !this.player.auto.hike; this.hud.toast(this.player.auto.hike ? 'Automatic weight placement on' : 'Automatic weight off — you place your weight (Q/E)'); }
   // the side panel's buttons: same rates as the keys, loaded sheets come in slower
   // throw the working jib sheet off the winch: it runs out and the clew is free to cross
-  letFly() { const b = this.player; if (!b.sailBy.jib) return; this.userTouched('jib'); b.locks.jib = false; this.audio.click && this.audio.click(); this.hud.toast('Jib sheet out of the self-tailer — it runs free', 1.4); }
-  // cleat / release a line (cam cleat, clutch or self-tailer)
+  letFly() { const b = this.player; if (!b.sailBy.jib) return; this.userTouched('jib'); flyLine(b, 'jib'); this.audio.click && this.audio.click(); this.hud.toast(`${lineName(b, 'jib')} let fly — the turns are off, it runs free`, 1.4); }
+  // make a line fast / cast it off: its handler (js/linehandlers.js) takes its own time — a cam or clutch a moment,
+  // a horn cleat seconds of figure-eights
   toggleLock(k) {
     const b = this.player; if (!b.locks || !(k in b.locks)) return;
-    this.userTouched(k); b.locks[k] = !b.locks[k]; this.audio.click && this.audio.click();
-    const names = { main: 'Mainsheet', jib: 'Jib sheet', lazy: 'Lazy jib sheet', stay: 'Staysail sheet', trav: 'Traveler', vang: 'Vang', cunn: 'Cunningham', outhaul: 'Outhaul', backstay: 'Backstay', jibHalyard: 'Jib halyard', tackLine: 'Tack line' };
-    this.hud.toast(`${names[k] || k} ${b.locks[k] ? 'cleated' : 'released — it runs under load'}`, 1.4);
+    this.userTouched(k); b.locks[k] = !b.locks[k]; if (b.lh && b.lh[k]) b.lh[k].auto = false; this.audio.click && this.audio.click();
+    const H = handlerOf(b, k), n = lineName(b, k);
+    const msg = H.hand ? (b.locks[k] ? `${n} in the hand through the ratchet` : `${n} let go — it runs out through the ratchet`)
+      : b.locks[k] ? `${n}: ${H.lockT > 1 ? 'making it fast on the' : 'into the'} ${H.name.toLowerCase()}${H.lockT > 0.5 ? ` (${H.lockT} s)` : ''}`
+      : `${n}: out of the ${H.name.toLowerCase()}${H.releaseT > 0.5 ? ` (${H.releaseT} s)` : ''} — ${H.release === 'dump' ? 'it runs out under load' : H.release === 'ease' ? 'it surges out round the drum' : 'played in the hand'}`;
+    this.hud.toast(msg, 1.8);
   }
-  // hauling a line seats it in its cleat or self-tailer; while the player works it, it does not run
-  working(k, trimming) { const b = this.player; if (!b.locks || !(k in b.locks)) return; b.held[k] = 0.3; if (trimming) b.locks[k] = true; }
+  // the player works a line: returns how much of the movement happens now. Hauling goes through a one-way handler
+  // (cam, clam, clutch, self-tailer, ratchet); easing, or hauling off a horn cleat / jammer / push-button car, first
+  // casts it off (nothing moves until it is), and it is made fast again when the player lets go
+  working(k, trimming) {
+    const b = this.player; if (!b.locks || !(k in b.locks)) return 1;
+    const was = b.lh && b.lh[k] ? b.lh[k].s : 'locked', f = work(b, k, trimming);
+    if (!f && was === 'locked') { const H = handlerOf(b, k); if (H.releaseT > 0.5) this.hud.toast(`${lineName(b, k)}: taking it off the ${H.name.toLowerCase()} first (${H.releaseT} s)`, 1.4); }
+    return f;
+  }
   nudge(k, d, dt) {
     const b = this.player, c = b.ctrl, C = b.cls;
     if (k === 'helm') { c.helm = clamp(c.helm + d * 0.9 * dt, -1, 1); return; }
@@ -587,8 +599,7 @@ class Game {
     const load = k === 'main' ? b.diag.rig.mainLoad : k === 'jib' || k === 'lazy' ? b.diag.rig.jibLoad : k === 'stay' ? b.diag.rig.stayLoad : 0;
     const trimming = (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy' || k === 'trav') ? d < 0 : k === 'tackLine' ? d < 0 : d > 0;
     if (trimming && (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy')) rate /= 1 + ((load || 0) / C.sheetPower) ** 2;
-    this.working(k, trimming);
-    c[k] = clamp(c[k] + d * rate, 0, 1);
+    c[k] = clamp(c[k] + d * rate * this.working(k, trimming), 0, 1);
   }
   grabIdForKey(k) { return Rigging.idForKey(k, this.player); }
   setReef(r) {
@@ -759,8 +770,7 @@ class Game {
       const trimming = (g.dir < 0 && dy > 0) || (g.dir > 0 && dy > 0);
       if (trimming) delta *= g.handTail ? effort * effort * 0.6 : effort;  // tailing by hand only works while the sheet is light
       const tr = ['main', 'jib', 'stay', 'lazy', 'tackLine'].includes(g.key) ? delta < 0 : delta > 0;
-      this.working(g.key, tr);
-      c[g.key] = clamp(c[g.key] + delta, 0, 1);
+      c[g.key] = clamp(c[g.key] + delta * this.working(g.key, tr), 0, 1);
     } else if (g.kind === 'track') {
       const [ax, ay] = this.screenOf(g.A), [bx, by] = this.screenOf(g.B);
       const vx = bx - ax, vy = by - ay, L2 = vx * vx + vy * vy || 1;
@@ -769,8 +779,7 @@ class Game {
         const lee = Math.sign(b.booms.main.a) || 1;
         t = lee > 0 ? t : 1 - t;
       }
-      this.working(g.key, true);
-      c[g.key] = lerp(c[g.key], t, 0.5);
+      if (this.working(g.key, true)) c[g.key] = lerp(c[g.key], t, 0.5);
     } else if (g.kind === 'crank') {
       const [cx, cy] = [g.sx ?? drag.x0, g.sy ?? drag.y0];
       const ang = Math.atan2(my - cy, mx - cx);
@@ -789,10 +798,9 @@ class Game {
         else {
           R.handleCrank = (R.handleCrank || 0) - da; R.crankT = performance.now();   // the handle follows your hand, either way
           const travel = g.trim > 0 ? 0.8 : g.key === 'lazy' ? 1.4 : (b.genDeploy > 0.5 ? 3.0 : 1.4);   // metres of line over the control's range
-          const dl = Math.abs(da) / (2 * Math.PI) * 0.19 * gear / travel;
+          const dl = Math.abs(da) / (2 * Math.PI) * 0.19 * gear / travel * this.working(g.key, true);   // (off its horn cleat first)
           c[g.key] = clamp(c[g.key] + g.trim * dl, 0, 1);
           if (g.key === 'jib' || g.key === 'lazy') b.lines[g.key] = clamp(Math.min(b.lines[g.key], c[g.key] + 0.002), 0, 1);  // the line comes in as the drum turns
-          this.working(g.key, true);
         }
         if (!stall) drag.clicks = (drag.clicks || 0) + Math.abs(da);
         if (drag.clicks > (low ? 0.25 : 0.5)) { drag.clicks = 0; this.audio.click(); }
@@ -897,7 +905,7 @@ class Game {
     if (steer) c.helm = clamp(c.helm + steer * 0.9 * dt, -1, 1);
     // the helmsman holds the tiller where it was put (Space centres it)
     const rate = 0.28 * dt;
-    const trim = (key, dir) => { this.userTouched(key); const tr = ['main', 'jib', 'stay', 'lazy', 'trav', 'tackLine'].includes(key) ? dir < 0 : dir > 0; this.working(key, tr); c[key] = clamp(c[key] + dir * rate, 0, 1); };
+    const trim = (key, dir) => { this.userTouched(key); const tr = ['main', 'jib', 'stay', 'lazy', 'trav', 'tackLine'].includes(key) ? dir < 0 : dir > 0; c[key] = clamp(c[key] + dir * rate * this.working(key, tr), 0, 1); };
     if (has('w')) trim('main', -1);
     if (has('s')) trim('main', +1);
     if (K.has('ArrowUp')) trim(shift && b.sailBy.stay ? 'stay' : 'jib', -1);
@@ -912,7 +920,7 @@ class Game {
     if (has('e')) { this.userTouched('hike'); c.hike = clamp(c.hike + 1.2 * dt, -1, 1); }
     // the lazy jib sheet (J hauls, Shift+J eases); a una-rig pushes the boom out by hand (J / Shift+J = port / stbd)
     if (has('j')) {
-      if (b.sailBy.jib) { this.userTouched('lazy'); const load = (b.diag.rig.jibLoad || 0) / C.sheetPower; c.lazy = clamp(c.lazy + (shift ? 1 : -1 / (1 + load * load)) * rate, 0, 1); }
+      if (b.sailBy.jib) { this.userTouched('lazy'); const load = (b.diag.rig.jibLoad || 0) / C.sheetPower; c.lazy = clamp(c.lazy + (shift ? 1 : -1 / (1 + load * load)) * rate * this.working('lazy', !shift), 0, 1); }
       else c.pushBoom = shift ? 1 : -1;
     } else if (!this.pushHeld) c.pushBoom = 0;
   }

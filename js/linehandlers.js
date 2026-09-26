@@ -68,6 +68,8 @@ export const HANDLERS = {
   // plain winch + horn cleat (traditional): the tail is held by hand round the drum until it is made fast
   winchHorn: { name: 'Winch + horn cleat', icon: 'winchHorn', slip: Infinity, wraps: 3, lockT: 3.0, releaseT: 1.5, release: 'ease', oneWay: false, winch: true, op: 'figure-eights on the horn / cast off and ease round the drum' },
 };
+export const LINE_NAMES = { main: 'Mainsheet', jib: 'Jib sheet', lazy: 'Lazy jib sheet', gen: 'Gennaker sheet', stay: 'Staysail sheet', trav: 'Traveller', vang: 'Vang', cunn: 'Cunningham', outhaul: 'Outhaul', backstay: 'Backstay', jibHalyard: 'Jib halyard', tackLine: 'Tack line' };
+export const lineName = (b, k) => (k === 'jib' || k === 'lazy') && b.genDeploy > 0.5 && b.sailBy && b.sailBy.gennaker ? (k === 'jib' ? 'Gennaker sheet' : 'Lazy gennaker sheet') : LINE_NAMES[k] || k;
 // lines that are held by something, and which way each runs when it gets away
 export const LOCKABLE = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibHalyard', 'tackLine'];
 export const RUNS_UP = new Set(['main', 'jib', 'lazy', 'stay', 'trav', 'tackLine']);
