@@ -461,7 +461,13 @@ function sailDecal(C, number) {
     g.textAlign = 'center';
     const logo = C.id === 'blackwatch' ? 'BW' : C.id === 'sportboat' ? 'S23' : C.id === 'dinghy' ? 'S14' : 'C16';
     g.font = 'bold 74px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = cl.logo; g.fillText(logo, 128, 76);
-    if (number) { g.font = 'bold 150px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = cl.num; g.fillText(String(number), 256, 226); }
+    if (number) {
+      // a long number (nation letters and digits) is set smaller: it must clear the leech where the sail
+      // narrows, so it keeps within the middle ~60% of the band (the width a three-digit number takes)
+      let fs = 150; g.font = `bold ${fs}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+      const wd = g.measureText(String(number)).width; if (wd > 300) { fs = Math.floor(fs * 300 / wd); g.font = `bold ${fs}px "Barlow Condensed", "Arial Narrow", sans-serif`; }
+      g.fillStyle = cl.num; g.fillText(String(number), 256, 226 - (150 - fs) * 0.35);
+    }
   });
 }
 
@@ -529,7 +535,9 @@ function transomDecal(C, name, port) {
     g.clearRect(0, 0, w, h);
     g.fillStyle = C.id === 'blackwatch' ? '#c9a24a' : '#1d2a44';
     g.textAlign = 'center';
-    g.font = `italic 700 ${C.id === 'blackwatch' ? 64 : 52}px Georgia, "Times New Roman", serif`;
+    let fs = C.id === 'blackwatch' ? 64 : 52;
+    g.font = `italic 700 ${fs}px Georgia, "Times New Roman", serif`;
+    const wd = g.measureText(name).width; if (wd > w * 0.94) { fs = Math.floor(fs * w * 0.94 / wd); g.font = `italic 700 ${fs}px Georgia, "Times New Roman", serif`; }
     g.fillText(name, w / 2, 66);
     g.font = '600 26px "Barlow Condensed", "Arial Narrow", sans-serif';
     g.fillText(port, w / 2, 108);
@@ -613,11 +621,27 @@ export function buildBoatModel(boat, opts = {}) {
     const tilt = Math.atan2(xb - xt, zt - zb);          // rake: top of the transom further aft
     const f = 0.55, xm = xb + (xt - xb) * f, zmid = zb + (zt - zb) * f;
     const w = Lx.bDeck(0) * 1.5;
-    const dec = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), new THREE.MeshStandardMaterial({ map: transomDecal(C, C.id === 'blackwatch' ? 'Blackwatch' : C.id === 'sportboat' ? (opts.number ? '#' + opts.number : 'S23') : '', C.id === 'blackwatch' ? 'PROGRESO, YUC.' : ''), transparent: true, roughness: 0.4 }));
-    // (on the J/70 the name sits to port, clear of the rudder on its centreline gudgeons)
-    dec.position.set(C.id === 'sportboat' ? -w * 0.3 : 0, zmid + Math.sin(tilt) * 0.012, -xm + Math.cos(tilt) * 0.012);
-    dec.rotation.x = tilt;
-    if (C.id !== 'dinghy' && !C.multihull) inner.add(dec);
+    // the boat's name (the player's, or the fleet's); unnamed boats keep the class default; the home port
+    // line only on the player's Blackwatch
+    const name = opts.name || (C.id === 'blackwatch' ? 'Blackwatch' : C.id === 'sportboat' ? (opts.number ? '#' + opts.number : 'S23') : '');
+    const port = C.id === 'blackwatch' && (opts.player || !opts.name) ? 'PROGRESO, YUC.' : '';
+    const mat = new THREE.MeshStandardMaterial({ map: transomDecal(C, name, port), transparent: true, roughness: 0.4 });
+    if (!C.multihull) {
+      const dec = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), mat);
+      // (on the J/70 the name sits to port, clear of the rudder on its centreline gudgeons)
+      dec.position.set(C.id === 'sportboat' ? -w * 0.3 : 0, zmid + Math.sin(tilt) * 0.012, -xm + Math.cos(tilt) * 0.012);
+      dec.rotation.x = tilt;
+      if (name && (C.id !== 'dinghy' || opts.name)) inner.add(dec);
+    } else if (name) {
+      // a catamaran carries its name on the outboard topsides of both hulls, aft
+      const hw = 1.1, y = C.hullSpacing / 2 + C.hullBeam / 2 + 0.015;
+      for (const sd of [-1, 1]) {
+        const dec = new THREE.Mesh(new THREE.PlaneGeometry(hw, hw / 4), mat);
+        dec.position.set(sd * y, zt * 0.62, -(xt + 0.95));
+        dec.rotation.y = sd * Math.PI / 2;
+        inner.add(dec);
+      }
+    }
   }
   // cockpit furniture
   const soleZ = ck.sole;

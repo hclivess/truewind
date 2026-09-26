@@ -5,6 +5,7 @@ import { Boat, CLASSES, CLASS_ORDER, autoTrim, solvePolarAngle, POLAR_TWAS, vmgT
 import { VENUES, World, makeProjection, fetchVenueGeo, fetchLiveWind } from './world.js';
 import { fetchSeamarks } from './seamarks.js';
 import { Nav } from './nav.js';
+import { cleanSailNo, validateSailNo, cleanBoatName, validateBoatName, fleetIdentities, VENUE_NATION } from './boatid.js';
 import { Course, Race, AIHelm, aiRandom, applyWindShadow, resolveCollisions } from './race.js';
 import { Renderer } from './render.js';
 import { HUD, pref } from './hud.js';
@@ -29,7 +30,6 @@ const C_RIGHT = (b) => (b.cls.multihull ? 8 : 4); // grab radius on screen, also
 // the touch pad's third line (in order of use), with the labels for its two buttons (d = -1, +1)
 const TOUCH_LINES = { stay: ['Stay', 'Trim', 'Ease', 'Staysail sheet'], trav: ['Trav', 'Up', 'Down', 'Traveler'], hike: ['Hike', 'In', 'Out', 'Crew weight'],
   vang: ['Vang', '−', '+', 'Vang'], tackLine: ['Tack', 'Down', 'Ease', 'Gennaker tack line'], backstay: ['Bstay', '−', '+', 'Backstay'], board: ['Board', 'Up', 'Down', 'Daggerboard'], pushBoom: ['Boom', 'Port', 'Stbd', 'Push the boom out'] };
-const NAMES = ['Tern', 'Petrel', 'Skua', 'Gannet', 'Fulmar', 'Shearwater', 'Kittiwake', 'Albatross', 'Puffin', 'Cormorant'];
 
 // reefs the crew ties in at the dock for this much wind (the same rule the AI crews use)
 function startReef(C, kn) {
@@ -50,7 +50,7 @@ class Game {
     this.keys = new Set();
     this.settings = {
       cls: 'blackwatch', venue: 'progreso', mode: 'free', tws: 14, twd: 70, gust: 0.5, shift: 7, swell: 0, current: 0.4,
-      fleet: 5, countdown: 120, laps: 1, weather: 'changing', tod: 'afternoon', autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true,
+      fleet: 5, sailNo: '', boatName: '', countdown: 120, laps: 1, weather: 'changing', tod: 'afternoon', autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true,
     };
     this.venueTouched = false;
     // the last setup is remembered (a custom location is not: its coastline is downloaded per visit)
@@ -120,6 +120,7 @@ class Game {
     $('#live-wind').addEventListener('click', () => this.liveWind());
     $('#custom-go').addEventListener('click', () => this.customVenue());
     $('#custom-latlon').addEventListener('keydown', (e) => { if (e.key === 'Enter') this.customVenue(); });
+    this.bindBoatId();
     try { $('#net-name').value = localStorage.getItem('tw-name') || ''; $('#net-room').value = localStorage.getItem('tw-room') || ''; } catch (e) {}
     this.pickVenue(this.settings.venue, false, this.restored);
     this.refreshMenu();
@@ -236,6 +237,24 @@ class Game {
     this.audio.start();
     document.activeElement && document.activeElement.blur();
   }
+  // the boat's name and sail number: cleaned while typing, validated (RRS Appendix G for the number), kept
+  // in the settings only when valid; empty means the class default
+  bindBoatId() {
+    const nm = $('#boat-name'), sn = $('#sail-no'), msg = $('#boat-id-msg'); if (!nm || !sn) return;
+    nm.value = this.settings.boatName || ''; sn.value = this.settings.sailNo || '';
+    const check = () => {
+      const a = validateBoatName(nm.value), b = validateSailNo(sn.value);
+      nm.classList.toggle('bad', !a.ok); sn.classList.toggle('bad', !b.ok);
+      msg.textContent = !a.ok ? a.msg : !b.ok ? b.msg : ''; msg.classList.toggle('bad', !a.ok || !b.ok);
+      if (a.ok) this.settings.boatName = a.value;
+      if (b.ok) this.settings.sailNo = b.value;
+    };
+    nm.addEventListener('input', () => { const v = cleanBoatName(nm.value); if (v !== nm.value) nm.value = v; check(); });
+    sn.addEventListener('input', () => { const v = cleanSailNo(sn.value); if (v !== sn.value) sn.value = v; check(); });
+    sn.addEventListener('change', () => { const b = validateSailNo(sn.value); if (b.ok) sn.value = b.value; });
+    nm.addEventListener('change', () => { const a = validateBoatName(nm.value); if (a.ok) nm.value = a.value; });
+    check();
+  }
   async castOff() {
     this.audio.on = this.settings.sound;
     this.audio.start();
@@ -343,7 +362,7 @@ class Game {
     this.race = null; this.course = null; this.waypoint = null;
     $('#results').hidden = true;
     const cls = CLASSES[S.cls];
-    const player = new Boat(cls, { id: 0, name: 'You', sailModel: SAIL_MODEL, lod: SAIL_MODEL === 'strip' ? 2 : this.sailLevelFor(cls) });
+    const player = new Boat(cls, { id: 0, name: this.settings.boatName || 'You', sailModel: SAIL_MODEL, lod: SAIL_MODEL === 'strip' ? 2 : this.sailLevelFor(cls) });
     if (SAIL_MODEL !== 'strip') await loadBakedPolars(cls.id);      // (the cloth sails' polar: data/sails/<class>.json)
     player.auto.trim = S.autoTrim; player.auto.hike = S.autoHike;
     // in a blow the crew ties in the reefs before leaving (shaking one out is a keypress away)
@@ -373,8 +392,10 @@ class Game {
       }
       player.reset(spots[0][0], spots[0][1], twd + Math.PI / 2);
       this.presetTrim(player);
+      const ids = fleetIdentities(cond.seed, n, VENUE_NATION[v.id] || '');
       for (let i = 1; i <= n; i++) {
-        const b = new Boat(cls, { id: i, name: NAMES[(i - 1) % NAMES.length], sailModel: SAIL_MODEL, lod: this.fleetSailLevel() });
+        const b = new Boat(cls, { id: i, name: ids[i - 1].name, sailModel: SAIL_MODEL, lod: this.fleetSailLevel() });
+        b.sailNo = ids[i - 1].number;
         b.reset(spots[i][0], spots[i][1], twd + Math.PI / 2);
         b.auto.hike = true;
         this.boats.push(b);
@@ -395,7 +416,7 @@ class Game {
       this.renderer.setMarks([], null);
       if (idle) { player.auto.trim = true; }
     }
-    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (cls.id === 'blackwatch' ? '79' : '7') : String(100 + b.id * 7), hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9] });
+    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (this.settings.sailNo || (cls.id === 'blackwatch' ? '79' : '7')) : (b.sailNo || String(100 + b.id * 7)), name: b === player ? this.settings.boatName : b.name, hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9] });
     this.hud.buildRig(player);
     document.body.classList.toggle('no-jib', !player.sailBy.jib);
     this.buildTouch(player);
@@ -416,7 +437,7 @@ class Game {
       try { localStorage.setItem('tw-name', name); localStorage.setItem('tw-room', room); } catch (e) {}
       this.netEpoch = cond.epoch;
       this.net.since = Date.now();
-      this.net.connect({ venueId: v.id === 'custom' ? `c${v.lat.toFixed(2)},${v.lon.toFixed(2)}` : v.id, room, name, cls: cls.id, cond })
+      this.net.connect({ venueId: v.id === 'custom' ? `c${v.lat.toFixed(2)},${v.lon.toFixed(2)}` : v.id, room, name, cls: cls.id, cond, sailNo: this.settings.sailNo, boatName: this.settings.boatName })
         .then(() => this.hud.toast(`Online in room “${room}” at ${v.name}`, 3))
         .catch(() => { this.hud.toast('Could not reach the relays — sailing offline', 4); });
     }
@@ -481,7 +502,7 @@ class Game {
   addRemoteBoat(b) {
     this.boats.push(b);
     const idx = this.boats.length;
-    this.renderer.addBoat(b, { number: String(200 + (idx * 37) % 700), hullColor: [0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc][idx % 7], label: b.name });
+    this.renderer.addBoat(b, { number: b.sailNo || String(200 + (idx * 37) % 700), name: b.boatName || '', hullColor: [0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc][idx % 7], label: b.name });
   }
   removeRemoteBoat(b) {
     this.boats = this.boats.filter(x => x !== b);
@@ -511,7 +532,7 @@ class Game {
   raceStandings() {
     if (!this.race) return [];
     const C = this.course;
-    const list = this.race.standings().map(r => ({ name: r.boat === this.player ? 'You' : r.boat.name, me: r.boat === this.player, finished: r.finished, time: r.finishTime, leg: r.leg, boat: r.boat }));
+    const list = this.race.standings().map(r => ({ name: r.boat === this.player ? (this.settings.boatName ? `${this.settings.boatName} (you)` : 'You') : `${r.boat.name}${r.boat.sailNo ? ' · ' + r.boat.sailNo : ''}`, me: r.boat === this.player, finished: r.finished, time: r.finishTime, leg: r.leg, boat: r.boat }));
     if (this.sharedRace) {
       for (const b of this.boats) {
         if (!b.remote || !b.netRace || b.netRace.id !== this.sharedRace.id) continue;
