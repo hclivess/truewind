@@ -333,6 +333,7 @@ export class HullSplash {
     this.foam.geometry.attributes.position.needsUpdate = true; this.foam.geometry.attributes.a.needsUpdate = true;
     const sgA = this.sheet.geometry.attributes; sgA.position.needsUpdate = true; sgA.uvq.needsUpdate = true; sgA.hgt.needsUpdate = true;
     this.sheet.geometry.computeVertexNormals();
+    if (b.engine && (b.engine.active || Math.abs(b.engine.T) > 5)) this.engineWash(dt, toW, dirW, pw, dw, bvx, bvz);
     // ---- drops: gravity + air drag; mist drifts and rises a little; landing drops leave foam
     const P = this.dPos, Vv = this.dVel, L = this.dLife, K = this.dKind;
     const wind = env && env.wind ? env.wind.sample(b.x, b.z, t, this._wind || (this._wind = {})) : null;
@@ -375,6 +376,48 @@ export class HullSplash {
     this.aP.needsUpdate = true; this.aQ.needsUpdate = true;
   }
   dispose(scene) { scene.remove(this.points); scene.remove(this.patches); }
+
+  // Engine (js/engine.js): the propeller's jet boils up behind it as turbulent, aerated water (aft going ahead, forward
+  // under the hull going astern), stronger the harder it pushes and the shallower it runs; an outboard's exhaust
+  // bubbles out through its hub; the exhaust outlet puffs steam and spits cooling water at the firing rhythm.
+  engineWash(dt, toW, dirW, pw, dw, bvx, bvz) {
+    const e = this.b.engine, S = e.spec, [xp, yp, zp] = S.pos, T = Math.abs(e.T), D = S.prop.D;
+    if (e.kv > 0.05 && T > 5) {
+      const dir = e.T >= 0 ? 1 : -1, jet = Math.max(0.3, (e.slip || Math.sqrt(T / (512 * D * D))) - Math.max(0, this.b.u) * 0.8);
+      const boil = Math.min(1, T / (400 * D * D * 20)) * Math.min(1.5, 0.4 / Math.max(0.15, -zp));
+      if (Math.random() < dt * (4 + 30 * boil)) {
+        const back = dir * (0.2 + Math.random() * 0.8 * (1 + boil));
+        toW(yp + (Math.random() - 0.5) * D, 0, -xp + back, pw); dirW(0, 0, dir, dw);
+        this.spawnPatch(pw[0], pw[2], bvx * 0.3 + dw[0] * jet * 0.6, bvz * 0.3 + dw[2] * jet * 0.6, 0.3 + 0.5 * boil + D, Math.min(0.92, 0.4 + 0.5 * boil), 0.45);
+      }
+      // the churned surface throws a few drops when it is really working
+      if (boil > 0.4 && Math.random() < dt * 20 * boil) {
+        toW(yp + (Math.random() - 0.5) * D, 0.02, -xp + dir * 0.3, pw); dirW((Math.random() - 0.5) * 0.6, 1, dir * 0.8, dw);
+        const sp = 0.6 + Math.random() * 1.2 * boil;
+        this.emit(pw[0], pw[1], pw[2], bvx * 0.6 + dw[0] * sp, dw[1] * sp, bvz * 0.6 + dw[2] * sp, 0.02 + Math.random() * 0.03, 0, 1.4);
+      }
+      // outboard: exhaust out through the prop hub
+      if (S.type === 'outboard' && e.running && Math.random() < dt * (3 + 10 * e.rack)) {
+        toW(yp, 0, -xp + dir * (0.4 + Math.random()), pw);
+        this.spawnPatch(pw[0], pw[2], bvx * 0.2, bvz * 0.2, 0.18 + 0.2 * Math.random(), 0.5, 0.3);
+      }
+    }
+    // exhaust outlet: steam puffs at the firing rhythm (and water spat out of a wet exhaust)
+    if (e.running && S.exhaust) {
+      const fire = e.rpm / 60 * (S.cyl || 1) / 2;
+      this._exPh = (this._exPh || 0) + fire * dt;
+      if (this._exPh >= 1) {
+        this._exPh %= 1;
+        const [ex, ey, ez] = S.exhaust, wet = S.type !== 'outboard';
+        if (Math.random() < (wet ? 0.35 : 0.12) + 0.3 * e.rack) {
+          toW(ey, ez, -ex + 0.05, pw); dirW(ey > 0 ? 0.3 : -0.3, 0.15, 1, dw);
+          const sp = 0.6 + 1.4 * e.rack;
+          this.emit(pw[0], pw[1], pw[2], bvx + dw[0] * sp, 0.25 + dw[1] * sp, bvz + dw[2] * sp, 0.08 + 0.1 * e.rack + Math.random() * 0.06, 1, 0.9);
+          if (wet && Math.random() < 0.5) for (let k = 0; k < 3; k++) this.emit(pw[0], pw[1], pw[2], bvx + dw[0] * sp * 1.5, dw[1] * sp, bvz + dw[2] * sp * 1.5, 0.02 + Math.random() * 0.02, 0, 1.0);
+        }
+      }
+    }
+  }
 }
 
 // Spindrift: from about Beaufort 7 the wind tears the tops off breaking crests and blows them downwind
