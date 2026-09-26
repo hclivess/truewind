@@ -3,7 +3,10 @@
 import { Environment, KT, DEG } from './env.js';
 import { Boat, CLASSES, CLASS_ORDER, autoTrim, solvePolarAngle, POLAR_TWAS, vmgTargets, clamp, lerp, wrap, makeSteadyEnv } from './physics.js';
 import { VENUES, World, makeProjection, fetchVenueGeo, fetchLiveWind } from './world.js';
-import { Course, Race, AIHelm, applyWindShadow, resolveCollisions } from './race.js';
+import { fetchSeamarks } from './seamarks.js';
+import { Nav } from './nav.js';
+import { cleanSailNo, validateSailNo, cleanBoatName, validateBoatName, fleetIdentities, VENUE_NATION } from './boatid.js';
+import { Course, Race, AIHelm, aiRandom, applyWindShadow, resolveCollisions } from './race.js';
 import { Renderer } from './render.js';
 import { HUD, pref } from './hud.js';
 import { Audio } from './audio.js';
@@ -11,7 +14,8 @@ import { Net } from './net.js';
 import { Vector3 as THREE_V } from 'three';
 import { Rigging } from './rigging.js';
 import { sunPosition } from './sky.js';
-import { attachSails } from './sail/sailsim.js';   // (also registers the cloth / lattice sail model with physics.js)
+import './sail/sailsim.js';   // (registers the cloth / lattice sail model with physics.js)
+import { SailGovernor, setSailLevel } from './governor.js';
 import { loadBakedPolars, bakedPolars } from './sail/surrogate.js';
 
 // every boat's sail model: cloth (cloth shaped by the wind and the rig, forces from a vortex lattice over it; the
@@ -31,7 +35,6 @@ const courseLen = (C) => (C.id === 'dinghy' ? 600 : C.loa > 9 ? 1200 : 800);
 // the touch pad's third line (in order of use), with the labels for its two buttons (d = -1, +1)
 const TOUCH_LINES = { stay: ['Stay', 'Trim', 'Ease', 'Staysail sheet'], trav: ['Trav', 'Up', 'Down', 'Traveler'], hike: ['Hike', 'In', 'Out', 'Crew weight'],
   vang: ['Vang', '−', '+', 'Vang'], tackLine: ['Tack', 'Down', 'Ease', 'Gennaker tack line'], backstay: ['Bstay', '−', '+', 'Backstay'], board: ['Board', 'Up', 'Down', 'Daggerboard'], pushBoom: ['Boom', 'Port', 'Stbd', 'Push the boom out'] };
-const NAMES = ['Tern', 'Petrel', 'Skua', 'Gannet', 'Fulmar', 'Shearwater', 'Kittiwake', 'Albatross', 'Puffin', 'Cormorant'];
 
 // reefs the crew ties in at the dock for this much wind (the same rule the AI crews use)
 function startReef(C, kn) {
@@ -43,6 +46,7 @@ class Game {
   constructor() {
     this.renderer = new Renderer($('#view'));
     this.hud = new HUD(this);
+    this.nav = new Nav(this);                                 // chart, waypoints, nav readout, steering compass
     this.audio = new Audio();
     this.net = new Net(this);
     this.netEpoch = null;
@@ -51,7 +55,7 @@ class Game {
     this.keys = new Set();
     this.settings = {
       cls: 'blackwatch', venue: 'progreso', mode: 'free', tws: 14, twd: 70, gust: 0.5, shift: 7, swell: 0, current: 0.4,
-      fleet: 5, countdown: 120, laps: 1, weather: 'changing', tod: 'afternoon', autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true,
+      fleet: 5, sailNo: '', boatName: '', countdown: 120, laps: 1, weather: 'changing', tod: 'afternoon', autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true,
     };
     this.venueTouched = false;
     // the last setup is remembered (a custom location is not: its coastline is downloaded per visit)
@@ -113,7 +117,7 @@ class Game {
     vl.querySelectorAll('.card').forEach(c => c.addEventListener('click', () => { this.venueTouched = true; this.pickVenue(c.dataset.v, true); }));
     document.querySelectorAll('.seg-b[data-mode]').forEach(b => b.addEventListener('click', () => { this.settings.mode = b.dataset.mode; this.refreshMenu(); }));
     document.querySelectorAll('.seg-b[data-weather]').forEach(b => b.addEventListener('click', () => { this.settings.weather = b.dataset.weather; this.refreshMenu(); }));
-    document.querySelectorAll('.seg-b[data-tod]').forEach(b => b.addEventListener('click', () => { this.settings.tod = b.dataset.tod; this.refreshMenu(); if (this.idle) this.clockBase = this.clockFor(); }));
+    document.querySelectorAll('.seg-b[data-tod]').forEach(b => b.addEventListener('click', () => { this.settings.tod = b.dataset.tod; this.refreshMenu(); this.retime(); }));
     const sliders = { tws: v => `${v} kn`, twd: v => `${String(v).padStart(3, '0')}°`, gust: v => `${Math.round(v * 100)}%`, shift: v => `±${v}°`, swell: v => v > 0 ? `${v} m` : 'none', current: v => v > 0 ? `${v} kn` : 'none', fleet: v => `${v}`, countdown: v => `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`, laps: v => `${v}` };
     for (const k in sliders) {
       const el = $('#' + k);
@@ -134,6 +138,7 @@ class Game {
     $('#live-wind').addEventListener('click', () => this.liveWind());
     $('#custom-go').addEventListener('click', () => this.customVenue());
     $('#custom-latlon').addEventListener('keydown', (e) => { if (e.key === 'Enter') this.customVenue(); });
+    this.bindBoatId();
     try { $('#net-name').value = localStorage.getItem('tw-name') || ''; $('#net-room').value = localStorage.getItem('tw-room') || ''; } catch (e) {}
     this.pickVenue(this.settings.venue, false, this.restored);
     this.refreshMenu();
@@ -166,7 +171,8 @@ class Game {
     let txt = `Force ${bf < 0 ? 12 : bf}, ${name}.`, warn = false;
     if (plan > 0) { txt += ` The crew will tie in ${plan === 1 ? 'a reef' : 'two reefs'} before casting off.`; warn = kn > 30; }
     else if (kn > 22) { txt += ` Hard work for a ${C ? C.name : 'small boat'} — expect to be overpowered; automatic trim helps.`; warn = true; }
-    el.textContent = kn >= 16 ? txt : '';
+    const rg = this.currentVenueDef()?.regional;
+    el.textContent = (kn >= 16 ? txt : '') + (rg ? `${kn >= 16 ? ' ' : ''}Plus the ${rg.name}, by time of day.` : '');
     el.classList.toggle('warn', warn);
   }
   async liveWind() {
@@ -189,12 +195,14 @@ class Game {
     const lat = +m[1], lon = +m[2];
     st.textContent = 'Downloading coastline from OpenStreetMap… (can take ~20 s)';
     try {
+      const marks = fetchSeamarks(lat, lon).catch(() => null);        // (in parallel; a failure only costs the seamarks)
       const geo = await fetchVenueGeo(lat, lon);
+      geo.seamarks = await marks;
       this.customV = { id: 'custom', name: 'Custom location', place: `${lat.toFixed(3)}, ${lon.toFixed(3)}`, lat, lon, wind: this.settings.twd, windKt: this.settings.tws, depth: 12, note: '' };
       this.geoCache.set('custom', geo);
       this.settings.venue = 'custom';
       this.venueTouched = true;
-      st.textContent = `Loaded ${geo.coast.length} coastline pieces, ${geo.water.length} water areas. Press Cast off.`;
+      st.textContent = `Loaded ${geo.coast.length} coastline pieces, ${geo.water.length} water areas${geo.seamarks ? `, ${geo.seamarks.marks.length} seamarks` : ''}. Press Cast off.`;
       this.refreshMenu();
     } catch (e) { st.textContent = 'Could not reach OpenStreetMap (offline or blocked). Try a built-in venue.'; }
   }
@@ -220,6 +228,17 @@ class Game {
     }
     return at(rising ? 6 : 18.5);
   }
+  // the menu's time of day, applied at once: now becomes that time, and everything that follows the sun moves
+  // with the sky (the thermal breeze and the sea it raises, the polar); a shared room keeps the room's clock
+  retime() {
+    if (!this.env || this.netEpoch !== null || this.settings.mode === 'online') return;
+    this.clockBase = this.clockFor() - this.t * 1000;
+    this.env.setClock(this.clockBase, this.t);
+    this.renderer.setPhaseField(this.env.waves);
+    this.renderer.setWaves(this.env.waves);
+    this.world.updateShelter(this.env.wind.mean(this.t).dir);
+    if (this.player) this.computePolar(this.player.cls, this.env.wind.mean(this.t).speed);
+  }
   currentVenueDef() { return this.settings.venue === 'custom' ? this.customV : VENUES.find(v => v.id === this.settings.venue); }
 
   openMenu() {
@@ -236,6 +255,24 @@ class Game {
     this.audio.on = this.settings.sound; this.syncTools();
     this.audio.start();
     document.activeElement && document.activeElement.blur();
+  }
+  // the boat's name and sail number: cleaned while typing, validated (RRS Appendix G for the number), kept
+  // in the settings only when valid; empty means the class default
+  bindBoatId() {
+    const nm = $('#boat-name'), sn = $('#sail-no'), msg = $('#boat-id-msg'); if (!nm || !sn) return;
+    nm.value = this.settings.boatName || ''; sn.value = this.settings.sailNo || '';
+    const check = () => {
+      const a = validateBoatName(nm.value), b = validateSailNo(sn.value);
+      nm.classList.toggle('bad', !a.ok); sn.classList.toggle('bad', !b.ok);
+      msg.textContent = !a.ok ? a.msg : !b.ok ? b.msg : ''; msg.classList.toggle('bad', !a.ok || !b.ok);
+      if (a.ok) this.settings.boatName = a.value;
+      if (b.ok) this.settings.sailNo = b.value;
+    };
+    nm.addEventListener('input', () => { const v = cleanBoatName(nm.value); if (v !== nm.value) nm.value = v; check(); });
+    sn.addEventListener('input', () => { const v = cleanSailNo(sn.value); if (v !== sn.value) sn.value = v; check(); });
+    sn.addEventListener('change', () => { const b = validateSailNo(sn.value); if (b.ok) sn.value = b.value; });
+    nm.addEventListener('change', () => { const a = validateBoatName(nm.value); if (a.ok) nm.value = a.value; });
+    check();
   }
   async castOff() {
     this.audio.on = this.settings.sound;
@@ -308,6 +345,7 @@ class Game {
     if (this.geoCache.has(v.id)) return this.geoCache.get(v.id);
     const r = await fetch(`data/venues/${v.id}.json`);
     const g = await r.json();
+    g.seamarks = await fetch(`data/venues/${v.id}.seamarks.json`).then(r => r.ok ? r.json() : null).catch(() => null);   // lights, buoys, beacons
     this.geoCache.set(v.id, g);
     return g;
   }
@@ -318,7 +356,7 @@ class Game {
     if (!idle) { $('#loading').hidden = false; $('#loading-text').textContent = `Loading chart: ${v.name}`; }
     await new Promise(r => setTimeout(r, 30));
     const geo = await this.loadGeo(v).catch(() => null);
-    const manifest = v.open ? null : await fetch(`data/venues/${v.id}.features.json`).then(r => r.ok ? r.json() : null).catch(() => null);
+    const manifest = v.open || !v.features ? null : await fetch(`data/venues/${v.id}.features.json`).then(r => r.ok ? r.json() : null).catch(() => null);
     this.venue = v; this.geo = geo; this.manifest = manifest;
     this.obstacles = null;
     const world = new World(v, geo);
@@ -336,17 +374,20 @@ class Game {
     this.renderer.setWorld(world, geo, manifest);
     this.renderer.setWaves(env.waves);
     this.hud.setWorld(world);
+    this.nav.setWorld(world, geo, v);
     // boats
     this.renderer.removeAllBoats();
     this.boats = []; this.ais = [];
     this.race = null; this.course = null; this.waypoint = null;
     $('#results').hidden = true;
     const cls = CLASSES[S.cls];
-    const player = new Boat(cls, { id: 0, name: 'You', sailModel: SAIL_MODEL, lod: SAIL_MODEL === 'strip' ? 2 : this.sailLevelFor(cls) });
+    const player = new Boat(cls, { id: 0, name: this.settings.boatName || 'You', sailModel: SAIL_MODEL, lod: SAIL_MODEL === 'strip' ? 2 : this.sailLevelFor(cls) });
     if (SAIL_MODEL !== 'strip') await loadBakedPolars(cls.id);      // (the cloth sails' polar: data/sails/<class>.json)
     player.auto.trim = S.autoTrim; player.auto.hike = S.autoHike;
     // in a blow the crew ties in the reefs before leaving (shaking one out is a keypress away)
-    const dockReef = idle ? 0 : startReef(cls, cond.tws);
+    // (for the wind at the dock now: the gradient with the venue's thermal breeze in it)
+    const kt0 = Math.round(Math.max(cond.tws, env.wind.mean(0).speed / KT));
+    const dockReef = idle ? 0 : startReef(cls, kt0);
     if (dockReef) player.ctrl.reef = dockReef;
     this.player = player;
     this.boats.push(player);
@@ -370,12 +411,14 @@ class Game {
       }
       player.reset(spots[0][0], spots[0][1], twd + Math.PI / 2);
       this.presetTrim(player);
+      const ids = fleetIdentities(cond.seed, n, VENUE_NATION[v.id] || '');
       for (let i = 1; i <= n; i++) {
-        const b = new Boat(cls, { id: i, name: NAMES[(i - 1) % NAMES.length], sailModel: SAIL_MODEL, lod: this.fleetSailLevel() });
+        const b = new Boat(cls, { id: i, name: ids[i - 1].name, sailModel: SAIL_MODEL, lod: this.fleetSailLevel() });
+        b.sailNo = ids[i - 1].number;
         b.reset(spots[i][0], spots[i][1], twd + Math.PI / 2);
         b.auto.hike = true;
         this.boats.push(b);
-        const ai = new AIHelm(b, { skill: 0.8 + Math.random() * 0.18, startFrac: Math.random() });
+        const ai = new AIHelm(b, { seed: cond.seed, skill: 0.8 + aiRandom(cond.seed + 7, i)() * 0.18 });   // (the race's seed: the same fleet every time)
         this.ais.push(ai);
       }
       this.race = new Race(course, this.boats, { countdown: S.countdown });
@@ -392,7 +435,7 @@ class Game {
       this.renderer.setMarks([], null);
       if (idle) { player.auto.trim = true; }
     }
-    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (cls.id === 'blackwatch' ? '79' : '7') : String(100 + b.id * 7), hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9] });
+    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (this.settings.sailNo || (cls.id === 'blackwatch' ? '79' : '7')) : (b.sailNo || String(100 + b.id * 7)), name: b === player ? this.settings.boatName : b.name, hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9] });
     this.hud.buildRig(player);
     document.body.classList.toggle('no-jib', !player.sailBy.jib);
     this.buildTouch(player);
@@ -401,9 +444,8 @@ class Game {
     this.t = 0; this.acc = 0; this.timeWarp = 1;
     this.idle = idle;
     // (the first frames of a session are slow for reasons of their own, shaders compiling and textures loading:
-    // the sail governor waits three seconds before it judges the physics by them, so the sails the crew set at the
-    // dock are not swapped for a lighter model, and posed afresh, in the first second of sailing)
-    this._govHold = 3; if (this._gov) { this._gov.over = 0; this._gov.under = 0; }
+    // the sail governor waits three seconds and 90 frames of sailing before it judges the physics by them)
+    this.gov().start();
     this.clockBase = this.clockFor();
     this.sharedRace = null;
     if (this.net.connected) this.net.disconnect();
@@ -414,20 +456,20 @@ class Game {
       try { localStorage.setItem('tw-name', name); localStorage.setItem('tw-room', room); } catch (e) {}
       this.netEpoch = cond.epoch;
       this.net.since = Date.now();
-      this.net.connect({ venueId: v.id === 'custom' ? `c${v.lat.toFixed(2)},${v.lon.toFixed(2)}` : v.id, room, name, cls: cls.id, cond })
+      this.net.connect({ venueId: v.id === 'custom' ? `c${v.lat.toFixed(2)},${v.lon.toFixed(2)}` : v.id, room, name, cls: cls.id, cond, sailNo: this.settings.sailNo, boatName: this.settings.boatName })
         .then(() => this.hud.toast(`Online in room “${room}” at ${v.name}`, 3))
         .catch(() => { this.hud.toast('Could not reach the relays — sailing offline', 4); });
     }
     this.showLaylines = S.laylines;
     this.polar = null; this.targets = null;
-    this.computePolar(cls, env.wind.tws);
+    this.computePolar(cls, env.wind.mean(0).speed);
     $('#loading').hidden = true;
     if (!idle) {
       $('#hud').hidden = false;
       this.running = true; this.paused = false;
       if (!online) this.hud.toast(S.mode === 'race' ? `Race at ${v.name} — gun in ${Math.floor(S.countdown / 60)}:${String(S.countdown % 60).padStart(2, '0')}` : `${cls.name} · ${v.name}`, 3.5);
-      if (dockReef) setTimeout(() => this.hud.toast(`${cond.tws} kn: ${dockReef === 1 ? 'one reef' : 'two reefs'} tied in at the dock — R to change`, 4), 3600);
-      else if (cond.tws > 22) setTimeout(() => this.hud.toast(`${cond.tws} kn is a lot for a ${cls.name} — ease early, T for automatic trim`, 4), 3600);
+      if (dockReef) setTimeout(() => this.hud.toast(`${kt0} kn: ${dockReef === 1 ? 'one reef' : 'two reefs'} tied in at the dock — R to change`, 4), 3600);
+      else if (kt0 > 22) setTimeout(() => this.hud.toast(`${kt0} kn is a lot for a ${cls.name} — ease early, T for automatic trim`, 4), 3600);
       if (this.race) this.audio.horn(true);
       this.hud.keysHint(document.body.classList.contains('touch'));
       this.syncTools();
@@ -450,7 +492,7 @@ class Game {
       hemi: v && !v.open && v.lat < 0 ? -1 : 1,     // puffs and squalls veer north of the equator, back south of it
       // sea/lake and land breezes by the real sun at the venue. clock0 = UTC ms at t = 0: online it is the
       // room's shared epoch (every peer's clock is epoch + t), offline the chosen time of day
-      thermal: world.open || !v ? null : { lat: v.lat, lon: v.lon, land: world,
+      thermal: world.open || !v ? null : { lat: v.lat, lon: v.lon, land: world, regional: v.regional,
         clock0: this.settings.mode === 'online' && cond.epoch ? cond.epoch * 1000 : this.clockFor() },
     });
     // sheltering by land slows the wind near a weather shore
@@ -479,7 +521,7 @@ class Game {
   addRemoteBoat(b) {
     this.boats.push(b);
     const idx = this.boats.length;
-    this.renderer.addBoat(b, { number: String(200 + (idx * 37) % 700), hullColor: [0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc][idx % 7], label: b.name });
+    this.renderer.addBoat(b, { number: b.sailNo || String(200 + (idx * 37) % 700), name: b.boatName || '', hullColor: [0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc][idx % 7], label: b.name });
   }
   removeRemoteBoat(b) {
     this.boats = this.boats.filter(x => x !== b);
@@ -509,7 +551,7 @@ class Game {
   raceStandings() {
     if (!this.race) return [];
     const C = this.course;
-    const list = this.race.standings().map(r => ({ name: r.boat === this.player ? 'You' : r.boat.name, me: r.boat === this.player, finished: r.finished, time: r.finishTime, leg: r.leg, boat: r.boat }));
+    const list = this.race.standings().map(r => ({ name: r.boat === this.player ? (this.settings.boatName ? `${this.settings.boatName} (you)` : 'You') : `${r.boat.name}${r.boat.sailNo ? ' · ' + r.boat.sailNo : ''}`, me: r.boat === this.player, finished: r.finished, time: r.finishTime, leg: r.leg, boat: r.boat }));
     if (this.sharedRace) {
       for (const b of this.boats) {
         if (!b.remote || !b.netRace || b.netRace.id !== this.sharedRace.id) continue;
@@ -833,6 +875,7 @@ class Game {
   onKey(k, e) {
     if (k === 'Escape') {
       if (!$('#help').hidden) { this.closeHelp(); return; }
+      if (this.nav.chartOpen) { this.nav.toggleChart(false); return; }
       if (!$('#results').hidden) { $('#results').hidden = true; this.syncTools(); return; }
       if (document.body.classList.contains('rig-open')) { this.toggleRig(); return; }
       if ($('#menu').hidden) this.openMenu(); else if (this.running) this.closeMenu();
@@ -842,6 +885,7 @@ class Game {
     if (!this.running || !$('#menu').hidden || !$('#help').hidden) return;
     const b = this.player;
     if (this.setCamera(k)) return;
+    if (k === 'Tab') { e.preventDefault(); this.nav.toggleChart(); return; }
     if (k === 'h') this.toggleAutoHike();
     else if (k === 't') this.toggleAutoTrim();
     else if (k === 'g') this.toggleGen();
@@ -883,6 +927,7 @@ class Game {
     tap('#tb-menu', () => this.openMenu());
     tap('#tb-pause', () => { if (this.netEpoch !== null) this.hud.toast('No pausing in a shared world', 1.5); else this.setPaused(!this.paused); });
     tap('#tb-cam', () => this.cycleCamera());
+    tap('#tb-chart', () => this.nav.toggleChart());
     tap('#tb-rig', () => this.toggleRig());
     tap('#tb-sound', () => this.toggleSound());
     tap('#tb-help', () => this.openHelp());
@@ -940,8 +985,8 @@ class Game {
   // ------------------------------------------------------------ loop
   frame(now) {
     requestAnimationFrame((t) => this.frame(t));
-    const wall = Math.min(2, (now - this.last) / 1000);      // (the governor goes by wall time: slow frames count in full)
-    let dt = Math.min(0.1, wall);
+    const frameMs = now - this.last;
+    let dt = Math.min(0.1, frameMs / 1000);
     this.last = now;
     if (!this.env) return;
     if (this.netEpoch !== null) {
@@ -963,7 +1008,7 @@ class Game {
       this.acc -= PHYS_DT; steps++;
     }
     if (steps >= maxSteps) this.acc = 0;
-    this.sailGovernor(performance.now() - tPhys, wall);
+    if (SAIL_MODEL !== 'strip' && this._sailLevel) this.gov().frame(performance.now() - tPhys, steps, PHYS_DT, frameMs, this.boats.filter((b) => b.sailModel !== 'strip'), this.player, this._camDist, this.timeWarp);
     // draw the boats between the last two physics states so motion is smooth at any refresh rate
     const alpha = clamp(this.acc / PHYS_DT, 0, 1);
     const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -996,17 +1041,16 @@ class Game {
       const r0 = this.race && this.race.racers[0];
       this.net.update(dt, p, this.sharedRace && r0 ? { id: this.sharedRace.id, leg: r0.leg, fin: r0.finished ? r0.finishTime : 0 } : null);
       this.hud.update(dt);
-      this.audio.update(p, dt);
+      this.nav.update(dt);
+      this.audio.update(p, dt, this.renderer.rainNow || 0);
       this.checkAlerts();
     }
   }
 
   // The cloth / lattice sails' detail level, per boat: L0 (the full model: the player), L1 (coarser lattice and cloth:
   // the AI and online boats) or L2 (the strip model). A short benchmark on load picks where the player starts;
-  // the fleet starts at L1 if the machine runs the player at L0 or L1, else at L2. A governor keeps the physics
-  // under 6 ms a frame: over budget, it drops the boat farthest from the camera a level (the fleet first, the
-  // player last); well under budget for a while, it lifts them back, the player first, then the nearest boats. In
-  // time warp beyond x2 every boat sails at L2.
+  // the fleet starts at L1 if the machine runs the player at L0 or L1, else at L2. A governor (js/governor.js)
+  // keeps the physics under 6 ms per 60 Hz frame of sailing.
   sailLevelFor(cls) {
     if (this._sailLevel && this._sailLevel.cls === cls.id) return this._sailLevel.lod;
     let lod = 0;
@@ -1029,41 +1073,10 @@ class Game {
     const L = this._sailLevel;
     return L && L.start <= 1 ? 1 : 2;
   }
-  setSailLevel(b, lod) {
-    if (!b || b.sailModel === 'strip' || lod === b.lod) return;
-    if (lod >= 2) { b.lod = 2; return; }
-    // (the new cloth is set as the sails were: shape, twist, drawing)
-    if (!b.sailSys || b.sailSys.lod !== lod) attachSails(b, b.sailModel, lod, true);
-    else { b.lod = lod; b.sailSys.reset(true); }
-  }
-  sailGovernor(ms, dt) {
-    const L = this._sailLevel;
-    if (!L || SAIL_MODEL === 'strip' || !this.player) return;
-    const g = this._gov || (this._gov = { ema: 0, over: 0, under: 0 });
-    if (this._govHold > 0 || this._govHoldFrames > 0) { this._govHold -= dt; this._govHoldFrames--; g.ema = ms; g.over = 0; g.under = 0; return; }
-    g.ema += (ms - g.ema) * Math.min(1, dt * 4);
-    const boats = this.boats.filter((b) => b.sailModel !== 'strip');
-    if (this.timeWarp > 2) {
-      for (const b of boats) if (b.lod < 2) { b._savedLod = b.lod; this.setSailLevel(b, 2); }
-      return;
-    }
-    for (const b of boats) if (b._savedLod !== undefined) { this.setSailLevel(b, b._savedLod); b._savedLod = undefined; }
-    if (g.ema > 6) { g.over += dt; g.under = 0; } else if (g.ema < 2.5) { g.under += dt; g.over = 0; } else { g.over = 0; g.under = 0; }
-    const cam = this.renderer.camera.position, dist = (b) => Math.hypot(b.x - cam.x, b.z - cam.z);
-    const fleet = boats.filter((b) => b !== this.player), start = (b) => (b === this.player ? L.start : this.fleetSailLevel());
-    if (g.over > 1.5) {
-      g.over = 0;
-      const down = fleet.filter((b) => b.lod < 2).sort((a, b) => dist(b) - dist(a))[0] || (this.player.lod < 2 ? this.player : null);
-      if (down) {
-        this.setSailLevel(down, down.lod + 1);
-        if (down === this.player) this.hud.toast(down.lod < 2 ? 'Sails: lighter model (L' + down.lod + ') to keep the frame rate' : 'Sails: strip model to keep the frame rate', 2);
-      }
-    }
-    if (g.under > 15) {
-      g.under = 0;
-      const up = this.player.lod > L.start ? this.player : fleet.filter((b) => b.lod > start(b)).sort((a, b) => dist(a) - dist(b))[0];
-      if (up) this.setSailLevel(up, up.lod - 1);
-    }
+  gov() {
+    if (!this._camDist) this._camDist = (b) => { const c = this.renderer.camera.position; return Math.hypot(b.x - c.x, b.z - c.z); };
+    return this._gov || (this._gov = new SailGovernor(setSailLevel, (b) => (b === this.player ? this._sailLevel.start : this.fleetSailLevel()),
+      (b) => this.hud.toast(b.lod < 2 ? 'Sails: lighter model (L' + b.lod + ') to keep the frame rate' : 'Sails: strip model to keep the frame rate', 2)));
   }
 
   step(dt) {
@@ -1082,6 +1095,7 @@ class Game {
     for (const bb of this.boats) bb.step(dt, this.env, this.t, this.world);
     this.net.postStep(dt);
     const marks = this.course ? [...this.course.marks(), this.course.committee] : this.waypoint ? [this.waypoint] : [];
+    if (this.nav.hazards.length) marks.push(...this.nav.hazards);        // the real buoys and beacons around
     resolveCollisions(this.boats, marks, this.obstacles || [], (boat, other, v) => {
       if (boat === this.player && v > 0.6) { this.hud.toast(other && other.cls ? `Collision with ${other.name}!` : other && other.kind === 'pier' || other?.pts ? 'You hit the pier!' : 'Mark touched!', 2); this.audio.thump(Math.min(1, v / 2)); }
     });

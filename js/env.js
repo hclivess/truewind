@@ -304,7 +304,14 @@ export class Weather {
 // multi-scale "where is the land" vector: land seen on rings 0.6-6 km around each point, which points
 // inland perpendicular to the smoothed coastline and has length 1 on a straight coast, 0 on open water
 // or mid-lake (breezes flow outward to every shore and cancel there). It decays offshore (~15 km).
-const TH_TAU = 2.5 * 3600, TH_STEP = 600, TH_SPAN = 5 * TH_TAU;   // land lag, integration step, memory (s)
+// Regional forcing (venue.regional): what a 12 km map cannot see. The Golden Gate westerly is the Pacific
+// against the Central Valley 100 km inland, Garda's Ora and Pelèr the whole Sarca/Adige valley system against
+// the Po plain. Each is the same lagged sun-driven contrast, with the region's own memory (a big air mass heats
+// and cools slowly: tau 4-6 h) and night loss, blowing along the terrain's fixed axis (the Gate, the valley)
+// over the whole sailing area: day = from 'day.from' when the contrast is above day.thr, night = the drainage
+// from 'night.from' when below -night.thr, scaled by the season's diurnal swing (a valley wind is the day's
+// heat running back out, not the winter's cold alone). local scales the map's own breeze under it.
+const TH_TAU = 2.5 * 3600, TH_STEP = 600;   // land lag, integration step (s); the memory is 5 lags
 const TH_A = 13, TH_B = 3.5;           // K of land-sea contrast per unit sin(sun elevation) in clear sky; K of night cooling
 const TH_SEA = 2.5, TH_SEA0 = 1.5;     // sea breeze m/s per sqrt(K) above a K threshold
 const TH_LAND = 1.3, TH_LAND0 = 0.5;   // land breeze
@@ -369,21 +376,38 @@ export class Thermal {
     this.refX = 0; this.refZ = 0;
     if (an) { this._ref = { gx: ax / an, gz: az / an, rl: ar / an }; }
     this._dt = new Map(); this._tt = NaN;
+    const rg = this.rg = opts.regional || null;
+    this.loc = rg ? rg.local ?? 1 : 1;
+    if (rg) { this.rgTau = (rg.tau ?? 4) * 3600; this.rgB = rg.cool ?? TH_B; this._dr = new Map(); this._sw = new Map(); }
   }
+  // a new clock (the menu's time of day changed): the same breeze as a Thermal built at that clock
+  setClock(clock0) { this.clock0 = clock0; this._tt = NaN; }
   // land-sea contrast (K) at UTC ms q (a multiple of TH_STEP s): exponentially lagged equilibrium contrast
-  _dT(q) {
-    let v = this._dt.get(q);
+  _dT(q) { return this._lag(q, TH_TAU, TH_B, this._dt); }
+  _lag(q, tau, B, cache) {
+    let v = cache.get(q);
     if (v !== undefined) return v;
     const clear = 1 - 0.7 * this.cloud;
     let s = 0, w = 0;
-    for (let a = 0; a <= TH_SPAN; a += TH_STEP) {
+    for (let a = 0; a <= 5 * tau; a += TH_STEP) {
       const el = sunElevation(q - a * 1000, this.lat, this.lon);
-      const eq = TH_A * clear * Math.max(0, Math.sin(el)) - TH_B;
-      const k = Math.exp(-a / TH_TAU); s += k * eq; w += k;
+      const eq = TH_A * clear * Math.max(0, Math.sin(el)) - B;
+      const k = Math.exp(-a / tau); s += k * eq; w += k;
     }
     v = s / w;
-    if (this._dt.size > 512) this._dt.clear();
-    this._dt.set(q, v);
+    if (cache.size > 512) cache.clear();
+    cache.set(q, v);
+    return v;
+  }
+  // the season's diurnal swing at UTC ms: sine of the sun's noon elevation that local day against 60 deg
+  _swing(ms) {
+    const day = Math.floor((ms / 3.6e6 + this.lon / 15) / 24);
+    let v = this._sw.get(day);
+    if (v === undefined) {
+      v = Math.min(1, Math.max(0, Math.sin(sunElevation((day * 24 + 12 - this.lon / 15) * 3.6e6, this.lat, this.lon))) / Math.sin(60 * DEG));
+      if (this._sw.size > 64) this._sw.clear();
+      this._sw.set(day, v);
+    }
     return v;
   }
   // the time-only part at sim time t (cached per t): contrast, breeze speeds, their turning, stability
@@ -402,6 +426,12 @@ export class Thermal {
     this.veerD = this.hemi * hd * 6 * DEG * this.latF;
     this.veerN = this.hemi * hn * 4 * DEG * this.latF;
     this.stab = Math.max(-1, Math.min(1, dT / 6));
+    const rg = this.rg;
+    if (rg) {
+      const dR = this.dTr = this._lag(q0, this.rgTau, this.rgB, this._dr) * (1 - f) + this._lag(q0 + st, this.rgTau, this.rgB, this._dr) * f;
+      this.rgD = rg.day ? rg.day.gain * Math.sqrt(Math.max(0, dR - (rg.day.thr ?? 0))) : 0;
+      this.rgN = rg.night ? rg.night.gain * Math.sqrt(Math.max(0, -dR - (rg.night.thr ?? 0))) * this._swing(ms) : 0;
+    }
     this._tt = t;
     return this;
   }
@@ -429,6 +459,15 @@ export class Thermal {
     out.vx = S * (gx * cd - gz * sd) - L * (gx * cn - gz * sn);
     out.vz = S * (gz * cd + gx * sd) - L * (gz * cn + gx * sn);
     out.st = T.stab * Math.min(1, Math.hypot(gx, gz));
+    if (this.loc !== 1) { out.vx *= this.loc; out.vz *= this.loc; }
+    const rg = this.rg;
+    if (rg) {
+      // the regional flow is deeper than a local breeze: a gradient mixes it away less readily
+      const sr = 1 / (1 + (Ug / 11) ** 2), D = T.rgD * sr, N = T.rgN * sr;
+      if (D > 0) { const a = rg.day.from * DEG; out.vx -= D * Math.sin(a); out.vz += D * Math.cos(a); }
+      if (N > 0) { const a = rg.night.from * DEG; out.vx -= N * Math.sin(a); out.vz += N * Math.cos(a); }
+      out.st = Math.max(-1, Math.min(1, out.st + 0.5 * T.stab * Math.min(1, (D + N) / 6)));
+    }
     return out;
   }
 }
@@ -467,7 +506,7 @@ export class WaveField {
     this.seed = opts.seed ?? 3;
     this.set(opts);
   }
-  set(opts) {
+  set(opts, t0 = 0) {
     this.opts = opts;
     const U0 = Math.max(0.5, opts.tws ?? 6);
     this.U0 = U0;
@@ -476,19 +515,25 @@ export class WaveField {
     this.weather = opts.weather || null;
     this.seaScale = opts.seaScale ?? 1;
     const rnd = mulberry32(this.seed * 977 + 11);
-    // frequency bins cover the peak for the whole range of wind the weather can bring
-    const [, TpLo] = hsTp(U0 * 0.55, this.F), [, TpHi] = hsTp(U0 * 1.55, this.F);
-    const fLo = 0.8 / Math.max(TpHi, 0.5), fHi = 2.6 / Math.max(TpLo, 0.4);
     const sw = opts.swellH ?? 0, nSw = sw > 0.01 ? 2 : 0, nS = MAXW - nSw;
+    // the components are laid out once, about the direction(s) the day's wind will blow from; the weather
+    // then only sets their amplitudes. A venue's thermal can blow from anywhere (Garda: Pelèr from the
+    // north at dawn, Ora from the south by noon), so the day ahead is sampled and a sea whose energy comes
+    // from two opposite sides gets two families of components, each with its own full frequency range.
+    let fams = [{ dir: this.dir0, n: nS }], Ulo = U0 * 0.55, Uhi = U0 * 1.55;
+    if (this.weather && this.weather.thermal) ({ fams, Ulo, Uhi } = this._layout(nS, U0, t0));
+    // frequency bins cover the peak for the whole range of wind the weather can bring
+    const [, TpLo] = hsTp(Ulo, this.F), [, TpHi] = hsTp(Uhi, this.F);
+    const fLo = 0.8 / Math.max(TpHi, 0.5), fHi = 2.6 / Math.max(TpLo, 0.4);
     const comps = [], ratio = fHi / fLo, ph0 = rnd();
-    for (let i = 0; i < nS; i++) {
-      const fa = fLo * Math.pow(ratio, i / nS), fb = fLo * Math.pow(ratio, (i + 1) / nS);
+    for (const fam of fams) for (let i = 0, n = fam.n; i < n; i++) {
+      const fa = fLo * Math.pow(ratio, i / n), fb = fLo * Math.pow(ratio, (i + 1) / n);
       const f = fa * Math.pow(fb / fa, 0.2 + 0.6 * rnd());
       // spreading: the long waves near the peak run close to the wind, the short ones fan out
-      const w = (28 + 34 * i / (nS - 1)) * DEG;
+      const w = (28 + 34 * i / (n - 1)) * DEG;
       const u = (ph0 + i * 0.6180339887) % 1;                     // golden-ratio sequence: neighbours differ
       const dd = (2 * u - 1) * w;
-      const th = this.dir0 + Math.PI + dd;
+      const th = fam.dir + Math.PI + dd;
       const omega = 2 * Math.PI * f;
       comps.push({ f, fa, fb, dd, wSpread: 2 * w / spreadP(w), travel: th, A: 0, k: omega * omega / G, omega, dx: Math.sin(th), dz: -Math.cos(th), phase: rnd() * 6.283, Q: 0, kind: 'sea' });
     }
@@ -504,7 +549,33 @@ export class WaveField {
     this.comps = comps;
     this.cur = { x: 0, z: 0 };
     this.depthFn = null; this.phaseField = null;
-    this.update(0);
+    this.update(t0);
+  }
+
+  // where the next 12 h of wind (gradient + thermal) comes from, weighted by the sea it raises (~U^3):
+  // the axial mean direction splits the samples into two opposite halves; a half with over a fifth of the
+  // energy gets its own family of components (at least 6), about its own energy-weighted mean direction
+  _layout(nS, U0, t0) {
+    const W = this.weather, S = [];
+    let Ulo = Infinity, Uhi = 0, c2 = 0, s2 = 0;
+    for (let t = t0; t <= t0 + 12 * 3600; t += 600) {
+      const tr = W.trend(t), U = U0 * tr.f, d = this.dir0 + tr.d, w = U * U * U;
+      S.push({ d, w }); c2 += w * Math.cos(2 * d); s2 += w * Math.sin(2 * d);
+      Ulo = Math.min(Ulo, U); Uhi = Math.max(Uhi, U);
+    }
+    const ax = 0.5 * Math.atan2(s2, c2), half = [{ x: 0, z: 0, e: 0 }, { x: 0, z: 0, e: 0 }];
+    for (const s of S) {
+      const h = half[Math.cos(s.d - ax) >= 0 ? 0 : 1];
+      h.x += s.w * Math.sin(s.d); h.z += s.w * Math.cos(s.d); h.e += s.w;
+    }
+    const E = half[0].e + half[1].e, dirOf = (h) => Math.atan2(h.x, h.z);
+    let fams;
+    if (E <= 0) fams = [{ dir: this.dir0, n: nS }];
+    else if (Math.min(half[0].e, half[1].e) > 0.2 * E) {
+      const n0 = Math.max(6, Math.min(nS - 6, Math.round(nS * half[0].e / E)));
+      fams = [{ dir: dirOf(half[0]), n: n0 }, { dir: dirOf(half[1]), n: nS - n0 }];
+    } else fams = [{ dir: dirOf(half[0].e >= half[1].e ? half[0] : half[1]), n: nS }];
+    return { fams, Ulo: Math.min(U0, Ulo) * 0.55, Uhi: Math.max(U0, Uhi) * 1.55 };
   }
 
   // target spectral amplitude of a component for mean wind (U, from-direction dir)
@@ -578,6 +649,7 @@ export class WaveField {
 
   // Finite-depth phase field: integrate (k(h) - k_deep) along each component's direction.
   buildDepthField(world) {
+    this._world = world;
     for (const c of this.comps) c.kRef = c.k;
     if (!world || world.open) { this.depthFn = null; this.phaseField = null; return; }
     this.depthFn = (x, z) => Math.max(0.05, world.depthAt(x, z));
@@ -736,6 +808,15 @@ export class Environment {
     this.waves.setCurrent(c0.x, c0.z);
     this.wavesOn = opts.wavesOn ?? true;
     this._lastWaveT = -1e9;
+  }
+  // the thermal's clock moved (the menu's time of day): drop everything cached by t, raise the sea anew
+  setClock(clock0, t = 0) {
+    const th = this.weather.thermal; if (!th) return;
+    th.setClock(clock0); this.weather._ct = NaN;
+    // the day ahead now blows from elsewhere: lay the sea's components out anew (current and depth kept)
+    const W = this.waves, cur = W.cur, world = W._world;
+    W.set(W.opts); W.setCurrent(cur.x, cur.z); if (world) W.buildDepthField(world); W.update(t);
+    this._lastWaveT = t;
   }
   // advance the slowly-changing sea state (cheap; call every frame)
   tick(t) {

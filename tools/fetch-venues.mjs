@@ -1,18 +1,20 @@
 // Bakes OpenStreetMap coastline/water geometry for the built-in venues into data/venues/*.json
 // Usage: node tools/fetch-venues.mjs [venueId...]
 //        node tools/fetch-venues.mjs --land [venueId...]   (buildings, roads, land use -> data/venues/<id>.land.json)
-import { VENUES, overpassQuery, processOSM, landQueries, processLand, World } from '../js/world.js';
+//        node tools/fetch-venues.mjs --seamarks [venueId...]   (lighthouses, lights, buoys, beacons -> data/venues/<id>.seamarks.json)
+import { VENUES, overpassQuery, processOSM, landQueries, processLand, World, MAP_RADIUS } from '../js/world.js';
+import { seamarksQuery, processSeamarks } from '../js/seamarks.js';
 import { writeFileSync, readFileSync } from 'node:fs';
-const LAND = process.argv.includes('--land');
+const LAND = process.argv.includes('--land'), MARKS = process.argv.includes('--seamarks');
 const want = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const UA = 'truewind-sailing-sim/1.0 (https://github.com/hclivess/truewind)';
-const ENDPOINTS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
+const ENDPOINTS = ['https://overpass-api.de/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 async function overpass(q) {
   for (let attempt = 0; attempt < 6; attempt++) {
     const url = ENDPOINTS[attempt % ENDPOINTS.length];
     try {
-      const r = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA } });
+      const r = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA, Accept: 'application/json' } });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
       if (j.remark && /runtime error|timed out/i.test(j.remark)) throw new Error(j.remark.slice(0, 120));
@@ -20,6 +22,20 @@ async function overpass(q) {
     } catch (e) { const w = 10000 * (attempt + 1); console.log('  overpass retry', url.split('/')[2], e.message, `waiting ${w / 1000}s`); await sleep(w); }
   }
   throw new Error('overpass failed');
+}
+if (MARKS) {
+  for (const v of VENUES) {
+    if (v.open || (want.length && !want.includes(v.id))) continue;
+    const R = (v.R ?? MAP_RADIUS) + 600;
+    const osm = await overpass(seamarksQuery(v.lat, v.lon, R));
+    const { region, marks } = processSeamarks(osm, v.lat, v.lon, R);
+    const s = JSON.stringify({ id: v.id, source: 'OpenStreetMap / OpenSeaMap contributors (ODbL)', fetched: new Date().toISOString().slice(0, 10), region, marks });
+    writeFileSync(`data/venues/${v.id}.seamarks.json`, s);
+    const by = {}; for (const m of marks) by[m.t] = (by[m.t] || 0) + 1;
+    console.log(v.id, osm.elements.length, 'elements ->', marks.length, 'marks,', marks.filter(m => m.L).length, 'lit,', (s.length / 1024).toFixed(0) + ' KB', JSON.stringify(by));
+    await sleep(4000);
+  }
+  process.exit(0);
 }
 if (LAND) {
   for (const v of VENUES) {

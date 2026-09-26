@@ -5,12 +5,17 @@
 import { noise2 } from './env.js';
 
 export const VENUES = [
-  { id: 'progreso', name: 'Puerto Progreso', place: 'Progreso, Yucatán, Mexico', lat: 21.315, lon: -89.668, R: 8000, wind: 70, windKt: 14, depth: 6.5, shelf: 1400,
+  { id: 'progreso', features: true, name: 'Puerto Progreso', place: 'Progreso, Yucatán, Mexico', lat: 21.315, lon: -89.668, R: 8000, wind: 70, windKt: 14, depth: 6.5, shelf: 1400,
     current: { kt: 0.4, dir: 270 }, spawn: { lat: 21.2925, lon: -89.6635, heading: 330 },
     note: 'Gulf of Mexico trade-wind sea breeze over the shallow Yucatán shelf, beside the 6.5 km Progreso pier — the longest in the world.' },
   { id: 'solent', name: 'The Solent', place: 'Cowes, Isle of Wight, UK', lat: 50.772, lon: -1.285, wind: 225, windKt: 13, depth: 14, current: { kt: 1.2, dir: 90 }, note: 'Home of Cowes Week. Strong tides along the shore, Bramble Bank shallows.' },
-  { id: 'sfbay', name: 'San Francisco Bay', place: 'City Front, California, USA', lat: 37.822, lon: -122.425, wind: 255, windKt: 18, depth: 16, current: { kt: 1.5, dir: 80 }, note: 'The summer sea breeze pours through the Golden Gate. Alcatraz to leeward.' },
-  { id: 'garda', name: 'Lake Garda', place: 'Riva del Garda, Italy', lat: 45.846, lon: 10.853, wind: 195, windKt: 14, depth: 90, note: 'Afternoon Ora from the south, funnelled between the mountains.' },
+  { id: 'sfbay', name: 'San Francisco Bay', place: 'City Front, California, USA', lat: 37.822, lon: -122.425, wind: 255, windKt: 6, depth: 16, current: { kt: 1.5, dir: 80 }, note: 'The summer sea breeze pours through the Golden Gate. Alcatraz to leeward.',
+    // the Gate westerly: the cold Pacific against the Central Valley's heat, slow to build and slow to fade
+    // (windKt is the gradient under it: the thermal brings the summer afternoon's 15-25 kn)
+    regional: { name: 'Golden Gate westerly', tau: 6, cool: 2.5, local: 0.25, day: { from: 252, gain: 5.1, thr: 0.7 } } },
+  { id: 'garda', name: 'Lake Garda', place: 'Riva del Garda, Italy', lat: 45.846, lon: 10.853, wind: 195, windKt: 4, depth: 90, note: 'Afternoon Ora from the south, funnelled between the mountains.',
+    // the valley winds of the Sarca and Adige: the Ora up the lake by day, the Pelèr down it from the night to late morning
+    regional: { name: 'Ora (and the morning Pelèr)', tau: 4, cool: 5, local: 0.4, day: { from: 198, gain: 5.5, thr: 0.6 }, night: { from: 15, gain: 4, thr: 0.5 } } },
   { id: 'sydney', name: 'Sydney Harbour', place: 'New South Wales, Australia', lat: -33.845, lon: 151.255, wind: 45, windKt: 14, depth: 18, note: 'Summer nor-easter sea breeze, ferries, headlands and bays.' },
   { id: 'kiel', name: 'Kiel Fjord', place: 'Kiel, Germany', lat: 54.41, lon: 10.2, wind: 250, windKt: 12, depth: 16, note: 'Kieler Woche waters, the outer fjord toward the Baltic.' },
   { id: 'newport', name: 'Narragansett Bay', place: 'Newport, Rhode Island, USA', lat: 41.47, lon: -71.36, wind: 215, windKt: 14, depth: 20, current: { kt: 0.6, dir: 20 }, note: 'Classic America\'s Cup ground, reliable afternoon southwesterly.' },
