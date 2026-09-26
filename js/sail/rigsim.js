@@ -5,7 +5,7 @@
 //
 // All positions are in the boat's rig frame (x forward, y starboard, z up along the mast, from the centre of
 // gravity at the waterline), as physics.js uses.
-import { clamp, lerp, sstep, STRIP_F, reefAt } from '../physics.js';
+import { clamp, lerp, sstep, STRIP_F, reefAt, mastXAt } from '../physics.js';
 import { G as GRAV } from '../env.js';
 import { Cloth } from './cloth.js';
 import { clothSize, clothMaterial, battens } from './specs.js';
@@ -229,13 +229,16 @@ const wrapA = (a) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI))
 export function rigWires(C, sails) {
   const mastBase = C.freeboard + (C.cabin ? 0.35 : 0), mastLen = C.mastHeight - mastBase;
   const stay = (s) => (s ? [[s.tackX, 0, s.tackZ], [s.tackX - (s.rake || 0), 0, s.tackZ + s.luff]] : null);
-  const w = { mast: [[C.mastX + 0.03, 0, mastBase], [C.mastX + 0.03, 0, C.mastHeight]], forestay: stay(sails.jib), inner: stay(sails.stay), shrouds: [] };
+  const w = { mast: [[mastXAt(C, mastBase) + 0.03, 0, mastBase], [mastXAt(C, C.mastHeight) + 0.03, 0, C.mastHeight]], forestay: stay(sails.jib), inner: stay(sails.stay), shrouds: [] };
   if (C.multihull) {
     const hz = C.mastHeight - mastLen * 0.25;
-    for (const sd of [-1, 1]) w.shrouds.push([[C.mastX - 0.05, sd * C.hullSpacing / 2, C.freeboard + 0.1], [C.mastX, sd * 0.02, hz]]);
+    for (const sd of [-1, 1]) w.shrouds.push([[C.mastX - 0.05, sd * C.hullSpacing / 2, C.freeboard + 0.1], [mastXAt(C, hz), sd * 0.02, hz]]);
   } else if (C.id !== 'dinghy') {
-    const sprZ = mastBase + mastLen * 0.5, hz = C.id === 'sportboat' ? C.mastHeight - mastLen * 0.2 : C.mastHeight - 0.25;
-    for (const sd of [-1, 1]) w.shrouds.push([[C.mastX - 0.1, sd * 0.45 * C.beam, C.freeboard], [C.mastX - 0.15, sd * C.beam * 0.36, sprZ + 0.06], [C.mastX, sd * 0.02, hz]]);
+    // (as models.js draws them: the J/70's swept carbon spreaders 4.97 m up and cap shrouds to the hounds at the jib head)
+    const sb = C.id === 'sportboat', J = sails.jib;
+    const sprZ = sb ? 4.97 : mastBase + mastLen * 0.5, hz = sb && J ? J.tackZ + J.luff + 0.05 : C.mastHeight - 0.25;
+    const sw = sb ? 0.27 : 0.15, sl = sb ? 0.78 : C.beam * 0.36;
+    for (const sd of [-1, 1]) w.shrouds.push([[C.mastX - 0.1, sd * 0.45 * C.beam, C.freeboard], [mastXAt(C, sprZ) - sw, sd * sl, sprZ + 0.06], [mastXAt(C, hz), sd * 0.02, hz]]);
   }
   return w;
 }
@@ -243,7 +246,10 @@ export function rigWires(C, sails) {
 // at the mast runs down the mast's front there)
 const bodyNodes = (cloth, nu, nv, topRows = 0) => Array.from({ length: nu * nv }, (_, k) => cloth.off + k).filter((k) => (k - cloth.off) % nu > 0 && Math.floor((k - cloth.off) / nu) < nv - topRows);
 // the mast below a headsail's head (less a little: the sail runs down its front near the head)
-const mastBelow = (W, z) => [W.mast[0], [W.mast[1][0], 0, Math.max(W.mast[0][2] + 0.5, z - 0.4)]];
+const mastBelow = (W, z) => {
+  const [a, b] = W.mast, zt = Math.max(a[2] + 0.5, z - 0.4), t = (zt - a[2]) / (b[2] - a[2]);
+  return [a, [a[0] + t * (b[0] - a[0]), 0, zt]];
+};
 
 // A sail set on a boom: the main (luff on the mast, boom on the gooseneck, sheet to the traveller car, vang,
 // topping lift) or the Blackwatch's self-tacking staysail (luff on the inner forestay, club on the tack).
@@ -253,7 +259,7 @@ export class BoomSailRig extends ClothRig {
   constructor(boat, s0, lod, reef = 0) {
     const C = boat.cls, isMain = s0.key === 'main';
     const rf = reefAt(reef), s = reef > 0 ? { ...s0, luff: s0.luff * rf.l, area: s0.area * rf.a } : s0;
-    super(boat, s, lod, { extra: 1, px: isMain ? C.mastX - 0.02 : s.tackX, pz: isMain ? C.boomZ : s.tackZ, rake: isMain ? 0 : (s.rake || 0),
+    super(boat, s, lod, { extra: 1, px: isMain ? C.mastX - 0.02 : s.tackX, pz: isMain ? C.boomZ : s.tackZ, rake: s.rake || 0,
       luffRound: isMain ? (s.luffRoundK ?? 0.35) * 0.018 * s.luff : 0 });
     this.isMain = isMain; this.reefLevel = reef; this.s0 = s0;
     const cloth = this.cloth, nu = this.nu, nv = this.nv;
@@ -275,7 +281,7 @@ export class BoomSailRig extends ClothRig {
     this.tv = 0.22; this.dv = isMain ? Math.min(0.55, Math.max(0.3, C.boomZ - C.freeboard + 0.1)) : 0.15;
     this.vangBase = [this.px, 0, this.pz - this.dv];
     this.vang = isMain ? cloth.addRope(this.E, this.tv, this.Gp, this.vangBase, 1, 6e5) : null;
-    this.mastHead = [this.px, 0, this.pz + s.luff + 0.3];
+    this.mastHead = [this.px - this.rake, 0, this.pz + s.luff + 0.3];
     this.topping = cloth.addRope(this.E, 1, this.Gp, this.mastHead, 1, 1e5);
     // battens: stiff chains of nodes on the batten rows (full length on a fully battened sail, the aft third
     // otherwise), with the batten's bending stiffness on every second node
@@ -295,7 +301,7 @@ export class BoomSailRig extends ClothRig {
     // the mast: the cloth wraps round it, it does not pass through it
     const W = rigWires(C, boat.sailBy);
     if (isMain) {
-      cloth.addCapsule([C.mastX + 0.03, 0, 0], [C.mastX + 0.03, 0, C.mastHeight], 0.05, bodyNodes(cloth, nu, nv));
+      cloth.addCapsule([mastXAt(C, 0) + 0.03, 0, 0], [mastXAt(C, C.mastHeight) + 0.03, 0, C.mastHeight], 0.05, bodyNodes(cloth, nu, nv));
       // eased right out (running), the main comes up against the leeward shrouds and spreader and lies on them
       for (const sh of W.shrouds) cloth.addWire(sh, 0.03, bodyNodes(cloth, nu, nv));
     } else cloth.addWire(mastBelow(W, s.tackZ + s.luff), 0.06, bodyNodes(cloth, nu, nv, 2));   // (the staysail round the mast)
@@ -381,7 +387,7 @@ export class JibRig extends ClothRig {
     // is left out: on a rig whose jib head is at the mast it runs down the mast's front, and caught on the
     // capsule it would pin the clew)
     const nodes = Array.from({ length: nu * nv }, (_, k) => cloth.off + k).filter((k) => { const i = (k - cloth.off) % nu; return i > 0 && i < nu - 2; });
-    cloth.addCapsule([C.mastX + 0.03, 0, 0], [C.mastX + 0.03, 0, C.mastHeight], 0.06, nodes);
+    cloth.addCapsule([mastXAt(C, 0) + 0.03, 0, 0], [mastXAt(C, C.mastHeight) + 0.03, 0, C.mastHeight], 0.06, nodes);
     const st = boat.sailBy.stay;
     if (st && st !== s) cloth.addCapsule([st.tackX, 0, st.tackZ], [st.tackX - (st.rake || 0), 0, st.tackZ + st.luff], 0.03, nodes);
     // (and edge-wise, so the mast and the inner stay cannot slip between its nodes as it crosses in a tack)

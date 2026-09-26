@@ -65,7 +65,8 @@ export const CLASSES = {
     gm: 0.92, bmForm: 0.62, Ixx: 1150, Izz: 2250, amX: 0.07, amY: 0.9, amYaw: 0.6, amRoll: 0.3,
     rr: [[0.1, 0.0002], [0.15, 0.0006], [0.2, 0.0016], [0.25, 0.0035], [0.3, 0.0072], [0.35, 0.0145], [0.4, 0.031],
          [0.45, 0.058], [0.5, 0.085], [0.55, 0.101], [0.6, 0.11], [0.7, 0.12], [0.8, 0.125], [1.0, 0.13], [1.5, 0.14]],
-    keel: { x: 0.75, z: -0.3, area: 1.7, ARe: 0.95, stall: 26 * DEG, cd0: 0.013, span: 0.35, chord: 3.6, long: true },
+    // (x: the centre of the drawn long keel; its lift acts a quarter chord ahead, at the forefoot: keelLiftX)
+    keel: { x: 0.42, z: -0.3, area: 1.7, ARe: 0.95, stall: 26 * DEG, cd0: 0.013, span: 0.35, chord: 3.6, long: true },
     rudder: { x: -2.78, z: -0.28, area: 0.34, ARe: 2.4, stall: 22 * DEG, cd0: 0.014, max: 35 * DEG, span: 0.75, chord: 0.5, transom: true, loadRef: 900 },
     hullLat: { area: 0.9, cd: 0.9, z: -0.1 },
     windage: { area: 3.1, z: 2.1, cd: 0.95 },
@@ -99,14 +100,15 @@ export const CLASSES = {
     // (It used to plateau at 0.05, which let it reach at wind speed in 12 kn — J/70 polars give ~8 kn.)
     rr: [[0.1, 0.0001], [0.15, 0.0004], [0.2, 0.0009], [0.25, 0.0018], [0.3, 0.0035], [0.35, 0.0065], [0.4, 0.013],
          [0.45, 0.027], [0.5, 0.044], [0.55, 0.057], [0.6, 0.066], [0.7, 0.072], [0.8, 0.071], [1.0, 0.066], [1.2, 0.065], [1.5, 0.069]],
-    keel: { x: 0.65, z: -0.85, area: 0.58, ARe: 5.0, stall: 14 * DEG, cd0: 0.009, span: 1.17, chord: 0.5 },
+    // (the fin where the J/70's is: its quarter chord 0.8 m aft of the mast)
+    keel: { x: 0.25, z: -0.85, area: 0.58, ARe: 5.0, stall: 14 * DEG, cd0: 0.009, span: 1.17, chord: 0.5 },
     // the rudder hangs on the transom (J/Boats: "high aspect transom mounted molded rudder")
     rudder: { x: -3.45, z: -0.45, area: 0.23, ARe: 3.6, stall: 15 * DEG, cd0: 0.01, max: 32 * DEG, span: 0.95, chord: 0.26, loadRef: 700, hung: true },
     hullLat: { area: 1.5, cd: 0.9, z: -0.1 },
     windage: { area: 2.8, z: 2.4, cd: 0.9 },
     // J/Boats sail plan: the deck-stepped mast is 2.5 m aft of the stem (J 2.34 m from the jib tack), 10.0 m DWL to
-    // masthead, gooseneck 1.7 m above the waterline
-    mastX: 1.03, mastHeight: 10.0, boomZ: 1.7, keelBulb: true,
+    // masthead, gooseneck 1.7 m above the waterline; the mast rakes about 0.6 m aft at the masthead
+    mastX: 1.03, mastHeight: 10.0, boomZ: 1.7, keelBulb: true, mastRake: 0.6,
     targetHeel: 17 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 1400,
     sails: [
       { key: 'main', kind: 'boom', area: 16.7, luff: 7.97, foot: 2.88, head: 0.45, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
@@ -181,8 +183,13 @@ export const CLASSES = {
 };
 // headsails are set on stays that run from the tack up to the mast: the head sits at the mast, so the
 // luff's rake is the horizontal distance from the tack to the mast (a free-flying gennaker keeps its own)
+// A raked mast (mastRake: m aft at the masthead, from the gooseneck up) carries the main's luff and the headsails'
+// heads aft with it: the sails' centre of effort moves aft by about half the rake
+export const keelLiftX = (C) => C.keel.x + (C.keel.long ? 0.25 * C.keel.chord : 0);
+export const mastXAt = (C, z) => C.mastX - (C.mastRake || 0) * (z - C.boomZ) / (C.mastHeight - C.boomZ);
 for (const C of Object.values(CLASSES)) for (const s of C.sails) {
-  if (s.kind === 'loose' || (s.kind === 'boom' && s.key !== 'main')) s.rake = s.tackX - (C.mastX + 0.07);
+  if (s.kind === 'loose' || (s.kind === 'boom' && s.key !== 'main')) s.rake = s.tackX - (mastXAt(C, s.tackZ + s.luff) + 0.07);
+  else if (s.key === 'main') s.rake = (C.mastRake || 0) * s.luff / (C.mastHeight - C.boomZ);
 }
 // lines that are held by a cleat, clutch or self-tailer (and which way they run when released)
 export const LOCKABLE = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibHalyard', 'tackLine'];
@@ -766,14 +773,17 @@ export class Boat {
       if (F.twin) board *= 0.5 + 0.5 * this.flyIn;           // the windward board lifts out with its hull
       const area = F.area * board, ARe = F.ARe * Math.max(0.3, board), zk = F.z * (0.4 + 0.6 * board);
       const ul = this.u - 0.3 * orbU;
-      const vl = (this.v - 0.3 * orbV + this.r * F.x + this.p * zk) * cphi;
+      // (a foil's lift acts at its quarter chord: keel.x is a fin's, but a long keel's is the centre of its drawn
+      // profile, and its lift, like any low-aspect-ratio wing's, is carried at the forefoot, a quarter chord ahead)
+      const xk = keelLiftX(C);
+      const vl = (this.v - 0.3 * orbV + this.r * xk + this.p * zk) * cphi;
       const V2 = ul * ul + vl * vl, V = Math.sqrt(V2) + 1e-9;
       foilCoef(Math.atan2(vl, ul), F, ARe, fc);
       keelCl = fc.cl;
       const q = 0.5 * RHO_W * V2 * area * Math.max(0, cphi) ** 1.5;   // the board comes out of the water as the boat lies over
       const kx = q * (fc.cl * vl / V - fc.cd * ul / V), kn = q * (-fc.cl * ul / V - fc.cd * vl / V);
-      X += kx; Y += kn * cphi; K += kn * zk; N += F.x * kn * cphi;
-      d.Nkeel = F.x * kn * cphi; d.keelCl = fc.cl;
+      X += kx; Y += kn * cphi; K += kn * zk; N += xk * kn * cphi;
+      d.Nkeel = xk * kn * cphi; d.keelCl = fc.cl;
       d.keelX = kx; d.keelY = kn * cphi; d.keelStall = fc.stalled; d.leeway = Math.atan2(this.v, Math.max(0.05, this.u));
       d.keelARe = ARe;
     }
@@ -783,7 +793,11 @@ export class Boat {
       const vl = (this.v - 0.5 * orbV + this.r * F.x + this.p * F.z) * cphi;
       const V2 = ul * ul + vl * vl, V = Math.sqrt(V2) + 1e-9;
       // keel downwash at the rudder; a rudder hung on the keel's trailing edge acts more like a flap
-      const eps = 1.2 * keelCl / (Math.PI * d.keelARe) * (ul > 0 ? 1 : 0) * (F.transom ? 0.35 : 1);
+      // keel downwash at the rudder: lifting line, CL/(pi ARe) at the keel growing to twice that far behind it,
+      // (1 + dx / sqrt(dx^2 + b^2)) with b the keel's span with its image in the hull; a rudder hung on the keel's
+      // trailing edge acts more like a flap
+      const dxk = keelLiftX(C) - F.x, bk = 2 * (C.keel.span || 1), fk = 1 + dxk / Math.sqrt(dxk * dxk + bk * bk);
+      const eps = fk * keelCl / (Math.PI * d.keelARe) * (ul > 0 ? 1 : 0) * (F.transom ? 0.35 : 1);
       foilCoef(wrap(Math.atan2(vl, ul) - eps + this.rudder), F, F.ARe, fc);
       const vent = (1 - sstep(38 * DEG, 70 * DEG, Math.abs(this.phi))) * (F.twin ? 0.5 + 0.5 * this.flyIn : 1);
       const q = 0.5 * RHO_W * V2 * F.area * vent;
