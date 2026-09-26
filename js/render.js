@@ -7,6 +7,7 @@ import { buildBoatModel, updateBoatModel } from './models.js';
 import { Rigging, tickGlow } from './rigging.js';
 import { buildStructures, indexFeatures, structureMask } from './structures.js';
 import { HullSplash, SeaSpray, NOISE as FOAM_NOISE } from './splash.js';
+import { HullWaves, KelvinLow, HW_GLSL, KW_GLSL, HW, roosterTail } from './hullwaves.js';
 import { loadLand, buildTerrain, buildScenery, setSceneryNight, tickScenery } from './scenery.js';
 import { SkySystem, SKY_LUT_GLSL, CLOUD_GLSL, withCloudShadows, sunPosition, MIST_U } from './sky.js';
 import { strikes, flashAt, thunderDue, thunderBearing, boltSegments, convection, heatFromSun, mist, mistTau } from './wx.js';
@@ -179,11 +180,19 @@ export class Renderer {
     };
     // the sky's shared uniforms (table, clouds, sun colour) are the same objects
     for (const k of ['uSkyLUT', 'uLutDir', 'uNoise', 'uWeather', 'uWOff', 'uCover', 'uCloudBase', 'uCloudThick', 'uCloudTime', 'uCells', 'uSunCol']) uniforms[k] = this.skySys.U[k];
+    // the boats' own waves (hullwaves.js): simulated on a grid around the player, or (?q=low, or no float
+    // render targets) the analytic Kelvin pattern along each track
+    this.hullWaves = this.low ? null : new HullWaves(THREE, this.r);
+    if (this.hullWaves && !this.hullWaves.ok) this.hullWaves = null;
+    this.kelvinLow = this.hullWaves ? null : new KelvinLow(THREE);
+    Object.assign(uniforms, (this.hullWaves || this.kelvinLow).uniforms);
+    const HWDEF = this.hullWaves ? `#define HWSIM\n${HW_GLSL}` : `#define HWKELVIN\n${KW_GLSL}`;
     this.waterU = uniforms;
     const m = new THREE.ShaderMaterial({
       uniforms, fog: false,
       vertexShader: /* glsl */`
         ${WAVE_GLSL}
+        ${HWDEF}
         uniform vec2 uOffset; uniform vec3 uCam; attribute float spc;
         varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore; varying float vBreak;
         void main(){
@@ -213,12 +222,21 @@ export class Renderer {
             eH += A * C; s2 += b.y * A * A * (C * C - S * S);
           }
           P.y += uK2 * (P.y * P.y - eH * eH + s2);          // second order: sharper crests, flatter troughs
+          // ---- hull waves (hullwaves.js), on top of the sea: the level of the field that this vertex
+          // spacing can draw (the finer waves are left to the normals)
+          #ifdef HWSIM
+          P.y += hwAt(P.xz, max(log2(spc / ${(HW.L / HW.N).toFixed(4)}) - 0.5, 0.0)).x;
+          #endif
+          #ifdef HWKELVIN
+          P.y += kwAt(P.xz).x;
+          #endif
           vPos = P; vX0 = x0; vFade = fade; vShore = shore;
           gl_Position = projectionMatrix * viewMatrix * vec4(P, 1.0);
         }`,
       fragmentShader: /* glsl */`
         ${this.low ? '#define LOWQ' : ''}
         ${WAVE_GLSL}
+        ${HWDEF}
         ${SKY_LUT_GLSL}
         ${CLOUD_GLSL}
         uniform vec3 uSunDir; uniform vec3 uSunCol; uniform samplerCube uEnv; uniform float uAmbF; uniform vec3 uLightDir; uniform sampler2D uSkyRT; uniform mat4 uSkyVP;
@@ -271,6 +289,16 @@ export class Renderer {
           }
           // slope of eta2 = K2 (eta^2 - H^2 + Q-self): n.xz here is minus the first-order slope
           n.xz -= uK2 * (-2.0 * e1 * n.xz + 2.0 * eH * gH + g2);
+          // ---- hull waves (hullwaves.js): their slope, at the level the pixel's footprint resolves (at the
+          // drawn, Eulerian, position: the field is laid in world coordinates)
+          #ifdef HWSIM
+          vec4 hwv = hwAt(vPos.xz, max(log2(length(eRf) * 2.0 / ${(HW.L / HW.N).toFixed(4)}), 0.0));
+          n.xz -= hwv.yz;
+          #endif
+          #ifdef HWKELVIN
+          vec3 kwv = kwAt(vPos.xz);
+          n.xz -= kwv.yz;
+          #endif
           // local wind (puffs + land shelter): the short waves answer it within seconds, so puffs read dark
           vec2 guv = (x0 - uGustO) / uGustS + 0.5;
           float gw = texture2D(uGust, guv).r * 2.0;
@@ -445,6 +473,9 @@ export class Renderer {
             foam = max(act * (0.7 + 0.3 * f2), max(resid, streak * 0.55));
           }
           foam = max(foam, pers);
+          #ifdef HWKELVIN
+          foam = max(foam, smoothstep(0.14, 0.32, length(kwv.yz)) * step(0.0, kwv.x) * 0.55 * lace);   // the steep crests of the wake, whitened
+          #endif
           // up close foam is bubbles and holes, not paint (faded out before the bubbles shrink to a pixel)
           #ifndef LOWQ
           float gfp = length(eRf) * 3.0;
@@ -491,18 +522,19 @@ export class Renderer {
     // mipmapped: the water reads the level that matches a far pixel's footprint (this pass reads level 0)
     const mk = () => new THREE.WebGLRenderTarget(FOAM_N, FOAM_N, { type: THREE.HalfFloatType, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: true, depthBuffer: false });
     this.foamRT = [mk(), mk()]; this.foamI = 0; this.foamT = null;
-    const U = this.waterU, v4 = () => [0, 1, 2, 3].map(() => new THREE.Vector4());
-    const fu = { uPrev: { value: null }, uCp: { value: new THREE.Vector2() }, uDt: { value: 0 }, uDrift: { value: new THREE.Vector2() }, uLang: { value: 0 }, uKeep: { value: 0 }, uWake: { value: v4() }, uWakeW: { value: v4() } };
-    for (const k of ['uWa', 'uWb', 'uWn', 'uTime', 'uK2', 'uSdf', 'uWorldR', 'uHasMap', 'uPF', 'uHasPF', 'uPFN', 'uGust', 'uGustO', 'uGustS', 'uFlow', 'uWind', 'uFoamC', 'uFoamS', 'uFoamOff']) fu[k] = U[k];
+    const U = this.waterU, v6 = () => [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4());
+    const fu = { uPrev: { value: null }, uCp: { value: new THREE.Vector2() }, uDt: { value: 0 }, uDrift: { value: new THREE.Vector2() }, uLang: { value: 0 }, uKeep: { value: 0 }, uWake: { value: v6() }, uWakeW: { value: v6() } };
+    for (const k of ['uWa', 'uWb', 'uWn', 'uTime', 'uK2', 'uSdf', 'uWorldR', 'uHasMap', 'uPF', 'uHasPF', 'uPFN', 'uGust', 'uGustO', 'uGustS', 'uFlow', 'uWind', 'uFoamC', 'uFoamS', 'uFoamOff', 'uHW', 'uHWC']) if (U[k]) fu[k] = U[k];
     this.foamU = fu;
     const mat = new THREE.ShaderMaterial({
       uniforms: fu, depthTest: false, depthWrite: false,
       vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
       fragmentShader: /* glsl */`
         ${WAVE_GLSL}
+        ${this.hullWaves ? '#define HWSIM\n' + HW_GLSL : ''}
         uniform sampler2D uPrev; uniform vec2 uCp; uniform float uDt; uniform vec2 uDrift; uniform float uLang; uniform float uKeep;
         const float uTexel = 1.0 / ${FOAM_N}.0;
-        uniform vec4 uWake[4]; uniform vec4 uWakeW[4];          // stern path this frame (x0a, z0a, x0b, z0b); (half-width, strength)
+        uniform vec4 uWake[6]; uniform vec4 uWakeW[6];          // stern paths this frame (x0a, z0a, x0b, z0b); (half-width, strength)
         uniform sampler2D uGust; uniform vec2 uGustO; uniform float uGustS; uniform vec2 uFlow; uniform float uWind;
         uniform vec2 uFoamC; uniform float uFoamS; uniform vec2 uFoamOff;
         varying vec2 vUv;
@@ -544,13 +576,18 @@ export class Renderer {
           float tau = 3.0 + 6.0 * qn(xd * 0.04 + 1.3);                   // e-folding, patchy: gone in ~5-15 s
           old *= exp(-uDt / vec2(tau, 12.0)) * (1.0 + conv * uDt);
           float src = act * 2.0 * uDt, wake = 0.0;                       // ~0.5 s of breaking to full cover
-          for (int i = 0; i < 4; i++) {
+          for (int i = 0; i < 6; i++) {
             vec4 w = uWake[i]; vec4 ww = uWakeW[i];
             if (ww.y <= 0.0) continue;
             vec2 ab = w.zw - w.xy, ap = p - w.xy;
             float d = length(ap - ab * clamp(dot(ap, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0));
             wake += ww.y * smoothstep(ww.x, ww.x * 0.3, d) * (0.6 + 0.8 * f1) * 5.0 * uDt;
           }
+          // ---- hull waves (hullwaves.js): white water where the boats' own waves break (the bow wave, and
+          // the divergent crests once the boat goes fast), laid down with the wake's foam
+          #ifdef HWSIM
+          wake += hwAt(p, 0.0).w * (0.5 + f1) * 4.0 * uDt;
+          #endif
           gl_FragColor = vec4(min(old + vec2(src, wake), 1.0), 0.0, 1.0);
         }`,
     });
@@ -578,25 +615,31 @@ export class Renderer {
     F.uDrift.value.set(dr.x, dr.z);
     const U10 = env.wind.tws;
     F.uLang.value = 0.008 * U10 * clamp((U10 - 3) / 5, 0, 1);
-    // wakes: each boat's stern path since the last step, in the same water coordinates
+    // wakes: each hull's stern path since the last step, in the same water coordinates: the turbulent
+    // strip the transom and the boundary layer leave (about the transom's width, spreading as the foam map
+    // diffuses it), white from ~1 m/s; an engine's propeller wash (b.propWash 0..1, js/engine.js) adds to it
     const s = this._fs || (this._fs = {});
     let n = 0;
     for (const b of boats) {
-      if (n >= 4) break;
-      const P = b.pose || b, C = b.cls, fx = Math.sin(P.psi), fz = -Math.cos(P.psi);
-      const sx = P.x + fx * C.sternX * 0.9, sz = P.z + fz * C.sternX * 0.9;
-      if (Math.abs(sx - U.uFoamC.value.x) > S / 2 || Math.abs(sz - U.uFoamC.value.y) > S / 2) continue;
-      let x0 = sx, z0 = sz;
-      if (env.wavesOn) { W.sample(sx, sz, t, s); x0 = s.x0; z0 = s.z0; }
-      const prev = this._sternPrev.get(b), ok = prev && !jump && Math.hypot(x0 - prev[0], z0 - prev[1]) < 10;
-      this._sternPrev.set(b, [x0, z0]);
-      if (!ok) continue;
-      const sp = Math.hypot(b.u || 0, b.v || 0);
-      F.uWake.value[n].set(prev[0], prev[1], x0, z0);
-      F.uWakeW.value[n].set((C.hullBeam ?? C.beam) * (0.35 + 0.05 * sp), clamp((sp - 0.4) / 3, 0, 1), 0, 0);
-      n++;
+      const P = b.pose || b, C = b.cls, fx = Math.sin(P.psi), fz = -Math.cos(P.psi), rx = Math.cos(P.psi), rz = Math.sin(P.psi);
+      const offs = C.multihull ? [-C.hullSpacing / 2, C.hullSpacing / 2] : [0];
+      const prev = this._sternPrev.get(b) || [], cur = [];
+      for (let h = 0; h < offs.length; h++) {
+        const sx = P.x + fx * C.sternX * 0.97 + rx * offs[h], sz = P.z + fz * C.sternX * 0.97 + rz * offs[h];
+        let x0 = sx, z0 = sz;
+        if (env.wavesOn) { W.sample(sx, sz, t, s); x0 = s.x0; z0 = s.z0; }
+        cur.push([x0, z0]);
+        if (n >= 6 || Math.abs(sx - U.uFoamC.value.x) > S / 2 || Math.abs(sz - U.uFoamC.value.y) > S / 2) continue;
+        const pv = prev[h];
+        if (!pv || jump || Math.hypot(x0 - pv[0], z0 - pv[1]) >= 10) continue;
+        const sp = Math.hypot(b.u || 0, b.v || 0), pw = clamp(b.propWash || 0, 0, 1);
+        F.uWake.value[n].set(pv[0], pv[1], x0, z0);
+        F.uWakeW.value[n].set((C.hullBeam ?? C.beam) * (0.3 + 0.04 * sp + 0.15 * pw), clamp((sp - 0.4) / 1.6, 0, 1) + pw, 0, 0);
+        n++;
+      }
+      this._sternPrev.set(b, cur);
     }
-    for (let i = n; i < 4; i++) F.uWakeW.value[i].set(0, 0, 0, 0);
+    for (let i = n; i < 6; i++) F.uWakeW.value[i].set(0, 0, 0, 0);
     const src = this.foamRT[this.foamI], dst = this.foamRT[1 - this.foamI];
     F.uPrev.value = src.texture;
     const r = this.r, prevRT = r.getRenderTarget();
@@ -1002,11 +1045,13 @@ export class Renderer {
       vis.rigging.update(t, near, dt, env);
       const sp = vis.splash;
       sp.foam.visible = sp.sheet.visible = sp.points.visible = sp.patches.visible = near;
-      if (near) sp.update(dt, t, env);
+      if (near) { sp.update(dt, t, env); roosterTail(sp, b, Math.min(dt, 0.05), env, t, this._rt || (this._rt = {})); }
       // the wake ribbon only without the foam map (which lays the wake down as persistent foam)
       const wk = this.wakes.get(b); wk.mesh.visible = !this.foamRT;
       if (!this.foamRT) wk.update(b, env, t, dt);
     }
+    if (this.hullWaves) this.hullWaves.update(t, boats, player);
+    if (this.kelvinLow) this.kelvinLow.update(t, boats, player);
     this._updateFoam(t, env, boats, player);
     this._updateSeaSpray(dt, t, env);
     const tmp = {};
