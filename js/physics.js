@@ -65,17 +65,18 @@ export const CLASSES = {
     gm: 0.92, bmForm: 0.62, Ixx: 1150, Izz: 2250, amX: 0.07, amY: 0.9, amYaw: 0.6, amRoll: 0.3,
     rr: [[0.1, 0.0002], [0.15, 0.0006], [0.2, 0.0016], [0.25, 0.0035], [0.3, 0.0072], [0.35, 0.0145], [0.4, 0.031],
          [0.45, 0.058], [0.5, 0.085], [0.55, 0.101], [0.6, 0.11], [0.7, 0.12], [0.8, 0.125], [1.0, 0.13], [1.5, 0.14]],
-    keel: { x: 0.42, z: -0.3, area: 1.7, ARe: 0.95, stall: 26 * DEG, cd0: 0.013, span: 0.35, chord: 3.6, long: true },
+    keel: { x: 0.75, z: -0.3, area: 1.7, ARe: 0.95, stall: 26 * DEG, cd0: 0.013, span: 0.35, chord: 3.6, long: true },
     rudder: { x: -2.78, z: -0.28, area: 0.34, ARe: 2.4, stall: 22 * DEG, cd0: 0.014, max: 35 * DEG, span: 0.75, chord: 0.5, transom: true, loadRef: 900 },
     hullLat: { area: 0.9, cd: 0.9, z: -0.1 },
     windage: { area: 3.1, z: 2.1, cd: 0.95 },
-    mastX: 0.25, mastHeight: 8.4, boomZ: 1.5, keelBulb: false,
+    // mast stepped on the cabin top 2.1 m aft of the stem (photos of hull #66: 37% of LOD from the bow)
+    mastX: 0.72, mastHeight: 8.4, boomZ: 1.5, keelBulb: false,
     targetHeel: 18 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 900,
     sails: [
       { key: 'main', kind: 'boom', area: 10.4, luff: 6.5, foot: 3.0, head: 0.15, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
         cd0: 0.07, ARe: 3.2, min: 2 * DEG, max: 80 * DEG, trav: [-4 * DEG, 12 * DEG], Iboom: 42, boomMass: 18, reefs: 2,
         vangBend: 0.08, sheetBend: 0.05, color: 0x9c4f2e },
-      { key: 'stay', kind: 'boom', selfTacking: true, area: 4.2, tackX: 2.55, tackZ: 1.45, luff: 4.8, foot: 1.75, head: 0.05, rake: 0.55,
+      { key: 'stay', kind: 'boom', selfTacking: true, area: 4.2, tackX: 2.55, tackZ: 1.45, luff: 4.8, foot: 1.6, head: 0.05, rake: 0.55,
         depth: [0.12, 0.13, 0.11], twistMax: 14 * DEG, cd0: 0.05, ARe: 3.2, min: 5 * DEG, max: 55 * DEG, Iboom: 6, boomMass: 5, color: 0x9c4f2e },
       { key: 'jib', kind: 'loose', area: 5.1, tackX: 4.2, tackZ: 1.05, luff: 7.0, foot: 2.05, head: 0.05, rake: 1.0, footRise: 0.9,
         depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 3.8, min: 12 * DEG, max: 55 * DEG, sagK: 1.6, color: 0x9c4f2e },
@@ -95,17 +96,20 @@ export const CLASSES = {
     // (It used to plateau at 0.05, which let it reach at wind speed in 12 kn — J/70 polars give ~8 kn.)
     rr: [[0.1, 0.0001], [0.15, 0.0004], [0.2, 0.0009], [0.25, 0.0018], [0.3, 0.0035], [0.35, 0.0065], [0.4, 0.013],
          [0.45, 0.027], [0.5, 0.044], [0.55, 0.057], [0.6, 0.066], [0.7, 0.072], [0.8, 0.071], [1.0, 0.066], [1.2, 0.065], [1.5, 0.069]],
-    keel: { x: 0.25, z: -0.85, area: 0.58, ARe: 5.0, stall: 14 * DEG, cd0: 0.009, span: 1.17, chord: 0.5 },
-    rudder: { x: -3.05, z: -0.45, area: 0.23, ARe: 3.6, stall: 15 * DEG, cd0: 0.01, max: 32 * DEG, span: 0.95, chord: 0.26, loadRef: 700 },
+    keel: { x: 0.65, z: -0.85, area: 0.58, ARe: 5.0, stall: 14 * DEG, cd0: 0.009, span: 1.17, chord: 0.5 },
+    // the rudder hangs on the transom (J/Boats: "high aspect transom mounted molded rudder")
+    rudder: { x: -3.45, z: -0.45, area: 0.23, ARe: 3.6, stall: 15 * DEG, cd0: 0.01, max: 32 * DEG, span: 0.95, chord: 0.26, loadRef: 700, hung: true },
     hullLat: { area: 1.5, cd: 0.9, z: -0.1 },
     windage: { area: 2.8, z: 2.4, cd: 0.9 },
-    mastX: 0.62, mastHeight: 10.2, boomZ: 1.55, keelBulb: true,
+    // J/Boats sail plan: the deck-stepped mast is 2.5 m aft of the stem (J 2.34 m from the jib tack), 10.0 m DWL to
+    // masthead, gooseneck 1.7 m above the waterline
+    mastX: 1.03, mastHeight: 10.0, boomZ: 1.7, keelBulb: true,
     targetHeel: 17 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 1400,
     sails: [
-      { key: 'main', kind: 'boom', area: 16.7, luff: 8.3, foot: 2.95, head: 0.45, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
+      { key: 'main', kind: 'boom', area: 16.7, luff: 7.97, foot: 2.88, head: 0.45, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
         cd0: 0.06, ARe: 4.8, min: 1.5 * DEG, max: 78 * DEG, trav: [-6 * DEG, 12 * DEG], Iboom: 38, boomMass: 14, reefs: 0,
         vangBend: 0.15, sheetBend: 0.1, color: 0xf2f0ea },
-      { key: 'jib', kind: 'loose', area: 9.1, tackX: 3.3, tackZ: 0.8, luff: 7.2, foot: 2.35, head: 0.08, rake: 0.32, footRise: 0.55,
+      { key: 'jib', kind: 'loose', area: 9.1, tackX: 3.39, tackZ: 0.9, luff: 7.95, foot: 2.4, head: 0.08, rake: 0.32, footRise: 0.55,
         depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 4.2, min: 8.5 * DEG, max: 42 * DEG, sagK: 1.0, color: 0xf2f0ea },
       { key: 'gennaker', kind: 'spin', replaces: 'jib', area: 39.5, tackX: 4.55, tackZ: 0.85, luff: 9.0, foot: 4.3, head: 0.5, rake: 0.55,
         depth: [0.19, 0.21, 0.19], cd0: 0.09, ARe: 2.2, min: 16 * DEG, max: 100 * DEG, color: 0xd9412b },
@@ -125,18 +129,20 @@ export const CLASSES = {
     rudder: { x: -2.08, z: -0.35, area: 0.12, ARe: 3.8, stall: 15 * DEG, cd0: 0.011, max: 35 * DEG, span: 0.62, chord: 0.2, loadRef: 260 },
     hullLat: { area: 0.5, cd: 0.9, z: -0.05 },
     windage: { area: 0.75, z: 1.0, cd: 1.0 },
-    mastX: 1.15, mastHeight: 6.1, boomZ: 0.78, keelBulb: false,
+    // ILCA rules: bottom section 2865 mm, top 3600 mm, boom pin 945 mm above the mast heel, which sits ~355 mm down
+    // the deck tube: the gooseneck is ~0.6 m above the deck, the masthead ~6.2 m above the waterline
+    mastX: 1.15, mastHeight: 6.24, boomZ: 1.0, keelBulb: false,
     targetHeel: 6 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 420,
     sails: [
       { key: 'main', kind: 'boom', area: 7.06, luff: 5.1, foot: 2.75, head: 0.25, depth: [0.12, 0.14, 0.12], twistMax: 24 * DEG,
         cd0: 0.06, ARe: 3.9, min: 3 * DEG, max: 88 * DEG, trav: null, Iboom: 12, boomMass: 6, reefs: 0,
         vangBend: 0.6, sheetBend: 0.45, color: 0xf4f3ee },
     ],
-    hull: { color: 0xf6f6f2, stripe: 0xc8412c, deck: 0xe6e3da, boot: 0xc8412c, sectionN: 2.2, transom: 0.72, bowRake: 0.15, sheer: 0.05 },
+    hull: { color: 0xf6f6f2, stripe: 0xf6f6f2, deck: 0xe6e3da, boot: 0xc8412c, sectionN: 2.2, transom: 0.72, bowRake: 0.15, sheer: 0.05 },
   },
   cat: {
     id: 'cat', name: 'Beach Cat 16',
-    blurb: '16 ft beach catamaran: twin slender hulls, trampoline, two daggerboards and two rudders, both crew on trapeze. Flies a hull from about 10 kn, and pitchpoles if you bury the bows.',
+    blurb: '16 ft beach catamaran: twin asymmetric banana hulls with no daggerboards, trampoline, kick-up rudders on a tiller crossbar, fully battened rotating rig, both crew on trapeze. Flies a hull from about 10 kn, and pitchpoles if you bury the bows.',
     specs: 'LOA 5.04 m · Beam 2.41 m · Hull 160 kg · Main 13.7 m² (full battens) · Jib 5.2 m² · Spinnaker 17.5 m²',
     multihull: true, hullBeam: 0.42, hullSpacing: 2.0, noWinches: true, trapeze: true,
     lwl: 4.9, loa: 5.04, beam: 2.41, bowX: 2.52, sternX: -2.52, freeboard: 0.45, canoeDraft: 0.22, wetted: 4.8, draft: 0.85,
@@ -149,12 +155,15 @@ export const CLASSES = {
     // A slender hull's C_R falls with speed but its Rr/W does not: it stays ~0.045-0.06 past the hump.
     // (The old table halved that, which is most of why the cat reached at 1.45 x the wind speed.)
     rr: [[0.1, 0.0004], [0.2, 0.002], [0.3, 0.0076], [0.35, 0.0145], [0.4, 0.024], [0.45, 0.036], [0.5, 0.042], [0.6, 0.046], [0.7, 0.046], [0.8, 0.048], [1.0, 0.051], [1.2, 0.054], [1.5, 0.061]],
-    keel: { x: 0.3, z: -0.5, area: 0.36, ARe: 4.5, stall: 13 * DEG, cd0: 0.011, span: 0.75, chord: 0.26, board: true, twin: true },
+    // no daggerboards: the Hobie 16's asymmetric hulls (flat inboard, round outboard, deep V aft) are its lateral plane;
+    // the foil stands for their lift, the lee hull's share growing as the weather hull flies
+    keel: { x: 0.3, z: -0.25, area: 0.36, ARe: 4.5, stall: 13 * DEG, cd0: 0.011, span: 0.75, chord: 0.26, twin: true },
     rudder: { x: -2.4, z: -0.3, area: 0.18, ARe: 3.5, stall: 16 * DEG, cd0: 0.012, max: 30 * DEG, span: 0.6, chord: 0.2, loadRef: 250, twin: true },
     hullLat: { area: 0.6, cd: 0.9, z: -0.08 },
     windage: { area: 2.1, z: 1.1, cd: 1.0 },
-    mastX: 0.6, mastHeight: 8.9, boomZ: 1.25, keelBulb: false,
-    targetHeel: 7 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 700,
+    // 8.07 m (26' 6") rotating mast stepped on the front beam
+    mastX: 0.6, mastHeight: 8.6, boomZ: 1.25, keelBulb: false,
+    targetHeel: 7 * DEG, canCapsize: true, hasBackstay: false, hasBoard: false, sheetPower: 700,
     sails: [
       { key: 'main', kind: 'boom', area: 13.7, luff: 7.2, foot: 2.6, head: 1.1, depth: [0.1, 0.12, 0.11], twistMax: 15 * DEG,
         cd0: 0.06, ARe: 4.6, min: 1 * DEG, max: 75 * DEG, trav: [-4 * DEG, 24 * DEG], Iboom: 16, boomMass: 6, reefs: 0,
@@ -164,7 +173,7 @@ export const CLASSES = {
       { key: 'gennaker', kind: 'spin', replaces: 'jib', area: 17.5, tackX: 3.35, tackZ: 0.5, luff: 7.4, foot: 3.3, head: 0.4, rake: 0.4,
         depth: [0.18, 0.2, 0.18], cd0: 0.08, ARe: 2.4, min: 14 * DEG, max: 95 * DEG, color: 0x1d4e89 },
     ],
-    hull: { color: 0xf5f5f2, stripe: 0xd9412b, deck: 0xe8e8e4, boot: 0xd9412b, bootTop: 0xf5f5f2, sectionN: 2, transom: 0.35, bowRake: 0.05, sheer: 0.1 },
+    hull: { color: 0xf5f5f2, stripe: 0xd9412b, deck: 0xe8e8e4, boot: 0xeeeeea, bootTop: 0xf5f5f2, sectionN: 2, transom: 0.35, bowRake: 0.05, sheer: 0.1 },
   },
 };
 // headsails are set on stays that run from the tack up to the mast: the head sits at the mast, so the
