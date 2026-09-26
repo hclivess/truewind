@@ -13,7 +13,11 @@ for (const v of VENUES) {
   const tf = `data/venues/${v.id}.traffic.json`, data = existsSync(tf) ? JSON.parse(readFileSync(tf)) : null;
   const world = new World(v, geo);
   const env = new Environment({ tws: v.windKt * KT, twd: v.wind, gust: 0.4, shift: 6, seed: 3, currentKt: v.current?.kt ?? 0, currentDir: v.current?.dir ?? 90 });
-  const T = new Traffic(world, data, { density: dens, seed: 5, twd: env.wind.twd });
+  const piers = (geo?.piers || []).filter(p => p.kind !== 'bridge');
+  const T = new Traffic(world, data, { density: dens, seed: 5, twd: env.wind.twd, piers });
+  // distance from a point to the nearest pier, breakwater or jetty (less its half width)
+  const pierDist = (x, z) => { let best = 1e9; for (const p of piers) for (let i = 0; i + 3 < p.pts.length; i += 2) { const ax = p.pts[i], az = p.pts[i + 1], dx = p.pts[i + 2] - ax, dz = p.pts[i + 3] - az, L2 = dx * dx + dz * dz || 1e-9, t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / L2)); best = Math.min(best, Math.hypot(ax + dx * t - x, az + dz * t - z) - (p.w ?? 6) / 2); } return best; };
+  let pierHit = null;
   const c = T.counts();
   // a sailing boat parked in the busiest lane (a ferry route, else the middle of the harbour)
   const lane = T.ferryRails[0]?.rail, o = {};
@@ -34,7 +38,8 @@ for (const v of VENUES) {
       if (w.hidden) continue;
       const d = world.open ? 1e4 : world.sdfAt(w.x, w.z);
       if (!(w.type in minSdf) || d < minSdf[w.type]) minSdf[w.type] = d;
-      if (d <= 0 && !worst) worst = `${w.type} ${w.mode} at ${w.x.toFixed(0)},${w.z.toFixed(0)} sdf ${d.toFixed(1)}`;
+      if (d <= 1 && !worst) worst = `${w.type} ${w.mode} at ${w.x.toFixed(0)},${w.z.toFixed(0)} sdf ${d.toFixed(1)}`;
+      if (w.mode === 'rail' && !w.ferry && s % 60 === 0 && !pierHit && pierDist(w.x, w.z) < 0) pierHit = `${w.type} at ${w.x.toFixed(0)},${w.z.toFixed(0)}`;
       if (w.mode === 'rail') {
         const p = travel.get(w) || { d: 0, x: w.x, z: w.z }; p.d += Math.hypot(w.x - p.x, w.z - p.z); p.x = w.x; p.z = w.z; travel.set(w, p);
       }
@@ -45,11 +50,11 @@ for (const v of VENUES) {
   const ferries = T.movers.filter(w => w.ferry);
   // a ferry should finish a leg when the run is long enough for one
   const lazy = ferries.filter(w => (legs.get(w) || 0) < 1 && w.ferry.rail.L / (w.cruise * 0.7) + 200 < +mins * 60);
-  const ok = !worst && !stuck.length && !lazy.length;
+  const ok = !worst && !stuck.length && !lazy.length && !pierHit;
   if (!ok) fail++;
   console.log(`${v.id.padEnd(9)} ${ok ? 'ok  ' : 'FAIL'} berthed ${c.berthed}, moored ${c.moored}, anchored ${c.anchored}, ferries ${c.ferries} on ${T.ferryRails.length} routes, under way ${c.underway}` +
     ` | build ${T.buildMs ?? 0} ms, ${(ms * 1000).toFixed(0)} us/update | min shore distance ${Object.entries(minSdf).map(([k, d]) => `${k} ${d.toFixed(0)}`).join(' ')}` +
-    ` | ferry legs ${[...legs.values()].reduce((a, b) => a + b, 0)} | bumps ${hits}` + (worst ? ` | ON LAND: ${worst}` : '') +
+    ` | ferry legs ${[...legs.values()].reduce((a, b) => a + b, 0)} | bumps ${hits}` + (worst ? ` | ON LAND: ${worst}` : '') + (pierHit ? ` | THROUGH A PIER: ${pierHit}` : '') +
     (stuck.length ? ` | STUCK: ${stuck.map(w => `${w.type}@${w.x.toFixed(0)},${w.z.toFixed(0)} ${(travel.get(w)?.d ?? 0).toFixed(0)}m`).join(' ')}` : '') +
     (lazy.length ? ` | FERRY NO LEG: ${lazy.map(w => w.name || w.type).join(', ')}` : ''));
   if (process.env.IMG) {

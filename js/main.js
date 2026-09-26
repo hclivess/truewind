@@ -355,7 +355,7 @@ class Game {
       const data = await this.loadTraffic(v), keepOut = [{ x: player.x, z: player.z, r: 50 }];
       const C = this.course;
       if (C) { const r = Math.max(220, Math.hypot(C.committee.x - C.pin.x, C.committee.z - C.pin.z) / 2 + 120); for (let s = -250; s <= C.L + 150; s += 120) keepOut.push({ x: C.origin.x + C.ux * s, z: C.origin.z + C.uz * s, r }); }
-      try { this.traffic = new Traffic(world, data, { density: dens, seed: cond.seed, twd: cond.twd * DEG, keepOut, venue: v.id }); } catch (e) { console.error('traffic', e); }
+      try { this.traffic = new Traffic(world, data, { density: dens, seed: cond.seed, twd: cond.twd * DEG, keepOut, venue: v.id, piers: this.obstacles || [] }); } catch (e) { console.error('traffic', e); }
     }
     this.trafficView.setTraffic(this.traffic);
   }

@@ -214,6 +214,7 @@ export class NavGrid {
       for (let d = 0; d < 24; d += 3) {
         const ni = i + D[d], nj = j + D[d + 1]; if (ni < 0 || nj < 0 || ni >= M || nj >= M) continue;
         const nk = nj * M + ni; if (!this.open(nk, need)) continue;
+        if (D[d] && D[d + 1] && (!this.open(j * M + ni, need) || !this.open(nj * M + i, need))) continue;   // (no cutting a corner of land)
         // a step costs its length, more close to the shore (paths keep to the middle of a channel)
         const w = D[d + 2] * (1 + 1.5 * Math.max(0, 1 - clr[nk] / (need + 60))), ng = gk + w;
         if (S[nk] === gen && ng >= G[nk]) continue;
@@ -257,7 +258,7 @@ export class NavGrid {
       }
       q.push(p[p.length - 2], p[p.length - 1]);
       let ok = true;
-      for (let i = 2; i + 5 < q.length && ok; i += 2) ok = this.clearSeg(q[i], q[i + 1], q[i + 2], q[i + 3], Math.min(need, 3));
+      for (let i = 2; i + 5 < q.length && ok; i += 2) ok = this.clearSeg(q[i], q[i + 1], q[i + 2], q[i + 3], need * 0.7);
       if (!ok) break;
       p = q;
     }
@@ -335,6 +336,12 @@ export class Traffic {
     if (this.k <= 0) return;
     const t0 = Date.now();
     this.nav = new NavGrid(world, 2);
+    // piers, breakwaters and jetties stand in the water (not in the coastline): nothing is routed through them
+    // (bridges it passes under)
+    for (const p of opts.piers || []) if (p.kind !== 'bridge') for (let i = 0; i + 3 < p.pts.length; i += 2) {
+      const ax = p.pts[i], az = p.pts[i + 1], bx = p.pts[i + 2], bz = p.pts[i + 3], n = Math.ceil(Math.hypot(bx - ax, bz - az) / (this.nav.c * 0.5));
+      for (let k = 0; k <= n; k++) this.nav.blockDisc(ax + (bx - ax) * k / n, az + (bz - az) * k / n, (p.w ?? 6) / 2 + 3);
+    }
     this.hash = new Map(); this.HC = 60;
     this.ferryRails = [];
     this.buildFerryRails();
