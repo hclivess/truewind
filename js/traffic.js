@@ -342,6 +342,7 @@ export class Traffic {
       const ax = p.pts[i], az = p.pts[i + 1], bx = p.pts[i + 2], bz = p.pts[i + 3], n = Math.ceil(Math.hypot(bx - ax, bz - az) / (this.nav.c * 0.5));
       for (let k = 0; k <= n; k++) this.nav.blockDisc(ax + (bx - ax) * k / n, az + (bz - az) * k / n, (p.w ?? 6) / 2 + 3);
     }
+    this.pierMask = this.nav.block.slice();
     this.hash = new Map(); this.HC = 60;
     this.ferryRails = [];
     this.buildFerryRails();
@@ -506,11 +507,18 @@ export class Traffic {
   // ---------------- swing moorings: the mapped ones, and fields in the sheltered water off every harbour
   mooringOK(x, z, L) {
     const s = this.sdf(x, z), d = this.world.open ? 50 : this.world.depthAt(x, z);
-    return s > L + 12 && d > 1.8 && !this.kept(x, z, 60) && !this.inLane(x, z, 70);
+    return s > L + 12 && d > 1.8 && !this.kept(x, z, 60) && !this.inLane(x, z, 70) && !this.byPier(x, z, L + 20);
+  }
+  // a pier, jetty or breakwater within r (m)?
+  byPier(x, z, r) {
+    const N = this.nav, M = N.M, n = Math.ceil(r / N.c), k0 = N.cell(x, z), i0 = k0 % M, j0 = (k0 / M) | 0;
+    for (let j = Math.max(0, j0 - n); j <= Math.min(M - 1, j0 + n); j++) for (let i = Math.max(0, i0 - n); i <= Math.min(M - 1, i0 + n); i++) if (this.pierMask[j * M + i]) return true;
+    return false;
   }
   addMooring(x, z, type = 'yacht') {
     const v = this.make(type, { mode: 'mooring' });
-    v.ax = x; v.az = z; v.scope = v.L * 0.9 + 6; v.room = v.scope + v.L * 0.55; v.x = x; v.z = z;
+    // (the scope the water allows: she swings clear of the shore whichever way she lies)
+    v.ax = x; v.az = z; v.scope = clamp(this.sdf(x, z) - v.L * 0.6 - 3, 3, v.L * 0.9 + 6); v.room = v.scope + v.L * 0.55; v.x = x; v.z = z;
     this.hadd(v); this.nav.blockDisc(x, z, v.scope + v.L * 0.5 + 4);
     return v;
   }
@@ -521,7 +529,7 @@ export class Traffic {
     for (const [x, z] of D.moorings || []) {
       if (n >= cap) break;
       if (r() > 0.4 + 0.6 * this.k) continue;
-      if (this.sdf(x, z) > 12 && (W.open || W.depthAt(x, z) > 1.2) && !this.kept(x, z, 40) && this.free(x, z, 14)) { this.addMooring(x, z, r() < 0.85 ? 'yacht' : 'motor'); n++; }
+      if (this.sdf(x, z) > 12 && (W.open || W.depthAt(x, z) > 1.2) && !this.kept(x, z, 40) && !this.byPier(x, z, 18) && this.free(x, z, 14)) { this.addMooring(x, z, r() < 0.85 ? 'yacht' : 'motor'); n++; }
     }
     for (const ring of D.mooringAreas || []) n += this.fillArea(ring, Math.min(cap - n, Math.round(ringArea(ring) / 2500 * this.k)));
     // fields off the marinas and harbours (and off the jetty-lined shores where nothing is mapped)
@@ -563,7 +571,7 @@ export class Traffic {
     const [x0, z0, x1, z1] = ringBox(ring);
     for (let tries = 0; tries < want * 15 && k < want; tries++) {
       const x = x0 + r() * (x1 - x0), z = z0 + r() * (z1 - z0);
-      if (!pip(ring, x, z) || this.sdf(x, z) < 15 || !this.free(x, z, type === 'ship' ? 150 : 16) || this.kept(x, z, 60)) continue;
+      if (!pip(ring, x, z) || this.sdf(x, z) < 15 || !this.free(x, z, type === 'ship' ? 150 : 16) || this.kept(x, z, 60) || this.byPier(x, z, type === 'ship' ? 200 : 30)) continue;
       if (type === 'ship') this.addAnchor(x, z); else this.addMooring(x, z, r() < 0.85 ? 'yacht' : 'motor');
       k++;
     }
@@ -573,7 +581,7 @@ export class Traffic {
   // ---------------- ships and yachts at anchor
   addAnchor(x, z, type = 'ship') {
     const v = this.make(type, { mode: 'anchor' });
-    v.ax = x; v.az = z; v.scope = type === 'ship' ? 90 + this.rnd() * 60 : v.L * 2.5 + 10; v.room = v.scope + v.L * 0.6; v.x = x; v.z = z;
+    v.ax = x; v.az = z; v.scope = clamp(this.sdf(x, z) - v.L * 0.6 - 5, 3, type === 'ship' ? 90 + this.rnd() * 60 : v.L * 2.5 + 10); v.room = v.scope + v.L * 0.6; v.x = x; v.z = z;
     this.hadd(v); this.nav.blockDisc(x, z, v.scope + v.L * 0.5 + 10);
     return v;
   }
@@ -583,11 +591,11 @@ export class Traffic {
     let ships = 0;
     const shipCap = Math.round(1 + 5 * this.k);
     for (const a of this.data.anchorages || []) {
-      const deep = (x, z) => W.depthAt(x, z) > 9 && this.sdf(x, z) > 300 && !this.inLane(x, z, 250) && !this.kept(x, z, 300);
+      const deep = (x, z) => W.depthAt(x, z) > 9 && this.sdf(x, z) > 300 && !this.inLane(x, z, 250) && !this.kept(x, z, 300) && !this.byPier(x, z, 250);
       if (a.small) {
         const want = Math.round((a.ring ? clamp(ringArea(a.ring) / 20000, 2, 14) : 4) * this.k);
         if (a.ring) this.fillArea(a.ring, want);
-        else for (let i = 0, k = 0; i < want * 10 && k < want; i++) { const x = a.c[0] + (r() - 0.5) * 300, z = a.c[1] + (r() - 0.5) * 300; if (this.sdf(x, z) > 30 && W.depthAt(x, z) > 2 && this.free(x, z, 30) && !this.kept(x, z, 40)) { this.addAnchor(x, z, 'yacht'); k++; } }
+        else for (let i = 0, k = 0; i < want * 10 && k < want; i++) { const x = a.c[0] + (r() - 0.5) * 300, z = a.c[1] + (r() - 0.5) * 300; if (this.sdf(x, z) > 30 && W.depthAt(x, z) > 2 && this.free(x, z, 30) && !this.kept(x, z, 40) && !this.byPier(x, z, 40)) { this.addAnchor(x, z, 'yacht'); k++; } }
         continue;
       }
       if (ships >= shipCap) continue;
