@@ -44,6 +44,7 @@ export const MATERIALS = {
 };
 export function clothMaterial(C, s) {
   if (s.kind === 'spin') return MATERIALS.nylon;
+  if (C.sailcloth) return MATERIALS[C.sailcloth];                    // (a class that names its cloth)
   if (C.id === 'blackwatch') return MATERIALS.dacronCruise;
   if (C.id === 'dinghy') return MATERIALS.dacronDinghy;
   return MATERIALS.laminate;
@@ -51,6 +52,7 @@ export function clothMaterial(C, s) {
 // battens: bending stiffness EI (N m^2) and the heights (fraction of the luff) they sit at
 export function battens(C, s) {
   if (s.key !== 'main') return { EI: 0, rows: [] };
+  if (C.battens) return C.battens;                                   // (a class that gives its own)
   if (C.id === 'cat') return { EI: 15, full: true, rows: [0.14, 0.28, 0.42, 0.56, 0.7, 0.84] };
   if (C.id === 'blackwatch') return { EI: 3, full: false, rows: [0.3, 0.52, 0.74] };
   return { EI: 3, full: false, rows: [0.25, 0.5, 0.75] };

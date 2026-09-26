@@ -260,10 +260,11 @@ export class AIHelm {
       const nearBottom = leg && (leg.type === 'gate' || leg.type === 'finish') && dist < 90;
       b.ctrl.gen = Math.abs(twa) > 100 * DEG && !nearBottom && mode !== 'beat';
     }
-    // reefs for the Blackwatch when overpowered
+    // reefs when overpowered
     if (b.sailBy.main.reefs) {
       const tws = (d.tws ?? 0) / KT;
-      b.ctrl.reef = tws > 24 ? 2 : tws > 17 ? 1 : 0;
+      const R = b.cls.reefWind ?? [17, 24];      // (the wind a class reefs at: first, second)
+      b.ctrl.reef = tws > R[1] ? 2 : tws > R[0] ? 1 : 0;
     }
     autoTrim(b, dt, this.bias);          // trim first: steering may override it (backing the jib in irons)
     this.steer(dt, desired);

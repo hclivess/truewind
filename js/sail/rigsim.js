@@ -228,10 +228,12 @@ export class BoomSailRig extends ClothRig {
     this.tb = isMain ? 0.86 : 0.9;
     this.hz = isMain ? Math.max(0.3, C.boomZ - C.freeboard * 0.95) : 0.25;
     this.car = [0, 0, this.pz - this.hz];
-    this.sheet = cloth.addRope(this.E, this.tb, this.Gp, this.car, 1, 3e5);
+    // (s.ropeK: a bigger boat's sheet and vang are stiffer in proportion to their loads, as its lines are thicker)
+    const rk = s.ropeK ?? 1;
+    this.sheet = cloth.addRope(this.E, this.tb, this.Gp, this.car, 1, 3e5 * rk);
     this.tv = 0.22; this.dv = isMain ? Math.min(0.55, Math.max(0.3, C.boomZ - C.freeboard + 0.1)) : 0.15;
     this.vangBase = [this.px, 0, this.pz - this.dv];
-    this.vang = isMain ? cloth.addRope(this.E, this.tv, this.Gp, this.vangBase, 1, 6e5) : null;
+    this.vang = isMain ? cloth.addRope(this.E, this.tv, this.Gp, this.vangBase, 1, 6e5 * rk) : null;
     this.mastHead = [this.px, 0, this.pz + s.luff + 0.3];
     this.topping = cloth.addRope(this.E, 1, this.Gp, this.mastHead, 1, 1e5);
     // battens: stiff chains of nodes on the batten rows (full length on a fully battened sail, the aft third
@@ -411,6 +413,8 @@ export class SpinRig extends JibRig {
     this.leads[0][0] = this.leads[1][0] = C.sternX + 0.35;
     this.leads[0][1] = C.beam * 0.47; this.leads[1][1] = -C.beam * 0.47;
     this.leads[0][2] = this.leads[1][2] = this.leadZ = Math.min(this.leadZ, s.tackZ - 0.4);   // (well below the clew: leech tension)
+    // (a class can put its sheet blocks elsewhere, s.lead [x, y]: a skiff's on the aft ends of its wings)
+    if (s.lead) { this.leads[0][0] = this.leads[1][0] = s.lead[0]; this.leads[0][1] = s.lead[1]; this.leads[1][1] = -s.lead[1]; }
     this.windT = 0;
   }
   setTargets(b, bendRig) {
@@ -440,4 +444,55 @@ export class SpinRig extends JibRig {
   }
   sheetLoad() { return this.sheets[this.side > 0 ? 0 : 1].force; }
   lazyLoad() { return 0; }
+}
+
+// A symmetric spinnaker set flying from a pole (s.pole: the pole's length, m): the head at the masthead, the tack
+// held at the pole's outboard end on the windward side, the clew sheeted to the leeward quarter. The crew squares
+// the pole to the apparent wind (the guy), about square to it, forward to the forestay on a close reach and back
+// to the shrouds on a run, and sets its height with the topping lift and downhaul (the tack line control: eased,
+// the pole end goes up). In a gybe the pole goes across, through the forestay, at the pace of a crew gybing it; the
+// sail, the same either way round, swings across with it. The pole pivots on the mast front, so the tack keeps its
+// distance to the head wherever the pole is.
+export class PoleSpinRig extends SpinRig {
+  constructor(boat, s, lod) {
+    super(boat, s, lod);
+    const C = boat.cls;
+    this.poleL = s.pole; this.poleX = C.mastX + 0.07; this.poleZ = s.tackZ;
+    this.poleA = 0;                                                      // pole angle from the centreline, + to starboard
+    this.tack = [this.poleX + this.poleL, 0, this.poleZ];
+  }
+  pose(a, tw = null) {
+    super.pose(a, tw);
+    // (set with the pole already out to windward of the side the clew is on)
+    this.poleA = -(Math.sign(a) || 1) * this._poleWant(this.boat, this.boat.diag.awaMid ?? Math.PI);
+  }
+  // the pole angle the crew sets for an apparent wind angle awa (rad): square to the wind, between the forestay and
+  // the shrouds
+  _poleWant(b, awa) { return clamp(Math.abs(awa) - 90 * Math.PI / 180, 5 * Math.PI / 180, 80 * Math.PI / 180); }
+  setTargets(b, bendRig) {
+    const s = this.s, c = this.cloth, ctrl = b.ctrl, nv = this.nv, dt = 1 / 120;
+    if (this.needPose) { const sg = Math.sign(b.side.gennaker) || 1; this.pose(this._poseAngle(b, sg), this._poseTwist(b)); this.side = Math.sign(this.a) || sg; }
+    // the crew gybes it when the wind has been on the other side for a moment (as the asymmetric's sheets)
+    const lee = -Math.sign(b.diag.awaMid) || this.side;
+    this.windT = lee !== this.side ? this.windT + dt : 0;
+    if (this.windT > 1.5) { this.side = lee; this.windT = 0; }
+    // the guy: the pole goes to windward of the clew, square to the apparent wind; across in a gybe at ~40 deg/s
+    const want = -this.side * this._poleWant(b, b.diag.awaMid ?? Math.PI);
+    const rate = (Math.sign(want) !== Math.sign(this.poleA) ? 0.7 : 0.35) * dt;
+    this.poleA += clamp(want - this.poleA, -rate, rate);
+    const up = 0.45 * clamp(ctrl.tackLine, 0, 1);                       // topping lift eased up / downhaul
+    const T = this.tack;
+    T[0] = this.poleX + this.poleL * Math.cos(this.poleA); T[1] = this.poleL * Math.sin(this.poleA); T[2] = this.poleZ + up;
+    c.pin(c.node(0, 0), T[0], T[1], T[2]);
+    c.pin(c.node(0, nv - 1), this.px - this.rake, 0, this.pz + this.luff0);
+    // the sheet from the leeward quarter block: eased e = 0..1 lets the clew swing from the line toward the block
+    // (s.min off it) out to s.max off it, round the tack (law of cosines: monotonic in e)
+    for (let k = 0; k < 2; k++) {
+      const sd = k === 0 ? 1 : -1, L = this.leads[k];
+      if (sd !== this.side) { this.sheets[k].len = 30; continue; }
+      const dTL = hyp3(L[0] - T[0], L[1] - T[1], L[2] - T[2]), F = this.footLen;
+      const D = lerp(s.min, s.max, clamp(b.lines.jib, 0, 1));
+      this.sheets[k].len = Math.sqrt(Math.max(0.01, dTL * dTL + F * F - 2 * dTL * F * Math.cos(D)));
+    }
+  }
 }

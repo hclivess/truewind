@@ -53,10 +53,11 @@ export const wrap = (a) => { if (!isFinite(a)) return 0; return a - 2 * Math.PI 
 
 // ---------------------------------------------------------------------------------------------
 // Boat classes. Geometry in metres from the centre of gravity (x fwd), heights above waterline.
-// Sail kinds: 'boom' (main, self-tacking staysail), 'loose' (jib), 'spin' (asymmetric gennaker).
+// Sail kinds: 'boom' (main, self-tacking staysail or jib), 'loose' (jib), 'spin' (asymmetric gennaker, or a
+// symmetric spinnaker when it has a pole: s.pole, its length).
 export const CLASSES = {
   blackwatch: {
-    id: 'blackwatch', name: 'Blackwatch 19/24',
+    id: 'blackwatch', group: 'cruiser', name: 'Blackwatch 19/24',
     blurb: "Dave Autry's 1979 pocket bluewater cutter from Blue Water Boatworks. Long keel, transom-hung rudder, teak bowsprit, self-tacking staysail, flying jib, double-reefed main. Heavy, stiff, forgiving — and it will not go faster than its 5.6 kn hull speed.",
     specs: 'LOA 5.64 m (≈7.2 m incl. bowsprit) · LWL 5.33 m · Beam 2.29 m · Draft 0.61 m · 1,021 kg · 363 kg iron ballast · Sail area 19.7 m²',
     lwl: 5.33, loa: 5.64, beam: 2.29, bowX: 2.85, sternX: -2.79, freeboard: 0.78, canoeDraft: 0.42, wetted: 11.6, draft: 0.61,
@@ -83,7 +84,7 @@ export const CLASSES = {
     hull: { color: 0x15171b, stripe: 0xb8902f, deck: 0xcdbf9f, boot: 0x7a1f1f, sectionN: 1.8, transom: 0.62, bowRake: 0.35, sheer: 0.18 },
   },
   sportboat: {
-    id: 'sportboat', name: 'Sportboat 23',
+    id: 'sportboat', group: 'keelboat', name: 'Sportboat 23',
     blurb: '7 m one-design sportboat, 4 crew, carbon mast, asymmetric gennaker on a retractable bowsprit. Planes downwind from about 13 kn of wind.',
     specs: 'LOA 6.93 m · LWL 6.10 m · Beam 2.25 m · Draft 1.45 m · 794 kg · Main 16.7 m² · Jib 9.1 m² · Gennaker 39.5 m²',
     lwl: 6.1, loa: 6.93, beam: 2.25, bowX: 3.55, sternX: -3.38, freeboard: 0.72, canoeDraft: 0.28, wetted: 10.2, draft: 1.45,
@@ -113,7 +114,7 @@ export const CLASSES = {
     hull: { color: 0xf3f4f1, stripe: 0x1d4e89, deck: 0xdcd8cc, boot: 0x1d4e89, sectionN: 2.6, transom: 0.78, bowRake: 0.25, sheer: 0.08 },
   },
   dinghy: {
-    id: 'dinghy', name: 'Singlehander 14',
+    id: 'dinghy', group: 'dinghy', name: 'Singlehander 14',
     blurb: '4.2 m una-rig Olympic-style dinghy. One sailor, unstayed bendy mast, daggerboard, vang-sheeting. Capsizes if you let it.',
     specs: 'LOA 4.23 m · LWL 3.81 m · Beam 1.37 m · Hull 59 kg · Sail 7.06 m²',
     lwl: 3.81, loa: 4.23, beam: 1.37, bowX: 2.2, sternX: -2.03, freeboard: 0.38, canoeDraft: 0.16, wetted: 3.3, draft: 0.9,
@@ -135,7 +136,7 @@ export const CLASSES = {
     hull: { color: 0xf6f6f2, stripe: 0xc8412c, deck: 0xe6e3da, boot: 0xc8412c, sectionN: 2.2, transom: 0.72, bowRake: 0.15, sheer: 0.05 },
   },
   cat: {
-    id: 'cat', name: 'Beach Cat 16',
+    id: 'cat', group: 'multihull', name: 'Beach Cat 16',
     blurb: '16 ft beach catamaran: twin slender hulls, trampoline, two daggerboards and two rudders, both crew on trapeze. Flies a hull from about 10 kn, and pitchpoles if you bury the bows.',
     specs: 'LOA 5.04 m · Beam 2.41 m · Hull 160 kg · Main 13.7 m² (full battens) · Jib 5.2 m² · Spinnaker 17.5 m²',
     multihull: true, hullBeam: 0.42, hullSpacing: 2.0, noWinches: true, trapeze: true,
@@ -165,6 +166,326 @@ export const CLASSES = {
         depth: [0.18, 0.2, 0.18], cd0: 0.08, ARe: 2.4, min: 14 * DEG, max: 95 * DEG, color: 0x1d4e89 },
     ],
     hull: { color: 0xf5f5f2, stripe: 0xd9412b, deck: 0xe8e8e4, boot: 0xd9412b, bootTop: 0xf5f5f2, sectionN: 2, transom: 0.35, bowRake: 0.05, sheer: 0.1 },
+  },  // ---- International 49er: a two-handed skiff, both crew on trapeze from the wings, carbon mast, square-top fully
+  // battened main, self-tacking jib on a track, asymmetric gennaker off a retractable pole.
+  // Sources: World Sailing / 49er class (https://49er.org/class-info-2/tuning/), Wikipedia 49er (dinghy)
+  // (LOA 4.88 m, hull beam 1.75 m, 2.74 m over the wings, hull 94 kg, main + jib 19.97 m^2, gennaker 37.16 m^2,
+  // crew about 150 kg); the main/jib split and foil sizes are estimates. RYA PN 697, US Sailing D-PN 68.2.
+  // Lines (for the line-handler schema): mainsheet through a ratchet block on the floor to a cam cleat, from the boom end
+  // to a bridle across the transom; jib sheet (self-tacker) on a cam cleat at the front of the wing; gennaker sheets through
+  // ratchet blocks on the wings, hand-held (no cleat); gennaker halyard / pole launcher on one continuous line with a cam;
+  // cunningham and vang on 2:1 cascades to cam cleats either side; halyards locked at the masthead (lock, no cleat).
+  '49er': {
+    id: '49er', group: 'dinghy', name: '49er',
+    blurb: 'The Olympic two-handed skiff: both crew on trapeze from wings out to 2.7 m, a carbon mast with a square-top main, a self-tacking jib and a 37 m² gennaker. It planes upwind in 12 kn and does the wind speed downwind. It capsizes, often.',
+    specs: 'LOA 4.88 m · Beam 1.75 m (2.74 m over the wings) · Hull 94 kg · Main + jib 20.0 m² · Gennaker 37.2 m² · Crew 2 on trapeze',
+    lwl: 4.5, loa: 4.88, beam: 1.4, bowX: 2.4, sternX: -2.3, freeboard: 0.4, canoeDraft: 0.12, wetted: 3.0, draft: 1.45,
+    bowsprit: 1.2, noWinches: true, trapeze: 2, carbonMast: true, mastR: 0.036, spreaders: { n: 2, sweep: 25 * DEG },
+    engine: null,
+    // (the hull's deck is 1.75 m wide over its flare; its waterline beam about 1 m: the drawn lines use 1.4 m)
+    // (both on trapeze: the rail at 1.37 m, each sailor's weight about 0.9 m beyond it)
+    massHull: 112, zG: 0.2, crewN: 2, crewEach: 80, crewZ: 0.45, crewMaxOut: 2.3, crewLee: -0.3, hikeRate: 1.6,
+    gm: 0.4, bmForm: 0.5, Ixx: 850, Izz: 480, amX: 0.04, amY: 0.45, amYaw: 0.4, amRoll: 0.2,
+    // residuary resistance / weight: a light, flat-run skiff hull (D/L ~ 45) that is over its hump by Fn 0.6
+    rr: [[0.1, 0.0001], [0.2, 0.001], [0.3, 0.0045], [0.35, 0.009], [0.4, 0.016], [0.45, 0.026], [0.5, 0.034],
+         [0.55, 0.039], [0.6, 0.041], [0.7, 0.04], [0.8, 0.037], [1.0, 0.034], [1.2, 0.034], [1.5, 0.038]],
+    keel: { x: -0.2, z: -0.7, area: 0.34, ARe: 6.5, stall: 13 * DEG, cd0: 0.009, span: 1.25, chord: 0.27, board: true },
+    rudder: { x: -2.35, z: -0.4, area: 0.14, ARe: 4.2, stall: 15 * DEG, cd0: 0.01, max: 32 * DEG, span: 0.8, chord: 0.19, loadRef: 300, lifting: true },
+    hullLat: { area: 0.4, cd: 0.9, z: -0.05 },
+    windage: { area: 1.3, z: 1.0, cd: 1.0 },
+    // (the rig from the class sail plan: mast 2.3 m aft of the stem, 8.25 m above the water, boom 0.9 m over the deck)
+    mastX: 0.1, mastHeight: 8.25, boomZ: 1.25, keelBulb: false, houndsF: 0.3,
+    targetHeel: 8 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 520,
+    sailcloth: 'laminate', battens: { EI: 15, full: true, rows: [0.14, 0.28, 0.42, 0.56, 0.7, 0.84] },
+    sails: [
+      { key: 'main', kind: 'boom', area: 15.0, luff: 6.85, foot: 2.8, head: 0.8, depth: [0.14, 0.16, 0.15], twistMax: 17 * DEG,
+        cd0: 0.06, ARe: 4.2, min: 1 * DEG, max: 80 * DEG, trav: [-3 * DEG, 16 * DEG], Iboom: 10, boomMass: 4, reefs: 0,
+        vangBend: 0.35, sheetBend: 0.3, color: 0xe9ecef },
+      // the self-tacking jib: its clew runs on a track across the foredeck (drawn clubless; the physics holds the clew on
+      // the track's arc as a club would)
+      { key: 'stay', kind: 'boom', selfTacking: true, club: false, label: 'Jib', area: 5.0, tackX: 2.35, tackZ: 0.42, luff: 4.95, foot: 1.95, head: 0.05,
+        depth: [0.11, 0.12, 0.1], twistMax: 13 * DEG, cd0: 0.045, ARe: 4.4, min: 5 * DEG, max: 38 * DEG, Iboom: 1.2, boomMass: 1, color: 0xe9ecef },
+      // (a gennaker this big on a mast this short: its broad shoulders are drawn as a wide head, the luff near vertical
+      // ahead of the mast, as the sportboat's, so the rated area fits with the clew near the transom)
+      { key: 'gennaker', kind: 'spin', area: 37.2, tackX: 3.55, tackZ: 0.45, luff: 7.2, foot: 4.3, head: 1.6, rake: 1.5,
+        depth: [0.18, 0.2, 0.18], cd0: 0.08, ARe: 2.3, min: 14 * DEG, max: 95 * DEG, color: 0x1a1d22 },
+    ],
+    hullLines: { tm: 0.42, tr: 0.82, be: 0.85, sheerBow: 0.12, sheerStern: 0.0, stemRake: 0.02, transomRake: 0.0, flare: 0.5, flat: 0.85, sternDepth: 0.45, crown: 0.04 },
+    hull: { color: 0xf4f5f6, stripe: 0x1a1d22, deck: 0xdcdfe2, boot: 0x1a1d22, sectionN: 2.4, transom: 0.8, bowRake: 0.02, sheer: 0.05,
+      bareBottom: true, lifelines: false, logo: '49er', transomName: null, deckTint: '#d9dde1', cockpit: { t0: 0.02, t1: 0.7, w: 0.7, sole: 0.14 },
+      wings: { y: 1.37, x0: -2.0, x1: -0.05, rise: 0.08 } },
+    gear: { travX: -2.1, travHalf: 0.4, boomS: 0.95, winchX: -0.6, winchY: 0.32, jibTrack: [0.0, -0.4], jibTrackY: 0.4, clutchX: -0.5 },
+  },
+  // ---- International 470: the Olympic two-person centreboard dinghy. Crew on trapeze, helm hiking, symmetric
+  // spinnaker on a pole, centre mainsheet on a traveller on the centreboard case, pivoting centreboard.
+  // Sources: World Sailing 470 class rules (https://www.sailing.org/tools/documents/4702017CR170217-%5B22006%5D.pdf),
+  // Wikipedia 470 (dinghy) (LOA 4.70 m, LWL 4.40 m, beam 1.69 m, hull 120 kg, mast 6.76 m, main 9.12 m^2, jib 3.58 m^2,
+  // spinnaker 13 m^2, crew 110-145 kg). Pole length and foil sizes are estimates. RYA PN 973, US Sailing D-PN 86.3.
+  // Lines (for the line-handler schema): mainsheet centre-sheeted to a ratchet block with a swivel cam cleat on the
+  // centreboard case; jib sheets to swivel cam cleats on the side tanks; spinnaker sheets and guys through ratchet blocks,
+  // guys to cam cleats by the shrouds (twinning lines); pole uphaul/downhaul on cam cleats at the mast; vang, cunningham,
+  // outhaul and jib halyard (rig tension) on cam cleats either side of the case.
+  '470': {
+    id: '470', group: 'dinghy', name: '470',
+    blurb: 'The Olympic two-person dinghy since 1976: crew on trapeze, helm hiking, a symmetric spinnaker set on a pole, a pivoting centreboard. Planes on a reach in a breeze. It capsizes.',
+    specs: 'LOA 4.70 m · LWL 4.40 m · Beam 1.69 m · Hull 120 kg · Main 9.12 m² · Jib 3.58 m² · Spinnaker 13.0 m² · Crew 2 (trapeze)',
+    lwl: 4.4, loa: 4.7, beam: 1.69, bowX: 2.4, sternX: -2.2, freeboard: 0.42, canoeDraft: 0.15, wetted: 3.6, draft: 1.05,
+    noWinches: true, trapeze: 1, mastR: 0.034, spreaders: { n: 1, sweep: 20 * DEG },
+    engine: null,
+    // crew weight out: the helm hiking (CG ~1.05 m out) and the crew on trapeze (~1.55 m), 60 + 70 kg
+    massHull: 130, zG: 0.15, crewN: 2, crewEach: 65, crewZ: 0.38, crewMaxOut: 1.32, crewLee: -0.3, hikeRate: 1.6,
+    gm: 0.4, bmForm: 0.56, Ixx: 330, Izz: 450, amX: 0.05, amY: 0.5, amYaw: 0.4, amRoll: 0.2,
+    rr: [[0.1, 0.0001], [0.15, 0.0005], [0.2, 0.0012], [0.25, 0.0027], [0.3, 0.0055], [0.35, 0.011], [0.4, 0.02],
+         [0.45, 0.033], [0.5, 0.045], [0.55, 0.052], [0.6, 0.055], [0.7, 0.054], [0.8, 0.051], [1.0, 0.048], [1.2, 0.049], [1.5, 0.055]],
+    keel: { x: 0.45, z: -0.55, area: 0.32, ARe: 4.6, stall: 13 * DEG, cd0: 0.01, span: 0.82, chord: 0.38, board: true, pivot: true },
+    rudder: { x: -2.25, z: -0.35, area: 0.14, ARe: 3.8, stall: 15 * DEG, cd0: 0.011, max: 35 * DEG, span: 0.66, chord: 0.22, loadRef: 280, lifting: true },
+    hullLat: { area: 0.5, cd: 0.9, z: -0.05 },
+    windage: { area: 1.0, z: 1.0, cd: 1.0 },
+    // (the rig from the class sail plan: mast 1.85 m aft of the stem, 6.7 m above the water, boom 0.5 m over the deck)
+    mastX: 0.65, mastHeight: 6.7, boomZ: 0.85, keelBulb: false, houndsF: 0.24, spreader: 0.42,
+    targetHeel: 5 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 460,
+    sailcloth: 'dacronDinghy',
+    sails: [
+      { key: 'main', kind: 'boom', area: 9.12, luff: 5.65, foot: 2.45, head: 0.2, depth: [0.12, 0.13, 0.12], twistMax: 20 * DEG,
+        cd0: 0.06, ARe: 4.0, min: 2 * DEG, max: 82 * DEG, trav: [-3 * DEG, 14 * DEG], Iboom: 7, boomMass: 4, reefs: 0,
+        vangBend: 0.4, sheetBend: 0.3, color: 0xf4f3ee },
+      { key: 'jib', kind: 'loose', area: 3.58, tackX: 2.4, tackZ: 0.4, luff: 4.0, foot: 1.7, head: 0.04,
+        depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 4.2, min: 9 * DEG, max: 42 * DEG, sagK: 0.8, color: 0xf4f3ee },
+      // symmetric spinnaker: tack on the pole end (pole 1.9 m), head at the hounds
+      { key: 'gennaker', kind: 'spin', label: 'Spinnaker', pole: 1.9, replaces: 'jib', area: 13.0, tackX: 0.65 + 0.07 + 1.9, tackZ: 1.15, luff: 4.45, foot: 2.9, head: 0.4, rake: 1.97,
+        depth: [0.2, 0.22, 0.2], cd0: 0.09, ARe: 1.9, min: 16 * DEG, max: 100 * DEG, color: 0xd9412b },
+    ],
+    hullLines: { tm: 0.46, tr: 0.62, be: 0.72, sheerBow: 0.22, sheerStern: 0.0, stemRake: 0.12, transomRake: 0.0, flare: 0.25, flat: 0.6, sternDepth: 0.3, crown: 0.06 },
+    hull: { color: 0xf6f6f2, stripe: 0x1d4e89, deck: 0xe6e3da, boot: 0x1d4e89, sectionN: 2.2, transom: 0.62, bowRake: 0.12, sheer: 0.06,
+      bareBottom: true, lifelines: false, logo: '470', transomName: null, cockpit: { t0: 0.08, t1: 0.66, w: 0.62, sole: 0.14 } },
+    gear: { travX: -0.5, travHalf: 0.22, travOnSole: true, boomS: 0.55, winchX: -0.2, winchY: 0.35, jibTrack: [0.55, 0.05], jibTrackY: 0.48, clutchX: 0.1 },
+  },
+  // ---- Star: the two-man Olympic keelboat of 1911-2012. A hard-chined, low-freeboard hull with long overhangs, a
+  // steel fin with a lead bulb, a huge bendy-masted main and a small jib, running backstays, no spinnaker (downwind
+  // the jib is poled out; here it is simply eased), crew hiking in harnesses.
+  // Sources: International Star Class rules; Wikipedia Star (keelboat) (LOA 6.922 m, LWL 4.724 m, beam 1.734 m,
+  // draft 1.016 m, 671 kg incl. the 401.5 kg bulb, main 20.5 m^2, jib 6.0 m^2, mast 9.652 m, crew S + 1.5 C <= 250 kg).
+  // RYA PN 917 (1986), US Sailing D-PN 83.1.
+  // Lines (for the line-handler schema): mainsheet on a floor traveller through a ratchet block to a cam cleat; jib
+  // sheet to a cam cleat on the deck (the jib pole when running, not modelled); runners on levers (the classic Star
+  // running backstay levers) or cam cleats; vang, cunningham, outhaul, mast puller (bend) on cam cleats, halyards on horn cleats.
+  star: {
+    id: 'star', group: 'keelboat', name: 'Star',
+    blurb: "The Olympic keelboat of a century: a narrow hard-chined hull with long overhangs, a lead bulb on a steel fin, a huge main on a bendy mast held by running backstays, and a small jib. No spinnaker. Fast upwind, and heeled it sails on its overhangs.",
+    specs: 'LOA 6.92 m · LWL 4.72 m · Beam 1.73 m · Draft 1.02 m · 671 kg (401 kg bulb) · Main 20.5 m² · Jib 6.0 m² · Crew 2',
+    lwl: 4.72, loa: 6.92, beam: 1.73, bowX: 2.55, sternX: -2.45, freeboard: 0.36, canoeDraft: 0.2, wetted: 6.0, draft: 1.02,
+    runners: true, mastR: 0.042,
+    engine: null,
+    massHull: 671, zG: -0.5, crewN: 2, crewEach: 100, crewZ: 0.45, crewMaxOut: 1.25, crewLee: -0.3, hikeRate: 0.9,
+    gm: 0.6, bmForm: 0.5, Ixx: 1350, Izz: 2600, amX: 0.05, amY: 0.6, amYaw: 0.4, amRoll: 0.25,
+    // residuary resistance / weight: a narrow, flat-floored hull whose overhangs lengthen its sailing waterline when heeled
+    // (4.72 m upright, over 5.5 m heeled: the table is referenced to the upright length)
+    rr: [[0.1, 0.0002], [0.15, 0.0005], [0.2, 0.0011], [0.25, 0.0022], [0.3, 0.0042], [0.35, 0.0075], [0.4, 0.0135], [0.45, 0.024],
+         [0.5, 0.039], [0.55, 0.054], [0.6, 0.064], [0.7, 0.072], [0.8, 0.076], [1.0, 0.08], [1.5, 0.088]],
+    keel: { x: 0.32, z: -0.55, area: 0.6, ARe: 3.0, stall: 15 * DEG, cd0: 0.011, span: 0.8, chord: 0.72 },
+    rudder: { x: -2.2, z: -0.35, area: 0.2, ARe: 3.0, stall: 16 * DEG, cd0: 0.011, max: 32 * DEG, span: 0.6, chord: 0.34, loadRef: 450 },
+    hullLat: { area: 0.7, cd: 0.9, z: -0.08 },
+    windage: { area: 1.8, z: 1.1, cd: 0.95 },
+    mastX: 1.35, mastHeight: 9.95, boomZ: 0.72, keelBulb: { len: 1.5, r: 0.13, flat: 0.8 }, houndsF: 0.24,
+    targetHeel: 16 * DEG, canCapsize: false, hasBackstay: false, hasBoard: false, sheetPower: 800,
+    sailcloth: 'dacronDinghy',
+    sails: [
+      { key: 'main', kind: 'boom', area: 20.5, luff: 8.8, foot: 4.3, head: 0.2, depth: [0.13, 0.15, 0.14], twistMax: 20 * DEG,
+        cd0: 0.06, ARe: 4.0, min: 1.5 * DEG, max: 80 * DEG, trav: [-4 * DEG, 12 * DEG], Iboom: 40, boomMass: 8, reefs: 0,
+        vangBend: 0.45, sheetBend: 0.3, color: 0xf4f3ee },
+      { key: 'jib', kind: 'loose', area: 6.0, tackX: 3.7, tackZ: 0.55, luff: 6.9, foot: 1.95, head: 0.05,
+        depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 4.6, min: 8.5 * DEG, max: 45 * DEG, sagK: 1.2, color: 0xf4f3ee },
+    ],
+    hullLines: { tm: 0.5, tr: 0.45, be: 0.9, sheerBow: 0.25, sheerStern: 0.08, stemRake: 1.25, transomRake: 0.85, flare: 0.08, flat: 0.95, sternDepth: 0.02, crown: 0.06, wl: 0.8 },
+    hull: { color: 0xd8e4ec, stripe: 0x14305a, deck: 0xe6e3da, boot: 0x14305a, sectionN: 2.4, transom: 0.4, bowRake: 1.2, sheer: 0.08,
+      lifelines: false, logo: '★', transomName: null, deckTint: '#e4dfd2', cockpit: { t0: 0.18, t1: 0.62, w: 0.62, sole: 0.2 } },
+    gear: { travX: -1.3, travHalf: 0.5, boomS: 0.6, travOnSole: true, winchX: 0.3, winchY: 0.3, jibTrack: [1.0, 0.45], jibTrackY: 0.42, clutchX: 0.6 },
+  },
+  // ---- J/24: the one-design keelboat of 1977 (5,500+ built). A 7/8 fractional sloop (forestay at 8.19 m, spinnaker
+  // halyard at the same height), a 153% genoa, a symmetric spinnaker on a 2.98 m pole, lead fin keel, transom-hung
+  // rudder, five crew on the rail.
+  // Sources: ORC Club certificate GER907 (https://data.orc.org/public/WPub.dll/CC/038500021DV.pdf): LOA 7.318 m, beam
+  // 2.692 m, draft 1.244 m, 1,444 kg, P 8.54 E 2.97 IG 8.19 J 2.90 SPL 2.98 BAS 1.08 m, main 15.44 genoa 17.79 spinnaker
+  // 34.59 m^2, crew max 400 kg, RM 30.7 kg m/deg, wetted 10.78 m^2; class data (https://goodoldboat.com/saildata/boat/j24/):
+  // LWL 6.10 m, ballast 431 kg.
+  // Lines (for the line-handler schema): mainsheet 6:1 to a swivel cam on the floor traveller; genoa sheets on
+  // self-tailing winches on the coamings; spinnaker sheets and guys on the same winches, guys through twinning lines on
+  // cam cleats; pole topping lift and downhaul on cam cleats at the mast; halyards led aft to clutches either side of the
+  // companionway; backstay cascade to a cam cleat at the tiller; vang, cunningham, outhaul to cams on the cabin top.
+  j24: {
+    id: 'j24', group: 'keelboat', name: 'J/24',
+    blurb: "Rod Johnstone's 1977 one-design, raced by more sailors than any keelboat: a 153% genoa, a symmetric spinnaker on a pole, a lead fin and a transom-hung rudder, five crew on the rail. Surfs downwind in a breeze.",
+    specs: 'LOA 7.32 m · LWL 6.10 m · Beam 2.69 m · Draft 1.22 m · 1,406 kg · 431 kg lead · Main 15.4 m² · Genoa 17.8 m² · Spinnaker 34.6 m²',
+    lwl: 6.1, loa: 7.32, beam: 2.69, bowX: 3.3, sternX: -3.15, freeboard: 0.74, canoeDraft: 0.36, wetted: 10.8, draft: 1.24,
+    // auxiliary: a 4 hp four-stroke outboard on a bracket on the transom, to port of the rudder (as J/24s carry it)
+    engine: { type: 'outboard', kW: 2.9, rpmMax: 5500, gear: 2.08, prop: { D: 0.19, P: 0.15, Z: 3, folding: false, rh: true }, pos: [-3.3, -0.45, -0.35], shaftAngle: 0, tiltable: true },
+    massHull: 1444, zG: 0.05, crewN: 5, crewEach: 80, crewZ: 0.62, crewMaxOut: 1.12, crewLee: -0.5, hikeRate: 0.55,
+    gm: 1.2, bmForm: 0.7, Ixx: 2700, Izz: 6700, amX: 0.06, amY: 0.75, amYaw: 0.45, amRoll: 0.25,
+    // residuary resistance / weight: a moderate-displacement keelboat (D/L ~ 180, L/vol^(1/3) 5.0) that surfs but
+    // does not plane
+    rr: [[0.1, 0.0001], [0.15, 0.0004], [0.2, 0.0008], [0.25, 0.0016], [0.3, 0.0032], [0.35, 0.006], [0.4, 0.013],
+         [0.45, 0.03], [0.5, 0.052], [0.55, 0.066], [0.6, 0.074], [0.7, 0.08], [0.8, 0.08], [1.0, 0.078], [1.2, 0.077], [1.5, 0.08]],
+    // (the fin is 0.88 m deep under a deep canoe body, which carries part of the side force: the area and aspect ratio
+    // here are the fin's plus the hull's share)
+    keel: { x: 0.45, z: -0.8, area: 1.1, ARe: 3.0, stall: 17 * DEG, cd0: 0.011, span: 0.88, chord: 1.05, lead: true },
+    rudder: { x: -3.2, z: -0.5, area: 0.36, ARe: 3.2, stall: 17 * DEG, cd0: 0.012, max: 33 * DEG, span: 0.95, chord: 0.38, loadRef: 800, hung: true },
+    hullLat: { area: 1.5, cd: 0.9, z: -0.12 },
+    windage: { area: 3.6, z: 1.7, cd: 0.9 },
+    mastX: 1.0, mastHeight: 10.5, boomZ: 1.9, keelBulb: false, houndsF: 0.14,
+    targetHeel: 20 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 1300, reefWind: [22, 30],
+    sails: [
+      { key: 'main', kind: 'boom', area: 15.44, luff: 8.54, foot: 2.97, head: 0.15, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
+        cd0: 0.06, ARe: 5.0, min: 1.5 * DEG, max: 78 * DEG, trav: [-5 * DEG, 12 * DEG], Iboom: 40, boomMass: 12, reefs: 1,
+        vangBend: 0.06, sheetBend: 0.04, color: 0xf2f0ea },
+      { key: 'jib', kind: 'loose', area: 17.79, label: 'Genoa', tackX: 4.0, tackZ: 0.95, luff: 7.9, foot: 4.3, head: 0.06, footRise: 0.15,
+        depth: [0.13, 0.14, 0.12], cd0: 0.045, ARe: 3.6, min: 8 * DEG, max: 45 * DEG, sagK: 1.3, color: 0xf2f0ea },
+      { key: 'gennaker', kind: 'spin', label: 'Spinnaker', pole: 2.98, replaces: 'jib', area: 34.59, tackX: 1.0 + 0.07 + 2.98, tackZ: 2.0, luff: 7.0, foot: 4.9, head: 0.6, rake: 3.05,
+        depth: [0.2, 0.22, 0.2], cd0: 0.09, ARe: 1.9, min: 16 * DEG, max: 100 * DEG, color: 0x1d4e89 },
+    ],
+    hullLines: { tm: 0.46, tr: 0.72, be: 0.8, sheerBow: 0.2, sheerStern: 0.05, stemRake: 0.75, transomRake: 0.12, flare: 0.2, flat: 0.5, sternDepth: 0.25, crown: 0.06, wl: 0.9 },
+    hull: { color: 0xf3f4f1, stripe: 0xc8412c, deck: 0xdcd8cc, boot: 0x1d2a44, sectionN: 2.4, transom: 0.72, bowRake: 0.75, sheer: 0.1,
+      logo: 'J/24', transomName: ['#', ''], deckTint: '#e2e0d8', benches: true,
+      cockpit: { t0: 0.04, t1: 0.44, w: 0.62, sole: 0.42 }, cabin: { t0: 0.45, t1: 0.74, h: 0.3, w: 0.78 } },
+    gear: { travX: -2.65, travHalf: 0.5, travOnSole: true, boomS: 0.93, winchX: -1.2, winchY: 0.92, jibTrack: [-0.3, -1.2], jibTrackY: 1.05,
+      clutchX: -0.3, cabinWinch: [-0.45, 0.5] },
+  },
+  // ---- Nordic Folkboat: Tord Sundén's 1941 clinker-built Scandinavian one-design. A heavy long-keeled boat with a
+  // keel-hung rudder, spoon bow, raked transom and lots of sheer, a 3/4 fractional rig with a big main and a small
+  // jib, no spinnaker (the class allowed one only in 2025), three crew.
+  // Sources: Nordic Folkboat class rules 2025-2028 (https://www.folkboats.com/wp-content/uploads/2025/03/NORDIC-FOLKBOAT-CLASS-RULES-2025-2028-incl-spinnaker.pdf):
+  // LOA 7.68 m, LWL 6.00 m, beam 2.20 m, draft 1.20 m, min 1,930 kg, iron keel 1,000-1,050 kg, sail area 24 m^2;
+  // ORC Club certificate NED 866 (https://data.orc.org/public/WPub.dll/CC/161245): 2,000 kg, P 7.90 E 3.38 IG 6.20
+  // J 2.05 BAS 1.10 m, main 16.24 jib 8.91 m^2, crew max 327 kg, RM 19.3 kg m/deg, wetted 13.78 m^2.
+  // Lines (for the line-handler schema): mainsheet to a cam on the aft-deck traveller; jib sheets on small winches on
+  // the coamings with horn cleats (older boats: cam cleats); halyards on horn cleats at the mast; backstay tackle on a
+  // cam cleat; reef lines to horn cleats on the boom.
+  folkboat: {
+    id: 'folkboat', group: 'keelboat', name: 'Nordic Folkboat',
+    blurb: "Tord Sundén's 1941 clinker one-design: a heavy long keel with the rudder hung on it, a spoon bow and a raked transom, a big main on a 3/4 rig and a small jib. No spinnaker. Stiff, wet and happiest at its 6 kn hull speed.",
+    specs: 'LOA 7.68 m · LWL 6.00 m · Beam 2.20 m · Draft 1.20 m · 1,930 kg · 1,000 kg iron keel · Main 16.2 m² · Jib 8.9 m² · Crew 3',
+    lwl: 6.0, loa: 7.68, beam: 2.2, bowX: 3.05, sternX: -3.05, freeboard: 0.62, canoeDraft: 0.42, wetted: 13.8, draft: 1.2,
+    cabin: true, longKeel: true, reefTime: 60, reefWind: [18, 25],
+    // auxiliary: a 4 hp outboard in a well under the cockpit's aft end (the usual Folkboat installation)
+    engine: { type: 'outboard', kW: 2.9, rpmMax: 5000, gear: 2.08, prop: { D: 0.19, P: 0.15, Z: 3, folding: false, rh: true }, pos: [-2.6, 0, -0.4], shaftAngle: 0, tiltable: true },
+    massHull: 1930, zG: -0.36, crewN: 3, crewEach: 95, crewZ: 0.62, crewMaxOut: 0.95, crewLee: -0.45, hikeRate: 0.5,
+    gm: 0.55, bmForm: 0.55, Ixx: 2600, Izz: 6200, amX: 0.07, amY: 0.9, amYaw: 0.6, amRoll: 0.3,
+    // residuary resistance / weight: heavy (D/L ~ 290), fine-ended and slack-bilged: a wall at hull speed
+    rr: [[0.1, 0.0001], [0.15, 0.0003], [0.2, 0.0007], [0.25, 0.0015], [0.3, 0.0033], [0.35, 0.0075], [0.4, 0.018],
+         [0.45, 0.04], [0.5, 0.068], [0.55, 0.088], [0.6, 0.1], [0.7, 0.112], [0.8, 0.118], [1.0, 0.124], [1.5, 0.134]],
+    // (the long keel is faired into the drawn hull, whose wetted surface already carries its skin friction: its own
+    // profile drag here is the form part only)
+    keel: { x: 0.7, z: -0.45, area: 1.9, ARe: 1.1, stall: 24 * DEG, cd0: 0.005, span: 0.65, chord: 3.2, long: true },
+    rudder: { x: -3.15, z: -0.45, area: 0.42, ARe: 2.2, stall: 21 * DEG, cd0: 0.013, max: 35 * DEG, span: 0.95, chord: 0.5, transom: true, loadRef: 900, wood: true },
+    hullLat: { area: 1.2, cd: 0.9, z: -0.12 },
+    windage: { area: 2.8, z: 1.5, cd: 0.95 },
+    mastX: 1.8, mastHeight: 9.7, boomZ: 1.8, keelBulb: false, houndsF: 0.33,
+    targetHeel: 20 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 900,
+    sailcloth: 'dacronCruise',
+    sails: [
+      { key: 'main', kind: 'boom', area: 16.24, luff: 7.9, foot: 3.38, head: 0.1, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
+        cd0: 0.07, ARe: 4.0, min: 2 * DEG, max: 80 * DEG, trav: [-3 * DEG, 10 * DEG], Iboom: 40, boomMass: 12, reefs: 2,
+        vangBend: 0.08, sheetBend: 0.05, color: 0xf3efe2 },
+      { key: 'jib', kind: 'loose', area: 8.91, tackX: 3.9, tackZ: 0.98, luff: 5.8, foot: 2.9, head: 0.05, footRise: 0.1,
+        depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 3.8, min: 10 * DEG, max: 50 * DEG, sagK: 1.4, color: 0xf3efe2 },
+    ],
+    hullLines: { tm: 0.52, tr: 0.36, be: 0.75, sheerBow: 0.42, sheerStern: 0.28, stemRake: 0.95, transomRake: 0.55, flare: 0.3, flat: 0.15, sternDepth: 0.06, crown: 0.07 },
+    hull: { color: 0xf1ede0, stripe: 0x1f3d2c, deck: 0xcdbf9f, boot: 0x7a1f1f, sectionN: 1.8, transom: 0.36, bowRake: 0.95, sheer: 0.2,
+      clinker: 9, wood: true, lifelines: false, benches: true, logo: 'F', transomName: ['Folkbåt', ''], deckTint: '#e6dcc4',
+      cockpit: { t0: 0.06, t1: 0.42, w: 0.55, sole: 0.3 }, cabin: { t0: 0.44, t1: 0.7, h: 0.3, w: 0.62, wood: true } },
+    gear: { travX: -2.75, travHalf: 0.45, boomS: 0.95, winchX: -0.35, winchY: 0.78, jibTrack: [0.6, -0.1], jibTrackY: 0.88, clutchX: 0.8 },
+  },
+  // ---- J/122: a 40 ft performance cruiser-racer (Alan Johnstone, 2007). Carbon fractional rig with two swept
+  // spreaders and a backstay, a non-overlapping jib, an asymmetric spinnaker tacked on a retractable carbon bowsprit,
+  // a low-VCG fin keel with a bulb, a spade rudder and wheel steering, nine crew racing.
+  // Sources: ORC certificate J-CURVE (https://data.orc.org/public/WPub.dll/CC/03410000WW5): LOA 12.200 m, beam 3.638 m,
+  // draft 2.240 m, 7,450 kg, P 15.65 E 5.36 IG 16.55 J 4.62 BAS 1.72 TPS 6.60 m, main 50.07 jib 42.82 asymmetric
+  // 155.89 m^2, crew max 797 kg, RM 175.9 kg m/deg, wetted 31.26 m^2; J/Boats (https://jboats.com/j122-tech-specs):
+  // LWL 10.55 m, 6,760 kg, 2,540 kg ballast.
+  // Lines (for the line-handler schema): mainsheet and traveller on winches in the cockpit ahead of the wheel;
+  // jib sheets on primary self-tailing winches; asymmetric sheets on the primaries (or secondaries), tack line and
+  // bowsprit out-haul to clutches on the cabin top; halyards, reefs, vang and cunningham through clutches to the
+  // cabin-top halyard winches; backstay on a hydraulic or cascade purchase to a cam cleat.
+  j122: {
+    id: 'j122', group: 'cruiser', name: 'J/122',
+    blurb: "A 40 ft offshore cruiser-racer: a carbon fractional rig, a 106% jib, a 156 m² asymmetric on a retractable bowsprit, a bulb keel and wheel steering, nine crew. Heavy on the helm and the winches, and 8 kn in a sea breeze.",
+    specs: 'LOA 12.20 m · LWL 10.55 m · Beam 3.64 m · Draft 2.24 m · 7,450 kg · 2,540 kg ballast · Main 50.1 m² · Jib 42.8 m² · Asymmetric 155.9 m²',
+    lwl: 10.55, loa: 12.2, beam: 3.64, bowX: 5.75, sternX: -5.65, freeboard: 1.18, canoeDraft: 0.55, wetted: 31.3, draft: 2.24,
+    bowsprit: 2.0, wheel: { x: -3.6, r: 0.72, h: 0.72 }, carbonMast: true, mastR: 0.1, reefWind: [22, 30], spreaders: { n: 2, sweep: 20 * DEG },
+    // auxiliary: Volvo D2-40 (29 kW) on a saildrive, two-blade folding propeller 0.46 m (J/Boats J/122E spec; ORC cert prop)
+    engine: { type: 'saildrive', kW: 29.4, rpmMax: 3200, gear: 2.18, prop: { D: 0.46, P: 0.33, Z: 2, folding: true, rh: true }, pos: [-1.4, 0, -0.95], shaftAngle: 0, tiltable: false },
+    massHull: 7450, zG: 0.07, crewN: 9, crewEach: 85, crewZ: 1.35, crewMaxOut: 1.72, crewLee: -0.8, hikeRate: 0.5,
+    gm: 1.35, bmForm: 0.8, Ixx: 23000, Izz: 82000, amX: 0.06, amY: 0.8, amYaw: 0.45, amRoll: 0.25,
+    // residuary resistance / weight: a moderate-displacement cruiser-racer (D/L ~ 170, L/vol^(1/3) 5.3)
+    rr: [[0.1, 0.0001], [0.15, 0.0004], [0.2, 0.0008], [0.25, 0.0016], [0.3, 0.0032], [0.35, 0.0062], [0.4, 0.013],
+         [0.45, 0.031], [0.5, 0.054], [0.55, 0.07], [0.6, 0.08], [0.7, 0.088], [0.8, 0.09], [1.0, 0.092], [1.5, 0.1]],
+    // (the fin with the canoe body's share of the side force)
+    keel: { x: 0.25, z: -1.4, area: 2.1, ARe: 4.0, stall: 15 * DEG, cd0: 0.009, span: 1.7, chord: 1.1, lead: true },
+    rudder: { x: -4.55, z: -0.95, area: 0.85, ARe: 3.8, stall: 16 * DEG, cd0: 0.01, max: 32 * DEG, span: 1.55, chord: 0.55, loadRef: 3500 },
+    hullLat: { area: 4.0, cd: 0.9, z: -0.2 },
+    windage: { area: 7.8, z: 3.0, cd: 0.9 },
+    mastX: 1.75, mastHeight: 18.9, boomZ: 2.95, keelBulb: { len: 2.3, r: 0.26 }, houndsF: 0.08, spreader: 1.0,
+    targetHeel: 22 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 6000,
+    sails: [
+      { key: 'main', kind: 'boom', area: 50.07, luff: 15.65, foot: 5.36, head: 0.35, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
+        cd0: 0.06, ARe: 5.4, min: 1.5 * DEG, max: 78 * DEG, trav: [-6 * DEG, 12 * DEG], Iboom: 900, boomMass: 45, reefs: 2,
+        vangBend: 0.06, sheetBend: 0.04, ropeK: 6, color: 0x2b2e33 },
+      { key: 'jib', kind: 'loose', area: 42.82, tackX: 6.35, tackZ: 1.32, luff: 16.1, foot: 5.0, head: 0.1, footRise: 0.1,
+        depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 5.2, min: 7.5 * DEG, max: 42 * DEG, sagK: 1.2, color: 0x2b2e33 },
+      { key: 'gennaker', kind: 'spin', replaces: 'jib', area: 155.89, tackX: 8.4, tackZ: 1.5, luff: 17.4, foot: 8.3, head: 0.9, rake: 6.45,
+        depth: [0.19, 0.21, 0.19], cd0: 0.09, ARe: 2.2, min: 16 * DEG, max: 100 * DEG, color: 0xc8412c },
+    ],
+    hullLines: { tm: 0.44, tr: 0.8, be: 0.8, sheerBow: 0.1, sheerStern: 0.02, stemRake: 0.45, transomRake: -0.1, flare: 0.2, flat: 0.6, sternDepth: 0.3, crown: 0.05, wl: 0.81 },
+    hull: { color: 0xeef0f2, stripe: 0x1d2a44, deck: 0xdcd8cc, boot: 0x1d2a44, sectionN: 2.6, transom: 0.8, bowRake: 0.45, sheer: 0.06,
+      logo: 'J/122', transomName: ['#', ''], deckTint: '#e0e0da', extension: false, benches: true,
+      cockpit: { t0: 0.02, t1: 0.4, w: 0.66, sole: 0.72 }, cabin: { t0: 0.41, t1: 0.74, h: 0.36, w: 1.1 } },
+    gear: { travX: -2.55, travHalf: 0.9, travOnSole: true, boomS: 0.9, winchX: -4.2, winchY: 1.45, jibTrack: [-0.4, -1.7], jibTrackY: 1.05,
+      clutchX: -1.2, cabinWinch: [-1.4, 0.7] },
+  },
+  // ---- The Mariner's trimaran from Waterworld (1995). A 60 ft ocean-racing trimaran built for the film by Jeanneau
+  // Techniques Avancées to a VPLP design, in the moulds of the ORMA 60 Pierre 1er; one sailing boat and one for the
+  // set, the sailing one raced afterwards. Dressed as salvaged junk: rust, scrap plate, patched sails, a mast that
+  // folds down on a tabernacle and is raised by a geared winch.
+  // Sources: VPLP (https://www.vplp.fr/en/maritime/waterworld/): LOA 18.28 m, beam 15 m, draft 1.54 / 2.88 m (board up /
+  // down), air draft 27.5 m, glass/Kevlar; press quoted in https://groups.google.com/g/alt.sailing.asa/c/8xz4nSFv5o0:
+  // "no more than 6 metric tons", mast over 90 ft, close to 4,300 ft^2 (400 m^2) of sail (the whole inventory: here the
+  // main and jib only, 300 m^2, as an ORMA 60 carries upwind). The hull and float lines, the foils, the weights and the
+  // sail split are estimates for an ORMA 60 hull built heavier. Not seen motoring in the film: the small inboard is
+  // what a working boat of this size carries for harbour.
+  // Lines (for the line-handler schema): mainsheet on a big traveller on the aft beam, both on powered winches; jib
+  // sheets to winches in the cockpit; halyards to clutches and a halyard winch at the mast; runners on winches; the
+  // mast-raising wire on its own geared drum aft of the mast.
+  mariner: {
+    id: 'mariner', group: 'multihull', name: "Mariner's trimaran (Waterworld)",
+    blurb: "The film's salvaged 60 ft racing trimaran: a slender main hull on two floats 15 m apart, a 27 m hinged mast raised by a geared winch, a fully battened patched main and a jib, rust and scrap everywhere. Flies a float from 10 kn and reaches at twice the wind speed.",
+    specs: 'LOA 18.28 m · Beam 15.0 m · Draft 1.54 / 2.88 m · ~6,000 kg · Air draft 27.5 m · Main 205 m² · Jib 95 m²',
+    lwl: 17.4, loa: 18.28, beam: 15.0, hullBeam: 2.5, bowX: 8.95, sternX: -8.85, freeboard: 1.3, canoeDraft: 0.72, wetted: 22, draft: 2.88,
+    amas: { y: 6.7, sy: 0.46, sz: 0.85, szTop: 0.9, dz: 0.5, t0: 0.1, t1: 0.99, beams: [2.9, -3.6], netZ: 1.75 },
+    wheel: { x: -5.4, r: 0.6, h: 0.8 }, runners: true, mastR: 0.16, reefTime: 90, reefWind: [20, 28],
+    engine: { type: 'inboard', kW: 22, rpmMax: 3000, gear: 2.0, prop: { D: 0.4, P: 0.3, Z: 2, folding: true, rh: true }, pos: [-5.2, 0, -0.95], shaftAngle: 0.14, tiltable: false },
+    massHull: 6000, zG: 0.85, crewN: 2, crewEach: 85, crewZ: 1.6, crewMaxOut: 3.0, crewLee: -1.0, hikeRate: 1.0,
+    gm: 6, bmForm: 2, Ixx: 140000, Izz: 240000, amX: 0.04, amY: 0.35, amYaw: 0.4, amRoll: 0.4,
+    // residuary resistance / weight of the main hull and the leeward float (slender hulls, L/vol^(1/3) ~ 10): the
+    // Southampton-series level the beach cat uses, a little higher past the hump for the heavier build
+    rr: [[0.1, 0.0004], [0.2, 0.002], [0.3, 0.0076], [0.35, 0.0145], [0.4, 0.024], [0.45, 0.034], [0.5, 0.04], [0.6, 0.045], [0.7, 0.047], [0.8, 0.05], [1.0, 0.054], [1.2, 0.058], [1.5, 0.065]],
+    keel: { x: 1.4, z: -1.8, area: 1.8, ARe: 6.0, stall: 13 * DEG, cd0: 0.009, span: 2.15, chord: 0.8, board: true },
+    rudder: { x: -8.3, z: -1.2, area: 0.75, ARe: 4.0, stall: 15 * DEG, cd0: 0.01, max: 30 * DEG, span: 1.55, chord: 0.48, loadRef: 4000 },
+    hullLat: { area: 3.0, cd: 0.9, z: -0.2 },
+    windage: { area: 16, z: 2.8, cd: 0.95 },
+    mastX: 1.9, mastHeight: 27.3, boomZ: 2.7, keelBulb: false, houndsF: 0.1,
+    targetHeel: 9 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 9000,
+    sailcloth: 'dacronCruise', battens: { EI: 60, full: true, rows: [0.12, 0.24, 0.36, 0.48, 0.6, 0.72, 0.84, 0.93] },
+    sails: [
+      { key: 'main', kind: 'boom', area: 205, luff: 23.6, foot: 8.6, head: 2.6, depth: [0.11, 0.13, 0.12], twistMax: 18 * DEG,
+        cd0: 0.06, ARe: 5.0, min: 1 * DEG, max: 70 * DEG, trav: [-4 * DEG, 22 * DEG], Iboom: 3200, boomMass: 90, reefs: 2,
+        vangBend: 0.08, sheetBend: 0.06, ropeK: 20, color: 0xcfc3a4 },
+      { key: 'jib', kind: 'loose', area: 95, tackX: 9.3, tackZ: 1.55, luff: 21.4, foot: 8.2, head: 0.15, footRise: 0.2,
+        depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 4.8, min: 8 * DEG, max: 40 * DEG, sagK: 1.0, color: 0xcfc3a4 },
+    ],
+    hullLines: { tm: 0.48, tr: 0.55, be: 0.95, sheerBow: 0.18, sheerStern: 0.0, stemRake: 0.15, transomRake: 0.0, flare: 0.35, flat: 0.35, sternDepth: 0.25, crown: 0.08, wl: 0.8 },
+    hull: { color: 0x8c877c, stripe: 0x7a3b1e, deck: 0x6b6152, boot: 0x3b2f27, bootTop: 0x5a4a3c, sectionN: 2.2, transom: 0.55, bowRake: 0.15, sheer: 0.05,
+      weathered: true, patchedSails: true, noNumber: true, lifelines: false, logo: '', transomName: null, deckTint: '#7d7263', extension: false,
+      cockpit: { t0: 0.12, t1: 0.36, w: 0.6, sole: 0.85 }, cabin: { t0: 0.37, t1: 0.56, h: 0.55, w: 0.95 } },
+    gear: { travX: -3.6, travHalf: 2.4, boomS: 0.93, winchX: -4.4, winchY: 0.95, jibTrack: [0.8, -1.4], jibTrackY: 1.05, clutchX: -0.4, cabinWinch: [-0.6, 0.7] },
   },
 };
 // headsails are set on stays that run from the tack up to the mast: the head sits at the mast, so the
@@ -175,7 +496,8 @@ for (const C of Object.values(CLASSES)) for (const s of C.sails) {
 // lines that are held by a cleat, clutch or self-tailer (and which way they run when released)
 export const LOCKABLE = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibHalyard', 'tackLine'];
 const RUNS_UP = new Set(['main', 'jib', 'lazy', 'stay', 'trav', 'tackLine']);
-export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat'];
+// (the menu shows them in this order within their groups: C.group, js/main.js CLASS_GROUPS)
+export const CLASS_ORDER = ['blackwatch', 'folkboat', 'sportboat', 'j24', 'star', 'j122', 'dinghy', '470', '49er', 'cat', 'mariner'];
 
 export const STRIP_F = [0.17, 0.5, 0.82];
 export const STRIP_W = [0.43, 0.34, 0.23];
@@ -190,7 +512,7 @@ export function reefAt(pos) {
   return { a: lerp(REEF[i].a, REEF[Math.min(2, i + 1)].a, f), l: lerp(REEF[i].l, REEF[Math.min(2, i + 1)].l, f) };
 }
 // seconds for the crew to put in (or shake out) one reef
-export function reefTime(C) { return C.id === 'blackwatch' ? 70 : 45; }
+export function reefTime(C) { return C.reefTime ?? (C.id === 'blackwatch' ? 70 : 45); }
 
 // ---------------------------------------------------------------------------------------------
 // Section coefficients from sail shape. a = |alpha| (rad, 0..pi/2), d = camber depth / chord,
@@ -728,7 +1050,7 @@ export class Boat {
     const slLat = (x) => (interp7(W7, 'sx', x) * sx + interp7(W7, 'sz', x) * sz);
     const slAl = (x) => (interp7(W7, 'sx', x) * fx + interp7(W7, 'sz', x) * fz);
     const imm = hy.immerse(this.heave, this.pitch, this.phi, etaAt, slLat, this._hy, slAl);
-    if (C.multihull) {
+    if (C.multihull && !C.amas) {
       const vh = imm.Vh || [imm.V / 2, imm.V / 2];
       this.flyIn = clamp(Math.min(vh[0], vh[1]) / Math.max(1e-6, Math.max(vh[0], vh[1])), 0, 1);
     } else this.flyIn = 1;
@@ -779,13 +1101,14 @@ export class Boat {
       // round-bilged hulls (beam/length ~0.08) carry no planing surface: they stay displacement hulls, and
       // their residuary table (towing-tank C_R, which is referenced to the static wetted area) already
       // holds whatever sinkage and trim they take at speed
-      const planeLift = C.multihull ? 0 : sstep(0.45, 0.95, Fn);
+      const slender = C.multihull || C.amas;                             // (a trimaran's hulls are slender too)
+      const planeLift = slender ? 0 : sstep(0.45, 0.95, Fn);
       const Swet = imm.girthLen * (1 - 0.3 * planeLift);                 // wetted surface of the real hull
       const Rf = 0.5 * RHO_W * Swet * uw * uw * cfITTC(uw, lwlDyn) * 1.08;
       // fore-aft crew weight: forward in light air (bury the bow, lift the transom), aft when planing
       const optTrim = lerp(-0.6, 0.8, sstep(0.3, 0.55, Fn));
       const trimPen = 1 + 0.09 * (this.crewX - optTrim) ** 2;
-      const Rr = disp * G * interp(C.rr, Fn) * (C.multihull ? 1 + 0.3 * (1 - this.flyIn) : 1 + 0.5 * this.phi * this.phi) * trimPen;
+      const Rr = disp * G * interp(C.rr, Fn) * (C.multihull ? 1 + 0.3 * (1 - this.flyIn) : C.amas ? 1 : 1 + 0.5 * this.phi * this.phi) * trimPen;
       let Raw = 0;
       if (wv) {
         const enc = Math.max(0, -(fx * env.waves.comps[0].dx + fz * env.waves.comps[0].dz));
@@ -802,9 +1125,9 @@ export class Boat {
       const N0 = N;
       N -= 0.5 * RHO_W * T * 0.9 * (L ** 4 / 32) * this.r * Math.abs(this.r);
       N -= 0.5 * RHO_W * T * L ** 3 * 0.03 * (Math.abs(uw) + 0.3) * this.r;
-      if (!C.multihull) N -= 0.011 * 0.5 * RHO_W * uw * Math.abs(uw) * L * L * T * Math.sin(this.phi);
+      if (!slender) N -= 0.011 * 0.5 * RHO_W * uw * Math.abs(uw) * L * L * T * Math.sin(this.phi);
       // hull drag acts where the immersed volume is: a multihull on its leeward hull wants to bear away
-      if (imm.V > 1e-6) N += (Rf + Rr) * Math.sign(uw) * (imm.My / imm.V) * cphi * (C.multihull ? 1 : 0.3);
+      if (imm.V > 1e-6) N += (Rf + Rr) * Math.sign(uw) * (imm.My / imm.V) * cphi * (slender ? 1 : 0.3);
       // Munk moment: a hull moving at a drift angle carries more fluid momentum sideways than lengthwise,
       // and the difference turns it broadside to the flow, N = -(m_y - m_x) u v (Kirchhoff; the added-mass
       // Coriolis term the surge and sway equations already carry, closed in yaw). With leeway it adds weather
@@ -851,7 +1174,7 @@ export class Boat {
 
     // ---- mast in the water: a sealed spar floats, which is what holds a capsized boat on its side ----
     {
-      const r0 = C.id === 'dinghy' ? 0.032 : C.id === 'sportboat' ? 0.05 : 0.055;
+      const r0 = C.mastR ?? (C.id === 'dinghy' ? 0.032 : C.id === 'sportboat' ? 0.05 : 0.055);
       const base = C.boomZ - 0.8, L = C.mastHeight - base, nSeg = 6;
       for (let k = 0; k < nSeg; k++) {
         const zseg = base + (k + 0.5) * L / nSeg;
