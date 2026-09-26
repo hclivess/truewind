@@ -13,15 +13,14 @@ const KT = 0.514444, DEG = Math.PI / 180;
 const BIASES = [-4, 0, 4];
 
 async function sailAngle(cls, twsKn, twa, secs) {
-  const { Boat, autoTrim, makeSteadyEnv, CLASSES } = await import('../js/physics.js');
+  const { Boat, autoTrim, makeSteadyEnv, CLASSES, vppStart } = await import('../js/physics.js');
   await import('../js/sail/sailsim.js');
   const C = CLASSES[cls], dt = 1 / 120, steps = Math.round(secs / dt);
   const gens = C.sails.some((s) => s.kind === 'spin') && twa >= 85 ? [false, true] : [false];
   let best = { bsp: 0, heel: 0, leeway: 0, gen: 0, bias: 0 };
   for (const gen of gens) for (const bias of BIASES) {
     const env = makeSteadyEnv(twsKn * KT), b = new Boat(C, { sailModel: 'cloth', lod: 0 });
-    b.reset(0, 0, twa * DEG); b.u = 1.5; for (const k in b.booms) b.booms[k].a = 0.3; b.side.jib = 1; b.side.gennaker = 1;
-    b.ctrl.gen = gen; b.genDeploy = gen ? 1 : 0; b.genFill = gen ? 1 : 0;
+    vppStart(b, twsKn * KT, twa, gen);
     let acc = 0, n = 0, heel = 0, lee = 0, bad = false;
     for (let i = 0; i < steps; i++) {
       autoTrim(b, dt, bias); b.step(dt, env, i * dt); b.r = 0; b.psi = twa * DEG; b.rudder = 0;

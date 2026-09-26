@@ -16,12 +16,23 @@ import { clamp, lerp, sstep, shapeCoef, STRIP_F, STRIP_W, reefAt, sailHooks } fr
 import { DEG } from '../env.js';
 import { SailLattice } from './vlm.js';
 import { latticeSize } from './specs.js';
-import { BoomSailRig, JibRig, SpinRig, chordAt } from './rigsim.js';
+import { BoomSailRig, JibRig, SpinRig, chordAt, areaScale } from './rigsim.js';
 import './surrogate.js';
 // (Math.hypot allocates when V8 does not inline it: these do not)
 const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
 const TWO_PI = 2 * Math.PI;
+// Which angle decides whether a strip has separated (the lattice does not know), and the separated strip's force.
+//   0 (default): the angle to the free stream at the strip, without any sail's downwash, and the force there too.
+//   1: the angle including the other sails' interference (their induced velocity at the strip: a main behind two
+//      headsails meets the flow 8-12 degrees flatter than the free stream says), the force as in 0.
+//   2: both from the interfered flow: the consistent treatment.
+// 1 and 2 classify the main behind a headsail or kite correctly (attached), but that removes a bonus the default gets
+// for it: a "separated" strip's force is set square to the free stream, as if the headsail's downwash did not rotate it,
+// and still carries the section's leading-edge suction. In 12 kn (VPP, bake settings) mode 1 costs the Blackwatch
+// 2.6% upwind VMG, the sportboat 4% and the cat 6% at 120 degrees; mode 2 the Blackwatch 3.6%. So the default stays 0
+// (SEPMODE=1|2 in node to compare); the lattice's split of own and other sails' induced velocity costs nothing.
+const SEPMODE = typeof process !== 'undefined' && process.env && process.env.SEPMODE ? +process.env.SEPMODE : 0;
 // cloth substeps per 120 Hz step (js/sail/cloth.js)
 export const CLOTH_SUB = 4;
 // ... at L1 (the fleet's coarser cloth): half as many; its polars and a 40 kn knockdown come out the same
@@ -70,7 +81,7 @@ export class SailSystem {
     this.pd = new Float64Array(NS); this.pf = new Float64Array(NS);
     this.Vm = new Float64Array(NS); this.ag = new Float64Array(NS); this.ae = new Float64Array(NS);
     this.cl = new Float64Array(NS); this.clT = new Float64Array(NS); this.cd = new Float64Array(NS); this.wet = new Float64Array(NS);
-    this.state = new Uint8Array(NS); this.sep = new Float64Array(NS); this.sdir = new Float64Array(3 * NS); this.wakeSrc = new Int32Array(NS); this.flog = new Float64Array(NS); this.alf = new Float64Array(NS); this.ast = new Float64Array(NS);
+    this.state = new Uint8Array(NS); this.sep = new Float64Array(NS); this.sdir = new Float64Array(3 * NS); this.wakeSrc = new Int32Array(NS); this.flog = new Float64Array(NS); this.alf = new Float64Array(NS); this.ast = new Float64Array(NS); this.agi = new Float64Array(NS);
     this.owner = new Int32Array(NS);
     this.sails.forEach((x, i) => { for (let j = 0; j < x.ns; j++) this.owner[x.part.soff + j] = i; });
     this.Vc = new Float64Array(3 * N);                  // air velocity relative to the sail at each collocation point
@@ -94,9 +105,7 @@ export class SailSystem {
     if (s.key === 'main') { px = C.mastX - 0.02; pz = C.boomZ; } else { px = s.tackX; pz = s.tackZ; }
     if (s.kind === 'spin' || s.kind === 'loose') luff *= Math.sqrt(rg.areaF);
     // chords scaled so the lattice carries the sail's rated area (times the hoisted / reefed fraction)
-    let A0 = 0;
-    for (let j = 0; j < ns; j++) A0 += 0.5 * (chordAt(s, j / ns) + chordAt(s, (j + 1) / ns)) / ns;
-    const kc = s.area * rg.areaF / Math.max(1e-6, A0 * luff);
+    const kc = areaScale(s, luff, s.area * rg.areaF);
     const side = Math.sign(rg.baseAngle || 1), slack = s.key === 'main' ? b.reefSlack : 0;
     for (let j = 0; j <= ns; j++) {
       const fv = j / ns;
@@ -297,13 +306,16 @@ export class SailSystem {
       this.Vm[j] = Vm;
       this.sdir[3 * j] = vx / Vm; this.sdir[3 * j + 1] = vy / Vm; this.sdir[3 * j + 2] = vz / Vm;
       this.ag[j] = Math.atan2(vx * L.sn[3 * j] + vy * L.sn[3 * j + 1] + vz * L.sn[3 * j + 2], vx * L.st[3 * j] + vy * L.st[3 * j + 1] + vz * L.st[3 * j + 2]);
+      const vo = L.vother;
+      if (vo) { for (let i = 0; i < q.nc; i++) { const k = 3 * (q.off + jj * q.nc + i); vx += vo[k] / q.nc; vy += vo[k + 1] / q.nc; vz += vo[k + 2] / q.nc; } }
+      this.agi[j] = Math.atan2(vx * L.sn[3 * j] + vy * L.sn[3 * j + 1] + vz * L.sn[3 * j + 2], vx * L.st[3 * j] + vy * L.st[3 * j + 1] + vz * L.st[3 * j + 2]);
     }
     // Attached strips: the effective angle follows from the lattice (decambering). Strips well past the stall
     // (or with the flow arriving over the leech) are separated: the lattice's attached-flow physics does not
     // apply, so they take the polar at their geometric angle and the lattice just carries that load.
     for (let j = 0; j < NS; j++) {
       if (this.Vm[j] === 0) continue;
-      const a = Math.abs(this.ag[j]), d = Math.abs(this.pd[j]), f = this.pf[j];
+      const a = Math.abs(SEPMODE ? this.agi[j] : this.ag[j]), d = Math.abs(this.pd[j]), f = this.pf[j];
       const ast = (9 + 85 * d + 8 * (0.55 - f)) * DEG;
       this.sep[j] = a > Math.PI / 2 ? 1 : sstep(ast + 3 * DEG, ast + 12 * DEG, a);
     }
@@ -312,8 +324,8 @@ export class SailSystem {
         const Vm = this.Vm[j]; if (Vm === 0) continue;
         const x = this.sails[this.owner[j]], c = Math.max(L.sc[j], 0.05), w = this.sep[j];
         const cl = 2 * L.teGamma(j) / (Vm * c);
-        const ag = this.ag[j];
-        const ae = lerp(ag - Math.sin(ag) + cl / TWO_PI + L.sa0[j] + L.flapK[j] * L.delta[j] / Vm, ag, w);
+        const ag = this.ag[j], agS = SEPMODE === 2 ? this.agi[j] : ag;
+        const ae = lerp(ag - Math.sin(ag) + cl / TWO_PI + L.sa0[j] + L.flapK[j] * L.delta[j] / Vm, agS, w);
         const P = x.rig ? this.clothPolar : this.polar;
         P.call(this, b, x, j, ae, po); const C0 = po.cl;
         const h = 0.3 * DEG;
@@ -332,7 +344,7 @@ export class SailSystem {
       const Vm = this.Vm[j]; if (Vm === 0) continue;
       const x = this.sails[this.owner[j]], c = Math.max(L.sc[j], 0.05);
       const cl = 2 * L.teGamma(j) / (Vm * c), ag = this.ag[j];
-      const ae = lerp(ag - Math.sin(ag) + cl / TWO_PI + L.sa0[j] + L.flapK[j] * L.delta[j] / Vm, ag, this.sep[j]);
+      const ae = lerp(ag - Math.sin(ag) + cl / TWO_PI + L.sa0[j] + L.flapK[j] * L.delta[j] / Vm, SEPMODE === 2 ? this.agi[j] : ag, this.sep[j]);
       (x.rig ? this.clothPolar : this.polar).call(this, b, x, j, ae, po);
       this.ae[j] = ae; this.cl[j] = cl; this.clT[j] = po.cl; this.cd[j] = po.cd; this.state[j] = po.state; this.flog[j] = po.flog; this.alf[j] = po.alf; this.ast[j] = po.ast;
       // wet strips (knocked down): no air load

@@ -23,6 +23,7 @@
 // supplies gravity rotated by heel and the frame's fictitious accelerations.
 // (Math.hypot allocates when V8 does not inline it: these do not)
 const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 
 // banded symmetric positive definite matrix: A[i][i - k] stored at B[i * (bw + 1) + k], k = 0..bw
 function bandCholesky(B, n, bw) {
@@ -129,6 +130,21 @@ export class Cloth {
   // w is the rope's stiffness (N/m)
   addRope(e, t, anchor, to, len, w = 3e4) { const c = { e, t, anchor, to, len, w, force: 0, taut: false }; this.ropes.push(c); this._dirty = true; return c; }
   addCapsule(a, b, r, nodes) { const c = { a, b, r, nodes }; this.caps.push(c); return c; }
+  // a wire (mast, stay, shroud: a polyline pts of radius r) the cloth cannot pass through. A thin wire slips between
+  // the nodes of a coarse cloth, so it is the cloth's edges that are kept off it (every grid edge between the listed
+  // nodes), each on the side of the wire it was on at the start of the substep
+  addWire(pts, r, nodes) {
+    const set = new Set(nodes), nu = this.nu, E = [];
+    for (const k of nodes) {
+      const q = k - this.off, i = q % nu;
+      if (i < nu - 1 && set.has(k + 1)) E.push(k, k + 1);
+      if (set.has(k + nu)) E.push(k, k + nu);
+    }
+    const P = pts.flat(), lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < P.length; i++) { lo[i % 3] = Math.min(lo[i % 3], P[i] - r); hi[i % 3] = Math.max(hi[i % 3], P[i] + r); }
+    const c = { P: Float64Array.from(P), r, E: Int32Array.from(E), lo, hi, hits: 0 };        // (hits: contacts, a diagnostic)
+    (this.wires || (this.wires = [])).push(c); return c;
+  }
 
   // the constant system matrix M/h^2 + sum w G^T G (band), with kinematic rows eliminated
   _factor(h) {
@@ -203,6 +219,7 @@ export class Cloth {
       for (let i = 0; i < n; i++) if (this.kin[i]) { x[3 * i] = y[3 * i]; x[3 * i + 1] = y[3 * i + 1]; x[3 * i + 2] = y[3 * i + 2]; }
       for (let it = 0; it < this.iters; it++) this._iterate(h, y, s === nsub - 1 && it === this.iters - 1);
       this.solveCapsules();
+      if (this.wires) this.solveWires();
       const ih = 1 / h;
       for (let i = 0; i < 3 * n; i++) v[i] = (x[i] - this.xo[i]) * ih;
     }
@@ -306,6 +323,46 @@ export class Cloth {
         if (d >= c.r || d < 1e-9) continue;
         const k = (c.r - d) / d;
         x[i] += dx * k; x[i + 1] += dy * k; x[i + 2] += dz * k;
+      }
+    }
+  }
+  // wires: for each cloth edge near a wire segment, the closest points at the start of the substep give the side the
+  // edge is on (n, from the wire to the edge); the edge's point there is kept at least r out along n now
+  solveWires() {
+    const x = this.x, xo = this.xo, kin = this.kin;
+    for (const w of this.wires) {
+      const P = w.P, r = w.r, E = w.E, lo = w.lo, hi = w.hi, ns = P.length / 3 - 1;
+      for (let e = 0; e < E.length; e += 2) {
+        const p = 3 * E[e], q = 3 * E[e + 1];
+        // (broad phase: the edge's box against the wire's)
+        if (Math.max(x[p], x[q]) < lo[0] || Math.min(x[p], x[q]) > hi[0] || Math.max(x[p + 1], x[q + 1]) < lo[1] || Math.min(x[p + 1], x[q + 1]) > hi[1] ||
+          Math.max(x[p + 2], x[q + 2]) < lo[2] || Math.min(x[p + 2], x[q + 2]) > hi[2]) continue;
+        for (let s = 0; s < ns; s++) {
+          const a = 3 * s, b = a + 3;
+          // closest points of segments (xo_p, xo_q) and (P_a, P_b) at the start of the substep
+          const d1x = xo[q] - xo[p], d1y = xo[q + 1] - xo[p + 1], d1z = xo[q + 2] - xo[p + 2];
+          const d2x = P[b] - P[a], d2y = P[b + 1] - P[a + 1], d2z = P[b + 2] - P[a + 2];
+          const rx = xo[p] - P[a], ry = xo[p + 1] - P[a + 1], rz = xo[p + 2] - P[a + 2];
+          const A = d1x * d1x + d1y * d1y + d1z * d1z, Ee = d2x * d2x + d2y * d2y + d2z * d2z, F = d2x * rx + d2y * ry + d2z * rz;
+          const Cc = d1x * rx + d1y * ry + d1z * rz, B = d1x * d2x + d1y * d2y + d1z * d2z, den = A * Ee - B * B;
+          let u = den > 1e-12 ? clamp01((B * F - Cc * Ee) / den) : 0;
+          let t = (B * u + F) / Ee;
+          if (t < 0) { t = 0; u = clamp01(-Cc / A); } else if (t > 1) { t = 1; u = clamp01((B - Cc) / A); }
+          const wx = P[a] + t * d2x, wy = P[a + 1] + t * d2y, wz = P[a + 2] + t * d2z;
+          let nx = xo[p] + u * d1x - wx, ny = xo[p + 1] + u * d1y - wy, nz = xo[p + 2] + u * d1z - wz;
+          const nl = Math.sqrt(nx * nx + ny * ny + nz * nz);
+          if (nl < 1e-6 || nl > r + 0.25) continue;
+          nx /= nl; ny /= nl; nz /= nl;
+          // now: the same point of the edge, how far out along n
+          const sx = x[p] + u * (x[q] - x[p]) - wx, sy = x[p + 1] + u * (x[q + 1] - x[p + 1]) - wy, sz = x[p + 2] + u * (x[q + 2] - x[p + 2]) - wz;
+          const gap = sx * nx + sy * ny + sz * nz;
+          if (gap >= r) continue;
+          const wp = kin[E[e]] ? 0 : 1 - u, wq = kin[E[e + 1]] ? 0 : u, ww = wp * wp + wq * wq;
+          if (ww < 1e-9) continue;
+          const lam = (r - gap) / ww; w.hits++;
+          x[p] += nx * lam * wp; x[p + 1] += ny * lam * wp; x[p + 2] += nz * lam * wp;
+          x[q] += nx * lam * wq; x[q + 1] += ny * lam * wq; x[q + 2] += nz * lam * wq;
+        }
       }
     }
   }

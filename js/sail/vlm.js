@@ -449,13 +449,20 @@ export class SailLattice {
     return s;
   }
   // induced velocity at every bound midpoint for circulation g
+  // (and in vother the part of it the other sails induce: their interference, without the sail's own downwash)
   induced(g) {
-    const N = this.N, M3 = this.M3, out = this.vind;
-    for (let k = 0; k < N; k++) {
-      const r0 = 3 * k * N, r1 = r0 + N, r2 = r1 + N;
-      let x = 0, y = 0, z = 0;
-      for (let m = 0; m < N; m++) { const gm = g[m]; if (gm === 0) continue; x += M3[r0 + m] * gm; y += M3[r1 + m] * gm; z += M3[r2 + m] * gm; }
-      out[3 * k] = x; out[3 * k + 1] = y; out[3 * k + 2] = z;
+    const N = this.N, M3 = this.M3, out = this.vind, vo = this.vother || (this.vother = new Float64Array(3 * N));
+    for (const q of this.parts) {
+      const a = q.off, e = q.off + q.nc * q.ns;
+      for (let k = a; k < e; k++) {
+        const r0 = 3 * k * N, r1 = r0 + N, r2 = r1 + N;
+        let x = 0, y = 0, z = 0, ox = 0, oy = 0, oz = 0;
+        for (let m = 0; m < a; m++) { const gm = g[m]; if (gm === 0) continue; ox += M3[r0 + m] * gm; oy += M3[r1 + m] * gm; oz += M3[r2 + m] * gm; }
+        for (let m = e; m < N; m++) { const gm = g[m]; if (gm === 0) continue; ox += M3[r0 + m] * gm; oy += M3[r1 + m] * gm; oz += M3[r2 + m] * gm; }
+        for (let m = a; m < e; m++) { const gm = g[m]; if (gm === 0) continue; x += M3[r0 + m] * gm; y += M3[r1 + m] * gm; z += M3[r2 + m] * gm; }
+        out[3 * k] = x + ox; out[3 * k + 1] = y + oy; out[3 * k + 2] = z + oz;
+        vo[3 * k] = ox; vo[3 * k + 1] = oy; vo[3 * k + 2] = oz;
+      }
     }
     return out;
   }

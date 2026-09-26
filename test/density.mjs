@@ -6,17 +6,22 @@ const KT = 0.514444, DEG = Math.PI / 180;
 let bad = 0;
 for (const cls of ['blackwatch', 'sportboat', 'dinghy', 'cat']) {
   const res = [];
+  // (cloth sails fill over their first half second, and held at a fixed sheet a cloth sail may luff and flog, a chaotic
+  // state in which a small change moves the mean force by several per cent either way: the force is summed over four
+  // headings, one second each after the first)
   for (const cold of [0, 1]) {
-    const env = makeSteadyEnv(15 * KT), base = env.wind.sample;
-    env.wind.sample = (x, z, t, o) => { base(x, z, t, o); o.cold = cold; return o; };
-    const b = new Boat(cls); b.reset(0, 0, 60 * DEG); b.u = 2; for (const k in b.booms) b.booms[k].a = 0.35;
-    // (cloth sails fill over their first half second: two seconds with the hull held, force over the last one)
-    let F = 0;
-    for (let i = 0; i < 240; i++) {
-      b.step(1 / 120, env, i / 120); b.u = 2; b.v = 0; b.r = 0; b.p = 0; b.phi = 0; b.psi = 60 * DEG;
-      if (i >= 120) F += Math.hypot(b.diag.sailX, b.diag.sailY) / 120;
+    let F = 0, rho = 0;
+    for (const hdg of [50, 60, 70, 80]) {
+      const env = makeSteadyEnv(15 * KT), base = env.wind.sample;
+      env.wind.sample = (x, z, t, o) => { base(x, z, t, o); o.cold = cold; return o; };
+      const b = new Boat(cls); b.reset(0, 0, hdg * DEG); b.u = 2; for (const k in b.booms) b.booms[k].a = 0.35;
+      for (let i = 0; i < 240; i++) {
+        b.step(1 / 120, env, i / 120); b.u = 2; b.v = 0; b.r = 0; b.p = 0; b.phi = 0; b.psi = hdg * DEG;
+        if (i >= 120) F += Math.hypot(b.diag.sailX, b.diag.sailY) / 120;
+      }
+      rho = b.diag.rhoA;
     }
-    res.push({ F, rho: b.diag.rhoA });
+    res.push({ F, rho });
   }
   const r = res[1].F / res[0].F;
   if (!(r > 1.02 && r < 1.05)) bad++;

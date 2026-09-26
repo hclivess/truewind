@@ -71,6 +71,9 @@ export const CLASSES = {
     windage: { area: 3.1, z: 2.1, cd: 0.95 },
     mastX: 0.25, mastHeight: 8.4, boomZ: 1.5, keelBulb: false,
     targetHeel: 18 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 900,
+    // (a masthead rig: the backstay pulls against the forestay at the same masthead, so it tightens the forestay and
+    // bends the stout mast little; a fractional rig's backstay bends the mast above its hounds, 0.75 by default)
+    backstayBend: 0.35,
     sails: [
       { key: 'main', kind: 'boom', area: 10.4, luff: 6.5, foot: 3.0, head: 0.15, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
         cd0: 0.07, ARe: 3.2, min: 2 * DEG, max: 80 * DEG, trav: [-4 * DEG, 12 * DEG], Iboom: 42, boomMass: 18, reefs: 2,
@@ -130,6 +133,7 @@ export const CLASSES = {
     sails: [
       { key: 'main', kind: 'boom', area: 7.06, luff: 5.1, foot: 2.75, head: 0.25, depth: [0.12, 0.14, 0.12], twistMax: 24 * DEG,
         cd0: 0.06, ARe: 3.9, min: 3 * DEG, max: 88 * DEG, trav: null, Iboom: 12, boomMass: 6, reefs: 0,
+        luffRoundK: 0.6,        // (luff round cut into the sail, fraction of the full mast bend: a bendy unstayed mast's sail is cut for the bend it sails with)
         vangBend: 0.6, sheetBend: 0.45, color: 0xf4f3ee },
     ],
     hull: { color: 0xf6f6f2, stripe: 0xc8412c, deck: 0xe6e3da, boot: 0xc8412c, sectionN: 2.2, transom: 0.72, bowRake: 0.15, sheer: 0.05 },
@@ -190,6 +194,11 @@ export function reefAt(pos) {
   return { a: lerp(REEF[i].a, REEF[Math.min(2, i + 1)].a, f), l: lerp(REEF[i].l, REEF[Math.min(2, i + 1)].l, f) };
 }
 // seconds for the crew to put in (or shake out) one reef
+// A headsail's foot angle (fraction of its min..max range) for its sheet eased to e. The sheet runs from the clew
+// to a lead on deck: eased, it lets the clew rise as much as go out, so the foot opens slowly at first (the cloth
+// jib's clew angle for a given sheet, sportboat on a reach: 8, 11, 15, 22, 35 degrees for e = 0 .. 1; the strip
+// model used to open it linearly, 9 to 42, and stalled the jib the cloth held drawing)
+export const jibEaseAngle = (e) => e * e;
 export function reefTime(C) { return C.id === 'blackwatch' ? 70 : 45; }
 
 // ---------------------------------------------------------------------------------------------
@@ -368,7 +377,9 @@ export class Boat {
         d *= 1 + 0.9 * this.reefSlack; f += 0.12 * this.reefSlack;
       } else if (s.key === 'jib') {
         const ease = this.lines.jib;
-        tw = (3 * DEG + 16 * DEG * (0.35 * ease + 0.6 * c.jibLead)) * Math.pow(fr, 1.2);
+        // (eased, the clew is let up as well as out: the sheet's lead stays on deck, so the leech falls away and the
+        // head twists off, 20-40 degrees more than the foot on a reach, as the cloth jib shows)
+        tw = (3 * DEG + 9.6 * DEG * c.jibLead + 42 * DEG * sstep(0.05, 0.55, ease)) * Math.pow(fr, 1.2);
         if (i === 0) d *= 1.3 - 0.6 * c.jibLead;
         d *= 1 + 0.45 * sag * (s.sagK ?? 1) * (i === 1 ? 1.2 : 0.8) * 0.7;
         f = 0.48 - 0.2 * c.jibHalyard + 0.1 * stretch + 0.08 * sag;
@@ -451,7 +462,7 @@ export class Boat {
     } else if (s.kind === 'loose') {
       areaF = genDef && genDef.replaces === key ? 1 - this.genDeploy : 1;
       pivotX = s.tackX; pivotZ = s.tackZ;
-      baseAngle = this.side.jib * lerp(s.min, s.max, this.lines.jib); side = Math.sign(this.side.jib) || 1;
+      baseAngle = this.side.jib * lerp(s.min, s.max, jibEaseAngle(this.lines.jib)); side = Math.sign(this.side.jib) || 1;
       flogging = 1 - sstep(0.55, 0.95, Math.abs(this.side.jib));
     } else {
       areaF = this.genDeploy; pivotX = s.tackX; pivotZ = s.tackZ;
@@ -640,7 +651,7 @@ export class Boat {
     }
     // mast bend and headstay sag
     const sheetHard = 1 - sstep(0, 0.3, this.lines.main);
-    const bend = clamp((C.hasBackstay ? 0.75 * ctrl.backstay : 0) + M0.vangBend * ctrl.vang + M0.sheetBend * sheetHard, 0, 1);
+    const bend = clamp((C.hasBackstay ? (C.backstayBend ?? 0.75) * ctrl.backstay : 0) + M0.vangBend * ctrl.vang + M0.sheetBend * sheetHard, 0, 1);
     const sag = clamp(qMid / 70, 0, 1.3) * (C.hasBackstay ? 1 - 0.75 * ctrl.backstay : 0.5);
     d.rig.bend = bend; d.rig.sag = sag;
 
@@ -981,29 +992,36 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
   const C = boat.cls, d = boat.diag, c = boat.ctrl;
   const awa = Math.abs(d.awaMid ?? Math.PI);
   const tws = (d.tws ?? 5) / KT;
-  const over = clamp((Math.abs(boat.phi) - C.targetHeel) / (10 * DEG), 0, 1.5);
+  // overpowered: heeled past the target, or the bow being driven under (a multihull flying a hull has all its pitch
+  // stiffness on one bow: the drive trims it down until it trips over the bow; a crew eases before the bow buries)
+  const over = clamp(Math.max((Math.abs(boat.phi) - C.targetHeel) / (10 * DEG), (-(boat.pitch || 0) - 6 * DEG) / (6 * DEG)), 0, 1.5);
   const k = clamp(dt * 1.5, 0, 1);
   const upwind = 1 - sstep(55 * DEG, 95 * DEG, awa);
   const power = clamp((tws - 7) / 11, 0, 1);            // 0 = light: full shape, 1 = heavy: flat
   const flat = clamp(power + over * 0.6, 0, 1);
   const clothMain = boat.sailSys && boat.sailSys.owns && boat.sailSys.owns('main');
+  // (with the gennaker up the boat is reaching, however close the apparent wind comes: a fast boat under a kite
+  // sails at 45-60 degrees apparent. The cloth main is set for reaching then, deep and eased)
+  const shapeUp = clothMain ? upwind * (1 - clamp(boat.genDeploy, 0, 1)) : upwind;
   if (full) {
     // (a cloth main: the outhaul lets the clew forward along the boom; off the wind it goes all the way off for
     // the deepest foot, as crews do)
-    c.outhaul = lerp(c.outhaul, lerp(clothMain ? 0 : 0.25, lerp(0.35, 1, flat), upwind), k);
-    c.cunn = lerp(c.cunn, lerp(0, flat, upwind), k);
-    if (C.hasBackstay) c.backstay = lerp(c.backstay, lerp(0.05, lerp(0.15, 1, flat), upwind), k);
-    const twTop = clothMain && boat.sailBy.main.trav && d.shape.main ? d.shape.main[2].tw : null;
-    if (clothMain && upwind > 0.5 && Number.isFinite(twTop)) {
-      // a cloth main on a traveller upwind: the vang (with the sheet) sets the leech twist to the sailmaker's target,
-      // about 11 degrees at the top batten, more when overpowered to spill wind from the head (as crews set it by
-      // eye: the speed barely changes with it, the look of the sail does). (The una-rig dinghy's vang is its leech
-      // and mast-bend control in one: it keeps its rule, which is also its fastest.)
+    c.outhaul = lerp(c.outhaul, lerp(clothMain ? 0 : 0.25, lerp(0.35, 1, flat), shapeUp), k);
+    c.cunn = lerp(c.cunn, lerp(0, flat, shapeUp), k);
+    if (C.hasBackstay) c.backstay = lerp(c.backstay, lerp(0.05, lerp(0.15, 1, flat), shapeUp), k);
+    const twTop = clothMain && d.shape.main ? d.shape.main[2].tw : null;
+    if (clothMain && shapeUp > 0.5 && Number.isFinite(twTop)) {
+      // a cloth main upwind: the vang (with the sheet) sets the leech twist to the sailmaker's target, about 11
+      // degrees at the top batten, more when overpowered to spill wind from the head (as crews set it by eye: the
+      // speed barely changes with it, the look of the sail does). (On the una-rig dinghy the vang also bends the mast:
+      // its sail is cut with the luff round for that bend, js/sail/rigsim.js)
       c.vang = clamp(c.vang + clamp(twTop - (11 + 8 * over) * DEG, -0.1, 0.1) * k * 1.5, 0, 1);
     } else {
       // (off the wind the vang holds the leech: a cloth main twists off as far as its vang lets it, so it goes on
       // harder than the strip model's twist rule needed)
-      c.vang = lerp(c.vang, upwind > 0.5 ? (C.id === 'dinghy' ? lerp(0.15, 0.95, flat) : lerp(0.05, 0.7, flat)) : clothMain ? lerp(0.7, 0.85, power) : lerp(0.35, 0.55, power), k);
+      // (overpowered off the wind, where the sheet cannot ease the main any further than the shrouds, the vang comes
+      // off: the leech twists open and the head spills its wind, the one depower left on a reach)
+      c.vang = lerp(c.vang, shapeUp > 0.5 ? (C.id === 'dinghy' ? lerp(0.15, 0.95, flat) : lerp(0.05, 0.7, flat)) : clothMain ? lerp(0.7, 0.85, power) * (1 - clamp((boat._tt ? boat._tt.over : over), 0, 1)) : lerp(0.35, 0.55, power), k);
     }
     const clothJib = boat.sailBy.jib && boat.sailSys && boat.sailSys.owns && boat.sailSys.owns('jib') && boat.genDeploy < 0.5;
     if (clothJib) {
@@ -1017,7 +1035,10 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
       }
     } else c.jibLead = lerp(c.jibLead, lerp(0.4, 0.85, flat) * upwind + 0.55 * (1 - upwind), k);
     c.jibHalyard = lerp(c.jibHalyard, lerp(0.3, 0.9, flat), k);
-    c.tackLine = lerp(c.tackLine, lerp(0.15, 0.7, sstep(110 * DEG, 150 * DEG, awa)), k);
+    // (tack line: down tight reaching, so the luff stays straight and the kite keeps its entry; eased deep, so the
+    // luff can rotate out to windward. A cloth kite shows the tight-reaching tack best right down)
+    const clothSpin = boat.sailSys && boat.sailSys.owns && boat.sailSys.owns('gennaker');
+    c.tackLine = lerp(c.tackLine, lerp(clothSpin ? 0 : 0.15, 0.7, sstep(110 * DEG, 150 * DEG, awa)), k);
     if (C.hasBoard) c.board = lerp(c.board, lerp(0.3, 1, upwind), k);
   }
   // slow and pinching (mid-tack or stalled head to wind): ease the main so the bow can fall off
@@ -1079,11 +1100,14 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
       // proportion to the heel smoothed over half a second (an ease that integrated the heel would pump the boat
       // in a roll cycle)
       const ease0 = tt[key] ?? 0;
-      tt[key] = clamp(tt.over, 0, 1.5) * (s.key === 'main' ? 0.25 : 0.1);
+      // (a kite is eased hardest: its sheet is the crew's main depower reaching, and it drives the bow down most)
+      tt[key] = clamp(tt.over, 0, 1.5) * (s.key === 'main' ? 0.25 : s.kind === 'spin' ? 0.3 : 0.1);
       // (pinched, the main is eased to let the bow fall off: for a cloth main only when really stopped head to
       // wind, since in light air a slow boat sails close-hauled at these angles and an eased main just stops it)
       const pinchedC = awa < 28 * DEG && boat.u < 0.7;
-      c[key] = clamp((c[key] ?? 0.3) + clamp(a - aim, -0.3, 0.3) / (s.max - s.min) * k * 0.4 + (tt[key] - ease0), pinchedC && s.key === 'main' ? 0.35 : 0, 1);
+      // (and while overpowered it does not haul in, whatever the telltales say)
+      let dA = clamp(a - aim, -0.3, 0.3); if (dA < 0) dA *= 1 - clamp(tt.over, 0, 1);
+      c[key] = clamp((c[key] ?? 0.3) + dA / (s.max - s.min) * k * 0.4 + (tt[key] - ease0), pinchedC && s.key === 'main' ? 0.35 : 0, 1);
       continue;
     }
     if (s.key === 'main' && s.trav) {
@@ -1098,7 +1122,8 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
       const key = s.kind === 'boom' ? s.key : 'jib';
       if (key === 'jib' && s.kind === 'loose' && letFly) { c.jib = 1; continue; }
       if (key === 'jib' && s.kind === 'loose' && boat.backedByLazy) continue; // hove-to on purpose: leave it
-      c[key] = lerp(c[key] ?? 0.3, clamp((want - s.min) / (s.max - s.min), 0, 1), k * 2);
+      const fr = clamp((want - s.min) / (s.max - s.min), 0, 1);
+      c[key] = lerp(c[key] ?? 0.3, s.kind === 'loose' ? Math.sqrt(fr) : fr, k * 2);
     }
   }
 }
@@ -1116,6 +1141,20 @@ export function makeSteadyEnv(twsMS) {
   };
 }
 
+// The VPP's boat at the start of a run: slowly under way with its sails set. In a breeze (from 16 kn) it is already
+// moving with its sheets eased, as a crew bears away onto the course and trims in: from a standing start with the
+// sheets in, a light multihull in 25 kn is driven at half a g and its bows are pressed under before any crew could
+// ease, it trips over them, and the polar showed nothing there. (In light air the old start is kept: an eased start
+// leaves some rigs in a slower trim, e.g. the Blackwatch's strip main luffing at 44 degrees in 6 kn.)
+export function vppStart(b, twsMS, twaDeg, gen) {
+  b.reset(0, 0, twaDeg * DEG);
+  const breeze = twsMS > 16 * KT;
+  b.u = breeze ? Math.min(0.4 * twsMS, 5) : 1.5; for (const k in b.booms) b.booms[k].a = 0.3; b.side.jib = 1; b.side.gennaker = 1;
+  if (breeze) for (const k of ['main', 'jib', 'stay']) { b.ctrl[k] = 1; b.lines[k] = 1; }
+  b.ctrl.gen = gen; b.genDeploy = gen ? 1 : 0; b.genFill = gen ? 1 : 0;
+  return b;
+}
+
 // For cloth sails the polar is the one baked offline from the cloth model itself (js/sail/surrogate.js); what is
 // simulated here, at 50 Hz, is the strip model (the fallback sails, level L2)
 export function solvePolarAngle(C, twsMS, twaDeg, opts = {}) {
@@ -1128,9 +1167,7 @@ export function solvePolarAngle(C, twsMS, twaDeg, opts = {}) {
   const genOpts = C.sails.some(s => s.kind === 'spin') && twaDeg >= 85 ? [false, true] : [false];
   for (const gen of genOpts) for (const bias of [-4, 0, 4]) {
     const b = new Boat(C, opts);
-    b.reset(0, 0, twaDeg * DEG);
-    b.u = 1.5; for (const k in b.booms) b.booms[k].a = 0.3; b.side.jib = 1; b.side.gennaker = 1;
-    b.ctrl.gen = gen; b.genDeploy = gen ? 1 : 0; b.genFill = gen ? 1 : 0;
+    vppStart(b, twsMS, twaDeg, gen);
     let acc = 0, n = 0;
     const steps = 50 * 40;
     for (let i = 0; i < steps; i++) {

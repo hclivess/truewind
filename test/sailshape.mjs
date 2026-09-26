@@ -63,7 +63,13 @@ for (const cls of classes) {
   }
   if (base.sh.jib) {
     const [a, b] = pair('jibLead', 0.1, 0.9);
-    check(b.sh.jib[0][0] < a.sh.jib[0][0] && b.sh.jib[2][2] > a.sh.jib[2][2], `${cls}: jib car aft flattens the foot and opens the leech (foot ${(a.sh.jib[0][0] * 100).toFixed(1)}% -> ${(b.sh.jib[0][0] * 100).toFixed(1)}%, twist ${(a.sh.jib[2][2] / DEG).toFixed(0)}° -> ${(b.sh.jib[2][2] / DEG).toFixed(0)}°)`);
+    // A high-cut yankee (clew more than a metre above the deck, the Blackwatch's) has a short, straight-cut foot with
+    // no round for the car to take out: its foot and leech tapes are both taut, and the car only shifts the load
+    // between them. What it does is open the leech (twist at 50 and 82%); the foot must not get deeper.
+    const J = C.sails.find((x) => x.key === 'jib'), yankee = J.tackZ + (J.footRise || 0) - C.freeboard > 1.0;
+    const tw = (o) => o.sh.jib[1][2] + o.sh.jib[2][2];
+    if (yankee) check(tw(b) > tw(a) && b.sh.jib[0][0] <= a.sh.jib[0][0] + 0.002, `${cls}: jib (yankee) car aft opens the leech, foot no deeper (twist 50+82% ${(tw(a) / DEG).toFixed(0)}° -> ${(tw(b) / DEG).toFixed(0)}°, foot ${(a.sh.jib[0][0] * 100).toFixed(1)}% -> ${(b.sh.jib[0][0] * 100).toFixed(1)}%)`);
+    else check(b.sh.jib[0][0] < a.sh.jib[0][0] && b.sh.jib[2][2] > a.sh.jib[2][2], `${cls}: jib car aft flattens the foot and opens the leech (foot ${(a.sh.jib[0][0] * 100).toFixed(1)}% -> ${(b.sh.jib[0][0] * 100).toFixed(1)}%, twist ${(a.sh.jib[2][2] / DEG).toFixed(0)}° -> ${(b.sh.jib[2][2] / DEG).toFixed(0)}°)`);
   }
 }
 console.log(fails ? `${fails} FAILED` : 'all sail-shape checks passed');

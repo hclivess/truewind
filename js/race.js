@@ -258,7 +258,10 @@ export class AIHelm {
     // gennaker: up on runs and broad reaches, down near the bottom mark
     if (b.sailBy.gennaker) {
       const nearBottom = leg && (leg.type === 'gate' || leg.type === 'finish') && dist < 90;
-      b.ctrl.gen = Math.abs(twa) > 100 * DEG && !nearBottom && mode !== 'beat';
+      // (in a blow, only on a run or a broad reach: reaching under a kite in 25 kn the cat's bows go under and it
+      // trips over them, whatever the sheets do; with the apparent wind aft of the beam the kite can be eased to luff)
+      const kiteFrom = (d.tws ?? 0) / KT > 20 ? 125 : 100;
+      b.ctrl.gen = Math.abs(twa) > kiteFrom * DEG && !nearBottom && mode !== 'beat';
     }
     // reefs for the Blackwatch when overpowered
     if (b.sailBy.main.reefs) {
