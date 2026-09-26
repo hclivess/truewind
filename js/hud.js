@@ -58,6 +58,7 @@ export class HUD {
     rows.push(['vang', 'Vang', '#333840'], ['cunn', 'Cunningham', bw ? '#cdb98e' : '#f2b33d'], ['outhaul', 'Outhaul', '#7fbf3f']);
     if (C.hasBackstay) rows.push(['backstay', 'Backstay', '#9b5de5']);
     if (S.stay) rows.push(['stay', 'Staysail sheet', bw ? '#d9c7a0' : '#2f6fd6']);
+    if (S.mizzen) rows.push(['mizzen', 'Mizzen sheet', '#e3d6b8']);
     if (S.jib) rows.push(['jib', S.gennaker ? 'Jib / genn. sheet' : 'Jib sheet', bw ? '#d9c7a0' : '#2f6fd6'], ['lazy', 'Lazy jib sheet', bw ? '#d9c7a0' : '#2f6fd6'], ['jibLead', 'Jib car', '#9aa1a8'], ['jibHalyard', 'Jib halyard', '#2f6fd6']);
     else rows.push(['pushBoom', 'Push boom out', '#9aa1a8']);
     if (S.gennaker) rows.push(['tackLine', 'Tack line', '#ff7a1a']);
@@ -66,11 +67,12 @@ export class HUD {
     let h = `<div class="rg"><h3>Sails ${''}</h3>`;
     h += `<div class="sl2"><span>Main</span>${tt('main')}</div>`;
     if (S.stay) h += `<div class="sl2"><span>Staysail</span>${tt('stay')}</div>`;
+    if (S.mizzen) h += `<div class="sl2"><span>Mizzen</span>${tt('mizzen')}</div>`;
     if (S.jib) h += `<div class="sl2"><span id="hs-name">Jib</span>${tt('jib')}</div>`;
     if (S.gennaker) h += `<div class="sl2"><span>Gennaker</span>${tt('gennaker')}</div>`;
     h += `</div><div class="rg"><h3>Lines <span class="muted" style="font-weight:500;letter-spacing:.02em;text-transform:none">or grab them on deck (7)</span></h3><div class="lines">`;
     // every control is here as press-and-hold buttons, and on deck as the real line / car / winch
-    const BTN = { main: ['Trim', 'Ease'], jib: ['Trim', 'Ease'], lazy: ['Haul', 'Ease'], pushBoom: ['Port', 'Stbd'], stay: ['Trim', 'Ease'], trav: ['Windward', 'Leeward'], vang: ['−', '+'], cunn: ['−', '+'],
+    const BTN = { main: ['Trim', 'Ease'], jib: ['Trim', 'Ease'], lazy: ['Haul', 'Ease'], pushBoom: ['Port', 'Stbd'], stay: ['Trim', 'Ease'], mizzen: ['Trim', 'Ease'], trav: ['Windward', 'Leeward'], vang: ['−', '+'], cunn: ['−', '+'],
       outhaul: ['−', '+'], backstay: ['−', '+'], jibHalyard: ['−', '+'], jibLead: ['Fwd', 'Aft'], tackLine: ['Down', 'Ease'], board: ['Up', 'Down'], hike: ['In', 'Out'] };
     const btns = (k) => `<span class="nb"><button class="nbtn" data-k="${k}" data-d="-1">${BTN[k][0]}</button><button class="nbtn" data-k="${k}" data-d="1">${BTN[k][1]}</button></span>`;
     // lock: the line's cam cleat, clutch or self-tailer (released, a loaded line runs out by itself)
@@ -200,7 +202,7 @@ export class HUD {
       const v = b.ctrl[k];
       let txt, frac = v;
       if (k === 'main') { txt = `${Math.abs(deg(b.booms.main.a))}° · ${Math.round(d.rig.mainLoad || 0)} N`; frac = 1 - v; }
-      else if (k === 'stay') { txt = `${Math.abs(deg(b.booms.stay.a))}° · ${Math.round(d.rig.stayLoad || 0)} N`; frac = 1 - v; }
+      else if (k === 'stay' || k === 'mizzen') { txt = `${Math.abs(deg(b.booms[k].a))}° · ${Math.round(d.rig[k + 'Load'] || 0)} N`; frac = 1 - v; }
       else if (k === 'trav') txt = `${deg(S.main.trav[0] + (S.main.trav[1] - S.main.trav[0]) * v)}°`;
       else if (k === 'jib') { const s2 = b.genDeploy > 0.5 ? S.gennaker : S.jib; txt = `${deg(s2.min + (s2.max - s2.min) * b.lines.jib)}° · ${Math.round(d.rig.jibLoad || 0)} N`; frac = 1 - v; }
       else if (k === 'hike') { txt = `${fmt(Math.abs(b.crewY), 1)} m ${b.auto.hike ? 'auto' : ''}`; frac = Math.abs(b.crewY) / b.cls.crewMaxOut; }
@@ -230,7 +232,7 @@ export class HUD {
         c.title = ['Foot', 'Mid', 'Head'][i] + (on ? ` · α ${fmt(Math.abs(s.alpha) / DEG, 0)}°, CL ${fmt(s.cl, 2)}` : '');
       });
     };
-    setTT('main'); if (S.stay) setTT('stay'); if (S.jib) setTT('jib'); if (S.gennaker) setTT('gennaker');
+    setTT('main'); if (S.stay) setTT('stay'); if (S.mizzen) setTT('mizzen'); if (S.jib) setTT('jib'); if (S.gennaker) setTT('gennaker');
     document.getElementById('t-trim').classList.toggle('on', b.auto.trim);
     document.getElementById('t-hike').classList.toggle('on', b.auto.hike);
     const r = deg(b.rudder);

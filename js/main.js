@@ -584,9 +584,10 @@ class Game {
     if (k === 'hike') { this.userTouched('hike'); c.hike = clamp(c.hike + d * 1.2 * dt, -1, 1); return; }
     this.userTouched(k);
     let rate = 0.3 * dt;
-    const load = k === 'main' ? b.diag.rig.mainLoad : k === 'jib' || k === 'lazy' ? b.diag.rig.jibLoad : k === 'stay' ? b.diag.rig.stayLoad : 0;
-    const trimming = (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy' || k === 'trav') ? d < 0 : k === 'tackLine' ? d < 0 : d > 0;
-    if (trimming && (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy')) rate /= 1 + ((load || 0) / C.sheetPower) ** 2;
+    const load = k === 'main' ? b.diag.rig.mainLoad : k === 'jib' || k === 'lazy' ? b.diag.rig.jibLoad : k === 'stay' ? b.diag.rig.stayLoad : k === 'mizzen' ? b.diag.rig.mizzenLoad : 0;
+    const sheet = k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy' || k === 'mizzen';
+    const trimming = (sheet || k === 'trav') ? d < 0 : k === 'tackLine' ? d < 0 : d > 0;
+    if (trimming && sheet) rate /= 1 + ((load || 0) / C.sheetPower) ** 2;
     this.working(k, trimming);
     c[k] = clamp(c[k] + d * rate, 0, 1);
   }

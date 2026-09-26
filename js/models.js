@@ -321,6 +321,8 @@ function sailTexture(C, s) {
       g.strokeStyle = `rgba(255,255,255,${alpha * 0.9})`; g.lineWidth = 1; g.beginPath(); g.moveTo(0, y0 + 3); g.lineTo(w, y0 + 3 + slope(y0)); g.stroke();
     };
     const panelPx = h * 0.9 / s.luff;
+    // coloured panels (a Sunfish's rainbow stripes): bands of cloth across the sail, each its own colour
+    if (cl.stripes && s.kind !== 'spin') cl.stripes.forEach(([f0, f1, c]) => { g.fillStyle = c; g.beginPath(); g.moveTo(0, h * (1 - f1)); g.lineTo(w, h * (1 - f1) + slope(h * (1 - f1))); g.lineTo(w, h * (1 - f0) + slope(h * (1 - f0))); g.lineTo(0, h * (1 - f0)); g.fill(); });
     if (cl.kind === 'laminate') {
       // tri-radial: fans of panels from the head, clew and tack, crosscut through the middle band
       const fan = (cx, cy, pts, a = 0.14) => { g.strokeStyle = `rgba(30,35,40,${a})`; g.lineWidth = 2; for (const [x, y] of pts) { g.beginPath(); g.moveTo(cx, cy); g.lineTo(x, y); g.stroke(); } };
