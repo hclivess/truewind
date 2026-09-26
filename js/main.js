@@ -3,6 +3,8 @@
 import { Environment, KT, DEG } from './env.js';
 import { Boat, CLASSES, CLASS_ORDER, autoTrim, solvePolarAngle, POLAR_TWAS, vmgTargets, clamp, lerp, wrap, makeSteadyEnv } from './physics.js';
 import { VENUES, World, makeProjection, fetchVenueGeo, fetchLiveWind } from './world.js';
+import { fetchSeamarks } from './seamarks.js';
+import { Nav } from './nav.js';
 import { Course, Race, AIHelm, aiRandom, applyWindShadow, resolveCollisions } from './race.js';
 import { Renderer } from './render.js';
 import { HUD, pref } from './hud.js';
@@ -39,6 +41,7 @@ class Game {
   constructor() {
     this.renderer = new Renderer($('#view'));
     this.hud = new HUD(this);
+    this.nav = new Nav(this);                                 // chart, waypoints, nav readout, steering compass
     this.audio = new Audio();
     this.net = new Net(this);
     this.netEpoch = null;
@@ -172,12 +175,14 @@ class Game {
     const lat = +m[1], lon = +m[2];
     st.textContent = 'Downloading coastline from OpenStreetMap… (can take ~20 s)';
     try {
+      const marks = fetchSeamarks(lat, lon).catch(() => null);        // (in parallel; a failure only costs the seamarks)
       const geo = await fetchVenueGeo(lat, lon);
+      geo.seamarks = await marks;
       this.customV = { id: 'custom', name: 'Custom location', place: `${lat.toFixed(3)}, ${lon.toFixed(3)}`, lat, lon, wind: this.settings.twd, windKt: this.settings.tws, depth: 12, note: '' };
       this.geoCache.set('custom', geo);
       this.settings.venue = 'custom';
       this.venueTouched = true;
-      st.textContent = `Loaded ${geo.coast.length} coastline pieces, ${geo.water.length} water areas. Press Cast off.`;
+      st.textContent = `Loaded ${geo.coast.length} coastline pieces, ${geo.water.length} water areas${geo.seamarks ? `, ${geo.seamarks.marks.length} seamarks` : ''}. Press Cast off.`;
       this.refreshMenu();
     } catch (e) { st.textContent = 'Could not reach OpenStreetMap (offline or blocked). Try a built-in venue.'; }
   }
@@ -302,6 +307,7 @@ class Game {
     if (this.geoCache.has(v.id)) return this.geoCache.get(v.id);
     const r = await fetch(`data/venues/${v.id}.json`);
     const g = await r.json();
+    g.seamarks = await fetch(`data/venues/${v.id}.seamarks.json`).then(r => r.ok ? r.json() : null).catch(() => null);   // lights, buoys, beacons
     this.geoCache.set(v.id, g);
     return g;
   }
@@ -330,6 +336,7 @@ class Game {
     this.renderer.setWorld(world, geo, manifest);
     this.renderer.setWaves(env.waves);
     this.hud.setWorld(world);
+    this.nav.setWorld(world, geo, v);
     // boats
     this.renderer.removeAllBoats();
     this.boats = []; this.ais = [];
@@ -827,6 +834,7 @@ class Game {
   onKey(k, e) {
     if (k === 'Escape') {
       if (!$('#help').hidden) { this.closeHelp(); return; }
+      if (this.nav.chartOpen) { this.nav.toggleChart(false); return; }
       if (!$('#results').hidden) { $('#results').hidden = true; this.syncTools(); return; }
       if (document.body.classList.contains('rig-open')) { this.toggleRig(); return; }
       if ($('#menu').hidden) this.openMenu(); else if (this.running) this.closeMenu();
@@ -836,6 +844,7 @@ class Game {
     if (!this.running || !$('#menu').hidden || !$('#help').hidden) return;
     const b = this.player;
     if (this.setCamera(k)) return;
+    if (k === 'Tab') { e.preventDefault(); this.nav.toggleChart(); return; }
     if (k === 'h') this.toggleAutoHike();
     else if (k === 't') this.toggleAutoTrim();
     else if (k === 'g') this.toggleGen();
@@ -877,6 +886,7 @@ class Game {
     tap('#tb-menu', () => this.openMenu());
     tap('#tb-pause', () => { if (this.netEpoch !== null) this.hud.toast('No pausing in a shared world', 1.5); else this.setPaused(!this.paused); });
     tap('#tb-cam', () => this.cycleCamera());
+    tap('#tb-chart', () => this.nav.toggleChart());
     tap('#tb-rig', () => this.toggleRig());
     tap('#tb-sound', () => this.toggleSound());
     tap('#tb-help', () => this.openHelp());
@@ -990,6 +1000,7 @@ class Game {
       const r0 = this.race && this.race.racers[0];
       this.net.update(dt, p, this.sharedRace && r0 ? { id: this.sharedRace.id, leg: r0.leg, fin: r0.finished ? r0.finishTime : 0 } : null);
       this.hud.update(dt);
+      this.nav.update(dt);
       this.audio.update(p, dt, this.renderer.rainNow || 0);
       this.checkAlerts();
     }
@@ -1043,6 +1054,7 @@ class Game {
     for (const bb of this.boats) bb.step(dt, this.env, this.t, this.world);
     this.net.postStep(dt);
     const marks = this.course ? [...this.course.marks(), this.course.committee] : this.waypoint ? [this.waypoint] : [];
+    if (this.nav.hazards.length) marks.push(...this.nav.hazards);        // the real buoys and beacons around
     resolveCollisions(this.boats, marks, this.obstacles || [], (boat, other, v) => {
       if (boat === this.player && v > 0.6) { this.hud.toast(other && other.cls ? `Collision with ${other.name}!` : other && other.kind === 'pier' || other?.pts ? 'You hit the pier!' : 'Mark touched!', 2); this.audio.thump(Math.min(1, v / 2)); }
     });
