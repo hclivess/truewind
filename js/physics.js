@@ -29,6 +29,8 @@
 
 import { G, DEG, KT } from './env.js';
 import { HullHydro } from './hull.js';
+import { mastXAt, boomContactAngle, goose, sheetLen, boomAngleForSheet, easeForBoomAngle, sheetDir, boomBend, boomDip, boomLen } from './boom.js';
+export { mastXAt, rigWires } from './boom.js';
 // (Math.hypot allocates when V8 does not inline it: these do not)
 const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
@@ -79,7 +81,11 @@ export const CLASSES = {
     sails: [
       { key: 'main', kind: 'boom', area: 10.4, luff: 6.5, foot: 3.0, head: 0.15, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
         cd0: 0.07, ARe: 3.2, min: 2 * DEG, max: 80 * DEG, trav: [-4 * DEG, 12 * DEG], Iboom: 42, boomMass: 18, reefs: 2,
-        vangBend: 0.08, sheetBend: 0.05, color: 0x9c4f2e },
+        vangBend: 0.08, sheetBend: 0.05, color: 0x9c4f2e,
+        // end-boom sheeting to a track across the stern deck; an aluminium boom (~100 x 60 mm, EI ~80 kN m^2, yields at
+        // ~4.5 kN m); rope vang and topping lift; a cruiser rigs a preventer and carries a boom brake
+        track: { x: -2.44, z: 1.0, half: 0.55, s: 2.88 }, boomEI: 8e4, boomMmax: 4500, vang: 'rope', vangMax: 2500,
+        preventer: 8000, brake: 900 },
       { key: 'stay', kind: 'boom', selfTacking: true, area: 4.2, tackX: 2.55, tackZ: 1.45, luff: 4.8, foot: 1.6, head: 0.05, rake: 0.55,
         depth: [0.12, 0.13, 0.11], twistMax: 14 * DEG, cd0: 0.05, ARe: 3.2, min: 5 * DEG, max: 55 * DEG, Iboom: 6, boomMass: 5, color: 0x9c4f2e },
       { key: 'jib', kind: 'loose', area: 5.1, tackX: 4.2, tackZ: 1.05, luff: 7.0, foot: 2.05, head: 0.05, rake: 1.0, footRise: 0.9,
@@ -113,7 +119,10 @@ export const CLASSES = {
     sails: [
       { key: 'main', kind: 'boom', area: 16.7, luff: 7.97, foot: 2.88, head: 0.45, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
         cd0: 0.06, ARe: 4.8, min: 1.5 * DEG, max: 78 * DEG, trav: [-6 * DEG, 12 * DEG], Iboom: 38, boomMass: 14, reefs: 0,
-        vangBend: 0.15, sheetBend: 0.1, color: 0xf2f0ea },
+        vangBend: 0.15, sheetBend: 0.1, color: 0xf2f0ea,
+        // J/70: the mainsheet to a bridle across the cockpit 5.15 m aft of the stem (its car trims to windward);
+        // aluminium boom (EI ~60 kN m^2, ~3.5 kN m); a rigid kicker whose gas spring holds the boom up (no topping lift)
+        track: { x: -1.6, z: 0.85, half: 0.55, s: 2.61 }, boomEI: 6e4, boomMmax: 3500, vang: 'rigid', vangMax: 3000, vangSpring: 350 },
       { key: 'jib', kind: 'loose', area: 9.1, tackX: 3.39, tackZ: 0.9, luff: 7.95, foot: 2.4, head: 0.08, rake: 0.32, footRise: 0.55,
         depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 4.2, min: 8.5 * DEG, max: 42 * DEG, sagK: 1.0, color: 0xf2f0ea },
       { key: 'gennaker', kind: 'spin', replaces: 'jib', area: 39.5, tackX: 4.55, tackZ: 0.85, luff: 9.0, foot: 4.3, head: 0.5, rake: 0.55,
@@ -141,7 +150,10 @@ export const CLASSES = {
     sails: [
       { key: 'main', kind: 'boom', area: 7.06, luff: 5.1, foot: 2.75, head: 0.25, depth: [0.12, 0.14, 0.12], twistMax: 24 * DEG,
         cd0: 0.06, ARe: 3.9, min: 3 * DEG, max: 88 * DEG, trav: null, Iboom: 12, boomMass: 6, reefs: 0,
-        vangBend: 0.6, sheetBend: 0.45, color: 0xf4f3ee },
+        vangBend: 0.6, sheetBend: 0.45, color: 0xf4f3ee,
+        // Laser: the sheet's block rides a rope horse across the transom; a thin aluminium tube (63.5 x 1.6 mm, EI ~11 kN
+        // m^2, ~1 kN m) that bows visibly under the vang, which is the Laser's strongest control
+        track: { x: -1.78, z: 0.45, half: 0.45, s: 2.67, horse: true }, boomEI: 1.1e4, boomMmax: 1000, vang: 'rope', vangMax: 2200 },
     ],
     hull: { color: 0xf6f6f2, stripe: 0xf6f6f2, deck: 0xe6e3da, boot: 0xc8412c, sectionN: 2.2, transom: 0.72, bowRake: 0.15, sheer: 0.05 },
   },
@@ -172,7 +184,10 @@ export const CLASSES = {
     sails: [
       { key: 'main', kind: 'boom', area: 13.7, luff: 7.2, foot: 2.6, head: 1.1, depth: [0.1, 0.12, 0.11], twistMax: 15 * DEG,
         cd0: 0.06, ARe: 4.6, min: 1 * DEG, max: 75 * DEG, trav: [-4 * DEG, 24 * DEG], Iboom: 16, boomMass: 6, reefs: 0,
-        vangBend: 0.2, sheetBend: 0.25, color: 0xf2f4f6 },
+        vangBend: 0.2, sheetBend: 0.25, color: 0xf2f4f6,
+        // Hobie 16: the mainsheet to a car on the rear beam's track, nearly hull to hull; no vang (the fully battened
+        // main is held by the sheet alone)
+        track: { x: -2.07, z: 0.57, half: 0.85, s: 2.5 }, boomEI: 3e4, boomMmax: 2000, vang: 'none', vangMax: 0 },
       { key: 'jib', kind: 'loose', area: 5.2, tackX: 2.3, tackZ: 0.55, luff: 6.2, foot: 1.7, head: 0.06, rake: 0.4,
         depth: [0.12, 0.13, 0.11], cd0: 0.04, ARe: 4.5, min: 9 * DEG, max: 40 * DEG, sagK: 0.8, color: 0xf2f4f6 },
       { key: 'gennaker', kind: 'spin', replaces: 'jib', area: 17.5, tackX: 3.35, tackZ: 0.5, luff: 7.4, foot: 3.3, head: 0.4, rake: 0.4,
@@ -186,10 +201,16 @@ export const CLASSES = {
 // A raked mast (mastRake: m aft at the masthead, from the gooseneck up) carries the main's luff and the headsails'
 // heads aft with it: the sails' centre of effort moves aft by about half the rake
 export const keelLiftX = (C) => C.keel.x + (C.keel.long ? 0.25 * C.keel.chord : 0);
-export const mastXAt = (C, z) => C.mastX - (C.mastRake || 0) * (z - C.boomZ) / (C.mastHeight - C.boomZ);
 for (const C of Object.values(CLASSES)) for (const s of C.sails) {
   if (s.kind === 'loose' || (s.kind === 'boom' && s.key !== 'main')) s.rake = s.tackX - (mastXAt(C, s.tackZ + s.luff) + 0.07);
   else if (s.key === 'main') s.rake = (C.mastRake || 0) * s.luff / (C.mastHeight - C.boomZ);
+}
+// The main boom swings out until it lies on the leeward shroud (an unstayed dinghy's goes past square), and its
+// traveller's range, seen from the gooseneck, is the track's half-length at the track's distance aft
+for (const C of Object.values(CLASSES)) {
+  const by = Object.fromEntries(C.sails.map((s) => [s.key, s])), M = by.main;
+  M.max = boomContactAngle(C, by);
+  if (M.trav && M.track) { const h = Math.atan2(M.track.half, goose(C).x - M.track.x); M.trav = [-h, h]; }
 }
 // lines that are held by a cleat, clutch or self-tailer (and which way they run when released)
 export const LOCKABLE = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibHalyard', 'tackLine'];
@@ -202,6 +223,8 @@ export const STRIP_W = [0.43, 0.34, 0.23];
 // (it also sets defaultModel: with it loaded every boat sails with cloth sails unless told otherwise, and
 // polarAngle: the cloth sails' baked polars, js/sail/surrogate.js)
 export const sailHooks = { make: null, defaultModel: null, polarAngle: null };
+// boomOverload(boat, ratio): the main boom bent past its section's strength (the damage model hooks in here)
+export const boatHooks = { boomOverload: null };
 export const REEF = [{ a: 1, l: 1 }, { a: 0.76, l: 0.84 }, { a: 0.56, l: 0.69 }];
 // area / luff factors at a continuous reef position (reefing is a procedure, not a switch)
 export function reefAt(pos) {
@@ -284,6 +307,8 @@ export function defaultControls() {
     gen: false,
     lazy: 1,            // the other jib sheet (on the windward winch): 1 = slack; hauled in, it drags the clew across (backs the jib)
     pushBoom: 0,        // una-rig: the sailor's hand pushing the boom out (-1 port / +1 starboard) to sail out of irons
+    preventer: 0,       // 1 = rigged: a line from the boom end to the bow, led aft, holds the boom out (cruisers)
+    brake: 0,           // boom brake friction, 0 = free .. 1 = full (cruisers)
   };
 }
 
@@ -363,6 +388,8 @@ export class Boat {
   // Maximum angle a boomed sail may swing out to, given sheet + traveler
   boomLimit(s) {
     const ease = clamp(this.lines[s.key] ?? 0.3, 0, 1);
+    // the main: the angle at which the sheet, run from the boom block to the car on its straight track, comes taut
+    if (s.track) return boomAngleForSheet(this.cls, s, sheetLen(this.cls, s, ease), this.ctrl.trav);
     if (s.trav) {
       const travA = lerp(s.trav[0], s.trav[1], clamp(this.ctrl.trav, 0, 1));
       return clamp(travA + ease * (s.max - s.trav[1]), 0, s.max);
@@ -380,8 +407,12 @@ export class Boat {
       const fr = STRIP_F[i] / 0.82;
       if (s.key === 'main') {
         const ease = this.lines.main;
-        const sheetDown = 1 - sstep(0, 0.32, ease);      // the sheet pulls down on the leech only when hard in
-        const LT = Math.max(c.vang * 0.95, sheetDown * (s.trav ? 1 : 0.85));
+        // the sheet pulls down on the leech as much as it runs down to its car: hard in over the car, all of it; eased
+        // with the car inboard, little (js/boom.js geometry, while the sheet holds the boom). The vang's pull is less
+        // what the boom's bend takes up (a thin dinghy boom bows under it: boomBend)
+        const sheetDown = s.track ? (this._sheetDown ?? 1 - sstep(0, 0.32, ease)) : 1 - sstep(0, 0.32, ease);
+        const vangEff = s.vang === 'none' ? 0 : c.vang * 0.95 * (1 - clamp((this.diag.rig.boomBendMM || 0) / 150, 0, 0.5));
+        const LT = Math.max(vangEff, sheetDown * (s.trav ? 1 : 0.85));
         tw = (s.twistMax * (1 - 0.82 * LT) + 5 * DEG * bend) * Math.pow(fr, 1.3);
         if (i === 0) d *= 1.28 - 0.6 * c.outhaul;
         if (i === 1) d *= 1.1 - 0.22 * c.outhaul;
@@ -435,8 +466,23 @@ export class Boat {
     return wet;
   }
 
+  // the main boom's bending this step (js/boom.js boomBend: M, dv, ds, ratio = M / the section's strength); a boom
+  // bent past its strength is handed to boatHooks.boomOverload(boat, ratio) (the damage model, where there is one)
+  boomBent(bd) {
+    const r = this.diag.rig;
+    r.boomM = bd.M; r.boomBendMM = 1000 * Math.max(bd.dv, bd.ds); r.boomRatio = bd.ratio;
+    if (bd.ratio > 1 && !this._boomOver && boatHooks.boomOverload) boatHooks.boomOverload(this, bd.ratio);
+    this._boomOver = bd.ratio > 1;
+  }
+  // the preventer's load (N) against its breaking strength: it parts, and the boom is free to gybe
+  preventerLoad(F, strength) {
+    const r = this.diag.rig;
+    r.preventerLoad = lerp(r.preventerLoad || 0, F, 0.2);
+    if (F > strength) { this.ctrl.preventer = 0; r.preventerBroke = (r.preventerBroke || 0) + 1; }
+  }
+
   // Boom dynamics: a rotating body driven by the aero torque about its pivot, stopped by its sheet.
-  boomDynamics(s, boomTorque, dt, aeroOn = true) {
+  boomDynamics(s, boomTorque, dt, aeroOn = true, ax = null) {
     const key = s.key, ctrl = this.ctrl, d = this.diag;
     const b = this.booms[key];
     const limit = this.boomLimit(s);
@@ -445,8 +491,31 @@ export class Boat {
     const damp = aeroOn ? 2.5 : 8;
     // una-rig in irons: the sailor pushes the boom out against the wind to sail backwards and turn
     const push = (ctrl.pushBoom && !this.sailBy.jib && key === 'main') ? (ctrl.pushBoom * 0.8 - b.a) * s.Iboom * 20 : 0;
-    const acc = (boomTorque + grav + inert + push - damp * b.rate) / s.Iboom;
-    b.rate += acc * dt; b.a += b.rate * dt;
+    // the boom end in the sea: water drag on the immersed length swings it (js/boom.js boomDip); the hull takes the rest
+    let dipT = 0;
+    if (ax && s.track) {
+      const o = this._dip || (this._dip = {});
+      const eta = this._etaAt, sl = this._slLat;
+      boomDip(this, s, b.a, 0, boomLen(s), b.rate, ax, (x, y) => (eta ? eta(x) + (sl ? sl(x) * y : 0) : 0), o);
+      if (o.wet > 0) { dipT = o.torque; ax.X += o.X; ax.Y += o.Y; ax.K += o.K; ax.N += o.N; }
+      this.diag.rig.boomWet = o.wet;
+    }
+    // boom brake: friction torque against the swing (Coulomb: it slows the boom, never reverses it)
+    const brakeT = s.brake ? (ctrl.brake || 0) * s.brake * boomLen(s) : 0;
+    const acc = (boomTorque + grav + inert + push + dipT - damp * b.rate) / s.Iboom;
+    b.rate += acc * dt;
+    if (brakeT > 0) { const dr = Math.min(Math.abs(b.rate), brakeT / s.Iboom * dt); b.rate -= Math.sign(b.rate) * dr; }
+    b.a += b.rate * dt;
+    // preventer (rigged: the boom may not swing back inboard of where it was made fast; it parts if overloaded)
+    if (s.preventer && (ctrl.preventer || 0) > 0.5) {
+      if (b.prevA === undefined) b.prevA = b.a;
+      const sg = Math.sign(b.prevA) || 1;
+      if (b.a * sg < Math.abs(b.prevA) - 0.02) {
+        const lever = boomLen(s) * 0.9;
+        this.preventerLoad(Math.abs(boomTorque + grav) / lever + s.Iboom * Math.abs(b.rate) / dt / lever * 0.05, s.preventer);
+        if ((ctrl.preventer || 0) > 0.5) { b.a = sg * (Math.abs(b.prevA) - 0.02); if (b.rate * sg < 0) b.rate = 0; }
+      }
+    } else b.prevA = undefined;
     let sheetLoad = 0;
     if (Math.abs(b.a) >= limit) {
       const sg = Math.sign(b.a);
@@ -459,6 +528,18 @@ export class Boat {
       }
       // the sheet holds the aero torque, plus the leech tension it carries when hard in
       sheetLoad = Math.abs(boomTorque + grav) / (s.foot * 0.85) * (1 + 1.6 * (1 - sstep(0, 0.35, this.lines[key] ?? 0.3)));
+    }
+    if (s.track) {
+      // the boom as a beam: the sheet's downward pull at its block (tension along the sheet's line to the car, found
+      // from the torque it holds) and the vang's, held up by the leech at the end
+      const dir = sheetDir(this.cls, s, Math.abs(b.a), ctrl.trav, 1, this._sd || (this._sd = [0, 0, 0]));
+      const across = Math.abs(dir[0] * Math.sin(Math.abs(b.a)) + dir[1] * Math.cos(b.a)) + 0.05;
+      const T = sheetLoad > 0 ? Math.abs(boomTorque + grav) / (s.track.s * across) : 0;
+      const Fv = s.vang === 'none' ? 0 : clamp(ctrl.vang, 0, 1) * (s.vangMax || 0);
+      const bd = boomBend(boomLen(s), s.boomEI || 1e5, 0.22 * boomLen(s), Fv, s.track.s, T * Math.max(0, -dir[2]), this._bd || (this._bd = {}));
+      bd.ratio = bd.M / (s.boomMmax || 1e9);
+      this.boomBent(bd);
+      this._sheetDown = sheetLoad > 0 ? Math.max(0, -dir[2]) : 0;
     }
     d.rig[key + 'Load'] = lerp(d.rig[key + 'Load'] || 0, sheetLoad, 0.1);
     d.rig[key + 'Limit'] = limit;
@@ -581,7 +662,7 @@ export class Boat {
         const target = genAlphaMid > sc.alf * 0.75 * (1 - 0.3 * ctrl.tackLine) && Math.abs(this.side.gennaker) > 0.8 ? 1 : 0;
         this.genFill = clamp(this.genFill + (target ? 1.4 : -2.6) * dt, 0, 1);
       }
-      if (s.kind === 'boom') this.boomDynamics(s, boomTorque, dt, aeroOn);
+      if (s.kind === 'boom') this.boomDynamics(s, boomTorque, dt, aeroOn, ax);
       else if (s.kind === 'loose' || (s.kind === 'spin' && this.genDeploy > 0.5)) {
         d.rig.jibLoad = lerp(d.rig.jibLoad || 0, Fsum * 0.95 * areaF, 0.1);
       }

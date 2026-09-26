@@ -6,6 +6,7 @@
 // All positions are in the boat's rig frame (x forward, y starboard, z up along the mast, from the centre of
 // gravity at the waterline), as physics.js uses.
 import { clamp, lerp, sstep, STRIP_F, reefAt, mastXAt } from '../physics.js';
+import { rigWires, sheetCar, sheetLen, boomBend } from '../boom.js';
 import { G as GRAV } from '../env.js';
 import { Cloth } from './cloth.js';
 import { clothSize, clothMaterial, battens } from './specs.js';
@@ -223,25 +224,8 @@ class ClothRig {
 }
 const wrapA = (a) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
 
-// The standing rigging as the cloth meets it (rig frame, as models.js draws it): the mast's front face, the stays a
-// headsail is hanked to, and the shrouds (a keelboat's cap shrouds from the chainplates over the spreader tips to the
-// hounds; a cat's from the hulls to the hounds; the una-rig dinghy's mast stands alone)
-export function rigWires(C, sails) {
-  const mastBase = C.freeboard + (C.cabin ? 0.35 : 0), mastLen = C.mastHeight - mastBase;
-  const stay = (s) => (s ? [[s.tackX, 0, s.tackZ], [s.tackX - (s.rake || 0), 0, s.tackZ + s.luff]] : null);
-  const w = { mast: [[mastXAt(C, mastBase) + 0.03, 0, mastBase], [mastXAt(C, C.mastHeight) + 0.03, 0, C.mastHeight]], forestay: stay(sails.jib), inner: stay(sails.stay), shrouds: [] };
-  if (C.multihull) {
-    const hz = C.mastHeight - mastLen * 0.25;
-    for (const sd of [-1, 1]) w.shrouds.push([[C.mastX - 0.05, sd * C.hullSpacing / 2, C.freeboard + 0.1], [mastXAt(C, hz), sd * 0.02, hz]]);
-  } else if (C.id !== 'dinghy') {
-    // (as models.js draws them: the J/70's swept carbon spreaders 4.97 m up and cap shrouds to the hounds at the jib head)
-    const sb = C.id === 'sportboat', J = sails.jib;
-    const sprZ = sb ? 4.97 : mastBase + mastLen * 0.5, hz = sb && J ? J.tackZ + J.luff + 0.05 : C.mastHeight - 0.25;
-    const sw = sb ? 0.27 : 0.15, sl = sb ? 0.78 : C.beam * 0.36;
-    for (const sd of [-1, 1]) w.shrouds.push([[C.mastX - 0.1, sd * 0.45 * C.beam, C.freeboard], [mastXAt(C, sprZ) - sw, sd * sl, sprZ + 0.06], [mastXAt(C, hz), sd * 0.02, hz]]);
-  }
-  return w;
-}
+// (the standing rigging the cloth meets: js/boom.js rigWires)
+export { rigWires };
 // the cloth's nodes but for its luff column (on the mast or stay) and, optionally, its top rows (a sail whose head is
 // at the mast runs down the mast's front there)
 const bodyNodes = (cloth, nu, nv, topRows = 0) => Array.from({ length: nu * nv }, (_, k) => cloth.off + k).filter((k) => (k - cloth.off) % nu > 0 && Math.floor((k - cloth.off) / nu) < nv - topRows);
@@ -283,6 +267,30 @@ export class BoomSailRig extends ClothRig {
     this.vang = isMain ? cloth.addRope(this.E, this.tv, this.Gp, this.vangBase, 1, 6e5) : null;
     this.mastHead = [this.px - this.rake, 0, this.pz + s.luff + 0.3];
     this.topping = cloth.addRope(this.E, 1, this.Gp, this.mastHead, 1, 1e5);
+    const T = isMain ? s0.track : null;
+    this.track = T;
+    if (T) {
+      // the mainsheet from the boom block (T.s from the gooseneck) to the car on a straight track across the boat at
+      // T.x, T.z (js/boom.js): the angle it pulls at, and so how much of it holds the leech down, is geometry
+      this.tb = clamp(T.s / this.Lb, 0.3, 1);
+      this.car = [T.x, 0, T.z];
+      this.sheet.anchor = this.Gp; this.sheet.t = this.tb; this.sheet.to = this.car; cloth._dirty = true;
+      // the leeward shroud: the boom end can get no further from a point on the centreline 1 m aft of the gooseneck
+      // (the distance grows as the boom swings out, either side) than it is when the boom lies on the shroud (s.max,
+      // js/boom.js boomContactAngle): a line that stands for the shroud
+      this.stopQ = [this.px - 1, 0, this.pz];
+      const ea = [this.px - this.Lb * Math.cos(s0.max), this.Lb * Math.sin(s0.max), this.pz];
+      this.stop = cloth.addRope(this.E, 1, this.Gp, this.stopQ, hyp3(ea[0] - this.stopQ[0], ea[1], 0), 4e5);
+      // preventer: from the boom end forward to the bow on the boom's side (rigged: held at the length it had)
+      this.prevAt = [C.bowX - 0.3, 0, C.freeboard + 0.1];
+      this.prev = s0.preventer ? cloth.addRope(this.E, 1, this.Gp, this.prevAt, 60, 2e5) : null;
+      this.prevOn = false;
+      // no vang on the cat (the fully battened main hangs on its sheet); the J/70's rigid kicker holds the boom up
+      if (s0.vang === 'none' && this.vang) { this.vang.len = 60; this.noVang = true; }
+      if (s0.vang === 'rigid') this.topping.len = 60;
+      this.bend = { M: 0, dv: 0, ds: 0, ratio: 0 };
+    }
+    this.dipF = [0, 0, 0];
     // battens: stiff chains of nodes on the batten rows (full length on a fully battened sail, the aft third
     // otherwise), with the batten's bending stiffness on every second node
     const bt = battens(C, s);
@@ -334,7 +342,9 @@ export class BoomSailRig extends ClothRig {
     if (Math.abs(tc - this.clewAtt.t) > 2e-4) { this.clewAtt.t = tc; c._dirty = true; }   // (the matrix holds t: refactor)
     // sheet: the boom may swing out to the angle the sheet and traveller allow (Boat.boomLimit), pulled down
     // onto the car when hard in
-    const lim = b.boomLimit(s), ease = clamp(b.lines[s.key] ?? 0.3, 0, 1);
+    const ease = clamp(b.lines[s.key] ?? 0.3, 0, 1);
+    if (this.track) { this.mainLines(b, ease); return; }
+    const lim = b.boomLimit(s);
     const travA = s.trav ? lerp(s.trav[0], s.trav[1], clamp(ctrl.trav, 0, 1)) : 0;
     // the car stays on the side the boom is on (with a little hysteresis at the centreline)
     const ey = c.x[1];
@@ -351,10 +361,60 @@ export class BoomSailRig extends ClothRig {
     }
     this.topping.len = hyp(this.Lb, this.mastHead[2] - this.pz + 0.15 * this.Lb);
   }
+  // the main's lines: sheet to the car on its track, vang (less the boom's bend under it), topping lift, preventer
+  mainLines(b, ease) {
+    const s0 = this.s0, c = this.cloth, ctrl = b.ctrl, C = b.cls, bd = this.bend;
+    const ey = c.x[1];
+    if (Math.abs(ey) > 0.05 * this.Lb) this.side = Math.sign(ey);
+    sheetCar(C, s0, ctrl.trav, this.side, this.a, this.car);
+    // (the boom bows down between gooseneck and leech under the sheet and vang: at the block and the vang's eye it
+    // sits that much lower than a straight boom would, and the lines are that much slacker)
+    this.sheet.len = sheetLen(C, s0, ease) - 0.035 * (1 - sstep(0, 0.25, ease)) + bd.ds;
+    if (this.vang && !this.noVang) {
+      const L0 = hyp(this.tv * this.Lb, this.dv), vg = clamp(ctrl.vang, 0, 1);
+      this.vang.len = L0 - 0.012 * vg + 0.05 * (1 - vg) ** 1.3 + bd.dv;
+    }
+    if (s0.vang !== 'rigid') this.topping.len = hyp(this.Lb, this.mastHead[2] - this.pz + 0.15 * this.Lb);
+    // preventer: rigged, it is made fast at the length it has, on the side the boom is on; released, it runs free
+    if (this.prev) {
+      const on = (ctrl.preventer || 0) > 0.5;
+      if (on && !this.prevOn) {
+        this.prevAt[1] = this.side * 0.4 * C.beam;
+        this.prev.len = hyp3(c.x[0] - this.prevAt[0], c.x[1] - this.prevAt[1], c.x[2] - this.prevAt[2]) + 0.02;
+      } else if (!on) this.prev.len = 60;
+      this.prevOn = on;
+    }
+  }
 
   step(b, dt, nsub, fr) {
-    const wasTaut = this.sheet.taut, rate0 = this.rate, c = this.cloth;
+    const wasTaut = this.sheet.taut, rate0 = this.rate, c = this.cloth, s0 = this.s0, E3 = 3 * this.E;
+    if (this.track) {
+      // the boom end in the sea (sailsim.js hands the water's pull over in dipF), and the rigid kicker's gas spring
+      // pushing the boom up whenever the strut is shorter than its free length
+      c.f[E3] += this.dipF[0]; c.f[E3 + 1] += this.dipF[1]; c.f[E3 + 2] += this.dipF[2];
+      if (s0.vangSpring) {
+        const vx = this.Gp[0] + this.tv * (c.x[E3] - this.Gp[0]) - this.vangBase[0], vy = this.tv * c.x[E3 + 1], vz = this.Gp[2] + this.tv * (c.x[E3 + 2] - this.Gp[2]) - this.vangBase[2];
+        const l = hyp3(vx, vy, vz) || 1, L0 = hyp(this.tv * this.Lb, this.dv), f = s0.vangSpring * clamp((L0 + 0.04 - l) / 0.08, 0, 1) * this.tv;
+        c.f[E3] += f * vx / l; c.f[E3 + 1] += f * vy / l; c.f[E3 + 2] += f * vz / l;
+      }
+    }
     this.stepCloth(dt, nsub, fr);
+    if (this.track) {
+      // boom brake: friction at the boom's swing, a force at its end that slows it and never reverses it
+      const Fb = (b.ctrl.brake || 0) * (s0.brake || 0);
+      if (Fb > 0) {
+        const ex = c.x[E3] - this.px, ey = c.x[E3 + 1], r = hyp(ex, ey) || 1, tx = -ey / r, ty = ex / r;   // horizontal tangent
+        const vt = c.v[E3] * tx + c.v[E3 + 1] * ty, dv = Math.min(Math.abs(vt), Fb / c.m[this.E] * dt) * Math.sign(vt);
+        c.v[E3] -= dv * tx; c.v[E3 + 1] -= dv * ty;
+      }
+      // the boom as a beam: the sheet's and the vang's downward pulls, held up by the leech at its end
+      const T = this.track, sh = this.sheet, dzS = (this.Gp[2] - T.z) / Math.max(0.1, sh.len);
+      const Fv = this.vang && !this.noVang ? this.vang.force * this.dv / hyp(this.tv * this.Lb, this.dv) : 0;
+      boomBend(this.Lb, s0.boomEI || 1e5, this.tv * this.Lb, Fv, this.tb * this.Lb, sh.force * clamp(dzS, 0, 1), this.bend);
+      this.bend.ratio = this.bend.M / (s0.boomMmax || 1e9);
+      b.boomBent(this.bend);
+      if (this.prev && this.prevOn) b.preventerLoad(this.prev.force, s0.preventer);
+    }
     // boom state for the rest of the game (angle + to starboard, rate, lift)
     const ex = c.x[0] - this.px, ey = c.x[1], ez = c.x[2] - this.pz;
     const a = Math.atan2(ey, -ex);

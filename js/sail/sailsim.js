@@ -18,6 +18,7 @@ import { SailLattice } from './vlm.js';
 import { latticeSize } from './specs.js';
 import { BoomSailRig, JibRig, SpinRig, chordAt, areaScale } from './rigsim.js';
 import './surrogate.js';
+import { boomDip } from '../boom.js';
 // (Math.hypot allocates when V8 does not inline it: these do not)
 const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
@@ -449,6 +450,7 @@ export class SailSystem {
           Fsum += hyp3(fx, fy, fz);
         }
         this.flutter(b, x, rig, ramp, rhoA);
+        if (rig.track) this.boomInSea(b, rig, ax);
         rig.step(b, dt, this.lod ? CLOTH_SUB_L1 : CLOTH_SUB, this.fr);
         if (!cl.finite() || Math.abs(rig.rate) > 50) {
           // numerical trouble: put the sail back to its rest shape at the boom's angle and go on
@@ -574,6 +576,21 @@ export class SailSystem {
       }
       this.flog[j] = Math.max(this.flog[j], w);
     }
+  }
+  // The main's boom end dipping into the sea (js/boom.js boomDip, the surface sampled along the boom): the water's
+  // pull swings the boom (a force at its end, handed to the cloth, whose rig passes it on to the hull), the rest of
+  // the drag goes to the hull directly
+  boomInSea(b, rig, ax) {
+    const o = this._dip || (this._dip = {}), eta = b._etaAt, sl = b._slLat, F = rig.dipF;
+    boomDip(b, rig.s0, rig.a, rig.elev, rig.Lb, rig.rate, ax, (x, y) => (eta ? eta(x) + (sl ? sl(x) * y : 0) : 0), o);
+    b.diag.rig.boomWet = o.wet;
+    if (!(o.wet > 0)) { F[0] = F[1] = F[2] = 0; return; }
+    // the part that turns the boom: a force across its end with the same moment about the gooseneck
+    const a = rig.a, Ft = o.torque / rig.Lb, fx = Ft * Math.sin(a), fyl = Ft * Math.cos(a);
+    const { cphi, sphi } = ax;
+    F[0] = fx; F[1] = fyl * cphi; F[2] = fyl * sphi;
+    const ex = rig.px - rig.Lb * Math.cos(a), ey = rig.Lb * Math.sin(a), Yl = ey * cphi + rig.pz * sphi, H = rig.pz * cphi - ey * sphi;
+    ax.X += o.X - fx; ax.Y += o.Y - fyl; ax.K += o.K - fyl * H; ax.N += o.N - (ex * fyl - Yl * fx);
   }
   // the hull's motion for the cloth's fictitious forces: rates and their derivatives (last step's change)
   frame(b, ax) {
