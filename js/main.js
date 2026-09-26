@@ -585,7 +585,7 @@ class Game {
     }
     return this.waypoint;
   }
-  onWaypoint() { this.renderer.setMarks(this.waypoint ? [this.waypoint] : [], null); }
+  onWaypoint() { this.renderer.setMarks(this.waypoint && !this.waypoint.ghost ? [this.waypoint] : [], null); }   // (a MOB mark is only on the plotter)
 
   userTouched(k) {
     const trimKeys = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibLead', 'jibHalyard', 'tackLine', 'board'];
@@ -1066,7 +1066,7 @@ class Game {
     this.gear.preStep(dt);
     for (const bb of this.boats) bb.step(dt, this.env, this.t, this.world);
     this.net.postStep(dt);
-    const marks = this.course ? [...this.course.marks(), this.course.committee] : this.waypoint ? [this.waypoint] : [];
+    const marks = this.course ? [...this.course.marks(), this.course.committee] : this.waypoint && !this.waypoint.ghost ? [this.waypoint] : [];
     if (this.nav.hazards.length) marks.push(...this.nav.hazards);        // the real buoys and beacons around
     resolveCollisions(this.boats, marks, this.obstacles || [], (boat, other, v, nx, nz) => {
       this.gear.onContact(boat, other, v, nx, nz);

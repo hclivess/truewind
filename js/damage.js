@@ -580,6 +580,7 @@ export class Damage {
     this.rig = { down: true, breakZ: z, side: side || 1, why, cut: false,
       wreck: { L: C.mastHeight - z, CdA: 1.1 * (0.12 * (C.mastHeight - z) + 0.35 * C.sails.reduce((a, s) => a + s.area, 0) * 0.35), wSub: R.mRig * 0.55 * (C.mastHeight - z) / Math.max(1, C.mastHeight - C.freeboard) } };
     b.rigDown = true; b.mastTop = z;
+    for (const k in b.diag.strips) for (const st of b.diag.strips[k]) { st.state = 0; st.cl = 0; st.flog = 0; }   // (no sails to read)
     b.sailHealth = Object.fromEntries(C.sails.map((s) => [s.key, 0]));
     b.ctrl.gen = false; b.genDeploy = 0;
     for (const k in this.sails) this.sails[k].blown = true;

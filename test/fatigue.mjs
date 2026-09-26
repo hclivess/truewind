@@ -28,7 +28,7 @@ console.log('\n2. A Laser hiked flat out upwind in 18 kn');
   }
   console.log('     ' + log.join(' | '));
   check(t20 !== null && t20 > 45 && t20 < 400, `full hike is spent in ${t20 ? Math.round(t20) : '>600'} s (minutes, not hours)`);
-  check(F.R > 0.01 && b.hikeLimit < 0.95, `after 10 minutes she settles at a depth the sailor can hold: reserve ${Math.round(F.R * 100)}%, hike limited to ${Math.round(b.hikeLimit * 100)}%`);
+  check(b.hikeLimit > 0.35 && b.hikeLimit < 0.7, `after 10 minutes she settles at a depth the sailor can hold for ever (~15% MVC): hike limited to ${Math.round(b.hikeLimit * 100)}% (reserve ${Math.round(F.R * 100)}%)`);
   check(heel1 / n1 > heel0 / n0 || u1 / n1 < u0 / n0, `fresh: heel ${(heel0 / n0 / DEG).toFixed(1)}°, ${(u0 / n0 / KT).toFixed(2)} kn; tired: heel ${(heel1 / n1 / DEG).toFixed(1)}°, ${(u1 / n1 / KT).toFixed(2)} kn`);
   // rest (sitting in on a run): the legs come back
   b.auto.hike = false; b.ctrl.hike = 0;

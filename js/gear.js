@@ -115,6 +115,10 @@ export class Gear {
             g.hud.toast(ev.msg, ev.bad ? 4 : 2.5);
             if (ev.type === 'dismast' || ev.type === 'holed' || ev.type === 'keel') g.audio.thump && g.audio.thump(1);
             if (ev.type === 'mob' && b.mob && b.mob.mark) this.markMOB(b.mob.mark.x, b.mob.mark.z, true);
+            if (ev.type === 'recovered' && b.mob && !b.mob.people.length && this.mobMark) {
+              this.mobMark = null;
+              if (g.waypoint && g.waypoint.kind === 'mob') { g.waypoint = null; g.onWaypoint(); }
+            }
           } else if (ev.type === 'dismast' || ev.type === 'sunk') g.hud.toast(`${b.name}: ${ev.msg.split(' —')[0].toLowerCase()}`, 2.5);
         }
       }
@@ -179,7 +183,7 @@ export class Gear {
   markMOB(x, z, auto) {
     const g = this.g;
     this.mobMark = { x, z, t: g.t };
-    if (!g.race) { g.waypoint = { x, z, kind: 'mark', name: 'MOB', color: 0xff2a2a, label: 'MOB' }; g.onWaypoint(); }
+    if (!g.race) { g.waypoint = { x, z, kind: 'mob', ghost: true, name: 'MOB', color: 0xff2a2a, label: 'MOB' }; g.onWaypoint(); }
     g.hud.toast(auto ? 'MOB marked on the plotter — steering back' : 'MOB mark set — Tab for the chart', 2.2);
   }
   pump(on) { const D = this.g.player.dmg; D.pumping = on ?? !D.pumping; this.g.hud.toast(D.pumping ? 'Pumping' : 'Pumps off', 1.2); }
