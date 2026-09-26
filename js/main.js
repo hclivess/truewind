@@ -318,7 +318,7 @@ class Game {
     if (!idle) { $('#loading').hidden = false; $('#loading-text').textContent = `Loading chart: ${v.name}`; }
     await new Promise(r => setTimeout(r, 30));
     const geo = await this.loadGeo(v).catch(() => null);
-    const manifest = v.open ? null : await fetch(`data/venues/${v.id}.features.json`).then(r => r.ok ? r.json() : null).catch(() => null);
+    const manifest = v.open || !v.features ? null : await fetch(`data/venues/${v.id}.features.json`).then(r => r.ok ? r.json() : null).catch(() => null);
     this.venue = v; this.geo = geo; this.manifest = manifest;
     this.obstacles = null;
     const world = new World(v, geo);
