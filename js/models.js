@@ -72,7 +72,8 @@ function hullMaterial(C) {
     uAnti: { value: new THREE.Color(C.hull.boot) }, uBoot: { value: new THREE.Color(C.hull.bootTop ?? 0xf2f2ee) },
     uStripe: { value: new THREE.Color(C.hull.stripe) },
     // anti top, boot top, stripe below sheer (upper, lower); a dry-sailed dinghy has a bare gelcoat bottom
-    uLevels: { value: C.id === 'dinghy' ? new THREE.Vector4(-9, -9, 0.1, 0.075) : new THREE.Vector4(0.04, C.hull.bootTop !== undefined ? 0.04 : 0.1, 0.12, 0.085) },
+    // (a class may give its own: [antifouling top, boot top, stripe top below the sheer, stripe bottom])
+    uLevels: { value: C.hull.levels ? new THREE.Vector4(...C.hull.levels) : C.id === 'dinghy' ? new THREE.Vector4(-9, -9, 0.1, 0.075) : new THREE.Vector4(0.04, C.hull.bootTop !== undefined ? 0.04 : 0.1, 0.12, 0.085) },
   };
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, U);
@@ -97,6 +98,7 @@ function hullMaterial(C) {
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.82, hullAnti);');
   };
   m.customProgramCacheKey = () => 'hullpaint';
+  if (C.hull.rough !== undefined) m.roughness = C.hull.rough;
   return m;
 }
 
@@ -177,8 +179,11 @@ function hullGeometry(C, Lx, yOff = 0) {
     stations.push(sec.map(([y, z]) => {
       let x = x0;
       const zn = clamp((z - zBot) / Math.max(0.05, zTop - zBot), 0, 1);
-      x += H.stemRake * sstep(0.86, 1, t) * zn ** 1.4;           // raked / clipper stem
-      x -= H.transomRake * sstep(0.12, 0, t) * zn;                // raked transom
+      if (Lx.xShift) x += Lx.xShift(t, zn);                       // lines from offsets: their own stem and transom
+      else {
+        x += H.stemRake * sstep(0.86, 1, t) * zn ** 1.4;         // raked / clipper stem
+        x -= H.transomRake * sstep(0.12, 0, t) * zn;              // raked transom
+      }
       return [x, y, z];
     }));
   }
@@ -297,7 +302,7 @@ const SAILCLOTH = {
   dinghy: { cloth: 0xf5f4ef, kind: 'dacron', num: '#1d2a44', logo: '#c8412c', trans: 0.34, rough: 0.6 },
   cat: { cloth: 0xeef0f2, kind: 'laminate', num: '#1d2a44', logo: '#d9412b', trans: 0.2, rough: 0.45 },
 };
-const clothOf = (C, s) => s.kind === 'spin' ? { cloth: s.color, kind: 'nylon', num: '#ffffff', logo: '#ffffff', trans: 0.45, rough: 0.5 } : (SAILCLOTH[C.id] || SAILCLOTH.dinghy);
+const clothOf = (C, s) => s.kind === 'spin' ? { cloth: s.color, kind: 'nylon', num: '#ffffff', logo: '#ffffff', trans: 0.45, rough: 0.5 } : (SAILCLOTH[C.id] || C.sailcloth || SAILCLOTH.dinghy);
 // One cloth texture per class and sail, shared by both faces and every boat of the class. The sail
 // number and insignia are a small decal atlas per number (DECAL), drawn by the sail shader into fixed
 // rectangles of the cloth, mirrored on the face that needs it (starboard number higher, as class
@@ -390,8 +395,8 @@ function sailTexture(C, s) {
     }
     if (s.key === 'main') {
       // batten pockets, perpendicular to the leech, stitched
-      const bat = C.id === 'blackwatch' ? [[0.2, 0.18], [0.4, 0.2], [0.6, 0.2], [0.8, 0.16]] : C.id === 'dinghy' ? [[0.3, 0.2], [0.55, 0.22], [0.8, 0.18]]
-        : [[0.2, 0.25], [0.42, 0.3], [0.64, 0.35], [0.86, 1.0]];
+      const bat = s.pockets ?? (C.id === 'blackwatch' ? [[0.2, 0.18], [0.4, 0.2], [0.6, 0.2], [0.8, 0.16]] : C.id === 'dinghy' ? [[0.3, 0.2], [0.55, 0.22], [0.8, 0.18]]
+        : [[0.2, 0.25], [0.42, 0.3], [0.64, 0.35], [0.86, 1.0]]);
       for (const [f, len] of bat) {
         const y = h * (1 - f), L = w * len, dy = slope(y) * len;
         g.save(); g.translate(0, y); g.rotate(Math.atan2(dy, L));
@@ -408,7 +413,7 @@ function sailTexture(C, s) {
         g.fillStyle = 'rgba(120,110,95,0.9)'; g.beginPath(); g.arc(w - 14, y, 10, 0, 7); g.arc(14, y, 10, 0, 7); g.fill();
       }
     }
-    if (s.kind === 'loose' || (s.key === 'main' && C.id === 'dinghy')) { // window
+    if (s.window ?? (s.kind === 'loose' || (s.key === 'main' && C.id === 'dinghy'))) { // window
       const [wx, wy, ww, wh] = s.kind === 'loose' ? [w * 0.35, h * 0.7, w * 0.32, h * 0.12] : [w * 0.3, h * 0.66, w * 0.4, h * 0.1];
       g.fillStyle = 'rgba(70,95,110,0.55)'; g.fillRect(wx, wy, ww, wh);
       g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 5; g.strokeRect(wx, wy, ww, wh);
@@ -421,12 +426,16 @@ function sailTexture(C, s) {
 // (DECAL rects, in cloth pixels: x0, y0, width, height; the number sits lower on the port face).
 const DECAL = { logo: [0.58 * 512 - 128, 0.24 * 1024 - 76, 256, 96], numStbd: [0.52 * 512 - 256, 0.47 * 1024 - 130, 512, 160], numPort: [0.52 * 512 - 256, 0.58 * 1024 - 130, 512, 160] };
 function sailDecal(C, number) {
-  const cl = SAILCLOTH[C.id] || SAILCLOTH.dinghy;
+  const cl = SAILCLOTH[C.id] || C.sailcloth || SAILCLOTH.dinghy;
   return canvasTex(`decal-${C.id}-${number ?? ''}`, 512, 256, (g, w, h) => {
     g.clearRect(0, 0, w, h);
     g.textAlign = 'center';
-    const logo = C.id === 'blackwatch' ? 'BW' : C.id === 'sportboat' ? 'S23' : C.id === 'dinghy' ? 'S14' : 'C16';
-    g.font = 'bold 74px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = cl.logo; g.fillText(logo, 128, 76);
+    // (a class insignia drawn by the class: a function of the canvas and the band's centre)
+    if (typeof C.insignia === 'function') C.insignia(g, 128, 48, cl);
+    else {
+      const logo = C.insignia ?? (C.id === 'blackwatch' ? 'BW' : C.id === 'sportboat' ? 'S23' : C.id === 'dinghy' ? 'S14' : 'C16');
+      g.font = 'bold 74px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = cl.logo; g.fillText(logo, 128, 76);
+    }
     if (number) { g.font = 'bold 150px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = cl.num; g.fillText(String(number), 256, 226); }
   });
 }
@@ -503,8 +512,12 @@ function transomDecal(C, name, port) {
 }
 
 // ================================================================== assemble
+// classes that carry a model description (C.model) are built by js/boats/detailed.js, which registers here
+export const MODEL_HOOKS = { build: null };
+export { M, Kit, canvasTex, rnd, hullGeometry, deckGeometry, deckHeightFn, foilGeom, lathe, sailMesh, clothOf, hullMaterial, updateSail, teakTex, nonskidTex, sailTexture };
 export function buildBoatModel(boat, opts = {}) {
   const C = boat.cls;
+  if (C.model && MODEL_HOOKS.build) return MODEL_HOOKS.build(boat, opts);
   const Lx = linesFor(C);
   const root = new THREE.Group();
   const inner = new THREE.Group(); root.add(inner);
@@ -967,6 +980,7 @@ export function updateBoatModel(vis, b, t) {
   for (const s of b.sails) updateSail(vis.sailMeshes[s.key], b, s, t);
   vis.windex.rotation.y = -b.diag.awa + Math.PI;
   updateTelltales(vis, b, t);
+  if (vis.update) vis.update(vis, b, t);          // (a detailed model's own moving parts: gaff, yard, sprit, pole, wheel)
 }
 
 // A cloth sail (js/sail/cloth.js) drawn from its own nodes: Catmull-Rom through the cloth grid onto the mesh's
@@ -1028,9 +1042,11 @@ function updateSail(mesh, boat, s, t) {
     const si = fv < 0.33 ? 0 : fv < 0.66 ? 1 : 2;
     const flog = st[si].flog || 0, state = st[si].state;
     let chord = s.foot * (1 - fv) + s.head * fv;
-    if (s.key === 'main') chord += s.foot * 0.07 * Math.sin(Math.PI * fv * 0.85);
+    if (s.key === 'main') chord += s.foot * (s.roach ?? 0.07) * Math.sin(Math.PI * fv * 0.85);
     if (s.kind === 'spin') chord *= 0.9 + 0.25 * Math.sin(Math.PI * fv);
-    const lx = px - rake * fv, lz = pz + footLift + fv * luff * (1 - 0.06 * slack);
+    let lx = px - rake * fv, ly = 0;
+    const lz = pz + footLift + fv * luff * (1 - 0.06 * slack);
+    if (s.rig === 'lateen') { const a0 = st.baseAngle ?? 0, dx = s.tackFwd - rake * fv; lx = C.mastX - 0.02 + dx * Math.cos(a0); ly = -dx * Math.sin(a0); }
     const ca = Math.cos(a), sa = Math.sin(a);
     const cx = -ca, cy = sa, nx = sa * side, ny = ca * side;
     const depth = dd * (1 - 0.8 * flog);
@@ -1041,9 +1057,9 @@ function updateSail(mesh, boat, s, t) {
       if (flog > 0.05) off += flog * 0.12 * chord * Math.sin(fu * 9 - t * 22 + fv * 4) * fu * (0.5 + 0.5 * Math.sin(t * 7 + fv * 3));
       if (state === 1 && s.kind !== 'spin') off -= 0.25 * flog * depth * chord * Math.max(0, 1 - fu * 3);
       if (slack > 0.05) off += slack * 0.05 * Math.sin(fv * 20 + t * 6) * (1 - fu) * chord; // luff scallops with the halyard off
-      const xb = lx + cx * chord * fu + nx * off, yb = cy * chord * fu + ny * off;
+      const xb = lx + cx * chord * fu + nx * off, yb = ly + cy * chord * fu + ny * off;
       const k = (v * (NU + 1) + u) * 3;
-      pos[k] = yb; pos[k + 1] = lz + (s.footRise || 0) * fu * (1 - fv); pos[k + 2] = -xb;
+      pos[k] = yb; pos[k + 1] = lz + (s.footRise || 0) * fu * (1 - fv) + (s.headRise || 0) * fu * fv; pos[k + 2] = -xb;
     }
   }
   mesh.geometry.attributes.position.needsUpdate = true;
@@ -1088,7 +1104,7 @@ function updateTelltales(vis, b, t) {
     const rf = reefAt(b.reefPos), mside = Math.sign(mst.baseAngle || 1);
     for (let i = 0; i < 3; i++) {
       const fv = STRIP_F[i], s = mst[i], a = msh[i].ang;
-      const chord = ms.foot * (1 - fv) + ms.head * fv + ms.foot * 0.07 * Math.sin(Math.PI * fv * 0.85);
+      const chord = ms.foot * (1 - fv) + ms.head * fv + ms.foot * (ms.roach ?? 0.07) * Math.sin(Math.PI * fv * 0.85);
       const cx = -Math.cos(a), cy = Math.sin(a), lx = Math.sin(a) * mside, ly = Math.cos(a) * mside; // chord aft, leeward normal
       let baseX = C.mastX - 0.02 + cx * chord, baseY = cy * chord, baseZ = C.boomZ + fv * ms.luff * rf.l;
       if (mRig) { mRig.cloth.sample(mRig.cloth.x, 1, fv, _q); baseX = _q[0]; baseY = _q[1]; baseZ = _q[2]; }
