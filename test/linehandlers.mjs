@@ -10,7 +10,7 @@
 //     + cam leaves it in the hand; letting fly dumps whatever holds it;
 //  6. every class's lines resolve to a handler, and a full boat sails with them (the auto crew keeps them made fast).
 import { Boat, CLASSES, autoTrim, makeSteadyEnv } from '../js/physics.js';
-import { HANDLERS, HAND, CAM_SLIP, lineSpecs, specOf, tailLoad, stepLines, work, letFly, initLines, lineStatus, ropeLook, ROPES } from '../js/linehandlers.js';
+import { HANDLERS, HAND, CAM_SLIP, lineSpecs, specOf, tailLoad, stepLines, work, letFly, initLines, lineStatus, ropeLook, ROPES, tackleOf, handLoad } from '../js/linehandlers.js';
 const DT = 1 / 120, KT = 0.514444;
 let bad = 0;
 const check = (ok, msg) => { if (!ok) bad++; console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${msg}`); };
@@ -65,9 +65,9 @@ console.log('2. one-way');
 
 console.log('3. ratchet holding');
 {
-  const H = HANDLERS.ratchet, L = 2000, T = tailLoad(mock('dinghy', { mainLoad: 3 * L }), 'main');
+  const H = HANDLERS.ratchet, tk = tackleOf(CLASSES.dinghy, 'main'), L = 2000, T = tailLoad(mock('dinghy', { mainLoad: 3 * tk.efficiencyEase * L }), 'main');
   check(Math.abs(T - (H.engage + (L - H.engage) / H.hold)) < 1e-6, `2000 N on the Laser's ratchet: ${T.toFixed(0)} N in the hand (10:1 above ${H.engage} N)`);
-  const light = tailLoad(mock('dinghy', { mainLoad: 3 * 60 }), 'main');
+  const light = tailLoad(mock('dinghy', { mainLoad: 3 * tk.efficiencyEase * 60 }), 'main');
   check(Math.abs(light - 60) < 1e-6, 'below its engaging load the ratchet runs free (60 N in the hand)');
   // a gust: 1200 N on the sheet (400 N at the block). With the ratchet the hand holds it; with a plain block it runs
   const r = mock('dinghy', { mainLoad: 1200 }); run(r, 1);
@@ -104,7 +104,25 @@ console.log('5. released under load');
   const s = lineStatus(fl, 'jib'); check(s.txt === 'FLY' && s.icon === 'winchCam', `panel: ${s.txt} · ${s.tip}`);
 }
 
-console.log('6. every class');
+console.log('6. tackles');
+{
+  const C = CLASSES.dinghy, tk = tackleOf(C, 'main'), bw = tackleOf(CLASSES.blackwatch, 'main');
+  check(tk.purchase === 3 && tk.efficiency < 1 && tk.efficiency > 0.9 && tk.efficiencyEase > 1, `Laser mainsheet 3:1 on ball bearings: hauling ${(tk.purchase * tk.efficiency).toFixed(2)}:1, easing ${(tk.purchase * tk.efficiencyEase).toFixed(2)}:1 (ideal 3:1)`);
+  check(bw.bearing === 'plain' && bw.efficiency < tk.efficiency - 0.05, `Blackwatch 4:1 on plain bronze sheaves loses more: hauling ${(bw.purchase * bw.efficiency).toFixed(2)}:1 (${(100 * (1 - bw.efficiency)).toFixed(0)}% lost vs ${(100 * (1 - tk.efficiency)).toFixed(0)}%)`);
+  const b = mock('blackwatch', { mainLoad: 800 }), up = handLoad(b, 'main', true), dn = handLoad(b, 'main', false);
+  check(up > 800 / 4 && dn < 800 / 4, `800 N on the Blackwatch main: ${up.toFixed(0)} N in the hand hauling, ${dn.toFixed(0)} N easing (ideal ${800 / 4} N)`);
+  const r = mock('dinghy', { mainLoad: 800 }), rh = handLoad(r, 'main', true), re = handLoad(r, 'main', false);
+  check(re < 0.4 * rh, `through the Laser's ratchet: ${rh.toFixed(0)} N hauling, ${re.toFixed(0)} N holding / easing`);
+  const v = tackleOf(C, 'vang'), m = tackleOf(C, 'main');
+  check(v.stretchK > m.stretchK && v.lengthInTackle > 0 && m.lengthInTackle > 3, `stretch: the 15:1 vang is ${Math.round(v.stretchK / 1000)} kN/m at the boom, the 3:1 main ${Math.round(m.stretchK / 1000)} kN/m (${m.lengthInTackle.toFixed(1)} m of rope in it)`);
+  const lb = mock('dinghy'); lb.ctrl.vang = 0.05; lb.locks.vang = false; run(lb, 2);
+  const hb = mock('dinghy'); hb.ctrl.vang = 0.6; hb.locks.vang = false; run(hb, 2);
+  check(lb.ctrl.vang === 0.05 && hb.ctrl.vang < 0.6, `let go, a light vang does not run through its blocks (it needs a pull), a loaded one does (0.60 -> ${hb.ctrl.vang.toFixed(2)})`);
+  const B = new Boat('sportboat');
+  check(B.tackle && B.tackle.main.purchase === 6 && ['purchase', 'efficiency', 'stretchK', 'lengthInTackle'].every((f) => isFinite(B.tackle.main[f])), `the boat exposes each line's tackle: J/70 main ${B.tackle.main.purchase}:1, efficiency ${B.tackle.main.efficiency.toFixed(3)}, ${B.tackle.main.lengthInTackle.toFixed(1)} m, ${Math.round(B.tackle.main.stretchK / 1000)} kN/m`);
+}
+
+console.log('7. every class');
 {
   for (const id of Object.keys(CLASSES)) {
     const C = CLASSES[id], L = lineSpecs(C);

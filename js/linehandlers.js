@@ -19,6 +19,10 @@
 //   max      load at the part at full setting, N (controls; default from the class's sheetPower)
 //   hold     a ratchet block's holding ratio when it is not the handler's (Ratchamatic 2x grip: 20)
 //   rope     key of ROPES for its colour (default: the line key)
+//   bearing  the tackle's sheaves: 'ball' (Harken / Ronstan ball bearings, ~2.5% lost per sheave) | 'plain'
+//            (bronze or plain bushings, ~6.5%); default ball, plain on a classic boat
+//   d, fibre rope diameter (mm) and fibre, 'polyester' (double braid) | 'dyneema' (core): its stretch
+//   leads    turning blocks between the tackle and the handler (default 1: the block the tail leaves by)
 // and ropeStyle: 'modern' (default: coloured braid) | 'classic' (cream polyester, the colour as a tracer).
 //
 // ---- The model. b.locks[k] is the crew's intent (cleated or not: the panel, the deck and the auto crew set
@@ -29,6 +33,9 @@
 // line slips (runs out until the load falls). Free, it 'dump's (runs out fast), 'ease's (surges round a drum
 // or horn under control) or is held in the 'hand' (runs only while the load beats the hand). A one-way
 // handler lets the line be hauled in while it is closed; anything else has to be cast off first.
+// Each line's tackle (purchase, sheave friction, rope stretch; see tackleOf) is on the boat as b.tackle[k] =
+// { purchase, efficiency, efficiencyEase, stretchK (N/m at the load), lengthInTackle (m), EA, travel, ... }
+// for the boom and sail models: the hand hauls load / (purchase x efficiency) and moves purchase x travel of line.
 
 export const HAND = 200;          // N a crew member holds on a line in one hand, sustained
 const MU = 0.12;                  // rope on an alloy drum / cleat horn
@@ -110,6 +117,84 @@ export function specOf(b, k) {
   return L[k] || L.main;
 }
 export function handlerOf(b, k) { return HANDLERS[specOf(b, k).handler]; }
+// ---- Tackles. A purchase of n parts: n - 1 sheaves between the blocks plus the lead block(s) the tail leaves by.
+// Each sheave keeps a fraction e of the tension going round it in the direction the rope moves (ball bearings
+// e ~ 0.975, plain ~ 0.935), plus a small breakaway (bearing, and bending the rope round it). Hauling, the hand
+// pulls harder than the ideal load / n: load / (n x efficiency), efficiency = e (1 - e^n) / (n (1 - e)) < 1 (with
+// the leads). Easing, friction works for the hand: e -> 1/e, efficiency > 1, and a let-go line only runs if the
+// load, through that friction, beats the blocks' breakaway (light air: it needs a pull to run). The rope in the
+// tackle stretches: n parts of it between the blocks plus the lead to the handler, a total lengthInTackle, each
+// part carrying load / n, so at the load the tackle is a spring of stiffness n^2 EA / lengthInTackle.
+const SHEAVE = { ball: { e: 0.975, f0: 1.5 }, plain: { e: 0.935, f0: 4 } };
+const FIBRE_E = { polyester: 2.1e3, dyneema: 2.0e4 };                 // N/mm^2: rope EA / area at working loads
+const ROPE_D = { main: 8, jib: 8, lazy: 8, gen: 7, stay: 8, trav: 6, vang: 6, cunn: 5, outhaul: 5, backstay: 5, jibHalyard: 6, tackLine: 6 };
+// metres of line at the load over the control's range (the boom end's travel for the mainsheet)
+export function lineTravel(C, k) {
+  const M = C.sails.find((s) => s.key === 'main'), J = C.sails.find((s) => s.key === 'jib' || s.key === 'stay');
+  switch (k) {
+    case 'main': return M.foot * 2 * Math.sin(M.max / 2) * 0.8;
+    case 'jib': case 'lazy': case 'stay': return J ? J.foot * 0.9 : 1;
+    case 'gen': return 3;
+    case 'trav': return 1.1;
+    case 'vang': return 0.15;
+    case 'cunn': return 0.2;
+    case 'outhaul': return 0.15;
+    case 'backstay': return 0.25;
+    case 'jibHalyard': return 0.1;
+    case 'tackLine': return 0.5;
+  }
+  return 1;
+}
+// the length of rope in the tackle and its lead (m): parts x the distance between the blocks + the lead
+function tackleLength(C, k, n) {
+  const gap = { main: Math.max(0.4, C.boomZ - C.freeboard + 0.2), vang: 0.55, cunn: 0.3, outhaul: 0.3, backstay: 0.9, trav: C.beam * 0.4, stay: 1.2, tackLine: 1.5 }[k];
+  const lead = { main: 1.2, vang: 1.5, cunn: 1.6, outhaul: 3.5, backstay: 1.2, trav: 0.6, stay: 3, tackLine: 3, jibHalyard: 2 }[k] ?? 1.5;
+  if (k === 'jibHalyard') return C.mastHeight * 1.05 + lead + (n - 1) * 0.4;            // the halyard up the mast, a fine-tune purchase
+  if (k === 'jib' || k === 'lazy' || k === 'gen') { const J = C.sails.find((s) => s.key === 'jib'); return (J ? J.foot : 2) * 1.3 * n + lead; }
+  return n * (gap ?? 0.5) + lead;
+}
+const tackleCache = new WeakMap();
+// the tackle of line k on class C: { purchase, efficiency (hauling), efficiencyEase, sheaves, bearing, lengthInTackle,
+// EA (N), stretchK (N/m at the load), travel (m at the load), f0 (N breakaway at the tail) }
+export function tackleOf(C, k) {
+  let T = tackleCache.get(C); if (!T) tackleCache.set(C, (T = {}));
+  if (T[k]) return T[k];
+  const sp = lineSpecs(C)[k] || lineSpecs(C).main, n = Math.max(1, sp.n || 1);
+  const bearing = sp.bearing || (C.ropeStyle === 'classic' ? 'plain' : 'ball'), S = SHEAVE[bearing] || SHEAVE.ball;
+  const H = HANDLERS[sp.handler], winch = !!(H && H.wraps);
+  const sheaves = (n - 1) + (sp.leads ?? 1);
+  const e = S.e, lead = e ** (sp.leads ?? 1);
+  const sum = (x) => (Math.abs(1 - x) < 1e-9 ? n : (1 - x ** n) / (1 - x));   // parts' tensions: 1 + x + ... + x^(n-1)
+  const efficiency = lead * sum(e) / n;                               // hauling: the rope moves toward the hand
+  const efficiencyEase = sum(1 / e) / lead / n;                        // easing / holding: it moves toward the load
+  const d = sp.d || ROPE_D[k] || 6, fibre = sp.fibre || ((k === 'jibHalyard' || k === 'backstay') && C.ropeStyle !== 'classic' ? 'dyneema' : 'polyester');
+  const EA = FIBRE_E[fibre] * Math.PI * d * d / 4, L = tackleLength(C, k, n);
+  T[k] = { purchase: n, efficiency, efficiencyEase, sheaves, bearing, winch, lengthInTackle: L, EA, stretchK: n * n * EA / L, travel: lineTravel(C, k), f0: sheaves * S.f0, d, fibre };
+  return T[k];
+}
+// the load at the hand hauling (or easing / holding) line k, N, through its tackle (and the turns on a winch drum;
+// easing, a ratchet's grip)
+export function handLoad(b, k, hauling) {
+  const tk = tackleOf(b.cls, specKey(b, k)), H = handlerOf(b, k), spec = specOf(b, k);
+  let T = lineLoad(b, k) / (tk.purchase * (hauling ? tk.efficiency : tk.efficiencyEase));
+  if (H.wraps && !hauling) T /= capstan(H.wraps);
+  const hold = spec.hold || H.hold;
+  if (!hauling && hold && T > H.engage) T = H.engage + (T - H.engage) / hold;
+  return T;
+}
+// how fast the player's hands move line k (control units / s): hand over hand, 1.6 m of rope a second through
+// the purchase (line in at the hand = purchase x travel at the load), hauling slowed by the load in the hand;
+// null for a sheet on a winch (the winch hauls it: a fixed length per handle turn)
+export const HAND_SPEED = 1.6, HAUL = 300;
+export function handRate(b, k, hauling) {
+  const tk = tackleOf(b.cls, specKey(b, k));
+  if (tk.winch && (k === 'jib' || k === 'lazy')) return null;
+  const v = HAND_SPEED / (tk.purchase * tk.travel);
+  return hauling ? v / (1 + (handLoad(b, k, true) / HAUL) ** 2) : v;
+}
+// the key of the spec line k uses now (the jib control is the gennaker sheet while it flies)
+const specKey = (b, k) => ((k === 'jib' || k === 'lazy') && b.genDeploy > 0.5 && lineSpecs(b.cls).gen ? 'gen' : k);
+
 // the load that makes a closed handler slip, N at the handler
 export function slipLoad(H, spec) {
   return H.slip === 'cam' ? CAM_SLIP[spec.size || 'std'] : H.slip === 'clam' ? (spec.size === 'micro' ? 450 : 900) : H.slip === 'hand' ? HAND : H.slip;
@@ -135,7 +220,8 @@ export function lineLoad(b, k) {
 // the load the handler (or the hand, for a ratchet) actually holds, N: the load over the purchase, less the
 // capstan friction of the turns on a winch drum, less what a ratchet block takes above its engaging load
 export function tailLoad(b, k, H = handlerOf(b, k), spec = specOf(b, k), ratchetOn = true) {
-  let T = lineLoad(b, k) / (spec.n || 1);
+  const tk = tackleOf(b.cls, specKey(b, k));
+  let T = lineLoad(b, k) / (tk.purchase * tk.efficiencyEase);          // held: the blocks' friction helps (it would run out)
   if (H.wraps) T /= capstan(H.wraps);
   const hold = spec.hold || H.hold;
   if (hold && ratchetOn && T > H.engage) T = H.engage + (T - H.engage) / hold;
@@ -146,6 +232,8 @@ export function ratchetEngaged(b, k) { const H = handlerOf(b, k); return !!H.hol
 
 export function initLines(b) {
   b.locks = {}; b.held = {}; b.lh = {};
+  // each line's tackle (purchase, efficiency, stretch): for the boom and sail models
+  b.tackle = {}; for (const k of [...LOCKABLE, 'gen']) b.tackle[k] = tackleOf(b.cls, k);
   for (const k of LOCKABLE) { b.locks[k] = true; b.lh[k] = { s: 'locked', t: 0, slip: 0, fly: false, auto: false, T: 0, ev: 0 }; }
 }
 // the working and lazy jib sheets swap roles when the clew crosses: so do their handlers' states
@@ -193,8 +281,11 @@ export function stepLines(b, dt) {
       const mode = st.fly ? 'dump' : H.release;
       const ld = SHEETS.has(k) || k === 'trav' ? lineLoad(b, k) / sp : lineLoad(b, k) / (6 * sp) + 0.1 * (ctrl[k] > 0.02);
       if (ld < 0.01) continue;
-      if (mode === 'dump') rate = Math.min(2.5, 0.25 + 1.6 * ld);
-      else if (mode === 'ease') rate = Math.min(0.35, 0.04 + 0.25 * ld);          // surging round the drum / horn
+      // let go, the load has to beat the blocks' breakaway through their friction: in light air it needs a pull
+      const tk = tackleOf(C, specKey(b, k)), drive = lineLoad(b, k) / (tk.purchase * tk.efficiencyEase);
+      const run = Math.min(1, Math.max(0, (drive - tk.f0) / tk.f0));
+      if (mode === 'dump') rate = Math.min(2.5, 0.25 + 1.6 * ld) * run;
+      else if (mode === 'ease') rate = Math.min(0.35, 0.04 + 0.25 * ld) * run;     // surging round the drum / horn
       else if (T > HAND) rate = slipRate(T / HAND);                                 // in the hand: runs if it beats it
     }
     if (rate <= 0) continue;
@@ -233,7 +324,7 @@ export function lineStatus(b, k) {
   else if (st.s === 'free') { txt = st.fly ? 'FLY' : H.hand ? 'LET GO' : H.release === 'ease' ? 'EASE' : H.release === 'hand' ? 'HAND' : 'FREE'; cls = 'free'; }
   else { txt = H.hand ? 'HAND' : H.holes ? 'PIN' : 'LOCK'; cls = T > 0.7 * cap ? 'warn' : 'ok'; }
   const hold = cap === Infinity ? 'holds anything' : `${H.hand ? 'hand holds' : 'slips at'} ${Math.round(cap)} N`;
-  const tip = `${H.name}${spec.n > 1 ? ` · ${spec.n}:1` : ''}${H.hold ? ` · ratchet ${spec.hold || H.hold}:1${ratchetEngaged(b, k) ? ' (on)' : ''}` : ''} · ${hold} · ${Math.round(T)} N on it — ${H.op}`;
+  const tk = tackleOf(b.cls, specKey(b, k)), tip = `${H.name}${spec.n > 1 ? ` · ${spec.n}:1 on ${tk.bearing === 'ball' ? 'ball-bearing' : 'plain'} blocks (${(tk.purchase * tk.efficiency).toFixed(1)}:1 hauling)` : ''}${H.hold ? ` · ratchet ${spec.hold || H.hold}:1${ratchetEngaged(b, k) ? ' (on)' : ''}` : ''} · ${hold} · ${Math.round(T)} N on it — ${H.op}`;
   return { txt, cls, tip, icon: H.icon, handler: spec.handler };
 }
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);

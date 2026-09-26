@@ -2,7 +2,7 @@
 // polar, physics readout, toasts.
 import { DEG, KT } from './env.js';
 import { polarSpeedAt, vmgTargets, clamp, wrap, REEF } from './physics.js';
-import { lineStatus, ropeLook, ropeKey, lineName, HANDLERS, specOf } from './linehandlers.js';
+import { lineStatus, ropeLook, ropeKey, lineName, HANDLERS, specOf, lineSpecs } from './linehandlers.js';
 import { ropeCSS } from './linegear.js';
 
 // a small drawing of each kind of line handler for the panel (16 x 12, in the text colour)
@@ -98,7 +98,9 @@ export class HUD {
     const hasCleat = (k) => lockable.has(k) && !(k === 'jibHalyard' && C.id === 'dinghy') && !(k === 'trav' && !S.main.trav);
     const lk = (k) => hasCleat(k) ? `<button class="lk" data-lock="${k}"><span class="ic"></span><span class="lt">LOCK</span></button>` : `<span class="lk-sp"></span>`;
     const ADV = new Set(['vang', 'cunn', 'outhaul', 'backstay', 'lazy', 'jibLead', 'jibHalyard', 'tackLine']);
-    h += rows.map(([k, label, col]) => `<div class="ln${ADV.has(k) ? ' adv' : ''}" data-k="${k}"><i style="background:${col.css}"></i><span${col.tint ? ` class="rl" style="--rc:${col.tint}"` : ''}>${label}</span><b id="o-${k}"></b>${lk(k)}${btns(k)}</div>`).join('');
+    // (with its purchase: the tackle between the load and the hand)
+    const LS = lineSpecs(C), pr = (k) => (lockable.has(k) && LS[k] && LS[k].n > 1 ? ` <em class="pr">${LS[k].n}:1</em>` : '');
+    h += rows.map(([k, label, col]) => `<div class="ln${ADV.has(k) ? ' adv' : ''}" data-k="${k}"><i style="background:${col.css}"></i><span${col.tint ? ` class="rl" style="--rc:${col.tint}"` : ''}>${label}${pr(k)}</span><b id="o-${k}"></b>${lk(k)}${btns(k)}</div>`).join('');
     h += `<div class="ln"><i style="background:#8a5a2b"></i><span>Helm</span><b id="o-helm"></b><span class="lk-sp"></span><span class="nb"><button class="nbtn" data-k="helm" data-d="-1">Port</button><button class="nbtn" data-k="helm" data-d="1">Stbd</button></span></div>`;
     h += `</div><div class="toggles acts">`;
     if (S.main.reefs) h += `<span class="muted small">Reef</span>` + [0, 1, 2].slice(0, S.main.reefs + 1).map(r => `<button class="chip" data-reef="${r}">${['Full', '1st', '2nd'][r]}</button>`).join('') + `<b id="o-reef" class="small"></b>`;

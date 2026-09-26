@@ -12,7 +12,7 @@ import { Audio } from './audio.js';
 import { Net } from './net.js';
 import { Vector3 as THREE_V } from 'three';
 import { Rigging } from './rigging.js';
-import { work, letFly as flyLine, handlerOf, lineName } from './linehandlers.js';
+import { work, letFly as flyLine, handlerOf, lineName, handRate } from './linehandlers.js';
 import { sunPosition } from './sky.js';
 import './sail/sailsim.js';   // (registers the cloth / lattice sail model with physics.js)
 import { SailGovernor, setSailLevel } from './governor.js';
@@ -620,6 +620,8 @@ class Game {
     const load = k === 'main' ? b.diag.rig.mainLoad : k === 'jib' || k === 'lazy' ? b.diag.rig.jibLoad : k === 'stay' ? b.diag.rig.stayLoad : 0;
     const trimming = (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy' || k === 'trav') ? d < 0 : k === 'tackLine' ? d < 0 : d > 0;
     if (trimming && (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy')) rate /= 1 + ((load || 0) / C.sheetPower) ** 2;
+    const hr = b.locks && k in b.locks ? handRate(b, k, trimming) : null;   // through the line's tackle, hand over hand
+    if (hr !== null) rate = hr * dt;
     c[k] = clamp(c[k] + d * rate * this.working(k, trimming), 0, 1);
   }
   grabIdForKey(k) { return Rigging.idForKey(k, this.player); }
@@ -929,7 +931,7 @@ class Game {
     if (steer) c.helm = clamp(c.helm + steer * 0.9 * dt, -1, 1);
     // the helmsman holds the tiller where it was put (Space centres it)
     const rate = 0.28 * dt;
-    const trim = (key, dir) => { this.userTouched(key); const tr = ['main', 'jib', 'stay', 'lazy', 'trav', 'tackLine'].includes(key) ? dir < 0 : dir > 0; c[key] = clamp(c[key] + dir * rate * this.working(key, tr), 0, 1); };
+    const trim = (key, dir) => { this.userTouched(key); const tr = ['main', 'jib', 'stay', 'lazy', 'trav', 'tackLine'].includes(key) ? dir < 0 : dir > 0; const hr = handRate(b, key, tr); c[key] = clamp(c[key] + dir * (hr === null ? rate : hr * dt) * this.working(key, tr), 0, 1); };
     if (has('w')) trim('main', -1);
     if (has('s')) trim('main', +1);
     if (K.has('ArrowUp')) trim(shift && b.sailBy.stay ? 'stay' : 'jib', -1);
