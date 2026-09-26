@@ -30,14 +30,16 @@ export const CLOTH_SUB_L1 = 2;
 // warm: the boat is already sailing (a change of detail level): the new cloth is set with the shape and twist the
 // sails had, and takes the wind at once
 export function attachSails(boat, model = 'vlm', lod = 0, warm = false) {
-  // (the headsails' clew angles as the old cloth had them)
-  const prev = {};
-  if (warm && boat.sailSys) for (const x of boat.sailSys.sails) if (x.rig && x.part.on) prev[x.key] = x.rig.a;
+  // (the headsails' clew angles as the old cloth had them; a cloth that was flying is carried over as it is, one
+  // that was set aside while the strip model sailed (L2) as it was, if it still fits how the boat is sailing)
+  const prev = {}, old = warm && boat.sailSys && boat.sailSys.model === model ? boat.sailSys : null, frozen = !!old && (boat.lod >= 2 || old.lod !== boat.lod);
+  if (old) for (const x of old.sails) if (x.rig && x.part.on) prev[x.key] = x.rig.a;
   boat.sailModel = model; boat.lod = lod;
   boat.sailSys = model === 'strip' || lod >= 2 ? null : new SailSystem(boat, model, lod);
   if (boat.sailSys && warm) {
     boat.sailSys.reset(true);
     for (const x of boat.sailSys.sails) if (x.rig && Number.isFinite(prev[x.key])) x.rig.poseA = prev[x.key];
+    if (old) boat.sailSys.adopt(old, frozen);
   }
   return boat.sailSys;
 }
@@ -83,6 +85,34 @@ export class SailSystem {
   }
   active(b) { return b.lod < 2 && this.lod < 2; }
   reset(warm = false) { for (const x of this.sails) if (x.rig) { x.rig.needPose = true; x.rig.warm = warm; } this.fr.first = true; }
+  // take over the sails of the same boat's system at another detail level: each cloth sail that is set and posed
+  // carries its shape and motion over (rigsim.js adopt), with no fresh pose and no ramp-in. frozen: that system
+  // was set aside while the strip model sailed; a sail of it comes back at rest, and only if it still fits
+  adopt(o, frozen = false) {
+    for (const x of this.sails) {
+      const y = x.rig && o.sails.find((z) => z.key === x.key);
+      if (!y || !y.rig || !y.part.on || y.rig.needPose || y.rig.constructor !== x.rig.constructor || (frozen && !this.fits(y))) continue;
+      if (y.rig.reefLevel !== undefined && y.rig.reefLevel !== x.rig.reefLevel) x.rig = new BoomSailRig(this.boat, x.s, this.lod, y.rig.reefLevel);
+      x.rig.adopt(y.rig, frozen); x.part.on = true; x.side = y.side;
+    }
+    Object.assign(this.fr, o.fr); if (frozen) this.fr.first = true;
+  }
+  // back from the strip model (L2) at this level: the cloth set aside flies on where it fits, the rest is set afresh
+  thaw() {
+    for (const x of this.sails) if (x.rig) {
+      if (x.part.on && !x.rig.needPose && this.fits(x)) x.rig.adopt(x.rig, true);
+      else { x.rig.needPose = true; x.rig.warm = true; }
+    }
+    this.fr.first = true;
+  }
+  // a cloth set aside still fits the boat: the reef it was cut for, the boom within 15 deg of where the strip model
+  // has it, a headsail's clew on the side the strip model's is
+  fits(y) {
+    const b = this.boat, r = y.rig, k = y.key;
+    if (r.reefLevel !== undefined && r.reefLevel !== Math.round(b.reefPos * 2) / 2) return false;
+    if (y.s.kind === 'boom') return !!b.booms[k] && Math.sign(r.a) === Math.sign(b.booms[k].a) && Math.abs(r.a - b.booms[k].a) < 15 * DEG;
+    return r.side === (Math.sign(y.s.kind === 'spin' ? b.side.gennaker : b.side.jib) || 1);
+  }
   cloth(key) { for (const x of this.sails) if (x.key === key && x.rig) return x.rig; return null; }
   owns(key) { return !!this.cloth(key) && this.active(this.boat); }
 
