@@ -1,6 +1,7 @@
 // Helm balance: yaw moment from sails+keel+hull at steady close-hauled, rudder centred.
 // Negative (for this port-tack setup) = weather helm (bow wants to round up).
 import { Boat, autoTrim, makeSteadyEnv, CLASSES } from '../js/physics.js';
+import '../js/sail/sailsim.js';   // the game's sail model (cloth by default; SAILS=strip for the strip model)
 const KT = 0.514444, DEG = Math.PI / 180;
 const tws = +(process.argv[2] ?? 12);
 for (const cls of Object.keys(CLASSES)) for (const twa of [45, 90]) {

@@ -2,6 +2,7 @@
 // the boat steady; a self-excited roll (crew chasing the heel faster than they can move) pumps the rig and
 // inflates the speed. Reports the heel swing (max-min over the last 20 s) and mean speed.
 import { Boat, autoTrim, makeSteadyEnv, CLASSES } from '../js/physics.js';
+import '../js/sail/sailsim.js';   // the game's sail model (cloth by default; SAILS=strip for the strip model)
 const KT = 0.514444, DEG = Math.PI / 180;
 const classes = process.argv[2] ? [process.argv[2]] : Object.keys(CLASSES);
 const dt = 1 / 120;

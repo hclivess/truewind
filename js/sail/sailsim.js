@@ -17,17 +17,34 @@ import { DEG } from '../env.js';
 import { SailLattice } from './vlm.js';
 import { latticeSize } from './specs.js';
 import { BoomSailRig, JibRig, SpinRig, chordAt } from './rigsim.js';
+import './surrogate.js';
+// (Math.hypot allocates when V8 does not inline it: these do not)
+const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
 const TWO_PI = 2 * Math.PI;
 // cloth substeps per 120 Hz step (js/sail/cloth.js)
 export const CLOTH_SUB = 4;
+// ... at L1 (the fleet's coarser cloth): half as many; its polars and a 40 kn knockdown come out the same
+export const CLOTH_SUB_L1 = 2;
 
-export function attachSails(boat, model = 'vlm', lod = 0) {
+// warm: the boat is already sailing (a change of detail level): the new cloth is set with the shape and twist the
+// sails had, and takes the wind at once
+export function attachSails(boat, model = 'vlm', lod = 0, warm = false) {
+  // (the headsails' clew angles as the old cloth had them)
+  const prev = {};
+  if (warm && boat.sailSys) for (const x of boat.sailSys.sails) if (x.rig && x.part.on) prev[x.key] = x.rig.a;
   boat.sailModel = model; boat.lod = lod;
   boat.sailSys = model === 'strip' || lod >= 2 ? null : new SailSystem(boat, model, lod);
+  if (boat.sailSys && warm) {
+    boat.sailSys.reset(true);
+    for (const x of boat.sailSys.sails) if (x.rig && Number.isFinite(prev[x.key])) x.rig.poseA = prev[x.key];
+  }
   return boat.sailSys;
 }
 sailHooks.make = (boat, model, lod) => (model === 'strip' || lod >= 2 ? null : new SailSystem(boat, model, lod));
+// with the sail models loaded, boats sail with cloth sails by default (the strip model is the fallback: ?sails=strip,
+// or the frame-rate governor's level 2)
+sailHooks.defaultModel = (typeof process !== 'undefined' && process.env && ['strip', 'vlm', 'cloth'].includes(process.env.SAILS)) ? process.env.SAILS : 'cloth';
 
 // shape of a sail at height fraction fv, interpolated between the three shape strips as the renderer does
 function shapeAt(fv, sh, base, o) {
@@ -65,7 +82,7 @@ export class SailSystem {
     this.stats = { rebuilds: 0 };
   }
   active(b) { return b.lod < 2 && this.lod < 2; }
-  reset() { for (const x of this.sails) if (x.rig) x.rig.needPose = true; this.fr.first = true; }
+  reset(warm = false) { for (const x of this.sails) if (x.rig) { x.rig.needPose = true; x.rig.warm = warm; } this.fr.first = true; }
   cloth(key) { for (const x of this.sails) if (x.key === key && x.rig) return x.rig; return null; }
   owns(key) { return !!this.cloth(key) && this.active(this.boat); }
 
@@ -155,7 +172,12 @@ export class SailSystem {
     if (rev < 0) cl = -sg * Math.abs(cl);
     const sep = sstep(ast * 0.8, ast + 0.45, aa);
     out.cl = cl;
-    out.cd = s.cd0 + 1.4 * (d - 0.1) ** 2 + 0.03 * clamp(f - 0.45, 0, 1) + 1.25 * Math.sin(aa) ** 2 * sep;
+    // profile drag of the section: ORC's parasitic drag at close-hauled angles (main 0.026-0.033, jib 0.031-0.037;
+    // the mast, rigging, hull and crew are the boat's windage) plus its lift-dependent viscous part kpp cl^2 (ORC VPP
+    // documentation 2023, tables 5.1-5.8: kpp 0.0138 main, 0.016 jib, 0.026 spinnakers); a spinnaker keeps its own
+    // base drag (a bluff, much-separated sail even when drawing)
+    const spin = s.kind === 'spin', cd0 = spin ? s.cd0 : 0.03, kpp = spin ? 0.026 : s.key === 'main' ? 0.0138 : 0.016;
+    out.cd = cd0 + kpp * cl * cl + 1.4 * (d - 0.1) ** 2 + 0.03 * clamp(f - 0.45, 0, 1) + 1.25 * Math.sin(aa) ** 2 * sep;
     out.state = aa > ast * 1.08 ? 3 : 2; out.flog = 0; out.alf = 0; out.ast = ast;
     return out;
   }
@@ -210,6 +232,7 @@ export class SailSystem {
       // a cloth sail whose camber has gone over to the other side (tacked, gybed or backed) is a new geometry
       const side = Math.sign(L.sd[q.soff + (q.ns >> 1)]) || x.side || 1;
       if (side !== x.side) { x.side = side; rebuild = true; }
+      d.strips[x.key].side = x.side;          // (the side its camber is on: the trimmer's sign for its angles)
     }
     if (rebuild) { this.beginCycle(b, ax); L.workRebuild(Infinity); this.stats.rebuilds++; }
     else {
@@ -239,8 +262,13 @@ export class SailSystem {
             const ex = this.sdir[3 * j], ey = this.sdir[3 * j + 1], ez = this.sdir[3 * j + 2];
             const rx = cx - L.sp[3 * j], ry = cy - L.sp[3 * j + 1], rz = cz - L.sp[3 * j + 2], al = rx * ex + ry * ey + rz * ez;
             if (al <= 0) continue;
-            const d2 = rx * rx + ry * ry + rz * rz - al * al, c = Math.max(0.2, L.sc[j]);
-            const dd = 0.6 * this.sep[j] * Math.exp(-d2 / (c * c));
+            const d2 = rx * rx + ry * ry + rz * rz - al * al;
+            // (the wake of a separated section is about as wide as the section seen from the wind, c |sin a|,
+            // and spreads slowly downstream)
+            const h = Math.max(0.1, 0.5 * L.sc[j] * Math.abs(Math.sin(this.ag[j]))), c = h + 0.1 * al;
+            // (and it fills in downstream: the deficit of a bluff plate's wake falls off as the wake spreads, about as
+            // (1 + x / 2h)^-1/2 behind a plate of half-width h)
+            const dd = 0.6 * this.sep[j] * Math.exp(-d2 / (c * c)) / Math.sqrt(1 + al / (2 * h));
             if (dd > def) def = dd;
           }
           if (def > 0) { p.x *= 1 - def; p.y *= 1 - def; p.z *= 1 - def; }
@@ -265,7 +293,7 @@ export class SailSystem {
       let vx = 0, vy = 0, vz = 0;
       for (let i = 0; i < q.nc; i++) { const k = 3 * (q.off + jj * q.nc + i); vx += Vc[k]; vy += Vc[k + 1]; vz += Vc[k + 2]; }
       vx /= q.nc; vy /= q.nc; vz /= q.nc;
-      const Vm = Math.hypot(vx, vy, vz) + 1e-6;
+      const Vm = hyp3(vx, vy, vz) + 1e-6;
       this.Vm[j] = Vm;
       this.sdir[3 * j] = vx / Vm; this.sdir[3 * j + 1] = vy / Vm; this.sdir[3 * j + 2] = vz / Vm;
       this.ag[j] = Math.atan2(vx * L.sn[3 * j] + vy * L.sn[3 * j + 1] + vz * L.sn[3 * j + 2], vx * L.st[3 * j] + vy * L.st[3 * j + 1] + vz * L.st[3 * j + 2]);
@@ -337,7 +365,7 @@ export class SailSystem {
         Fx += w * qA * (Cn * L.sn[jn] + Ct * L.st[jn]); Fy += w * qA * (Cn * L.sn[jn + 1] + Ct * L.st[jn + 1]); Fz += w * qA * (Cn * L.sn[jn + 2] + Ct * L.st[jn + 2]);
       }
       // (a guard: no panel carries more than a few times its dynamic pressure, whatever the lattice says)
-      const Fm = Math.hypot(Fx, Fy, Fz), cap = 4 * qA + 1e-9;
+      const Fm = hyp3(Fx, Fy, Fz), cap = 4 * qA + 1e-9;
       if (!(Fm <= cap)) {
         if (Number.isFinite(Fm)) { const r = cap / Fm; Fx *= r; Fy *= r; Fz *= r; this.Fl[3 * k] *= r; this.Fl[3 * k + 1] *= r; this.Fl[3 * k + 2] *= r; }
         else { if (!this._nanw) { this._nanw = true; console.warn('sail panel force not finite', k, j, { dG, ae: this.ae[j], cl: this.clT[j], cd: this.cd[j], Vm, vi: vi[3 * k], vc: Vc[3 * k] }); } Fx = Fy = Fz = 0; this.Fl[3 * k] = this.Fl[3 * k + 1] = this.Fl[3 * k + 2] = 0; }
@@ -376,10 +404,10 @@ export class SailSystem {
             cl.splat(0, (jj + 0.5) / q.ns, ramp * tx, ramp * ty, ramp * tz);
             fx += Fp[k3]; fy += Fp[k3 + 1]; fz += Fp[k3 + 2];
           }
-          Fsum += Math.hypot(fx, fy, fz);
+          Fsum += hyp3(fx, fy, fz);
         }
         this.flutter(b, x, rig, ramp, rhoA);
-        rig.step(b, dt, CLOTH_SUB, this.fr);
+        rig.step(b, dt, this.lod ? CLOTH_SUB_L1 : CLOTH_SUB, this.fr);
         if (!cl.finite() || Math.abs(rig.rate) > 50) {
           // numerical trouble: put the sail back to its rest shape at the boom's angle and go on
           if (!this._warned) { console.warn('sail cloth reset', key); this._warned = true; }
@@ -415,7 +443,7 @@ export class SailSystem {
             if (boom) torque += Y * Fx - (X - boom.px) * Fy;
             fx += Fx; fy += Fy; fz += Fz;
           }
-          Fsum += Math.hypot(fx, fy, fz);
+          Fsum += hyp3(fx, fy, fz);
         }
       }
       ds.F = Fsum;
@@ -460,6 +488,31 @@ export class SailSystem {
     // (as the strip model: ax.X/Y/K carry the water loads only, the sail forces go in ax.sail*; yaw in ax.N)
     ax.N += Nm; ax.sailX += sailX; ax.sailY += sailY; ax.sailK += sailK;
   }
+  // An online boat is re-simulated here from its owner's controls. Its cloth may still end up on the other side
+  // from the owner's sails (a tack or gybe the two simulations did not take alike, a packet lost in the middle of
+  // one): when a sail has been on the wrong side for more than a second, it is set on the owner's side. want: the
+  // owner's boom angles (rad, + to starboard) and jib / gennaker sides (-1..1), as the network packet carries them.
+  follow(b, want, dt) {
+    for (const x of this.sails) {
+      const rig = x.rig; if (!rig || !x.part.on) continue;
+      const s = x.s;
+      let target = null, cur = 0;
+      if (s.kind === 'boom') { target = want.booms ? want.booms[x.key] : null; cur = rig.a; }
+      else if (s.kind === 'loose') { target = want.jib; cur = rig.side; }
+      else { target = want.gennaker; cur = rig.side; }
+      if (target === null || target === undefined || !Number.isFinite(target)) continue;
+      const wrong = Math.abs(target) > 0.05 && Math.sign(target) !== Math.sign(cur);
+      x.offT = wrong ? (x.offT || 0) + dt : 0;
+      if (x.offT < 1) continue;
+      x.offT = 0;
+      if (s.kind === 'boom') { rig.pose(target); b.booms[x.key].a = target; b.booms[x.key].rate = 0; }
+      else {
+        const sd = Math.sign(target), e = clamp(b.lines.jib, 0, 1);
+        rig.pose(sd * lerp(s.min, s.max, e)); rig.side = sd;
+        if (s.kind === 'loose') b.side.jib = sd; else b.side.gennaker = sd;
+      }
+    }
+  }
   // Flogging. A strip that carries almost no lift is a sheet in the wind: flag flutter needs the unsteady
   // wake a quasi-steady lattice does not have, so the luffing cloth gets a travelling pressure wave instead,
   // amplitude 0.15 q, frequency 0.2 V / (0.3 c), running aft along the chord. It is triggered by the state
@@ -494,13 +547,14 @@ export class SailSystem {
     im.on = Math.abs(b.phi) < 60 * DEG;
     im.nx = 0; im.ny = -sphi; im.nz = cphi; im.h0 = heaveH - waveH;
     const p = this._p;
+    this.sealPlanes(b, ax);
     for (const x of this.sails) {
       const q = x.part; if (!q.on) continue;
       const W = q.nc + 1, S = q.surf, boom = this._boom(b, x);
       for (let j = 0; j <= q.ns; j++) {
         const k = 3 * (j * W + q.nc);
         this.airAt(b, S[k], S[k + 1], S[k + 2], ax, boom, p);
-        const l = Math.hypot(p.x, p.y, p.z) || 1;
+        const l = hyp3(p.x, p.y, p.z) || 1;
         q.wake[3 * j] = p.x / l; q.wake[3 * j + 1] = p.y / l; q.wake[3 * j + 2] = p.z / l;
       }
     }
@@ -510,6 +564,40 @@ export class SailSystem {
     this._m3ok = true;
     L.beginRebuild(withM3);
     this._budget = L.rebuildCost(withM3) / this.rebuildEvery;
+  }
+  // The boat under the sails: close-hauled, a sail's foot lies over the deck, and the hull, deck and crew close
+  // the gap under it, so the foot sheds no vortex (it is sealed). Each such sail takes its mirror image in the
+  // plane of its foot instead of the water; as the foot swings out past the rail the plane goes back to the water.
+  sealPlanes(b, ax) {
+    const C = b.cls, { cphi, sphi, heaveH, waveH } = ax, hb = 0.5 * C.beam;
+    for (const x of this.sails) {
+      const q = x.part, S = q.surf, im = q.im || (q.im = { on: false, nx: 0, ny: 0, nz: 1, h0: 0 });
+      if (!q.on || x.s.kind === 'spin') { im.on = false; continue; }
+      const T = [S[0], S[1], S[2]], k = 3 * q.nc, K = [S[k], S[k + 1], S[k + 2]];
+      let sf = 1 - sstep(0.75 * hb, 1.15 * hb, Math.max(Math.abs(K[1]), Math.abs(T[1])));
+      if (x.s.kind !== 'boom' || x.s.key !== 'main') {
+        // a headsail seals only if its foot sweeps the deck: a high-cut yankee or a staysail on a club, or a foot
+        // out on the bowsprit over open water, leaves the gap open
+        const gap = (P) => P[2] - (P[0] < C.bowX && P[0] > C.sternX ? C.freeboard : 0);
+        sf *= 1 - sstep(0.3, 1.0, 0.5 * (gap(T) + gap(K)));
+      }
+      // the foot line and the plane through it that is level across the boat
+      let fx = K[0] - T[0], fy = K[1] - T[1], fz = K[2] - T[2];
+      const ff = fx * fx + fy * fy + fz * fz || 1;
+      let nx = -fz * fx / ff, ny = -fz * fy / ff, nz = 1 - fz * fz / ff;
+      const nl = hyp3(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
+      // blend with the water plane (rig frame: normal (0, -sin phi, cos phi), height heave - wave)
+      const wn = [0, -sphi, cphi], wh0 = heaveH - waveH;
+      const Px = T[0], Py = T[1], Pz = T[2];
+      // water-plane point under the tack
+      const hw = wn[0] * Px + wn[1] * Py + wn[2] * Pz + wh0;
+      const Qx = Px - hw * wn[0], Qy = Py - hw * wn[1], Qz = Pz - hw * wn[2];
+      let mx = lerp(wn[0], nx, sf), my = lerp(wn[1], ny, sf), mz = lerp(wn[2], nz, sf);
+      const ml = hyp3(mx, my, mz) || 1; mx /= ml; my /= ml; mz /= ml;
+      const ox = lerp(Qx, Px, sf), oy = lerp(Qy, Py, sf), oz = lerp(Qz, Pz, sf);
+      im.on = sf > 0.01; im.nx = mx; im.ny = my; im.nz = mz; im.h0 = -(mx * ox + my * oy + mz * oz);
+      x.seal = sf;
+    }
   }
   _boom(b, x) {
     if (x.s.kind !== 'boom' || x.rig) return null;

@@ -1,5 +1,6 @@
 // Truthful capsize: overpower a dinghy until it goes over, check it lies on its side, then right it.
 import { Boat, autoTrim, makeSteadyEnv } from '../js/physics.js';
+import '../js/sail/sailsim.js';   // the game's sail model (cloth by default; SAILS=strip for the strip model)
 const KT = 0.514444, DEG = Math.PI / 180;
 const cls = process.argv[2] || 'dinghy';
 const env = makeSteadyEnv(22 * KT);

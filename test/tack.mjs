@@ -1,5 +1,6 @@
 // Tack & gybe test: steady on a heading, then hold the helm over and record the heading trace.
 import { Boat, autoTrim, makeSteadyEnv } from '../js/physics.js';
+import '../js/sail/sailsim.js';   // the game's sail model (cloth by default; SAILS=strip for the strip model)
 const KT = 0.514444, DEG = Math.PI / 180;
 const wrap = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
 const [cls = 'blackwatch', tws = 14, man = 'tack'] = process.argv.slice(2);

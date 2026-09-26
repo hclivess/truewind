@@ -2,6 +2,7 @@
 // with 1.5 kn of tide setting it south onto a bank 60 m to leeward. A helm that aims its bow at the point
 // is set down-tide onto the bank; a tide-aware one crabs up-tide and keeps its ground track clear.
 import { Boat, makeSteadyEnv } from '../js/physics.js';
+import '../js/sail/sailsim.js';   // the game's sail model (cloth by default; SAILS=strip for the strip model)
 import { AIHelm } from '../js/race.js';
 const KT = 0.514444, DEG = Math.PI / 180;
 let bad = 0;
@@ -13,8 +14,8 @@ for (const cls of ['blackwatch', 'sportboat', 'dinghy']) {
   const b = new Boat(cls); b.reset(0, 0, 90 * DEG); b.u = 2;
   const ai = new AIHelm(b, { skill: 0.9, startFrac: 0.5 }); ai.targetsUpBsp = 2.5;
   const sim = { boats: [b], world, env };
-  const dt = 1 / 60; let aground = 0, maxZ = -1e9;
-  for (let i = 0; i < 60 * 180; i++) {
+  const dt = 1 / 120; let aground = 0, maxZ = -1e9;
+  for (let i = 0; i < 120 * 180; i++) {
     ai.update(dt, i * dt, sim, null, null, null);
     b.step(dt, env, i * dt, world);
     if (b.aground > 0.05) aground += dt;

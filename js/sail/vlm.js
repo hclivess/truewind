@@ -15,6 +15,8 @@
 // Unique segments: rings share their edges, so each edge is evaluated once and scattered into the two rings
 // that own it (+1 / -1). Influence and factorisation are rebuilt now and then (rebuild()); every step only
 // back-substitutes (solve()).
+// (Math.hypot allocates when V8 does not inline it: these do not)
+const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
 const INV4PI = 1 / (4 * Math.PI);
 
@@ -141,6 +143,7 @@ export class SailLattice {
     S *= 2;
     this.sA = new Float64Array(3 * S); this.sB = new Float64Array(3 * S); this.sK = new Uint8Array(S);
     this.sP1 = new Int32Array(S); this.sP2 = new Int32Array(S); this.sC = new Float64Array(S);
+    this.sPart = new Int32Array(S);                          // sail the segment belongs to
     this.nSeg = 0;
     this.image = { on: false, nx: 0, ny: 0, nz: 1, h0: 0 };    // water plane: height h(p) = n.p + h0
     this.built = false;
@@ -170,7 +173,7 @@ export class SailLattice {
           const p1 = S[d] - S[a], p2 = S[d + 1] - S[a + 1], p3 = S[d + 2] - S[a + 2];
           const q1 = S[c] - S[b], q2 = S[c + 1] - S[b + 1], q3 = S[c + 2] - S[b + 2];
           let nx = p2 * q3 - p3 * q2, ny = p3 * q1 - p1 * q3, nz = p1 * q2 - p2 * q1;
-          const nl = Math.hypot(nx, ny, nz) || 1;
+          const nl = hyp3(nx, ny, nz) || 1;
           this.area[k] = 0.5 * nl;
           nrm[3 * k] = nx / nl; nrm[3 * k + 1] = ny / nl; nrm[3 * k + 2] = nz / nl;
         }
@@ -182,18 +185,18 @@ export class SailLattice {
         if (nc > 1 && this.slopeAt34) for (let i = 0; i < nc; i++) {
           const k = 3 * (q.off + j * nc + i), o = i < nc - 1 ? 3 * (i + 1) : 3 * (i - 1), w = i < nc - 1 ? 0.25 : -0.25;
           let nx = pn[3 * i] + w * (pn[o] - pn[3 * i]), ny = pn[3 * i + 1] + w * (pn[o + 1] - pn[3 * i + 1]), nz = pn[3 * i + 2] + w * (pn[o + 2] - pn[3 * i + 2]);
-          const nl = Math.hypot(nx, ny, nz) || 1;
+          const nl = hyp3(nx, ny, nz) || 1;
           nrm[k] = nx / nl; nrm[k + 1] = ny / nl; nrm[k + 2] = nz / nl;
         }
         // strip: section through mid-span
         const l0 = 3 * (j * W), l1 = 3 * ((j + 1) * W), t0 = l0 + 3 * nc, t1 = l1 + 3 * nc;
         const Lx = 0.5 * (S[l0] + S[l1]), Ly = 0.5 * (S[l0 + 1] + S[l1 + 1]), Lz = 0.5 * (S[l0 + 2] + S[l1 + 2]);
         let tx = 0.5 * (S[t0] + S[t1]) - Lx, ty = 0.5 * (S[t0 + 1] + S[t1 + 1]) - Ly, tz = 0.5 * (S[t0 + 2] + S[t1 + 2]) - Lz;
-        const c = Math.hypot(tx, ty, tz) || 1e-6; tx /= c; ty /= c; tz /= c;
+        const c = hyp3(tx, ty, tz) || 1e-6; tx /= c; ty /= c; tz /= c;
         let sx = S[l1] - S[l0], sy = S[l1 + 1] - S[l0 + 1], sz = S[l1 + 2] - S[l0 + 2];
-        const sl = Math.hypot(sx, sy, sz) || 1e-6; sx /= sl; sy /= sl; sz /= sl;
+        const sl = hyp3(sx, sy, sz) || 1e-6; sx /= sl; sy /= sl; sz /= sl;
         let nx = ty * sz - tz * sy, ny = tz * sx - tx * sz, nz = tx * sy - ty * sx;
-        const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
+        const nl = hyp3(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
         // span direction orthogonal to chord and normal
         sx = ny * tz - nz * ty; sy = nz * tx - nx * tz; sz = nx * ty - ny * tx;
         this.sc[si] = c;
@@ -223,7 +226,7 @@ export class SailLattice {
     const s = this.nSeg++, A = this.sA, B = this.sB;
     A[3 * s] = ax; A[3 * s + 1] = ay; A[3 * s + 2] = az;
     B[3 * s] = bx; B[3 * s + 1] = by; B[3 * s + 2] = bz;
-    this.sK[s] = kind; this.sP1[s] = p1; this.sP2[s] = p2; this.sC[s] = c;
+    this.sK[s] = kind; this.sP1[s] = p1; this.sP2[s] = p2; this.sC[s] = c; this.sPart[s] = this._curPart;
   }
   // ring corners: surface node + a quarter of the way to the next node aft (the last row a quarter panel past the TE)
   _ring(q, i, j, o) {
@@ -235,8 +238,10 @@ export class SailLattice {
   _buildSegments() {
     this.nSeg = 0;
     const P = [0, 0, 0], Q = [0, 0, 0];
-    for (const q of this.parts) {
+    for (let pi = 0; pi < this.parts.length; pi++) {
+      const q = this.parts[pi];
       if (!q.on) continue;
+      this._curPart = pi;
       const { nc, ns } = q, id = (i, j) => q.off + j * nc + i;
       // bound (spanwise) segments at the front of every ring: strength G(i,j) - G(i-1,j)
       for (let j = 0; j < ns; j++) for (let i = 0; i < nc; i++) {
@@ -255,7 +260,7 @@ export class SailLattice {
         this._ring(q, nc, j, P);
         const a = 3 * (j * W + nc), b = a - 3;
         let tx = S[a] - S[b], ty = S[a + 1] - S[b + 1], tz = S[a + 2] - S[b + 2];
-        const tl = Math.hypot(tx, ty, tz) || 1;
+        const tl = hyp3(tx, ty, tz) || 1;
         const cj = this.sc[q.soff + Math.min(j, ns - 1)] || 1;
         const L = this.wakeLeg * cj / tl;
         const w1x = P[0] + tx * L, w1y = P[1] + ty * L, w1z = P[2] + tz * L;
@@ -265,11 +270,13 @@ export class SailLattice {
         this._addSeg(w1x, w1y, w1z, e[3 * j], e[3 * j + 1], e[3 * j + 2], 1, p1, p2, p1 >= 0 ? 1 : -1);
       }
     }
-    // mirror images in the water plane, opposite strength
-    const im = this.image;
-    if (im.on) {
+    // mirror images in the water plane, opposite strength (a sail may have a plane of its own: part.im, the
+    // surface its foot is sealed on)
+    if (this.image.on) {
       const n0 = this.nSeg, A = this.sA, B = this.sB;
       for (let s = 0; s < n0; s++) {
+        const pq = this.parts[this.sPart[s]], im = pq.im && pq.im.on ? pq.im : this.image;
+        this._curPart = this.sPart[s];
         const ax = A[3 * s], ay = A[3 * s + 1], az = A[3 * s + 2];
         const ha = 2 * (im.nx * ax + im.ny * ay + im.nz * az + im.h0);
         const bx = B[3 * s], by = B[3 * s + 1], bz = B[3 * s + 2];

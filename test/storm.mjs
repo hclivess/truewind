@@ -3,12 +3,13 @@
 // A real boat overpowered with the helm left alone rounds up (or is knocked down); it must not sit
 // stalled sliding sideways.
 import { Boat, autoTrim, makeSteadyEnv } from '../js/physics.js';
+import '../js/sail/sailsim.js';   // the game's sail model (cloth by default; SAILS=strip for the strip model)
 const KT = 0.514444, DEG = Math.PI / 180;
 const [cls = 'blackwatch', tws = 40, mode = 'manual', secs = 60] = process.argv.slice(2);
 const env = makeSteadyEnv(+tws * KT);
 const b = new Boat(cls);
 b.reset(0, 0, 90 * DEG); b.u = 1.2;
-for (let i = 0; i < 240; i++) { autoTrim(b, 1 / 60, 0, true); b.step(1 / 60, env, 0); b.psi = 90 * DEG; b.r = 0; }
+for (let i = 0; i < 480; i++) { autoTrim(b, 1 / 120, 0, true); b.step(1 / 120, env, 0); b.psi = 90 * DEG; b.r = 0; }
 b.lines.main = b.ctrl.main; b.lines.jib = b.ctrl.jib; b.lines.stay = b.ctrl.stay; b.lines.lazy = b.ctrl.lazy = 1;
 const dt = 1 / 120; let t = 0, maxHeel = 0;
 for (let i = 0; i < 120 * +secs; i++) {

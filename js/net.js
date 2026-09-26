@@ -89,7 +89,8 @@ export class Net {
     if (!p.boat || p.boat.cls.id !== d.c) {
       if (p.boat) this.g.removeRemoteBoat(p.boat);
       p.cls = CLASSES[d.c] ? d.c : 'sportboat';
-      const b = new Boat(p.cls, { id: 'net-' + id, name: p.name });
+      // (re-simulated here with the fleet's sail model and level: cloth at L1 unless this machine cannot)
+      const b = new Boat(p.cls, { id: 'net-' + id, name: p.name, sailModel: this.g.sailModel, lod: this.g.fleetSailLevel() });
       b.remote = true; b.auto.hike = false; b.auto.trim = false;
       b.reset(d.x, d.z, d.psi);
       p.boat = b;
@@ -122,6 +123,7 @@ export class Net {
       n: this.name, c: me.cls.id, t: q(this.g.t, 1000),
       x: q(me.x), z: q(me.z), psi: q(me.psi, 1000), u: q(me.u), v: q(me.v), r: q(me.r, 1000), phi: q(me.phi, 1000), p: q(me.p, 1000),
       cy: q(me.crewY), cx: q(me.crewX), rud: q(me.rudder, 1000), gd: q(me.genDeploy), gf: q(me.genFill), sj: q(me.side.jib), sg: q(me.side.gennaker),
+      rf: q(me.reefPos),
       b: booms, ctrl: c, cap: me.capsized ? 1 : 0, race: raceInfo || null,
     });
   }
@@ -153,6 +155,9 @@ export class Net {
       b.crewY = d.cy; b.crewX = d.cx; b.rudder = lerp(b.rudder, d.rud, 0.5);
       b.genDeploy = d.gd; b.genFill = lerp(b.genFill, d.gf, kk); b.side.jib = d.sj; b.side.gennaker = d.sg;
       for (const key in d.b) if (b.booms[key]) b.booms[key].a = lerp(b.booms[key].a, d.b[key], Math.max(kk, 0.3));
+      // the reef as the owner has it (a cloth main is rebuilt for it), and cloth sails kept on the owner's side
+      if (d.rf !== undefined) b.reefPos = d.rf;
+      if (b.sailSys && b.sailSys.active(b)) b.sailSys.follow(b, { booms: d.b, jib: d.sj, gennaker: d.sg }, dt);
       b.capsized = !!d.cap;
       b.netRace = d.race;
     }

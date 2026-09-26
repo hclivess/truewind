@@ -10,6 +10,8 @@ import { G as GRAV } from '../env.js';
 import { Cloth } from './cloth.js';
 import { clothSize, clothMaterial, battens } from './specs.js';
 import { camberStats } from './vlm.js';
+// (Math.hypot allocates when V8 does not inline it: these do not)
+const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
 // chord of the drawn sail at height fraction fv (before scaling to the rated area), as the renderer draws it
 export function chordAt(s, fv, roach = true) {
@@ -69,18 +71,18 @@ class ClothRig {
       const k = 3 * (j * nu + i), u = i / (nu - 1), v = j / (nv - 1), P = [rest[k], rest[k + 1], rest[k + 2]];
       if (!radial) {
         // cross-cut: the fill runs along the leech, the warp across it
-        let lx = H[0] - Cl[0], lz = H[2] - Cl[2]; const ll = Math.hypot(lx, lz); lx /= ll; lz /= ll;
+        let lx = H[0] - Cl[0], lz = H[2] - Cl[2]; const ll = hyp(lx, lz); lx /= ll; lz /= ll;
         e[0] = lz; e[1] = 0; e[2] = -lx;
         return;
       }
       // tri-radial: the warp follows the load paths out of the head, the clew and the tack
       let ex = 0, ez = 0;
       for (const [Q, w] of [[H, v ** 1.5], [Cl, u * (1 - v)], [Tk, 0.5 * (1 - u) * (1 - v)]]) {
-        let dx = Q[0] - P[0], dz = Q[2] - P[2]; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+        let dx = Q[0] - P[0], dz = Q[2] - P[2]; const l = hyp(dx, dz) || 1; dx /= l; dz /= l;
         if (dz < 0 || (Math.abs(dz) < 1e-6 && dx < 0)) { dx = -dx; dz = -dz; }
         ex += w * dx; ez += w * dz;
       }
-      const l = Math.hypot(ex, ez) || 1; e[0] = ex / l; e[1] = 0; e[2] = ez / l;
+      const l = hyp(ex, ez) || 1; e[0] = ex / l; e[1] = 0; e[2] = ez / l;
     };
     // the air a sail carries with it (added mass ~ rho c pi/8 per unit area, a 3-D reduction of the 2-D pi/4)
     const airMass = (i, j) => Math.max(0.3, 1.225 * Math.PI / 8 * chordAt(s, j / (nv - 1), false) * this.kc);
@@ -102,19 +104,35 @@ class ClothRig {
     this.needPose = true; this.side = 1; this.sincePose = 0;
     this._p = [0, 0, 0]; this._q = [0, 0, 0];
   }
-  _rd(a, b) { const r = this.rest, o = this.cloth.off, i = 3 * (a - o), j = 3 * (b - o); return Math.hypot(r[j] - r[i], r[j + 1] - r[i + 1], r[j + 2] - r[i + 2]); }
-  // the cloth at its rest shape, its chord swung to angle a about the tack's vertical (camber to leeward), at rest
-  poseCloth(a) {
-    const c = this.cloth, { nu, nv } = this, side = Math.sign(a) || 1, ca = Math.cos(a), sa = Math.sin(a);
+  _rd(a, b) { const r = this.rest, o = this.cloth.off, i = 3 * (a - o), j = 3 * (b - o); return hyp3(r[j] - r[i], r[j + 1] - r[i + 1], r[j + 2] - r[i + 2]); }
+  // the cloth at its rest shape, its chord swung to angle a about the tack's vertical (camber to leeward), at rest.
+  // tw (optional): the twist the sail had at the three STRIP_F heights (rad, + opens to leeward), so a sail set
+  // again (a new detail level, a reef) comes back with the shape it had rather than untwisted
+  poseCloth(a, tw = null) {
+    const c = this.cloth, { nu, nv } = this, side = Math.sign(a) || 1;
     for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
       const k = 3 * (j * nu + i), n = 3 * c.node(i, j);
       const v = j / (nv - 1), lx = this.px - this.rake * v;          // the luff at this height
+      const F = STRIP_F, t = !tw ? 0 : v <= F[0] ? tw[0] * v / F[0] : v <= F[1] ? lerp(tw[0], tw[1], (v - F[0]) / (F[1] - F[0])) : v <= F[2] ? lerp(tw[1], tw[2], (v - F[1]) / (F[2] - F[1])) : tw[2];
+      const av = a + side * t, ca = Math.cos(av), sa = Math.sin(av);
       const back = lx - this.rest[k], off = this.rest[k + 1];        // distance aft of the luff, camber offset
       // chord (-cos a, sin a), camber along (sin a, cos a) * side (to leeward)
       c.x[n] = lx - back * ca + off * sa * side; c.x[n + 1] = back * sa + off * ca * side; c.x[n + 2] = this.rest[k + 2];
     }
     c.v.fill(0); c.v0.fill(0); c.f.fill(0);
-    this.side = side; this.needPose = false; this.sincePose = 0;
+    this.side = side; this.needPose = false; this.sincePose = 0; this.warm = false;
+  }
+  // the twist to pose with: the sail's last measured shape (diag.shape), when it was drawing
+  // the clew angle to pose a headsail at: where it was (warm), else where the sheet would put it
+  _poseAngle(b, sideSign) {
+    const a0 = this.poseA; this.poseA = undefined;
+    if (this.warm && Number.isFinite(a0) && Math.abs(a0) > 0.02) return a0;
+    return sideSign * lerp(this.s.min, this.s.max, b.lines.jib);
+  }
+  _poseTwist(b) {
+    const sh = b.diag.shape[this.s.key];
+    if (!this.warm || !sh) return null;
+    return [0, 1, 2].map((k) => clamp(sh[k].tw || 0, 0, 0.6));
   }
   // lattice surface sampled from the cloth
   latticeSurface(q) {
@@ -166,8 +184,8 @@ class ClothRig {
       const v = STRIP_F[k];
       c.sample(c.x, 0, v, p); const lx = p[0], ly = p[1], lz = p[2];
       c.sample(c.x, 1, v, p);
-      let tx = p[0] - lx, ty = p[1] - ly, tz = p[2] - lz; const L = Math.hypot(tx, ty, tz) || 1e-6; tx /= L; ty /= L; tz /= L;
-      const nx = ty, ny = -tx, nl = Math.hypot(nx, ny) || 1;              // horizontal normal (starboard for a centred chord)
+      let tx = p[0] - lx, ty = p[1] - ly, tz = p[2] - lz; const L = hyp3(tx, ty, tz) || 1e-6; tx /= L; ty /= L; tz /= L;
+      const nx = ty, ny = -tx, nl = hyp(nx, ny) || 1;              // horizontal normal (starboard for a centred chord)
       for (let i = 0; i < N; i++) {
         c.sample(c.x, i / (N - 1), v, p);
         const dx = p[0] - lx, dy = p[1] - ly, dz = p[2] - lz;
@@ -237,8 +255,8 @@ export class BoomSailRig extends ClothRig {
   }
 
   // put the cloth at its rest shape swung out to boom angle a (camber to leeward), at rest
-  pose(a) {
-    this.poseCloth(a);
+  pose(a, tw = null) {
+    this.poseCloth(a, tw);
     const c = this.cloth;
     c.x[0] = this.px - this.Lb * Math.cos(a); c.x[1] = this.Lb * Math.sin(a); c.x[2] = this.pz;
     this.a = a; this.rate = 0;
@@ -247,7 +265,7 @@ export class BoomSailRig extends ClothRig {
   // controls -> pins and rope lengths
   setTargets(b, bendRig) {
     const s = this.s, c = this.cloth, ctrl = b.ctrl, nv = this.nv;
-    if (this.needPose) this.pose(b.booms[s.key].a);
+    if (this.needPose) this.pose(b.booms[s.key].a, this._poseTwist(b));
     // luff: cunningham tension stretches it a little; the halyard eased while reefing lets it sag
     const slack = this.isMain ? b.reefSlack : 0;
     const luff = this.luff0 * (1 + 0.006 * ((this.isMain ? ctrl.cunn : 0.3) - 0.3) - 0.06 * slack);
@@ -272,12 +290,12 @@ export class BoomSailRig extends ClothRig {
     const chord = 2 * R * Math.sin(Math.max(0, lim - travA) / 2);
     this.sheet.len = Math.sqrt(chord * chord + this.hz * this.hz) - 0.035 * (1 - sstep(0, 0.25, ease));
     if (this.vang) {
-      const L0 = Math.hypot(this.tv * this.Lb, this.dv);
+      const L0 = hyp(this.tv * this.Lb, this.dv);
       // hard on, the vang pulls the boom a little below level: that stretch is the leech tension
       const vg = clamp(ctrl.vang, 0, 1);
       this.vang.len = L0 - 0.012 * vg + 0.05 * (1 - vg) ** 1.3;
     }
-    this.topping.len = Math.hypot(this.Lb, this.mastHead[2] - this.pz + 0.15 * this.Lb);
+    this.topping.len = hyp(this.Lb, this.mastHead[2] - this.pz + 0.15 * this.Lb);
   }
 
   step(b, dt, nsub, fr) {
@@ -287,7 +305,7 @@ export class BoomSailRig extends ClothRig {
     const ex = c.x[0] - this.px, ey = c.x[1], ez = c.x[2] - this.pz;
     const a = Math.atan2(ey, -ex);
     this.rate = wrapA(a - this.a) / dt; this.a = a;
-    this.elev = Math.atan2(ez, Math.hypot(ex, ey));
+    this.elev = Math.atan2(ez, hyp(ex, ey));
     // a slam: the sheet snatching a swinging boom
     if (this.sheet.taut && !wasTaut && Math.abs(rate0) > 1.2 && this.isMain) { b.slam = Math.max(b.slam, Math.abs(rate0)); b.slamEvents++; }
   }
@@ -320,7 +338,7 @@ export class JibRig extends ClothRig {
     if (st && st !== s) cloth.addCapsule([st.tackX, 0, st.tackZ], [st.tackX - (st.rake || 0), 0, st.tackZ + st.luff], 0.03, nodes);
     this.a = 0.3; this.sideSmooth = 1;
   }
-  pose(a) { this.poseCloth(a); this.a = a; }
+  pose(a, tw = null) { this.poseCloth(a, tw); this.a = a; }
   // the clew's angle (from the tack, + to starboard) for a sheet eased to e (as the strip model sets the jib)
   _clewAt(a, side, out) {
     out[0] = this.px - this.footLen * Math.cos(a); out[1] = side * this.footLen * Math.sin(a); out[2] = this.pz + this.footRise;
@@ -328,7 +346,7 @@ export class JibRig extends ClothRig {
   }
   setTargets(b, bendRig, sagM) {
     const s = this.s, c = this.cloth, ctrl = b.ctrl, nv = this.nv;
-    if (this.needPose) this.pose(b.side.jib * lerp(s.min, s.max, b.lines.jib));
+    if (this.needPose) this.pose(this._poseAngle(b, b.side.jib), this._poseTwist(b));
     // the luff on the stay, sagging to leeward and a little aft under load (less with backstay tension)
     const cl = 3 * this.clew, side = Math.sign(c.x[cl + 1]) || this.side;
     const dx = -0.3, dy = 0.95 * side;
@@ -349,7 +367,7 @@ export class JibRig extends ClothRig {
       this._clewAt(lerp(s.min, s.max, e), sd, p);
       // (the trimmer pulls the clew a few centimetres past that point: the sheet always carries load, so where the
       // lead is decides whether it pulls the clew aft along the foot or down the leech)
-      this.sheets[k].len = Math.hypot(p[0] - L[0], p[1] - L[1], p[2] - L[2]) - (working ? 0.02 + 0.06 * (1 - sstep(0, 0.3, e)) : 0);
+      this.sheets[k].len = hyp3(p[0] - L[0], p[1] - L[1], p[2] - L[2]) - (working ? 0.02 + 0.06 * (1 - sstep(0, 0.3, e)) : 0);
     }
     void q;
   }
@@ -397,7 +415,7 @@ export class SpinRig extends JibRig {
   }
   setTargets(b, bendRig) {
     const s = this.s, c = this.cloth, ctrl = b.ctrl, nv = this.nv;
-    if (this.needPose) { this.pose((Math.sign(b.side.gennaker) || 1) * lerp(s.min, s.max, b.lines.jib)); this.side = Math.sign(b.side.gennaker) || 1; }
+    if (this.needPose) { const sg = Math.sign(b.side.gennaker) || 1; this.pose(this._poseAngle(b, sg), this._poseTwist(b)); this.side = Math.sign(this.a) || sg; }
     const up = 0.5 * clamp(ctrl.tackLine, 0, 1);                        // an eased tack line lets the tack rise
     c.pin(c.node(0, 0), this.px, 0, this.pz + up);
     c.pin(c.node(0, nv - 1), this.px - this.rake, 0, this.pz + this.luff0);
@@ -410,7 +428,7 @@ export class SpinRig extends JibRig {
       const sd = k === 0 ? 1 : -1, L = this.leads[k];
       if (sd !== this.side) { this.sheets[k].len = 30; continue; }
       this._clewAt(lerp(s.min, s.max, clamp(b.lines.jib, 0, 1)), sd, p);
-      this.sheets[k].len = Math.hypot(p[0] - L[0], p[1] - L[1], p[2] - L[2]);
+      this.sheets[k].len = hyp3(p[0] - L[0], p[1] - L[1], p[2] - L[2]);
     }
   }
   step(b, dt, nsub, fr) {

@@ -1,6 +1,8 @@
 // Hull geometry shared by physics and rendering: the same lines produce the drawn hull and the
 // hydrostatics (buoyancy, righting moment, heave/pitch, wave forces, wetted surface), so what you
 // see is what floats. No three.js here — pure math, usable in workers and node.
+// (Math.hypot allocates when V8 does not inline it: these do not)
+const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -161,31 +163,39 @@ export class HullHydro {
 
 // Area, first moments and wetted girth of the part of a closed section polygon below the water line
 // -y*sin(phi) + z*cos(phi) < zw + sl*(y*cos(phi) + z*sin(phi))   (heeled boat, sloping local surface)
+// (runs for every section of every boat every step: no allocation, the clipped polygon goes to a scratch buffer
+// and the result to one reused object, read by the caller at once)
+let CLIP = new Float64Array(256);
+const CLIPR = { A: 0, Ay: 0, Az: 0, girth: 0 };
 function clipArea(p, sp, cp, zw, sl) {
   const n = p.length / 2;
-  const f = (y, z) => -y * sp + z * cp - zw - sl * (y * cp + z * sp);
+  if (CLIP.length < 4 * n + 8) CLIP = new Float64Array(4 * n + 8);
+  const out = CLIP;
+  let m2 = 0;
   let A = 0, Ay = 0, Az = 0, girth = 0;
-  let px = p[2 * (n - 1)], pz = p[2 * (n - 1) + 1], pf = f(px, pz);
-  const out = [];
+  let px = p[2 * (n - 1)], pz = p[2 * (n - 1) + 1], pf = -px * sp + pz * cp - zw - sl * (px * cp + pz * sp);
   for (let i = 0; i < n; i++) {
-    const cx = p[2 * i], cz = p[2 * i + 1], cf = f(cx, cz);
+    const cx = p[2 * i], cz = p[2 * i + 1], cf = -cx * sp + cz * cp - zw - sl * (cx * cp + cz * sp);
     if (cf < 0) {
-      if (pf >= 0) { const t = pf / (pf - cf); out.push(px + (cx - px) * t, pz + (cz - pz) * t); }
-      out.push(cx, cz);
-      if (pf < 0) girth += Math.hypot(cx - px, cz - pz);
-    } else if (pf < 0) { const t = pf / (pf - cf); out.push(px + (cx - px) * t, pz + (cz - pz) * t); girth += Math.hypot((cx - px) * t, (cz - pz) * t); }
+      if (pf >= 0) { const t = pf / (pf - cf); out[m2++] = px + (cx - px) * t; out[m2++] = pz + (cz - pz) * t; }
+      out[m2++] = cx; out[m2++] = cz;
+      if (pf < 0) girth += hyp(cx - px, cz - pz);
+    } else if (pf < 0) { const t = pf / (pf - cf); out[m2++] = px + (cx - px) * t; out[m2++] = pz + (cz - pz) * t; girth += hyp((cx - px) * t, (cz - pz) * t); }
     px = cx; pz = cz; pf = cf;
   }
-  const m = out.length / 2;
+  const m = m2 / 2;
   for (let i = 0; i < m; i++) {
     const y0 = out[2 * i], z0 = out[2 * i + 1], y1 = out[2 * ((i + 1) % m)], z1 = out[2 * ((i + 1) % m) + 1];
     const cr = y0 * z1 - y1 * z0;
     A += cr; Ay += (y0 + y1) * cr; Az += (z0 + z1) * cr;
   }
   A *= 0.5;
-  if (Math.abs(A) < 1e-9) return { A: 0, Ay: 0, Az: 0, girth: 0 };
+  const r = CLIPR;
+  if (Math.abs(A) < 1e-9) { r.A = 0; r.Ay = 0; r.Az = 0; r.girth = 0; return r; }
   // polygon orientation may be clockwise: centroid formula is sign-consistent
-  return { A: Math.abs(A), Ay: Ay / 6 * Math.sign(A), Az: Az / 6 * Math.sign(A), girth };
+  const sg = Math.sign(A);
+  r.A = Math.abs(A); r.Ay = Ay / 6 * sg; r.Az = Az / 6 * sg; r.girth = girth;
+  return r;
 }
 
 // Scale the canoe-body depth so that the drawn hull floats at its drawn waterline with the boat's

@@ -2,12 +2,13 @@
 // reach, crew presets the trim, then the helm is left centred and nothing is touched.
 import { Environment, KT, DEG } from '../js/env.js';
 import { Boat, autoTrim } from '../js/physics.js';
+import '../js/sail/sailsim.js';   // the game's sail model (cloth by default; SAILS=strip for the strip model)
 const [cls = 'blackwatch', tws = 40, mode = 'manual', secs = 120, seed = 7, warp = 1] = process.argv.slice(2);
 const env = new Environment({ tws: +tws * KT, twd: 0, gust: 0.5, shift: 7, fetchKm: 8, seed: +seed, weather: 'steady' });
 const b = new Boat(cls);
 b.reset(0, 0, 90 * DEG); b.u = 1.2;
 env.tick(0);
-for (let i = 0; i < 240; i++) { autoTrim(b, 1 / 60, 0, true); b.step(1 / 60, env, 0); b.psi = 90 * DEG; b.r = 0; }
+for (let i = 0; i < 480; i++) { autoTrim(b, 1 / 120, 0, true); b.step(1 / 120, env, 0); b.psi = 90 * DEG; b.r = 0; }
 b.x = 0; b.z = 0; b.lines.main = b.ctrl.main; b.lines.jib = b.ctrl.jib; b.lines.stay = b.ctrl.stay; b.lines.lazy = b.ctrl.lazy = 1;
 const dt = 1 / 120; let t = 0, maxHeel = 0, stalled = 0, n = 0, uSum = 0;
 for (let i = 0; i < 120 * +secs; i++) {

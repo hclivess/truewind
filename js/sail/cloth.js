@@ -21,6 +21,8 @@
 //
 // Everything is simulated in the boat's rig frame (x forward, y starboard, z up along the mast): the owner
 // supplies gravity rotated by heel and the frame's fictitious accelerations.
+// (Math.hypot allocates when V8 does not inline it: these do not)
+const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
 // banded symmetric positive definite matrix: A[i][i - k] stored at B[i * (bw + 1) + k], k = 0..bw
 function bandCholesky(B, n, bw) {
@@ -89,14 +91,14 @@ export class Cloth {
       const ax = rest[r1] - rest[r0], ay = rest[r1 + 1] - rest[r0 + 1], az = rest[r1 + 2] - rest[r0 + 2];
       const bx = rest[r2] - rest[r0], by = rest[r2 + 1] - rest[r0 + 1], bz = rest[r2 + 2] - rest[r0 + 2];
       let nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
-      const nl = Math.hypot(nx, ny, nz) || 1e-12; nx /= nl; ny /= nl; nz /= nl;
+      const nl = hyp3(nx, ny, nz) || 1e-12; nx /= nl; ny /= nl; nz /= nl;
       const A = 0.5 * nl;
       const q0 = i0 - off, q1 = i1 - off, q2 = i2 - off;
       const ci = Math.round(((q0 % nu) + (q1 % nu) + (q2 % nu)) / 3), cj = Math.round((Math.floor(q0 / nu) + Math.floor(q1 / nu) + Math.floor(q2 / nu)) / 3);
       dir(ci, cj, e);
       const d = e[0] * nx + e[1] * ny + e[2] * nz;
       let e1x = e[0] - d * nx, e1y = e[1] - d * ny, e1z = e[2] - d * nz;
-      const el = Math.hypot(e1x, e1y, e1z) || 1; e1x /= el; e1y /= el; e1z /= el;
+      const el = hyp3(e1x, e1y, e1z) || 1; e1x /= el; e1y /= el; e1z /= el;
       const e2x = ny * e1z - nz * e1y, e2y = nz * e1x - nx * e1z, e2z = nx * e1y - ny * e1x;
       // edge vectors in the (warp, fill) frame: Dm = [a b]; f1 = F e1 = sum c1_a x_a, f2 = sum c2_a x_a
       const a1 = ax * e1x + ay * e1y + az * e1z, a2 = ax * e2x + ay * e2y + az * e2z;

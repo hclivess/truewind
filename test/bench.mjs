@@ -10,7 +10,7 @@ const dt = 1 / 120, warm = 600, N = 1200;
 for (const cls of classes) {
   const row = [];
   for (const m of models) {
-    const b = new Boat(cls);
+    const b = new Boat(cls, { sailModel: 'strip' });
     if (m === 'vlm') attachSails(b, 'vlm', 0);
     else if (m.startsWith('cloth')) attachSails(b, 'cloth', +m.slice(5));
     const env = makeSteadyEnv(12 * KT);

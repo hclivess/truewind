@@ -1,6 +1,7 @@
 // Stiffness guard: a boat lying capsized with its sails in the water, shoved sideways and spun, must damp
 // out (the wet-rig sway/yaw drag is integrated implicitly), never blow up to Infinity/NaN, at 60 and 120 Hz.
 import { Boat, makeSteadyEnv } from '../js/physics.js';
+import '../js/sail/sailsim.js';   // the game's sail model (cloth by default; SAILS=strip for the strip model)
 const KT = 0.514444, DEG = Math.PI / 180;
 let bad = 0;
 for (const cls of ['cat', 'dinghy']) for (const hz of [60, 120]) {
