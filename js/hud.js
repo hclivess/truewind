@@ -190,7 +190,7 @@ export class HUD {
   // short control reminder, adapted to keyboard or touch, fades after a while
   keysHint(touch) {
     const k = $('#keys');
-    k.textContent = touch ? '' : 'A D steer · W S main · ↑ ↓ jib · T auto-trim · R reef · ? help · Esc menu · 1–7 cameras';
+    k.textContent = touch ? '' : 'A D steer · W S main · ↑ ↓ jib · T auto-trim · R reef · Tab chart · ? help · Esc menu · 1–7 cameras';
     k.style.animation = 'none'; void k.offsetWidth; k.style.animation = '';
   }
 
@@ -400,6 +400,7 @@ export class HUD {
       ctx.setLineDash([]);
       dot(course.pin, '#ff7a1a'); dot(course.committee, '#e9eef2', 5); dot(course.windward, '#ff7a1a', 5); dot(course.gateL, '#f2b33d'); dot(course.gateR, '#f2b33d');
     }
+    if (g.nav) g.nav.drawMini(ctx, lw);                       // seamarks
     if (g.waypoint) {
       dot(g.waypoint, '#39d0ff', 5);
       ctx.strokeStyle = 'rgba(57,208,255,.5)'; ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(b.x, b.z); ctx.lineTo(g.waypoint.x, g.waypoint.z); ctx.stroke();

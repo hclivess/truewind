@@ -2,7 +2,8 @@
 // whenever and in whatever pieces it is computed; thunder reaches a listener distance / 343 m/s after the
 // flash; mist and cumulus follow the time of day and the wind.
 import { Weather, KT } from '../js/env.js';
-import { strikes, flashAt, thunderDue, channelRange, boltSegments, convection, heatFromSun, mist, SOUND } from '../js/wx.js';
+import { strikes, flashAt, thunderDue, thunderBearing, channelRange, boltSegments, convection, heatFromSun, mist, SOUND } from '../js/wx.js';
+import { rainLevels } from '../js/audio.js';
 const DEG = Math.PI / 180;
 let fail = 0; const check = (ok, msg) => { console.log((ok ? 'ok   ' : 'FAIL ') + msg); if (!ok) fail++; };
 
@@ -52,4 +53,25 @@ let minVis = Infinity, anyFog = 0; for (let t = 0; t < 20000; t += 60) { const m
 check(minVis > 250 && minVis < 600 && anyFog > 0, `sea fog spells at 38 deg in 8 kn: worst visibility ${minVis.toFixed(0)} m, ${anyFog} of 334 minutes under 1 km`);
 let tropic = Infinity; for (let t = 0; t < 20000; t += 60) tropic = Math.min(tropic, mist('steady', 5, t, 30 * DEG, 14, 21, 8).vis);
 check(tropic === Infinity, 'no afternoon sea fog in the tropics');
+// 6. thunder is heard from the strike's bearing: a camera looking north (-z) hears a strike to the east on its
+//    right, one to the west on its left, one astern from behind; turning the camera turns the sound
+{
+  const b = (x, z, fx, fz) => thunderBearing({ x, z }, 0, 0, fx, fz);
+  const E = b(3000, 0, 0, -1), Wt = b(-3000, 0, 0, -1), N = b(0, -3000, 0, -1), S = b(0, 3000, 0, -1), turned = b(3000, 0, 1, 0);
+  check(E.pan > 0.99 && Wt.pan < -0.99 && Math.abs(N.pan) < 1e-9 && N.front > 0.99 && S.front < -0.99 && Math.abs(turned.pan) < 1e-9 && turned.front > 0.99,
+    `thunder bearing: east ${E.pan.toFixed(2)}, west ${Wt.pan.toFixed(2)}, ahead front ${N.front.toFixed(2)}, astern ${S.front.toFixed(2)}, camera turned east: pan ${turned.pan.toFixed(2)}`);
+}
+// 7. rain sound follows the rain rate at the listener (the same squall model the rain streaks use): silent in
+//    the dry, patter in light rain, drumming and roar only in heavy rain, all rising with the rate
+{
+  const dry = rainLevels(0), light = rainLevels(0.15), heavy = rainLevels(0.9);
+  check(Object.keys(dry).every(k => k === 'hissF' || dry[k] === 0), 'rain sound: silent when dry');
+  check(light.pat > 0.1 && light.drum < 0.01 && heavy.drum > 0.4 && heavy.roar > 0.1 && heavy.hiss > light.hiss && heavy.hissF < light.hissF,
+    `rain sound: light rain patters (pat ${light.pat.toFixed(2)}, drum ${light.drum.toFixed(3)}), heavy rain drums (drum ${heavy.drum.toFixed(2)}, roar ${heavy.roar.toFixed(2)}, hiss ${light.hissF}->${heavy.hissF} Hz)`);
+  let mono = true, prev = rainLevels(0); for (let r = 0.02; r <= 1; r += 0.02) { const l = rainLevels(r); mono &&= l.hiss >= prev.hiss && l.wash >= prev.wash && l.drum >= prev.drum; prev = { ...l }; }
+  check(mono, 'rain sound: hiss, wash and drum never fall as the rain gets heavier');
+  const Wr = new Weather({ mode: 'squally', seed: 22, tws: 7 }), o = {};
+  let rmax = 0, dryT = 0, n = 0; for (let t = 0; t < 7200; t += 5, n++) { const r = Wr.squall(0, 0, t, o).rain; rmax = Math.max(rmax, r); if (r < 0.01) dryT++; }
+  check(rmax > 0.6 && rainLevels(rmax).drum > 0.3 && dryT > n * 0.3, `a squall passing over a listener: peak rain ${rmax.toFixed(2)} (drumming ${rainLevels(rmax).drum.toFixed(2)}), dry ${Math.round(100 * dryT / n)}% of two hours`);
+}
 process.exit(fail ? 1 : 0);

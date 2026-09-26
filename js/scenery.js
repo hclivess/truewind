@@ -82,7 +82,7 @@ function townGrid(world, land) {
 // blending into the venue's hills inland; the sea floor shelves to the modelled depth.
 // how much of the generic hill model a venue gets: the Yucatán coast is a dead-flat limestone plain
 const RELIEF = { progreso: 0.05, meredith: 0.5 };
-function groundHeight(world, x, z) {
+export function groundHeight(world, x, z) {
   const s = world.sdfAt(x, z);
   if (s > 0) return -Math.min(world.depthAt(x, z), 6) - 0.35;
   const d = -s, rel = RELIEF[world.venue?.id] ?? 1;

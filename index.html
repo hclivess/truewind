@@ -31,10 +31,18 @@
   <section id="map-card" class="panel">
     <canvas id="minimap" width="480" height="480" aria-label="Tactical map, wind at the top"></canvas>
     <div class="map-foot"><span id="map-orient">Wind up</span><span class="muted" id="map-scale"></span></div>
+    <div id="nav-read" aria-label="Navigation">
+      <div><span>COG</span><b id="nv-cog">–</b></div><div><span>SOG</span><b id="nv-sog">–</b></div><div><span>DPT</span><b id="nv-dpt">–</b></div>
+      <div class="pos"><b id="nv-pos">–</b></div>
+      <div class="tn"><em id="nv-tname"></em></div>
+      <div class="wp"><span>BRG</span><b id="nv-brg">–</b></div><div class="wp"><span>DTW</span><b id="nv-dtw">–</b></div><div class="wp"><span>XTE</span><b id="nv-xte">–</b></div>
+      <div class="wp"><span>VMC</span><b id="nv-vmc">–</b></div><div class="wp eta"><span>ETA</span><b id="nv-eta">–</b></div>
+    </div>
     <div class="tools" role="toolbar" aria-label="Game">
       <button class="chip" id="tb-menu" title="Menu (Esc)" aria-label="Menu">Menu</button>
       <button class="chip" id="tb-pause" title="Pause (P)" aria-label="Pause" aria-pressed="false">Pause</button>
       <button class="chip" id="tb-cam" title="Next camera (keys 1–7)" aria-label="Next camera">Cam</button>
+      <button class="chip" id="tb-chart" title="Chart and waypoints (Tab)" aria-label="Chart" aria-pressed="false">Chart</button>
       <button class="chip" id="tb-rig" title="Rig panel" aria-label="Rig panel" aria-pressed="true">Rig</button>
       <button class="chip" id="tb-sound" title="Sound (O)" aria-label="Sound" aria-pressed="true">Snd</button>
       <button class="chip" id="tb-help" title="Help (?)" aria-label="Help">?</button>
@@ -57,6 +65,13 @@
   </section>
 
   <section id="instruments" class="panel"></section>
+  <canvas id="compass-tape" width="720" height="64" aria-label="Steering compass: heading, course over ground (orange), bearing to the waypoint (blue)"></canvas>
+
+  <section id="chart" class="panel" hidden aria-label="Chart">
+    <header><span class="eyebrow">Chart</span><span id="chart-title" class="muted"></span><span class="grow"></span><span id="chart-scale" class="muted small"></span>
+      <button class="chip" id="chart-labels" title="Names and light characteristics" aria-pressed="true">Labels</button><button class="chip" id="chart-centre" title="Follow the boat">Boat</button><button class="chip" id="chart-clear" title="Clear the waypoint">Clear WP</button><button class="chip" id="chart-close" title="Close (Tab / Esc)">Close</button></header>
+    <div class="chart-wrap"><canvas id="chart-cv" aria-label="Chart: click or tap to set a waypoint"></canvas><div id="chart-tip" hidden></div></div>
+  </section>
 
   <div id="keys" class="muted"></div>
   <div id="paused-badge" hidden>Paused<small>P or Play to resume</small></div>
@@ -98,6 +113,8 @@
     <div class="menu-grid">
       <section>
         <h2>Boat</h2>
+        <div class="row boat-id"><input id="boat-name" maxlength="24" placeholder="Boat name" autocomplete="off" aria-label="Boat name (on the transom)"><input id="sail-no" maxlength="8" placeholder="Sail no." autocomplete="off" spellcheck="false" aria-label="Sail number: nation letters and digits, e.g. GBR 1234" title="Nation letters and digits (e.g. GBR 1234), or just the number"></div>
+        <p id="boat-id-msg" class="muted small note" aria-live="polite"></p>
         <div id="boat-list" class="cards"></div>
       </section>
       <section>
@@ -197,6 +214,7 @@
       <div><kbd>1</kbd>–<kbd>7</kbd><span>Chase · Helm · Bow · Masthead · Overhead · Orbit · On deck</span></div>
       <div>On deck<span>Point at a rope, car, winch or the tiller: pull ropes up/down, slide cars along their tracks, wind winch handles round either way (clockwise = fast gear, anticlockwise = slow powerful gear; the drum only turns one way — drag a sheet tail down to ease), push the tiller sideways, click the reef line or gennaker halyard.</span></div>
       <div><kbd>L</kbd> <kbd>K</kbd> <kbd>I</kbd><span>Laylines · force vectors · physics readout</span></div>
+      <div><kbd>Tab</kbd><span>Chart: seamarks and lights, depths, your track; click or tap to set a waypoint (a mark: steer for it)</span></div>
       <div><kbd>-</kbd> <kbd>=</kbd><span>Time warp (free sail)</span></div>
       <div><kbd>P</kbd> <kbd>Esc</kbd><span>Pause · menu</span></div>
       <div><kbd>O</kbd> <kbd>?</kbd><span>Sound on / off · this help</span></div>

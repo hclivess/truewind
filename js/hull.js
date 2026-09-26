@@ -22,10 +22,11 @@ export function catmull(pts, n) {
 }
 
 const HULL_PARAMS = {
-  blackwatch: { tm: 0.5, tr: 0.62, be: 0.72, sheerBow: 0.3, sheerStern: 0.12, stemRake: 0.55, transomRake: 0.35, flare: 0.5, flat: 0.25, sternDepth: 0.05, crown: 0.07 },
-  sportboat: { tm: 0.42, tr: 0.84, be: 0.8, sheerBow: 0.1, sheerStern: 0.02, stemRake: 0.02, transomRake: -0.06, flare: 0.25, flat: 0.8, sternDepth: 0.35, crown: 0.05 },
+  blackwatch: { tm: 0.5, tr: 0.62, be: 0.72, sheerBow: 0.25, sheerStern: -0.04, stemRake: 0.38, transomRake: 0.2, flare: 0.5, flat: 0.25, sternDepth: 0.05, crown: 0.07 },
+  sportboat: { tm: 0.42, tr: 0.84, be: 0.8, sheerBow: 0.14, sheerStern: -0.18, stemRake: 0.02, transomRake: -0.02, flare: 0.25, flat: 0.8, sternDepth: 0.35, crown: 0.05 },
   dinghy: { tm: 0.45, tr: 0.72, be: 0.7, sheerBow: 0.18, sheerStern: 0.0, stemRake: 0.2, transomRake: 0.0, flare: 0.3, flat: 0.75, sternDepth: 0.35, crown: 0.06 },
-  cat: { tm: 0.5, tr: 0.35, be: 0.9, sheerBow: 0.25, sheerStern: 0.05, stemRake: 0.05, transomRake: 0.0, flare: 0.1, flat: 0.15, sternDepth: 0.4, crown: 0.12 },
+  // Hobie 16: banana hulls, the keel line one long curve (rocker) from the upswept stern to the bow
+  cat: { tm: 0.5, tr: 0.35, be: 0.9, sheerBow: 0.25, sheerStern: 0.14, stemRake: 0.05, transomRake: 0.0, flare: 0.1, flat: 0.15, sternDepth: 0.4, crown: 0.12, rocker: 0.55 },
 };
 
 // Lines of one hull. depthScale lets the hydrostatic calibration match the real displacement.
@@ -34,7 +35,8 @@ export function linesFor(C, depthScale = C._depthScale ?? 1) {
   const B = (C.hullBeam ?? C.beam) / 2, F = C.freeboard, D = C.canoeDraft * depthScale;
   const bDeck = (t) => B * (t < H.tm ? lerp(H.tr, 1, Math.sin(t / H.tm * Math.PI / 2) ** 0.85) : Math.pow(Math.max(0, Math.cos(Math.min(1, (t - H.tm) / (1 - H.tm)) * Math.PI / 2)), H.be));
   const sheer = (t) => F * (1 + H.sheerBow * sstep(0.45, 1, t) ** 1.6 + H.sheerStern * sstep(0.45, 0, t) ** 1.5 - 0.05 * Math.sin(Math.PI * t));
-  const keelZ = (t) => -D * (t < 0.12 ? lerp(H.sternDepth, 1, sstep(0, 0.12, t)) : t > 0.7 ? lerp(1, 0, sstep(0.7, 1.0, t)) : 1);
+  const keelZ = H.rocker ? (t) => -D * Math.max(0, 1 - H.rocker * ((t - 0.46) / 0.54) ** 2) * (1 - sstep(0.8, 1.0, t) ** 2)
+    : (t) => -D * (t < 0.12 ? lerp(H.sternDepth, 1, sstep(0, 0.12, t)) : t > 0.7 ? lerp(1, 0, sstep(0.7, 1.0, t)) : 1);
   const flareAt = (t) => H.flare * sstep(0.55, 0.95, t);
   const flatAt = (t) => lerp(0.15, H.flat, sstep(0.95, 0.35, t));
   const longKeel = C.keel && C.keel.long ? (t) => {

@@ -1,13 +1,16 @@
 // Bakes OpenStreetMap coastline/water geometry for the built-in venues into data/venues/*.json
 // Usage: node tools/fetch-venues.mjs [venueId...]
 //        node tools/fetch-venues.mjs --land [venueId...]   (buildings, roads, land use -> data/venues/<id>.land.json)
-import { VENUES, overpassQuery, processOSM, landQueries, processLand, World } from '../js/world.js';
+//        node tools/fetch-venues.mjs --seamarks [venueId...]   (lighthouses, lights, buoys, beacons -> data/venues/<id>.seamarks.json)
+//        node tools/fetch-venues.mjs --traffic [venueId...]   (marinas, pontoons, moorings, anchorages, ferry routes -> data/venues/<id>.traffic.json)
+import { VENUES, overpassQuery, processOSM, landQueries, processLand, World, MAP_RADIUS } from '../js/world.js';
+import { seamarksQuery, processSeamarks } from '../js/seamarks.js';
 import { trafficQuery, processTraffic } from '../js/traffic.js';
 import { writeFileSync, readFileSync } from 'node:fs';
-const LAND = process.argv.includes('--land'), TRAFFIC = process.argv.includes('--traffic');
+const LAND = process.argv.includes('--land'), MARKS = process.argv.includes('--seamarks'), TRAFFIC = process.argv.includes('--traffic');
 const want = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const UA = 'truewind-sailing-sim/1.0 (https://github.com/hclivess/truewind)';
-const ENDPOINTS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
+const ENDPOINTS = ['https://overpass-api.de/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 async function overpass(q) {
   for (let attempt = 0; attempt < 6; attempt++) {
@@ -31,6 +34,20 @@ if (TRAFFIC) {
     writeFileSync(`data/venues/${v.id}.traffic.json`, s);
     console.log(v.id, Object.entries(out).map(([k, a]) => `${k} ${a.length}`).join(', '), (s.length / 1024).toFixed(0) + ' KB');
     await sleep(5000);
+  }
+  process.exit(0);
+}
+if (MARKS) {
+  for (const v of VENUES) {
+    if (v.open || (want.length && !want.includes(v.id))) continue;
+    const R = (v.R ?? MAP_RADIUS) + 600;
+    const osm = await overpass(seamarksQuery(v.lat, v.lon, R));
+    const { region, marks } = processSeamarks(osm, v.lat, v.lon, R);
+    const s = JSON.stringify({ id: v.id, source: 'OpenStreetMap / OpenSeaMap contributors (ODbL)', fetched: new Date().toISOString().slice(0, 10), region, marks });
+    writeFileSync(`data/venues/${v.id}.seamarks.json`, s);
+    const by = {}; for (const m of marks) by[m.t] = (by[m.t] || 0) + 1;
+    console.log(v.id, osm.elements.length, 'elements ->', marks.length, 'marks,', marks.filter(m => m.L).length, 'lit,', (s.length / 1024).toFixed(0) + ' KB', JSON.stringify(by));
+    await sleep(4000);
   }
   process.exit(0);
 }

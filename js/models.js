@@ -62,6 +62,11 @@ const M = {
   cowlIn: () => mat('cowlin', () => new THREE.MeshStandardMaterial({ color: 0xb3261e, roughness: 0.5, side: THREE.DoubleSide })),
   foil: () => mat('foil', () => new THREE.MeshStandardMaterial({ color: 0xf2f2ef, roughness: 0.3 })),
   lead: () => mat('lead', () => new THREE.MeshStandardMaterial({ color: 0x2a2d31, roughness: 0.45, metalness: 0.4 })),
+  // faired and painted foils (the J/70's lead keel and its bulb)
+  paint: () => mat('keelpaint', () => new THREE.MeshStandardMaterial({ color: 0x1e2124, roughness: 0.55, metalness: 0.05 })),
+  // satin-black painted carbon (J/70 mast, boom and sprit) with the class's white measurement bands
+  satin: () => mat('satin', () => new THREE.MeshStandardMaterial({ color: 0x16181b, roughness: 0.55, metalness: 0.15 })),
+  band: () => mat('band', () => new THREE.MeshStandardMaterial({ color: 0xf0f0ec, roughness: 0.5 })),
 };
 
 // Gelcoat topsides (vertex colour) over bottom paint, a boot top and a cove stripe cut crisp at their
@@ -187,9 +192,17 @@ function hullGeometry(C, Lx, yOff = 0) {
   // crisp in the hull shader from each point's height and its station's sheer height
   const pos = [], col = [], shr = [];
   const cTop = new THREE.Color(C.hull.color);
+  // Hobie 16 asymmetric hulls (drawn; the hydrostatics keep the symmetric section of the same area): the inboard
+  // side a flat, near-vertical wall down to a sharp keel, the outboard side round
+  const side2y = (st, k, side) => {
+    const y = st[k][1], sy = side ? -y : y;
+    if (!C.multihull || sy * yOff > 0) return yOff + sy;
+    const b = st[0][1], zt = st[0][2], zb = st[st.length - 1][2], zn = clamp((st[k][2] - zb) / Math.max(0.05, zt - zb), 0, 1);
+    return yOff + Math.sign(sy || -yOff) * (y + Math.max(0, b * 0.9 - y) * 0.6 * sstep(0.08, 0.6, zn));
+  };
   for (let s = 0; s <= NS; s++) for (let k = 0; k < NP; k++) for (let side = 0; side < 2; side++) {
     const [x, y, z] = stations[s][k];
-    pos.push(yOff + (side ? -y : y), z, -x);
+    pos.push(side2y(stations[s], k, side), z, -x);
     col.push(cTop.r, cTop.g, cTop.b); shr.push(stations[s][0][2]);
   }
   const idx = [];
@@ -201,7 +214,7 @@ function hullGeometry(C, Lx, yOff = 0) {
   // transom closure
   const tBase = pos.length / 3;
   const st = stations[0];
-  for (let k = 0; k < NP; k++) { const [x, y, z] = st[k]; pos.push(yOff + y, z, -x, yOff - y, z, -x); col.push(cTop.r, cTop.g, cTop.b, cTop.r, cTop.g, cTop.b); shr.push(st[0][2], st[0][2]); }
+  for (let k = 0; k < NP; k++) { const [x, y, z] = st[k]; pos.push(side2y(st, k, 0), z, -x, side2y(st, k, 1), z, -x); col.push(cTop.r, cTop.g, cTop.b, cTop.r, cTop.g, cTop.b); shr.push(st[0][2], st[0][2]); }
   for (let k = 0; k < NP - 1; k++) { const a = tBase + k * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -295,7 +308,8 @@ const SAILCLOTH = {
   blackwatch: { cloth: 0x9c4f2e, kind: 'dacron', mottle: true, num: '#efe6d2', logo: '#1c1d21', trans: 0.26, rough: 0.66 },
   sportboat: { cloth: 0xd5d8d8, kind: 'laminate', num: '#16233a', logo: '#1d4e89', trans: 0.16, rough: 0.42 },
   dinghy: { cloth: 0xf5f4ef, kind: 'dacron', num: '#1d2a44', logo: '#c8412c', trans: 0.34, rough: 0.6 },
-  cat: { cloth: 0xeef0f2, kind: 'laminate', num: '#1d2a44', logo: '#d9412b', trans: 0.2, rough: 0.45 },
+  // Hobie 16: crosscut Dacron in the classic rainbow bands (foot to head)
+  cat: { cloth: 0xf2f1ec, kind: 'dacron', bands: ['#1f4fa3', '#1f8a4c', '#f2c318', '#f07c1a', '#d4262c'], num: '#111317', logo: '#111317', trans: 0.3, rough: 0.58 },
 };
 const clothOf = (C, s) => s.kind === 'spin' ? { cloth: s.color, kind: 'nylon', num: '#ffffff', logo: '#ffffff', trans: 0.45, rough: 0.5 } : (SAILCLOTH[C.id] || SAILCLOTH.dinghy);
 // One cloth texture per class and sail, shared by both faces and every boat of the class. The sail
@@ -344,6 +358,14 @@ function sailTexture(C, s) {
       g.fillStyle = 'rgba(255,255,255,0.14)'; g.fillRect(0, h * 0.44, w, h * 0.12);
     } else {
       // crosscut Dacron with a faint weave
+      if (cl.bands) {
+        // coloured panels in bands from the foot up (each band a few panels deep)
+        const nb = cl.bands.length;
+        for (let y = panelPx * 0.6 - panelPx; y < h + 40; y += panelPx) {
+          const f = 1 - (y + panelPx * 0.5) / h, c = cl.bands[clamp(Math.floor(f * nb), 0, nb - 1)];
+          g.fillStyle = c; g.beginPath(); g.moveTo(0, y); g.lineTo(w, y + slope(y)); g.lineTo(w, y + panelPx + slope(y + panelPx)); g.lineTo(0, y + panelPx); g.fill();
+        }
+      }
       if (cl.mottle) {
         // tanbark: each panel dyed a shade apart, with soft cloudy blotches through the cloth
         for (let y = panelPx * 0.6 - panelPx, i = 0; y < h + 40; y += panelPx, i++) {
@@ -390,8 +412,11 @@ function sailTexture(C, s) {
     }
     if (s.key === 'main') {
       // batten pockets, perpendicular to the leech, stitched
+      // J/70 (J/Boats sail plan): two full-length battens at the top, two short ones below; Hobie 16: full battens
+      // at the cloth model's rows
       const bat = C.id === 'blackwatch' ? [[0.2, 0.18], [0.4, 0.2], [0.6, 0.2], [0.8, 0.16]] : C.id === 'dinghy' ? [[0.3, 0.2], [0.55, 0.22], [0.8, 0.18]]
-        : [[0.2, 0.25], [0.42, 0.3], [0.64, 0.35], [0.86, 1.0]];
+        : C.id === 'cat' ? [0.14, 0.28, 0.42, 0.56, 0.7, 0.84, 0.95].map(f => [f, 1.0])
+        : [[0.25, 0.47], [0.5, 0.53], [0.74, 1.0], [0.88, 1.0]];
       for (const [f, len] of bat) {
         const y = h * (1 - f), L = w * len, dy = slope(y) * len;
         g.save(); g.translate(0, y); g.rotate(Math.atan2(dy, L));
@@ -406,6 +431,15 @@ function sailTexture(C, s) {
         g.fillStyle = 'rgba(255,255,255,0.9)';
         for (let x = 30; x < w - 30; x += 40) g.fillRect(x, y - 2, 3, 16);
         g.fillStyle = 'rgba(120,110,95,0.9)'; g.beginPath(); g.arc(w - 14, y, 10, 0, 7); g.arc(14, y, 10, 0, 7); g.fill();
+      }
+    }
+    if (s.key === 'jib' && C.id === 'sportboat') { // three short leech battens (J/Boats sail plan)
+      for (const f of [0.2, 0.45, 0.7]) {
+        const y = h * (1 - f), L = w * 0.16, dy = slope(y) * 0.16;
+        g.save(); g.translate(0, y); g.rotate(Math.atan2(dy, L));
+        g.fillStyle = 'rgba(255,255,255,0.45)'; g.fillRect(0, -7, Math.hypot(L, dy), 14);
+        g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(0, -8, Math.hypot(L, dy), 2); g.fillRect(0, 6, Math.hypot(L, dy), 2);
+        g.restore();
       }
     }
     if (s.kind === 'loose' || (s.key === 'main' && C.id === 'dinghy')) { // window
@@ -427,7 +461,13 @@ function sailDecal(C, number) {
     g.textAlign = 'center';
     const logo = C.id === 'blackwatch' ? 'BW' : C.id === 'sportboat' ? 'S23' : C.id === 'dinghy' ? 'S14' : 'C16';
     g.font = 'bold 74px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = cl.logo; g.fillText(logo, 128, 76);
-    if (number) { g.font = 'bold 150px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = cl.num; g.fillText(String(number), 256, 226); }
+    if (number) {
+      // a long number (nation letters and digits) is set smaller: it must clear the leech where the sail
+      // narrows, so it keeps within the middle ~60% of the band (the width a three-digit number takes)
+      let fs = 150; g.font = `bold ${fs}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+      const wd = g.measureText(String(number)).width; if (wd > 300) { fs = Math.floor(fs * 300 / wd); g.font = `bold ${fs}px "Barlow Condensed", "Arial Narrow", sans-serif`; }
+      g.fillStyle = cl.num; g.fillText(String(number), 256, 226 - (150 - fs) * 0.35);
+    }
   });
 }
 
@@ -495,13 +535,23 @@ function transomDecal(C, name, port) {
     g.clearRect(0, 0, w, h);
     g.fillStyle = C.id === 'blackwatch' ? '#c9a24a' : '#1d2a44';
     g.textAlign = 'center';
-    g.font = `italic 700 ${C.id === 'blackwatch' ? 64 : 52}px Georgia, "Times New Roman", serif`;
+    let fs = C.id === 'blackwatch' ? 64 : 52;
+    g.font = `italic 700 ${fs}px Georgia, "Times New Roman", serif`;
+    const wd = g.measureText(name).width; if (wd > w * 0.94) { fs = Math.floor(fs * w * 0.94 / wd); g.font = `italic 700 ${fs}px Georgia, "Times New Roman", serif`; }
     g.fillText(name, w / 2, 66);
     g.font = '600 26px "Barlow Condensed", "Arial Narrow", sans-serif';
     g.fillText(port, w / 2, 108);
   });
 }
 
+// Coachroofs: extent (t = 0 transom .. 1 stem), half width and height of the roof above the centreline deck.
+// Blackwatch (photos of hull #66): a long, fairly high trunk from 40% to 77% of the length, narrowing forward.
+// J/70 (J/Boats deck plan and profile): a low wedge from the cockpit (1.36 m wide, ~0.25 m high at its aft face)
+// tapering to 0.7 m wide at its forward end, 1.6 m aft of the stem, where it fairs into the foredeck.
+const CABIN = {
+  blackwatch: { t0: 0.40, t1: 0.77, h: (t) => 0.4 - 0.03 * (t - 0.4) / 0.37, w: (t) => 0.74 * (1 - 0.5 * sstep(0.5, 1, (t - 0.4) / 0.37) ** 1.5) },
+  sportboat: { t0: 0.515, t1: 0.77, h: (t) => 0.25 * (1 - sstep(0.45, 1.02, (t - 0.515) / 0.255) ** 1.3), w: (t) => lerp(0.68, 0.35, ((t - 0.515) / 0.255) ** 0.9) },
+};
 // ================================================================== assemble
 export function buildBoatModel(boat, opts = {}) {
   const C = boat.cls;
@@ -525,18 +575,20 @@ export function buildBoatModel(boat, opts = {}) {
   const bx = (t) => lerp(C.sternX, C.bowX, t);
   const tAt = (x) => clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1);
   // ---- cockpit layout per class
-  const ck = C.id === 'blackwatch' ? { t0: 0.07, t1: 0.33, w: 0.5, sole: 0.38 }
-    : C.id === 'sportboat' ? { t0: 0.0, t1: 0.44, w: 0.66, sole: 0.3 }
-    : { t0: 0.12, t1: 0.66, w: 0.55, sole: 0.14 };
+  // Blackwatch: cockpit from the aft deck to the companionway (38% of LOD); J/70 (J/Boats deck plan): 1.36 m wide,
+  // from the transom to the aft face of the house 3.3 m aft of the stem; Laser: the short well from just ahead of
+  // the daggerboard (1.55 m aft of the stem) to 3.2 m aft of it, ~0.6 m wide
+  const ck = C.id === 'blackwatch' ? { t0: 0.07, t1: 0.39, w: 0.5, sole: 0.38 }
+    : C.id === 'sportboat' ? { t0: 0.0, t1: 0.515, w: 0.6, sole: 0.3 }
+    : { t0: 0.24, t1: 0.635, w: 0.47, sole: 0.14 };
   const deckH0 = deckHeightFn(C, Lx, ck);
   // top surface: the deck, or the cabin roof where there is a coachroof (fittings sit on whichever is on top)
-  const cab = C.id === 'blackwatch' ? { t0: 0.34, t1: 0.72, h: 0.44, w: (t) => 0.74 * (1 - 0.55 * sstep(0.55, 1, (t - 0.34) / 0.38) ** 1.5) }
-    : C.id === 'sportboat' ? { t0: 0.46, t1: 0.72, h: 0.16, w: () => 0.56 } : null;
+  const cab = CABIN[C.id] || null;
   const deckH = (x, y) => {
     const z = deckH0(x, y);
     if (!cab) return z;
     const t = clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1);
-    return t > cab.t0 && t < cab.t1 && Math.abs(y) < cab.w(t) ? deckH0(x, 0) + cab.h : z;
+    return t > cab.t0 && t < cab.t1 && Math.abs(y) < cab.w(t) ? Math.max(z, deckH0(x, 0) + cab.h(t)) : z;
   };
   const deckTint = C.id === 'blackwatch' ? '#e6dcc4' : C.id === 'sportboat' ? '#dfe2e2' : '#eceae3';
   let deck;
@@ -547,12 +599,16 @@ export function buildBoatModel(boat, opts = {}) {
     deck.receiveShadow = true; deck.castShadow = true; inner.add(deck);
   }
   if (C.multihull) buildCatStructure(kit, inner, C, Lx, deckH);
-  // toerail along the sheer
+  // toe rails: the Blackwatch's mahogany rubrail the length of the sheer; the Laser's rolled deck-to-hull flange; the
+  // J/70's short moulded toe rails on the foredeck only (J/Boats spec: "molded foredeck toe-rails P & S")
   const sheerPts = (side, off = 0) => stations.map(st => { const [x, y, z] = st[0]; return new THREE.Vector3(off + side * y, z + 0.02, -x); });
   if (!C.multihull) for (const side of [-1, 1]) {
-    const pts = sheerPts(side);
-    const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.filter((p, i) => i % 2 === 0)), 60, C.id === 'dinghy' ? 0.015 : 0.022, 5);
-    kit.add(C.id === 'blackwatch' ? M.teak() : M.alu(), tube);
+    let pts = sheerPts(side).filter((p, i) => i % 2 === 0);
+    if (C.id === 'sportboat') pts = sheerPts(side).filter((p, i) => i / (stations.length - 1) > 0.62 && i / (stations.length - 1) < 0.985).map(p => p.set(p.x * 0.985, p.y + 0.01, p.z));
+    else if (C.id === 'dinghy') pts = sheerPts(side).map(p => p.set(p.x * 1.004, p.y - 0.022, p.z));
+    const r = C.id === 'dinghy' ? 0.018 : C.id === 'sportboat' ? 0.016 : 0.022;
+    const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 60, r, 6);
+    kit.add(C.id === 'blackwatch' ? M.teak() : M.gel(topColor), tube);
   }
   // transom lettering
   {
@@ -565,10 +621,27 @@ export function buildBoatModel(boat, opts = {}) {
     const tilt = Math.atan2(xb - xt, zt - zb);          // rake: top of the transom further aft
     const f = 0.55, xm = xb + (xt - xb) * f, zmid = zb + (zt - zb) * f;
     const w = Lx.bDeck(0) * 1.5;
-    const dec = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), new THREE.MeshStandardMaterial({ map: transomDecal(C, C.id === 'blackwatch' ? 'Blackwatch' : C.id === 'sportboat' ? (opts.number ? '#' + opts.number : 'S23') : '', C.id === 'blackwatch' ? 'PROGRESO, YUC.' : ''), transparent: true, roughness: 0.4 }));
-    dec.position.set(0, zmid + Math.sin(tilt) * 0.012, -xm + Math.cos(tilt) * 0.012);
-    dec.rotation.x = tilt;
-    if (C.id !== 'dinghy' && !C.multihull) inner.add(dec);
+    // the boat's name (the player's, or the fleet's); unnamed boats keep the class default; the home port
+    // line only on the player's Blackwatch
+    const name = opts.name || (C.id === 'blackwatch' ? 'Blackwatch' : C.id === 'sportboat' ? (opts.number ? '#' + opts.number : 'S23') : '');
+    const port = C.id === 'blackwatch' && (opts.player || !opts.name) ? 'PROGRESO, YUC.' : '';
+    const mat = new THREE.MeshStandardMaterial({ map: transomDecal(C, name, port), transparent: true, roughness: 0.4 });
+    if (!C.multihull) {
+      const dec = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), mat);
+      // (on the J/70 the name sits to port, clear of the rudder on its centreline gudgeons)
+      dec.position.set(C.id === 'sportboat' ? -w * 0.3 : 0, zmid + Math.sin(tilt) * 0.012, -xm + Math.cos(tilt) * 0.012);
+      dec.rotation.x = tilt;
+      if (name && (C.id !== 'dinghy' || opts.name)) inner.add(dec);
+    } else if (name) {
+      // a catamaran carries its name on the outboard topsides of both hulls, aft
+      const hw = 1.1, y = C.hullSpacing / 2 + C.hullBeam / 2 + 0.015;
+      for (const sd of [-1, 1]) {
+        const dec = new THREE.Mesh(new THREE.PlaneGeometry(hw, hw / 4), mat);
+        dec.position.set(sd * y, zt * 0.62, -(xt + 0.95));
+        dec.rotation.y = sd * Math.PI / 2;
+        inner.add(dec);
+      }
+    }
   }
   // cockpit furniture
   const soleZ = ck.sole;
@@ -583,51 +656,54 @@ export function buildBoatModel(boat, opts = {}) {
     kit.box(M.teak(), cw * 2 - 0.7, 0.03, L * 0.9, V(xm, 0, soleZ + 0.015)); // teak grating sole
     for (let i = 0; i < 9; i++) kit.box(M.black(), cw * 2 - 0.72, 0.012, 0.012, V(xa + 0.1 + i * L * 0.1, 0, soleZ + 0.034));
   } else if (C.id === 'sportboat') {
-    const xa = bx(0.02), xf = bx(ck.t1);
-    kit.box(M.black(), 0.04, 0.08, 0.5, V(xf - 0.6, 0, soleZ + 0.04)); // traveler base / thwart
+    // J/70: an open cockpit with no seats; a moulded centreline foot brace runs aft from the house over the keel
+    // box, and the aft face of the house carries the drop board
+    const xf = bx(ck.t1);
+    kit.box(M.gel(topColor), 0.26, 0.1, 1.85, V(xf - 0.95, 0, soleZ + 0.05));
+    kit.box(M.gel(topColor), 0.3, 0.03, 1.85, V(xf - 0.95, 0, soleZ + 0.1));
   } else {
-    // dinghy: daggerboard trunk, hiking strap posts, mast step
-    kit.box(M.cream(), 0.06, 0.26, 0.42, V(C.keel.x + 0.02, 0, soleZ + 0.13));
+    // Laser: the daggerboard trunk rises from the front of the cockpit floor
+    kit.box(M.gel(topColor), 0.07, 0.2, 0.42, V(C.keel.x + 0.02, 0, soleZ + 0.1));
   }
   // cabin trunk
   if (C.id === 'blackwatch') buildCabin(kit, C, Lx, deckH0, bx);
   if (C.id === 'sportboat') {
-    const xa = bx(0.46), xf = bx(0.72), L = xf - xa;
-    const w = 0.62;
-    const cab = new THREE.BoxGeometry(w * 2, 0.16, L, 1, 1, 1);
-    const p = cab.attributes.position;
-    for (let i = 0; i < p.count; i++) { if (p.getY(i) > 0) { p.setX(i, p.getX(i) * 0.9); if (p.getZ(i) < 0) p.setY(i, p.getY(i) - 0.04); } }
-    cab.computeVertexNormals();
-    cab.translate(0, deckH0((xa + xf) / 2, 0) + 0.06, -(xa + xf) / 2);
-    kit.add(M.deck('#dfe2e2'), cab);
-    kit.box(M.glass(), w * 1.6, 0.05, 0.02, V(xf - 0.02, 0, deckH0(xf, 0) + 0.1)); // forward windows
-    for (const s of [-1, 1]) kit.box(M.glass(), 0.02, 0.05, L * 0.6, V((xa + xf) / 2, s * w * 0.96, deckH0(xa, 0) + 0.1));
-    kit.box(M.black(), 0.5, 0.03, 0.5, V(xa + 0.3, 0, deckH0(xa, 0) + 0.15)); // hatch
+    trunkShell(kit, CABIN.sportboat, deckH0, bx, M.deck('#dfe2e2'), 0.03);
+    const P = CABIN.sportboat, xa = bx(P.t0), zc = deckH0(xa, 0);
+    // moulded companionway cover (hinged at its forward end) aft of the mast, drop board in the aft face
+    const hx = C.mastX - 0.36;
+    kit.box(M.gel(topColor), 0.56, 0.045, 0.5, V(hx, 0, deckH0(hx, 0) + P.h(tAt(hx)) + 0.03));
+    kit.box(M.gel('#c9ccce'), 0.5, 0.2, 0.025, V(xa - 0.005, 0, zc + 0.12));
+    // ventilation hatch on the house ahead of the mast
+    const vx = bx(0.735), vz = deckH0(vx, 0) + P.h(0.735);
+    kit.box(M.alu(), 0.42, 0.03, 0.3, V(vx, 0, vz + 0.02)); kit.box(M.glass(), 0.36, 0.012, 0.24, V(vx, 0, vz + 0.04));
+    // foredeck U-bolt
+    kit.rod(M.steel(), V(C.bowX - 0.55, -0.03, deckH0(C.bowX - 0.55, 0)), V(C.bowX - 0.55, 0.03, deckH0(C.bowX - 0.55, 0) + 0.04), 0.006);
     // deck organisers either side of the mast: the halyards and control lines turn aft here to the clutches
     for (const s of [-1, 1]) {
       const ox = C.mastX - 0.28, oy = s * 0.2, oz = deckH(ox, oy);
       kit.box(M.black(), 0.16, 0.012, 0.06, V(ox, oy, oz + 0.006));
       for (let i = 0; i < 3; i++) { const g = new THREE.CylinderGeometry(0.022, 0.022, 0.012, 12); g.rotateZ(Math.PI / 2); g.translate(oy + (i - 1) * 0.045, oz + 0.026, -ox); kit.add(M.alu(), g); }
     }
-    // forward hatch on the foredeck, and the mast-mounted compass / tactical display facing the cockpit
-    const hx = bx(0.8), hz = deckH(hx, 0);
-    kit.box(M.alu(), 0.46, 0.03, 0.46, V(hx, 0, hz + 0.012)); kit.box(M.glass(), 0.4, 0.012, 0.4, V(hx, 0, hz + 0.03));
+    // the mast-mounted compass facing the cockpit
     kit.box(M.black(), 0.13, 0.1, 0.03, V(C.mastX - 0.08, 0, deckH(C.mastX, 0) + 1.55));
   }
-  // stanchions, pulpit, pushpit, lifelines
-  if (C.id !== 'dinghy' && !C.multihull) buildLifelines(kit, C, Lx, stations, deckH, bx);
+  // the J/70's low safety lines round the cockpit (the Blackwatch and the dinghies carry none)
+  if (C.id === 'sportboat') buildSafetyLines(kit, C, Lx, deckH, bx);
   // mooring cleats, chainplates, nav lights
   const cleatM = C.id === 'blackwatch' ? M.bronze() : M.alu();
   const cleat = (x, y) => { const z = deckH(x, y); kit.box(cleatM, 0.035, 0.03, 0.16, V(x, y, z + 0.035)); kit.box(cleatM, 0.03, 0.035, 0.04, V(x, y, z + 0.015)); };
   if (!C.multihull) { cleat(C.bowX - 0.35, 0); for (const s of [-1, 1]) cleat(C.sternX + 0.3, s * Lx.bDeck(0.05) * 0.8); }
-  const shroudX = C.mastX - 0.1;
+  // shroud chainplates: the J/70's swept-spreader rig takes its shrouds 0.45 m aft of the mast (J/Boats sail plan);
+  // the Hobie's side stays go to the outboard deck edge by the front beam
+  const shroudX = C.id === 'sportboat' ? C.mastX - 0.45 : C.multihull ? C.mastX - 0.12 : C.mastX - 0.1;
   const chain = [];
   for (const s of [-1, 1]) {
-    const y = C.multihull ? s * (C.hullSpacing / 2) : s * Lx.bDeck(tAt(shroudX)) * 0.93, z = deckH(shroudX, y);
+    const y = C.multihull ? s * (C.hullSpacing / 2 + Lx.bDeck(tAt(shroudX)) * 0.8) : s * Lx.bDeck(tAt(shroudX)) * 0.93, z = deckH(shroudX, y);
     chain.push([shroudX, y, z]);
     kit.box(M.steel(), 0.02, 0.06, 0.05, V(shroudX, y, z + 0.02));
   }
-  if (C.id !== 'dinghy' && !C.multihull) {
+  if (C.id === 'blackwatch') {
     const nx = C.bowX - 0.25, ny = Lx.bDeck(tAt(nx)) * 0.8;
     kit.box(M.red(), 0.05, 0.04, 0.07, V(nx, -ny, deckH(nx, -ny) + 0.05));
     kit.box(M.green(), 0.05, 0.04, 0.07, V(nx, ny, deckH(nx, ny) + 0.05));
@@ -649,7 +725,7 @@ export function buildBoatModel(boat, opts = {}) {
       // retractable carbon bowsprit (slides out with the gennaker)
       const L = C.bowsprit + 0.8;
       const g = new THREE.CylinderGeometry(0.035, 0.045, L, 10); g.rotateX(Math.PI / 2); g.translate(0, 0, -L / 2);
-      sprit = new THREE.Mesh(g, M.carbon()); sprit.castShadow = true; sprit.userData.len = L;
+      sprit = new THREE.Mesh(g, C.id === 'sportboat' ? M.satin() : M.carbon()); sprit.castShadow = true; sprit.userData.len = L;
       sprit.position.copy(V(C.bowX + 0.05 - L, 0, Lx.sheer(1) - 0.06));
       inner.add(sprit);
     }
@@ -658,19 +734,24 @@ export function buildBoatModel(boat, opts = {}) {
   const K = C.keel;
   let keelMesh = null;
   if (K.twin) {
-    keelMesh = new THREE.Group();
-    for (const off of offs) { const b = new THREE.Mesh(foilGeom(K.chord, K.span + 0.45, 0.11, 0.9, 0.05), M.foil()); b.position.x = off; b.castShadow = true; keelMesh.add(b); }
-    keelMesh.position.copy(V(K.x + K.chord * 0.35, 0, C.freeboard - 0.05));
-    inner.add(keelMesh);
+    // (a Hobie 16 has no boards: its asymmetric hulls are the lateral plane)
+    if (K.board) {
+      keelMesh = new THREE.Group();
+      for (const off of offs) { const b = new THREE.Mesh(foilGeom(K.chord, K.span + 0.45, 0.11, 0.9, 0.05), M.foil()); b.position.x = off; b.castShadow = true; keelMesh.add(b); }
+      keelMesh.position.copy(V(K.x + K.chord * 0.35, 0, C.freeboard - 0.05));
+      inner.add(keelMesh);
+    }
   } else if (!K.long) {
-    const kg = foilGeom(K.chord, K.span + (K.board ? 0.35 : 0.08), 0.11, K.board ? 0.95 : 0.72, K.board ? 0 : 0.12);
-    keelMesh = new THREE.Mesh(kg, K.board ? M.foil() : M.carbon());
+    // J/70: a painted lead fin, swept and tapered, under a torpedo bulb; Laser: the white daggerboard, parallel-sided
+    const kg = foilGeom(K.chord, K.span + (K.board ? 0.35 : 0.08), K.board ? 0.08 : 0.11, K.board ? 0.95 : 0.72, K.board ? 0 : 0.18);
+    keelMesh = new THREE.Mesh(kg, K.board ? M.foil() : M.paint());
     keelMesh.position.copy(V(K.x + K.chord * 0.35, 0, -C.canoeDraft + 0.06 + (K.board ? 0.35 : 0)));
     keelMesh.castShadow = true;
     inner.add(keelMesh);
     if (C.keelBulb) {
-      const bulb = new THREE.Mesh(lathe([[0, 0], [0.07, 0.08], [0.13, 0.3], [0.15, 0.6], [0.14, 0.95], [0.09, 1.25], [0.02, 1.42], [0, 1.44]], 20), M.lead());
-      bulb.rotation.x = Math.PI / 2; bulb.position.set(0, -K.span - 0.02, -0.55);
+      // the bulb: ~1.3 m long, its nose under the fin's leading edge, flat-topped torpedo
+      const bulb = new THREE.Mesh(lathe([[0, 0], [0.06, 0.06], [0.12, 0.22], [0.145, 0.45], [0.14, 0.75], [0.11, 1.0], [0.06, 1.2], [0.015, 1.3], [0, 1.31]], 20), M.paint());
+      bulb.rotation.x = Math.PI / 2; bulb.scale.set(1.15, 1, 0.85); bulb.position.set(0, -K.span - 0.02, -0.42);
       bulb.castShadow = true; keelMesh.add(bulb);
     }
     if (K.board) { // handle on top of the daggerboard
@@ -682,17 +763,20 @@ export function buildBoatModel(boat, opts = {}) {
   let tillerEnd = new THREE.Vector3();
   const rudderPivots = [];
   if (Rd.twin) {
-    // twin transom rudders with tiller arms joined by a crossbar; the extension hangs off its middle
+    // Hobie 16: kick-up rudders in cast stern brackets on each transom; the tiller arms reach forward and inboard
+    // to the tiller crossbar, which runs aft of the rear beam; the extension hangs off its middle
     rudderPivot.position.copy(V(C.sternX - 0.05, 0, 0));
+    const armL = 0.3;
     for (const off of offs) {
       const pv = new THREE.Group(); pv.position.x = off;
-      const blade = new THREE.Mesh(foilGeom(Rd.chord, Rd.span + C.freeboard, 0.12, 0.8, 0.02), M.foil());
-      blade.position.set(0, C.freeboard, -0.02); blade.castShadow = true; pv.add(blade);
-      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.6, 8), M.alu()); arm.rotation.x = Math.PI / 2; arm.position.set(0, C.freeboard + 0.08, -0.3); pv.add(arm);
+      const blade = new THREE.Mesh(foilGeom(Rd.chord, Rd.span + C.freeboard - 0.05, 0.1, 0.72, 0.1), M.foil());
+      blade.position.set(0, C.freeboard - 0.05, -0.04); blade.castShadow = true; pv.add(blade);
+      const cast = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.2, 0.16), M.black()); cast.position.set(0, C.freeboard - 0.02, 0.02); pv.add(cast);
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, armL + 0.04, 8), M.alu()); arm.rotation.x = Math.PI / 2; arm.position.set(0, C.freeboard + 0.06, -armL / 2); pv.add(arm);
       rudderPivot.add(pv); rudderPivots.push(pv);
     }
-    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, C.hullSpacing, 8), M.alu()); bar.rotation.z = Math.PI / 2; bar.position.set(0, C.freeboard + 0.08, -0.6); rudderPivot.add(bar);
-    tillerEnd.set(0, C.freeboard + 0.1, -0.6);
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, C.hullSpacing, 8), M.alu()); bar.rotation.z = Math.PI / 2; bar.position.set(0, C.freeboard + 0.06, -armL); rudderPivot.add(bar);
+    tillerEnd.set(0, C.freeboard + 0.08, -armL);
   } else if (Rd.transom) {
     // barn-door rudder hung on the transom with bronze pintles, wooden tiller over the transom
     const topZ = Lx.sheer(0) + 0.05, botZ = C.keel.long ? -C.draft + 0.05 : -C.canoeDraft - Rd.span;
@@ -709,7 +793,22 @@ export function buildBoatModel(boat, opts = {}) {
     const tiller = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(tpts), 16, 0.028, 8), M.varnish());
     tiller.castShadow = true; rudderPivot.add(tiller);
     tillerEnd.copy(tpts[3]);
+  } else if (Rd.hung) {
+    // J/70: a high-aspect moulded blade on transom gudgeons, its head at deck level, the composite tiller running
+    // forward over the cockpit
+    const topZ = Lx.sheer(0) - 0.02, botZ = -C.canoeDraft - Rd.span;
+    rudderPivot.position.copy(V(C.sternX - 0.07, 0, 0));
+    const blade = new THREE.Mesh(foilGeom(Rd.chord * 1.05, topZ - botZ, 0.11, 0.62, 0.12), M.gel(0xf4f4f1));
+    blade.position.set(0, topZ, -0.05); blade.castShadow = true; rudderPivot.add(blade);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.2, 0.3), M.black()); head.position.set(0, topZ + 0.03, 0.06); rudderPivot.add(head);
+    for (const z of [topZ - 0.12, 0.12]) { const gd = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.03, 0.07), M.alu()); gd.position.set(0, z, -0.03); rudderPivot.add(gd); }
+    const tLen = 1.05;
+    const tiller = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.028, tLen, 10), M.satin());
+    tiller.rotation.x = Math.PI / 2 - 0.08; tiller.position.set(0, topZ + 0.1, -tLen / 2 + 0.05);
+    tiller.castShadow = true; rudderPivot.add(tiller);
+    tillerEnd.set(0, topZ + 0.14, -tLen + 0.05);
   } else {
+    // Laser: the blade drops into an aluminium rudder head on the transom gudgeons; aluminium tiller
     const topZ = C.id === 'dinghy' ? C.freeboard + 0.05 : -C.canoeDraft + 0.12;
     rudderPivot.position.copy(V(Rd.x + Rd.chord * 0.25, 0, 0));
     const blade = new THREE.Mesh(foilGeom(Rd.chord, Rd.span + Math.max(0, topZ + C.canoeDraft) , 0.12, 0.75, 0.05), M.foil());
@@ -739,38 +838,71 @@ export function buildBoatModel(boat, opts = {}) {
   const rigKit = new Kit();
   const mastBase = deckH(C.mastX, 0) + 0.02;
   const mastLen = C.mastHeight - mastBase;
-  const mastMat = C.id === 'sportboat' ? M.carbon() : M.alu();
+  // J/70: Southern Spars carbon, satin black with white bands; Laser: two-part aluminium (63.5 mm bottom section
+  // to a 2.865 m joint, a slimmer tapered top section) inside the sail's luff sleeve; Hobie 16 and Blackwatch:
+  // anodised aluminium
+  const mastMat = C.id === 'sportboat' ? M.satin() : M.alu();
   const r0 = C.id === 'dinghy' ? 0.032 : C.id === 'sportboat' ? 0.05 : 0.055;
-  const mast = new THREE.Mesh(lathe([[r0, 0], [r0, mastLen * 0.6], [r0 * 0.9, mastLen * 0.8], [r0 * 0.6, mastLen], [0, mastLen]], 14), mastMat);
-  mast.scale.set(1, 1, 1.25); // pear-shaped section, deeper fore-aft
+  const joint = C.id === 'dinghy' ? 2.865 - 0.355 : 0;
+  const mprof = C.id === 'dinghy'
+    ? [[r0, 0], [r0, joint], [0.0254, joint + 0.01], [0.0254, joint + 1.4], [0.02, mastLen - 0.3], [0.016, mastLen], [0, mastLen]]
+    : [[r0, 0], [r0, mastLen * 0.6], [r0 * 0.9, mastLen * 0.8], [r0 * 0.6, mastLen], [0, mastLen]];
+  const mast = new THREE.Mesh(lathe(mprof, 14), mastMat);
+  if (C.id !== 'dinghy') mast.scale.set(1, 1, 1.25); // pear-shaped section, deeper fore-aft (the Laser's is round)
   mast.position.copy(V(C.mastX, 0, mastBase)); mast.castShadow = true; rig.add(mast);
-  rigKit.box(M.black(), 0.012, mastLen * 0.95, 0.012, V(C.mastX - r0 * 1.2, 0, mastBase + mastLen * 0.5)); // luff track
-  rigKit.box(mastMat, 0.07, 0.04, 0.16, V(C.mastX - 0.04, 0, C.mastHeight + 0.01)); // masthead crane
-  rigKit.rod(M.black(), V(C.mastX + 0.02, 0.03, C.mastHeight), V(C.mastX + 0.02, 0.03, C.mastHeight + 0.9), 0.004); // VHF whip
+  if (C.id === 'dinghy') {
+    rigKit.add(M.alu(), new THREE.CylinderGeometry(0.034, 0.034, 0.05, 14).translate(0, mastBase + joint, -C.mastX)); // joint collar
+    // the sail's luff sleeve round the mast from the tack to the head
+    const ML = boat.sailBy.main.luff;
+    rigKit.add(M.cream(), new THREE.CylinderGeometry(0.043, 0.047, ML * 0.97, 14, 1, true).translate(0, C.boomZ + ML * 0.485 + 0.03, -(C.mastX + 0.004)));
+  } else rigKit.box(M.black(), 0.012, mastLen * 0.95, 0.012, V(C.mastX - r0 * 1.2, 0, mastBase + mastLen * 0.5)); // luff track
+  if (C.id === 'sportboat') { // white bands: at the gooseneck, at the top of the mainsail hoist and at the mast foot
+    for (const [z, h] of [[C.boomZ + 0.05, 0.03], [C.boomZ + boat.sailBy.main.luff + 0.05, 0.03], [mastBase + 0.15, 0.02]])
+      rigKit.add(M.band(), new THREE.CylinderGeometry(r0 * 1.02, r0 * 1.02, h, 14).scale(1, 1, 1.25).translate(0, z, -C.mastX));
+  }
+  if (C.id === 'blackwatch' || C.id === 'sportboat') rigKit.box(mastMat, 0.07, 0.04, C.id === 'sportboat' ? 0.3 : 0.16, V(C.mastX - (C.id === 'sportboat' ? 0.1 : 0.04), 0, C.mastHeight + 0.01)); // masthead crane
+  if (C.id === 'blackwatch') rigKit.rod(M.black(), V(C.mastX + 0.02, 0.03, C.mastHeight), V(C.mastX + 0.02, 0.03, C.mastHeight + 0.9), 0.004); // VHF whip
   rigKit.box(M.black(), 0.1, 0.06, 0.08, V(C.mastX - 0.08, 0, C.boomZ)); // gooseneck
   const stay = {}, S = boat.sailBy;
   if (C.multihull) {
+    // Hobie 16: side stays from the hounds to the hull sides, the forestay down to the bridle from the bows, and a
+    // trapeze wire pair each side hanging from the hounds with its ring, handle and shock cord to the hull
     const hounds = C.mastHeight - mastLen * 0.25;
-    for (const s of [-1, 1]) rigKit.rod(M.wire(), V(C.mastX - 0.05, s * C.hullSpacing / 2, C.freeboard + 0.1), V(C.mastX, s * 0.02, hounds), 0.003);
+    for (const s of [-1, 1]) {
+      const [cx, cy, cz] = chain[(s + 1) / 2];
+      rigKit.rod(M.wire(), V(cx, cy, cz + 0.05), V(C.mastX, s * 0.02, hounds), 0.003);
+      for (const dx of [0.1, -0.1]) {
+        const ringP = V(C.mastX - 0.3 + dx, s * (C.hullSpacing / 2 + 0.05), C.freeboard + 1.15);
+        rigKit.rod(M.wire(), V(C.mastX, s * 0.03, hounds - 0.05), ringP, 0.0022);
+        const ring = new THREE.TorusGeometry(0.03, 0.006, 6, 14); ring.rotateY(Math.PI / 2); ring.translate(ringP.x, ringP.y - 0.03, ringP.z); rigKit.add(M.steel(), ring);
+        rigKit.rod(M.black(), ringP.clone().setY(ringP.y - 0.06), ringP.clone().setY(ringP.y - 0.2), 0.012);    // handle
+        rigKit.rod(M.black(), ringP.clone().setY(ringP.y - 0.06), V(C.mastX - 1.2 + dx, s * (C.hullSpacing / 2 + 0.12), C.freeboard + 0.12), 0.003); // shock cord
+      }
+    }
     const J = S.jib; rigKit.rod(M.wire(), V(J.tackX, 0, J.tackZ), V(J.tackX - J.rake, 0, J.tackZ + J.luff + 0.05), 0.0035);
     for (const s of [-1, 1]) rigKit.rod(M.wire(), V(J.tackX, 0, J.tackZ), V(C.bowX - 0.2, s * C.hullSpacing / 2, C.freeboard + 0.15), 0.003); // bridle
   } else if (C.id !== 'dinghy') {
-    const sprZ = mastBase + mastLen * 0.5, sprLen = C.beam * 0.36;
-    const hounds = C.id === 'sportboat' ? C.mastHeight - mastLen * 0.2 : C.mastHeight - 0.25;
+    // J/70: one pair of swept carbon spreaders ~4.3 m above the deck; Blackwatch: aluminium spreaders at mid-height
+    const J = S.jib;
+    const sprZ = C.id === 'sportboat' ? 4.97 : mastBase + mastLen * 0.5, sprLen = C.id === 'sportboat' ? 0.78 : C.beam * 0.36;
+    const hounds = C.id === 'sportboat' ? J.tackZ + J.luff + 0.05 : C.mastHeight - 0.25;
     for (const s of [-1, 1]) {
-      const tip = V(C.mastX - 0.15, s * sprLen, sprZ + 0.06);
-      rigKit.rod(M.alu(), V(C.mastX, s * 0.03, sprZ), tip, 0.018, 6, 0.01);
+      const sweep = C.id === 'sportboat' ? 0.27 : 0.15;
+      const tip = V(C.mastX - sweep, s * sprLen, sprZ + 0.06);
+      rigKit.rod(C.id === 'sportboat' ? M.satin() : M.alu(), V(C.mastX, s * 0.03, sprZ), tip, 0.018, 6, 0.01);
       const [cx, cy, cz] = chain[(s + 1) / 2];
       rigKit.rod(M.wire(), V(cx, cy, cz + 0.05), tip, 0.0035);           // cap shroud, lower part
       rigKit.rod(M.wire(), tip, V(C.mastX, s * 0.02, hounds), 0.0035);     // cap shroud, upper part
-      rigKit.rod(M.wire(), V(cx + 0.3, cy * 0.97, cz + 0.05), V(C.mastX, s * 0.03, sprZ), 0.003); // forward lower
-      rigKit.rod(M.wire(), V(cx - 0.3, cy * 0.97, cz + 0.05), V(C.mastX, s * 0.03, sprZ), 0.003); // aft lower
+      if (C.id === 'sportboat') rigKit.rod(M.wire(), V(cx + 0.08, cy * 0.97, cz + 0.05), V(C.mastX, s * 0.03, sprZ), 0.003); // lower
+      else {
+        rigKit.rod(M.wire(), V(cx + 0.3, cy * 0.97, cz + 0.05), V(C.mastX, s * 0.03, sprZ), 0.003); // forward lower
+        rigKit.rod(M.wire(), V(cx - 0.3, cy * 0.97, cz + 0.05), V(C.mastX, s * 0.03, sprZ), 0.003); // aft lower
+      }
     }
-    const J = S.jib;
     if (J) rigKit.rod(M.wire(), V(J.tackX, 0, J.tackZ), V(J.tackX - J.rake, 0, J.tackZ + J.luff + 0.05), 0.004);
     if (S.stay) rigKit.rod(M.wire(), V(S.stay.tackX, 0, S.stay.tackZ), V(S.stay.tackX - S.stay.rake, 0, S.stay.tackZ + S.stay.luff + 0.05), 0.0035);
     const bsX = C.sternX + (C.id === 'blackwatch' ? -0.02 : 0.05);
-    stay.backstayTop = V(C.mastX - 0.05, 0, C.mastHeight);
+    stay.backstayTop = V(C.mastX - (C.id === 'sportboat' ? 0.22 : 0.05), 0, C.mastHeight);
     stay.backstayLow = V(bsX + 0.25, 0, Lx.sheer(0.02) + 0.15);
     rigKit.rod(M.wire(), stay.backstayTop, stay.backstayLow, 0.0035);
     for (const s of [-1, 1]) rigKit.rod(M.wire(), stay.backstayLow, V(bsX + 0.02, s * Lx.bDeck(0.02) * 0.6, Lx.sheer(0.0)), 0.003); // bridle
@@ -780,6 +912,7 @@ export function buildBoatModel(boat, opts = {}) {
   const windex = new THREE.Group(); windex.position.copy(V(C.mastX, 0, C.mastHeight + 0.14));
   const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.32, 6), M.black()); arrow.rotation.x = -Math.PI / 2; arrow.position.z = -0.22; windex.add(arrow);
   const vane = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.12, 0.18), M.red()); vane.position.z = 0.15; windex.add(vane);
+  windex.visible = C.id !== 'dinghy';   // (a Laser's masthead is bare: its wind indicator sits low on the mast)
   rig.add(windex);
   // ---- booms
   const booms = {};
@@ -791,8 +924,11 @@ export function buildBoatModel(boat, opts = {}) {
     const L = s.foot + 0.08;
     const bgm = lathe([[0.042, 0], [0.047, L * 0.4], [0.04, L * 0.85], [0.03, L], [0, L]], 10);
     bgm.rotateX(Math.PI / 2); bgm.scale(1, 1.3, 1);
-    const boomMesh = new THREE.Mesh(bgm, C.id === 'sportboat' ? M.carbon() : M.alu());
+    const boomMesh = new THREE.Mesh(bgm, C.id === 'sportboat' ? M.satin() : M.alu());
     boomMesh.position.y = -0.05; boomMesh.castShadow = true; piv.add(boomMesh);
+    if (C.id === 'sportboat' && s.key === 'main') { // the white band at the outhaul limit (E)
+      const bnd = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.03, 12), M.band()); bnd.rotation.x = Math.PI / 2; bnd.scale.set(1, 1, 1.3); bnd.position.set(0, -0.05, s.foot); piv.add(bnd);
+    }
     const cap = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.08, 0.08), M.black()); cap.position.set(0, -0.05, L); piv.add(cap);
     if (s.key === 'main' && s.reefs) { // stowed reef bundle along the boom
       const bundle = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, L * 0.8, 4, 10), new THREE.MeshStandardMaterial({ color: clothOf(C, s).cloth, roughness: 0.85 }));
@@ -846,20 +982,16 @@ function buildCatStructure(kit, inner, C, Lx, deckH) {
   for (const s of [-1, 1]) kit.rod(M.black(), V(xf, s * (half - 0.18), z + 0.02), V(xr, s * (half - 0.18), z + 0.02), 0.012); // bolt ropes
 }
 
-function buildCabin(kit, C, Lx, deckH, bx) {
-  // Blackwatch coachroof: cream sides with bronze portlights, varnished eyebrow, teak handrails,
-  // companionway with washboards, cambered roof with non-skid, dorade cowls
-  const t0 = 0.34, t1 = 0.72, N = 20;
-  const pos = [], idx = [], uv = [];
-  const cabinW = (t) => 0.74 * (1 - 0.55 * sstep(0.55, 1, (t - t0) / (t1 - t0)) ** 1.5);
-  const rows = [];
+// A coachroof shell from a CABIN entry: sides from the deck up to the roof edge (a little tumblehome), a cambered
+// roof, closed at both ends
+function trunkShell(kit, P, deckH, bx, material, camber = 0.06) {
+  const N = 20, M2 = 10;
+  const pos = [], idx = [], uv = [], rows = [];
   for (let i = 0; i <= N; i++) {
-    const t = lerp(t0, t1, i / N), x = bx(t), w = cabinW(t);
-    const zd = deckH(x, w * 0.98) - 0.01, zr = deckH(x, 0) + 0.44 - 0.04 * (i / N);
-    const ring = [];
-    const M2 = 10;
-    ring.push([w, zd]); ring.push([w * 0.96, zr - 0.06]);
-    for (let j = 0; j <= M2; j++) { const u = 1 - j / M2; ring.push([w * 0.94 * u, zr + 0.06 * (1 - u * u)]); }
+    const t = lerp(P.t0, P.t1, i / N), x = bx(t), w = P.w(t), h = P.h(t);
+    const zd = deckH(x, w * 0.98) - 0.01, zr = deckH(x, 0) + h;
+    const ring = [[w, zd], [w * 0.96, Math.max(zd, zr - camber)]];
+    for (let j = 0; j <= M2; j++) { const u = 1 - j / M2; ring.push([w * 0.94 * u, Math.max(zd, zr - camber + camber * (1 - u * u))]); }
     rows.push({ x, ring });
   }
   const R = rows[0].ring.length;
@@ -871,10 +1003,8 @@ function buildCabin(kit, C, Lx, deckH, bx) {
     const a = vid(i, side, j), b = vid(i + 1, side, j), c = vid(i + 1, side, j + 1), d = vid(i, side, j + 1);
     if (side === 0) idx.push(a, b, d, b, c, d); else idx.push(a, d, b, b, d, c);
   }
-  // end caps
   for (const [i, flip] of [[0, false], [N, true]]) {
-    const base = pos.length / 3;
-    const ring = rows[i].ring;
+    const base = pos.length / 3, ring = rows[i].ring;
     const cx = rows[i].x, cz = ring[ring.length - 1][1] * 0.5 + ring[0][1] * 0.5;
     pos.push(0, cz, -cx); uv.push(0, 0);
     for (const side of [1, -1]) for (const [y, z] of ring) { pos.push(side * y, z, -cx); uv.push(y, z); }
@@ -885,64 +1015,65 @@ function buildCabin(kit, C, Lx, deckH, bx) {
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx); g.computeVertexNormals();
-  kit.add(M.cream(), g);
-  // eyebrow trim, portlights, handrails, companionway, dorades
+  kit.add(material, g);
+}
+
+function buildCabin(kit, C, Lx, deckH, bx) {
+  // Blackwatch coachroof: cream sides with two bronze-framed oval portlights a side (four in all), teak
+  // handrails, companionway with washboards, cambered roof, mushroom vents
+  const P = CABIN.blackwatch, t0 = P.t0, t1 = P.t1;
+  trunkShell(kit, P, deckH, bx, M.cream());
   for (const s of [-1, 1]) {
-    for (let k = 0; k < 3; k++) {
-      const t = lerp(t0 + 0.05, t1 - 0.1, k / 2), x = bx(t), w = cabinW(t);
-      const z = deckH(x, w) + 0.2;
-      const ring = new THREE.TorusGeometry(0.075, 0.016, 8, 18); ring.rotateY(Math.PI / 2); ring.translate(s * (w * 0.985 + 0.004), z, -x);
+    for (const t of [0.5, 0.64]) {
+      const x = bx(t), w = P.w(t), z = deckH(x, w) + 0.19;
+      const ring = new THREE.TorusGeometry(0.075, 0.015, 8, 20); ring.scale(1.55, 0.8, 1); ring.rotateY(Math.PI / 2); ring.translate(s * (w * 0.975 + 0.004), z, -x);
       kit.add(M.bronze(), ring);
-      const gl = new THREE.CircleGeometry(0.066, 16); gl.rotateY(s * Math.PI / 2); gl.translate(s * (w * 0.985 + 0.006), z, -x);
+      const gl = new THREE.CircleGeometry(0.072, 18); gl.scale(1.55, 0.8, 1); gl.rotateY(s * Math.PI / 2); gl.translate(s * (w * 0.975 + 0.006), z, -x);
       kit.add(M.glass(), gl);
     }
     const xa = bx(t0 + 0.04), xf = bx(t1 - 0.08), xm = (xa + xf) / 2;
-    const zr = deckH(xm, 0) + 0.49;
+    const zr = deckH(xm, 0) + P.h(tAtX(C, xm)) + 0.05;
     kit.box(M.varnish(), 0.035, 0.04, xf - xa, V(xm, s * 0.42, zr + 0.05));
     for (let k = 0; k < 4; k++) kit.box(M.varnish(), 0.035, 0.05, 0.035, V(lerp(xa, xf, (k + 0.5) / 4), s * 0.42, zr + 0.02));
   }
   const xa = bx(t0);
-  const zc = deckH(xa, 0);
-  kit.box(M.varnish(), 0.62, 0.38, 0.04, V(xa - 0.005, 0, zc + 0.2));                 // washboards
-  kit.box(M.cream(), 0.66, 0.05, 0.6, V(xa + 0.25, 0, zc + 0.5));                       // sliding hatch
-  for (const s of [-1, 1]) kit.box(M.varnish(), 0.03, 0.05, 0.62, V(xa + 0.25, s * 0.34, zc + 0.47));
+  const zc = deckH(xa, 0), hc = P.h(t0);
+  kit.box(M.varnish(), 0.62, hc - 0.06, 0.04, V(xa - 0.005, 0, zc + (hc - 0.06) / 2));   // washboards
+  kit.box(M.cream(), 0.66, 0.05, 0.6, V(xa + 0.25, 0, zc + hc + 0.06));                 // sliding hatch
+  for (const s of [-1, 1]) kit.box(M.varnish(), 0.03, 0.05, 0.62, V(xa + 0.25, s * 0.34, zc + hc + 0.03));
   for (const s of [-1, 1]) { // low mushroom vents: clear of the main boom and staysail club
-    const x = bx(t1 - 0.12), y = s * 0.3, z = deckH(x, 0) + 0.44;
+    const x = bx(t1 - 0.1), y = s * 0.24, z = deckH(x, 0) + P.h(t1 - 0.1);
     const g = new THREE.CylinderGeometry(0.07, 0.08, 0.05, 16); g.translate(y, z + 0.025, -x);
     kit.add(M.bronze(), g);
   }
 }
 
-function buildLifelines(kit, C, Lx, stations, deckH, bx) {
-  const posts = [];
-  const tA = C.id === 'blackwatch' ? 0.1 : 0.06, tB = 0.86;
-  const n = Math.round((bx(tB) - bx(tA)) / 0.95);
+// J/70 (J/Boats spec): "four low height SS stanchions and two reinforced SS stern rails at transom corners, 12"
+// safety lines surrounding the cockpit ... termination points on deck edge forward of shrouds". No pulpit.
+function buildSafetyLines(kit, C, Lx, deckH, bx) {
+  const H = 0.32;
   for (const s of [-1, 1]) {
-    const pts = [];
-    for (let i = 0; i <= n; i++) {
-      const t = lerp(tA, tB, i / n), x = bx(t), y = s * Lx.bDeck(t) * 0.95, z = deckH(x, y);
-      const top = V(x, y * 1.02, z + 0.62);
-      kit.rod(M.steel(), V(x, y, z), top, 0.012);
-      kit.box(M.steel(), 0.05, 0.012, 0.06, V(x, y, z + 0.006));
-      pts.push(top);
+    const edge = (x) => s * Lx.bDeck(tAtX(C, x)) * 0.94;
+    const xs = C.sternX + 0.12, xe = C.mastX + 0.25;
+    // stern rail: a hoop on the transom corner
+    const ys = edge(xs), zs = deckH(xs, ys);
+    const rail = [V(xs + 0.45, ys * 0.99, zs), V(xs + 0.42, ys * 1.0, zs + H + 0.06), V(xs + 0.05, ys, zs + H + 0.08), V(xs, ys * 0.9, zs + H + 0.06), V(xs, ys * 0.82, zs)];
+    kit.add(M.steel(), new THREE.TubeGeometry(new THREE.CatmullRomCurve3(rail), 16, 0.013, 6));
+    // two stanchions a side along the cockpit
+    const tops = [V(xs + 0.42, ys, zs + H + 0.06)];
+    for (const f of [0.33, 0.66]) {
+      const x = lerp(xs + 0.42, xe, f), y = edge(x), z = deckH(x, y);
+      kit.rod(M.steel(), V(x, y, z), V(x, y, z + H), 0.011);
+      kit.box(M.steel(), 0.05, 0.01, 0.06, V(x, y, z + 0.005));
+      tops.push(V(x, y, z + H));
     }
-    posts.push(pts);
-    // pushpit and pulpit legs
-    const xs = C.sternX + 0.2, ys = s * Lx.bDeck(0.02) * 0.85;
-    kit.rod(M.steel(), V(xs, ys, deckH(xs, ys)), V(xs, ys, deckH(xs, ys) + 0.65), 0.014);
-    const xb = C.bowX - 0.35, yb = s * Lx.bDeck(tAtX(C, xb)) * 0.8;
-    kit.rod(M.steel(), V(xb, yb, deckH(xb, yb)), V(xb, yb, deckH(xb, yb) + 0.62), 0.014);
-    // lifelines (upper and middle) as slightly sagging wires
-    for (const h of [0, -0.3]) {
-      const line = [V(xb, yb, deckH(xb, yb) + 0.62 + h), ...pts.slice().reverse().map(p => p.clone().setY(p.y + h)), V(xs, ys, deckH(xs, ys) + 0.65 + h)];
-      kit.add(M.wire(), new THREE.TubeGeometry(new THREE.CatmullRomCurve3(line), line.length * 3, 0.0035, 4));
-    }
+    const ye = edge(xe);
+    tops.push(V(xe, ye, deckH(xe, ye) + 0.02));
+    kit.add(M.wire(), new THREE.TubeGeometry(new THREE.CatmullRomCurve3(tops), 24, 0.004, 4));
   }
-  // pushpit rail across the stern and pulpit hoop at the bow
-  const xs = C.sternX + 0.2, zs = deckH(xs, 0) + 0.65, yw = Lx.bDeck(0.02) * 0.85;
-  kit.add(M.steel(), new THREE.TubeGeometry(new THREE.CatmullRomCurve3([V(xs, -yw, zs), V(xs - 0.05, 0, zs + 0.02), V(xs, yw, zs)]), 12, 0.014, 6));
-  const xb = C.bowX - 0.35, zb = deckH(xb, 0) + 0.62, yb = Lx.bDeck(tAtX(C, xb)) * 0.8;
-  kit.add(M.steel(), new THREE.TubeGeometry(new THREE.CatmullRomCurve3([V(xb, -yb, zb), V(C.bowX - 0.05, 0, zb + 0.03), V(xb, yb, zb)]), 12, 0.014, 6));
+  // the transom gate: a line across between the stern rails
+  const xs = C.sternX + 0.12, y = Lx.bDeck(tAtX(C, xs)) * 0.94 * 0.86, z = deckH(xs, y) + H + 0.06;
+  kit.add(M.wire(), new THREE.TubeGeometry(new THREE.CatmullRomCurve3([V(xs, -y, z), V(xs - 0.01, 0, z - 0.03), V(xs, y, z)]), 8, 0.004, 4));
 }
 const tAtX = (C, x) => clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1);
 

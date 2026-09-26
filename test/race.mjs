@@ -5,8 +5,8 @@ import { loadBakedPolars } from '../js/sail/surrogate.js';
 import { VENUES, World } from '../js/world.js';
 import { Course, Race, AIHelm, applyWindShadow, resolveCollisions } from '../js/race.js';
 import { readFileSync } from 'node:fs';
-// SEED=n makes the AI personalities (Math.random) repeatable
-if (process.env.SEED) { let a = +process.env.SEED >>> 0; Math.random = () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+// SEED=n: the race seed the AI personalities are drawn from (as the game's; repeatable either way)
+const SEED = +(process.env.SEED ?? 0);
 const [vid='solent', cls='sportboat', nb='6', mins='25'] = process.argv.slice(2);
 const v = VENUES.find(x=>x.id===vid);
 const geo = v.open ? null : JSON.parse(readFileSync(`data/venues/${vid}.json`));
@@ -22,7 +22,7 @@ const course = new Course(world, env.wind.twd, { length: 800, laps: 1, lineLengt
 console.log('course len', course.L.toFixed(0), 'origin', course.origin.x.toFixed(0), course.origin.z.toFixed(0), 'depth at W', world.depthAt(course.windward.x, course.windward.z).toFixed(1));
 const boats = [], ais = [];   // (the AI fleet sails at L1 in the game: LOD=0/1/2 to change it; a big fleet has only
 // the NCLOTH nearest the camera in cloth, the rest on the strip model: NCLOTH=n puts boats n.. at L2)
-for (let i=0;i<+nb;i++){ const b=new Boat(cls,{id:i, lod: i < +(process.env.NCLOTH ?? 1e9) ? +(process.env.LOD ?? 1) : 2}); const off=(i-(+nb)/2)*16; b.reset(course.origin.x - course.ux*150 + course.rx*off, course.origin.z - course.uz*150 + course.rz*off, env.wind.twd+Math.PI/2); boats.push(b); const a=new AIHelm(b,{startFrac:i/(+nb), skill: 0.85+0.03*i}); a.targetsUpBsp=vt.up.bsp; ais.push(a);}
+for (let i=0;i<+nb;i++){ const b=new Boat(cls,{id:i, lod: i < +(process.env.NCLOTH ?? 1e9) ? +(process.env.LOD ?? 1) : 2}); const off=(i-(+nb)/2)*16; b.reset(course.origin.x - course.ux*150 + course.rx*off, course.origin.z - course.uz*150 + course.rz*off, env.wind.twd+Math.PI/2); boats.push(b); const a=new AIHelm(b,{seed: SEED, startFrac:i/(+nb), skill: 0.85+0.03*i}); a.targetsUpBsp=vt.up.bsp; ais.push(a);}
 const race = new Race(course, boats, { countdown: 90 });
 const sim = { boats, world, race, env };   // as in the game: the AI reads the tide field
 const dt=1/120; let t=0; let aground=0;   // (dt: the game's physics step)
