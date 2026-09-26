@@ -70,6 +70,7 @@ export default {
     bumpkin: { len: 1.0, dz: 0.1 },
     masts: { main: { mat: 'alu', r: 0.075, spreaders: [{ f: 0.52, len: 1.0, sweep: 0 }] } },
     backstay: { split: false, x: -5.75, z: 1.35 },
+    hullName: { t: 0.1, z: 1.0, len: 1.1, color: '#1b3d2f' },   // (a canoe stern: the name goes on the quarters)
   },
   hw: { trav: [-4.3, 0.55], boomS: 0.96, winch: [-2.3, 1.1], jibTrack: [0.6, -0.6, 1.5], clutchX: -0.4, winchR: 0.07, bronze: true, helm: 'Tiller' },
 };

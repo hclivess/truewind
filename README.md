@@ -55,6 +55,17 @@ You can also type any latitude and longitude on Earth. The game then downloads t
 - **Free sail.** You sail anywhere. Click the tactical map to drop a waypoint, and the instruments switch to VMC (velocity made good on course) with laylines. Time warp is available up to ×8.
 - **Race.** A windward–leeward course is laid automatically in open water on the real map. It has a start sequence with signals, an OCS (over the line early) call with a dip-back requirement, a windward mark rounded to port, a leeward gate and a finish. The AI fleet sails the same physics as you do.
 
+## Navigation
+
+Every venue carries its real seamarks from OpenStreetMap / OpenSeaMap (`data/venues/<id>.seamarks.json`; a custom location fetches them live with its coastline): lighthouses and harbour lights, lateral, cardinal, isolated-danger, safe-water and special marks, light floats, wrecks and rocks. Major lights up to about 28 km outside the sailing area are included, so their loom shows from the water (the Needles from the Solent, Point Judith from Newport).
+
+- **On the water.** Buoys have their IALA shape (can, conical, pillar, spar, spherical), colours and topmark and ride the waves; beacons stand on posts, piles or towers; lighthouses are towers of the tagged height and colours. Where the tags leave colours out, the IALA region decides (A: red to port; B, the Americas, Japan, Korea and the Philippines: green to port). Buoys and beacons are solid.
+- **Lights.** From dusk every light shows its real characteristic, colour and period — Fl(2) G 5s, Q(6)+LFl 15s, Oc(3) 15s, Iso, Mo(A), alternating and sector lights (coloured by your bearing from the light) — as a glowing point that fades with range, haze and the curve of the Earth. Lights on rotating optics sweep a beam. Lighthouses the map gives no light for show an assumed Fl W 10s (marked `?` on the chart).
+- **Chart** (`Tab`, or **Chart** on the toolbar): north up, with the coastline, depth bands from the depth estimate, the seamarks in simplified INT-1 symbols with their light characteristics and sectors, your track and 6-minute COG/SOG vector, the race course, a lat/lon grid and a scale. Drag to pan, wheel or pinch to zoom, click or tap to set a waypoint (on a seamark: steer for it); hover a mark for its details. **Labels** turns the names off.
+- **Nav readout** (under the tactical map): COG, SOG, depth, position, and to the waypoint (in a race, the next mark) BRG, DTW, XTE, VMC and ETA. The steering compass above the instruments shows the heading, COG (orange), the bearing to the waypoint (blue) and the wind.
+
+`node test/seamarks.mjs` checks the light timings, sectors, labels, IALA regions and every venue's seamarks; `node tools/fetch-venues.mjs --seamarks [id…]` re-bakes them.
+
 ## Online: a shared world
 
 Pick **Online**, then type a name and a room (or leave it on `public`). Everyone who chooses the same venue and room sails in one world. Boats can be different classes: a Blackwatch can share Progreso with dinghies.
@@ -109,7 +120,7 @@ The lighter model splits each sail into three horizontal strips. Each strip's ca
 
 ### Environment
 - **Wind.** Puffs and lulls are noise in space and time: they are carried downwind at about the mean wind speed, stretched along it, and grow and die as they go, so the pattern never repeats. Puffs come down from aloft carrying a veered wind (backed south of the equator) and fan out as they land, lifting you on one edge and heading you on the other. Oscillating and spatial shifts are layered on top. Land upwind shelters the wind, which recovers over roughly a kilometre of open water.
-- **Weather.** Steady, changing or squally. The gradient wind drifts in speed and direction over tens of minutes, and a sea breeze or land breeze builds and fades with the real sun at the venue. In squally weather a cumulonimbus cell comes through about every 11 minutes. Each one is born, towers up to an anvil, and dies over about 70 minutes while it tracks across with the wind aloft. Ahead of it the wind lulls into the updraft; under it the gust front hits, veered on one flank and backed on the other, with heavy rain that closes the visibility. Behind it the air is light and fitful. Mature cells throw lightning. Everything is a function of the seed and the clock, so everyone in a shared room gets the same squall at the same moment.
+- **Weather.** Steady, changing or squally. The gradient wind drifts in speed and direction over tens of minutes, and a sea breeze or land breeze builds and fades with the real sun at the venue. Where the wind that matters comes from beyond the map, the venue adds it as regional forcing, driven by the same sun with the region's own slower memory and blowing along the terrain: at Lake Garda the Pelèr blows down the lake at 10-20 kn from the small hours until late morning and the Ora comes up it from about noon, 15-25 kn through a summer afternoon, gone by evening; in San Francisco the Golden Gate westerly (the Pacific against the Central Valley's heat) is light in the morning, 15-25 kn WSW through the afternoon and still blowing at dusk, and weak in winter. There the wind slider sets the gradient under the thermal. Changing the time of day in the menu moves the breeze and the sea with the sky. In squally weather a cumulonimbus cell comes through about every 11 minutes. Each one is born, towers up to an anvil, and dies over about 70 minutes while it tracks across with the wind aloft. Ahead of it the wind lulls into the updraft; under it the gust front hits, veered on one flank and backed on the other, with heavy rain that closes the visibility. Behind it the air is light and fitful. Mature cells throw lightning; a flash lights the storm's base from inside and the shelf cloud beneath it through its own tiers. You hear the rain at your position, from a hiss on the water and a patter on deck to a drumming roar in the core, and thunder from the strike's bearing: a sharp crack close by, a long low rumble from far off, arriving at the speed of sound. Everything is a function of the seed and the clock, so everyone in a shared room gets the same squall at the same moment.
 - **Waves.** A fetch-limited JONSWAP sea is grown from wind speed and the real upwind fetch to the coastline, and discretised into Gerstner components, with optional ocean swell. The GPU shader and the physics use the same components. Waves push the hull (Froude–Krylov surge force, so you surf), roll it, yaw it, and shrink in the lee and in shallow water.
 - **Tide.** A current field is applied over ground. The instruments work like real ones: TWS and TWA are computed from the masthead unit and boat speed through the water.
 - **Depth.** Estimated bathymetry shelves out from the real shoreline with shoals. Your keel or board can run aground.
@@ -163,6 +174,7 @@ These are the honest limits:
 | `T` `H` | Auto-trim / auto-hike |
 | `1`–`7` | Cameras: chase, helm, bow, masthead, overhead, orbit, on deck |
 | `L` `K` `I` | Laylines, force vectors, physics readout |
+| `Tab` | Chart (click or tap it for a waypoint) |
 | `-` `=` | Time warp |
 | `P` `Esc` | Pause, menu |
 | `O` | Sound on / off |
@@ -191,7 +203,8 @@ Development tools:
 - `node test/race.mjs solent sportboat 6 25` runs a headless AI race on a real map.
 - `node test/vlm.mjs`, `node test/cloth.mjs` and `node test/sailshape.mjs [class]` check the vortex lattice, the sailcloth and the cloth sails' shapes. `node test/bench.mjs [class]` times one physics step per sail model, `node test/bench-fleet.mjs [class] [n]` a race fleet.
 - `node tools/bake-sail-surrogate.mjs [class…]` re-bakes the cloth sails' polars into `data/sails/` (about 15 minutes for all four classes on 10 cores). Tests run with the cloth sails; `SAILS=strip` runs them with the strip model.
-- `node tools/fetch-venues.mjs [id…]` re-bakes venues from OpenStreetMap.
+- `node tools/fetch-venues.mjs [id…]` re-bakes venues from OpenStreetMap (`--land` for buildings and roads, `--seamarks` for lights, buoys and beacons).
+- `node test/seamarks.mjs` checks light characters, sectors, IALA regions and the venues' seamarks.
 
 ## Credits and licences
 

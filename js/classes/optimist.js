@@ -33,11 +33,7 @@ export default {
   ],
   hull: { color: 0xf6f6f2, stripe: 0xd8352a, deck: 0xf0efe8, boot: 0xf6f6f2, bare: true, levels: [-9, -9, 0.05, 0.02] },
   sailcloth: { cloth: 0xf6f5f0, kind: 'dacron', num: '#1d2a44', logo: '#1d4e89', trans: 0.36, rough: 0.6 },
-  // the class emblem: a little Optimist under sail
-  insignia: (g, cx, cy, cl) => {
-    g.fillStyle = cl.logo; g.beginPath(); g.moveTo(cx - 40, cy + 22); g.lineTo(cx + 44, cy + 22); g.lineTo(cx + 34, cy + 36); g.lineTo(cx - 32, cy + 36); g.fill();
-    g.beginPath(); g.moveTo(cx - 6, cy + 16); g.lineTo(cx - 6, cy - 40); g.lineTo(cx + 30, cy - 18); g.lineTo(cx + 38, cy + 16); g.fill();
-  },
+  insignia: 'OPTI',
   lines: {
     sheer: [[0, 0.38], [0.5, 0.39], [1, 0.44]],
     deck: [[0, 0.8], [0.15, 0.92], [0.45, 1.0], [0.75, 0.94], [1, 0.62]],
@@ -46,6 +42,7 @@ export default {
     bilge: 6, dead: 0.08, flare: 1.0, crown: 0.02, transomRake: 0.12, stemX: 0.18,
   },
   model: {
+    nameAt: false,
     cockpit: { t0: 0.02, t1: 0.9, w: 0.84, sole: 0.02, seats: false, coaming: 0 },
     bowTransom: true,
     deck: 'nonskid', deckTint: '#f0efe8', toerail: 'teak', cleats: false, navLights: false, windex: false,

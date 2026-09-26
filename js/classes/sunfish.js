@@ -38,10 +38,12 @@ export default {
   // the rainbow sail: red, orange, yellow, green, blue bands across the head, as the classic Sunfish wears them
   sailcloth: { cloth: 0xf6f5f0, kind: 'dacron', num: '#1d2a44', logo: '#e05a1a', trans: 0.36, rough: 0.55,
     stripes: [[0.52, 0.6, '#d8312b'], [0.6, 0.68, '#ef7d1a'], [0.68, 0.76, '#f3c623'], [0.76, 0.84, '#3a9b44'], [0.84, 0.92, '#1f6fb5']] },
-  // the sunburst emblem
+  // the class emblem: the sunfish itself, a deep round-bodied fish in outline
   insignia: (g, cx, cy, cl) => {
-    g.fillStyle = '#e8a51c'; g.beginPath(); g.arc(cx, cy, 22, 0, 7); g.fill();
-    g.strokeStyle = '#e05a1a'; g.lineWidth = 6; for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; g.beginPath(); g.moveTo(cx + 28 * Math.cos(a), cy + 28 * Math.sin(a)); g.lineTo(cx + 44 * Math.cos(a), cy + 44 * Math.sin(a)); g.stroke(); }
+    g.strokeStyle = '#e05a1a'; g.fillStyle = 'rgba(240,160,40,0.9)'; g.lineWidth = 5;
+    g.beginPath(); g.moveTo(cx + 46, cy); g.bezierCurveTo(cx + 30, cy - 40, cx - 20, cy - 44, cx - 38, cy - 6); g.lineTo(cx - 62, cy - 30); g.lineTo(cx - 56, cy + 2);
+    g.lineTo(cx - 62, cy + 32); g.lineTo(cx - 38, cy + 8); g.bezierCurveTo(cx - 20, cy + 44, cx + 30, cy + 40, cx + 46, cy); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = '#1d2a44'; g.beginPath(); g.arc(cx + 26, cy - 8, 5, 0, 7); g.fill();
   },
   lines: {
     sheer: [[0, 0.24], [0.5, 0.25], [0.85, 0.3], [1, 0.34]],
@@ -51,6 +53,7 @@ export default {
     bilge: [[0, 4], [0.5, 3], [1, 2]], dead: [[0, 0.1], [0.6, 0.2], [1, 0.6]], flare: 1.0, crown: 0.02, transomRake: 0.05,
   },
   model: {
+    nameAt: false,
     cockpit: { t0: 0.26, t1: 0.46, w: 0.36, sole: 0.02, seats: false, coaming: 0.03 },
     deck: 'nonskid', deckTint: '#f4f4ef', toerail: 'alu', cleats: false, navLights: false, windex: false,
     steering: { kind: 'tiller', len: 0.8, rise: 0.05, mat: 'alu', extension: 0.8, r: 0.016 },

@@ -81,6 +81,14 @@ export function thunderDue(list, lx, ly, lz, tPrev, t, base, out = []) {
   }
   return out;
 }
+// where a strike is heard from: pan (-1 left .. +1 right) across a camera looking along (fx, fz) (horizontal,
+// x east / z south), and front (+1 dead ahead .. -1 dead astern)
+export function thunderBearing(s, lx, lz, fx, fz, out = {}) {
+  const fh = Math.hypot(fx, fz) || 1, ux = fx / fh, uz = fz / fh;
+  const dx = s.x - lx, dz = s.z - lz, dh = Math.hypot(dx, dz) || 1;
+  out.pan = (ux * dz - uz * dx) / dh; out.front = (ux * dx + uz * dz) / dh;
+  return out;
+}
 // the bolt of a cloud-to-ground strike: a branched channel from the cloud base to the sea, fractal
 // (midpoint displacement), the same everywhere for the same strike. Returns [x0,y0,z0,x1,y1,z1,I, ...]
 export function boltSegments(s, top) {

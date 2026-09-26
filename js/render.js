@@ -10,7 +10,8 @@ import { buildStructures, indexFeatures, structureMask } from './structures.js';
 import { HullSplash, SeaSpray, NOISE as FOAM_NOISE } from './splash.js';
 import { loadLand, buildTerrain, buildScenery, setSceneryNight, tickScenery } from './scenery.js';
 import { SkySystem, SKY_LUT_GLSL, CLOUD_GLSL, withCloudShadows, sunPosition, MIST_U } from './sky.js';
-import { strikes, flashAt, thunderDue, boltSegments, convection, heatFromSun, mist, mistTau } from './wx.js';
+import { strikes, flashAt, thunderDue, thunderBearing, boltSegments, convection, heatFromSun, mist, mistTau } from './wx.js';
+import { SeamarkLayer } from './seamark-render.js';
 
 const MAXW = 20;
 const FOAM_N = 512;   // persistent-foam map resolution (texels a side)
@@ -727,7 +728,7 @@ export class Renderer {
     // visibility: heavy rain closes it to ~1-2 km, and the haze turns rain-grey (applied to the fog colour in update)
     this.scene.fog.density = 0.00011 + 0.0012 * sky.rain;
     this.waterU.fogDensity.value = this.scene.fog.density;
-    this._rainFog = sky.rain;
+    this._rainFog = this.rainNow = sky.rain;     // (rainNow: what the listener hears, audio.js)
     // mist and sea fog (wx.mist): a layer at the surface, eased like the clouds
     const hour = ((ms / 3.6e6 + lon / 15) % 24 + 24) % 24;
     const mi = this.mistState = mist(W.mode, W.seed ?? 0, t, S.sunEl ?? 0.5, hour, lat, kts, sky.cold || 0, this.mistState || {});
@@ -783,7 +784,10 @@ export class Renderer {
       }
     }
     for (let i = nb; i < this.bolts.length; i++) this.bolts[i].visible = false;
-    if (best) U.uFlash.value.set(best.x, best.cg ? base + 400 : best.y, best.z, bestI * (2 + 5 * clamp((0.05 - (this.skySys.sunEl ?? 0.5)) / 0.15, 0, 1)))   // (a flash is far brighter against a night sky); else U.uFlash.value.w = 0;
+    // (a flash is far brighter against a night sky; none now: the cloud goes dark, not left at the last flash)
+    if (best) U.uFlash.value.set(best.x, best.cg ? base + 400 : best.y, best.z, bestI * (2 + 5 * clamp((0.05 - (this.skySys.sunEl ?? 0.5)) / 0.15, 0, 1)));
+    else U.uFlash.value.w = 0;
+    U.uFlashCG.value = best && best.cg ? 1 : 0;
     if (bestI > 0) this._lastFlashT = t;
     this.skySys.noHist = bestI > 0 || t - (this._lastFlashT ?? -1e9) < 0.25;
     this._flashLight = light;
@@ -791,10 +795,15 @@ export class Renderer {
     // the camera, so it waits through a pause and hurries with time warp; audio.js listens for the event
     const due = thunderDue(list, cam.x, cam.y, cam.z, this._thT ?? t, t, base, this._due || (this._due = []));
     this._thT = t;
-    for (const e of due) {
-      this.thunderLog.push({ id: e.s.id, ts: e.s.ts, t, d: e.d, cg: e.s.cg });
-      if (this.thunderLog.length > 50) this.thunderLog.shift();
-      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('truewind:thunder', { detail: { d: e.d, spread: e.far - e.d, seed: e.s.seed, cg: e.s.cg } }));
+    if (due.length) {
+      // the strike's bearing from the camera: pan across the camera's right, and how far ahead of it
+      const cd = this.camera.getWorldDirection(this._thDir || (this._thDir = new THREE.Vector3()));
+      for (const e of due) {
+        const { pan, front } = thunderBearing(e.s, cam.x, cam.z, cd.x, cd.z);
+        this.thunderLog.push({ id: e.s.id, ts: e.s.ts, t, d: e.d, cg: e.s.cg, pan });
+        if (this.thunderLog.length > 50) this.thunderLog.shift();
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('truewind:thunder', { detail: { d: e.d, spread: e.far - e.d, seed: e.s.seed, cg: e.s.cg, pan, front } }));
+      }
     }
     due.length = 0;
   }
@@ -814,6 +823,7 @@ export class Renderer {
     this.sdfTex = new THREE.DataTexture(world.sdfTextureData(S), S, S, THREE.RGBAFormat);
     this.sdfTex.magFilter = THREE.LinearFilter; this.sdfTex.minFilter = THREE.LinearFilter; this.sdfTex.needsUpdate = true;
     U.uSdf.value = this.sdfTex;
+    (this.seamarks || (this.seamarks = new SeamarkLayer(this.scene, { low: this.low }))).set(world, geo && geo.seamarks);   // lighthouses, buoys, beacons, lights
     if (world.open) return;
     // terrain, buildings, streets and trees from the venue's OSM land data (built once it has loaded;
     // everything stands on the same height function, so buildings neither float nor sink)
@@ -1015,6 +1025,7 @@ export class Renderer {
     }
     if (this.showForces && player) this._updateForces(player);
     else if (this.forceArrows) this.forceArrows.visible = false;
+    if (this.seamarks) this.seamarks.update(dt, t, this.camera, env, this.sunDir.y, this.scene.fog.density || 0, this.r.getPixelRatio(), this.r.domElement.clientHeight || 800);
     this.r.render(this.scene, this.camera);
   }
 

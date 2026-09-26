@@ -40,7 +40,11 @@ export default {
   ],
   hull: { color: 0xf3f2ec, stripe: 0x6b3f22, deck: 0xe9e3d3, boot: 0x1b2f52, bootTop: 0x6b3f22, levels: [0.03, 0.09, 0.2, 0.12] },
   sailcloth: { cloth: 0xf2f0e8, kind: 'dacron', num: '#1d2a44', logo: '#8a2a1e', trans: 0.3, rough: 0.62 },
-  insignia: 'C30',
+  // the class insignia: Catalina's bold open 'C' round the class number
+  insignia: (g, cx, cy, cl) => {
+    g.strokeStyle = cl.logo; g.lineWidth = 13; g.beginPath(); g.arc(cx - 34, cy + 2, 34, 0.35 * Math.PI, 1.65 * Math.PI); g.stroke();
+    g.font = 'bold 58px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = cl.logo; g.textAlign = 'left'; g.fillText('30', cx + 6, cy + 22); g.textAlign = 'center';
+  },
   lines: {
     sheer: [[0, 1.02], [0.25, 1.02], [0.55, 1.08], [0.8, 1.2], [1, 1.33]],
     deck: [[0, 0.82], [0.12, 0.9], [0.4, 1.0], [0.62, 0.96], [0.82, 0.72], [0.94, 0.38], [1, 0.03]],

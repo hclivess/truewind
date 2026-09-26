@@ -17,7 +17,7 @@
 //   keel { kind: 'fin' | 'swing' | 'centreboard' | 'dagger' | 'full', ... }, rudder { kind: 'spade' | 'skeg' | 'keel' | 'transom', ... }
 //   extras [name]: the boat's own pieces (EXTRAS below)
 import * as THREE from 'three';
-import { MODEL_HOOKS, M, Kit, V, canvasTex, rnd, hullGeometry, deckGeometry, deckHeightFn, foilGeom, lathe, sailMesh, teakTex } from '../models.js';
+import { MODEL_HOOKS, transomDecal, M, Kit, V, canvasTex, rnd, hullGeometry, deckGeometry, deckHeightFn, foilGeom, lathe, sailMesh, teakTex } from '../models.js';
 import { linesFor, hullOffsets, calibrate, curveOf } from '../hull.js';
 import { clamp, lerp, sstep } from '../physics.js';
 
@@ -98,11 +98,24 @@ function buildDetailed(boat, opts = {}) {
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
     kit.add(glassT(), g);
   }
-  // ---- the boat's name on both sides (painted or carved letters on the topsides)
-  if (D.hullName) {
-    const N = D.hullName, tex = canvasTex(`hullname-${C.id}-${N.text}`, 512, 128, (g, w, h) => {
+  // ---- the boat's name (the player's or the fleet's, js/boatid.js; the famous boats' own by default): on the
+  // transom, or painted on both quarters / bows where the stern is pointed or the boat carries it there (hullName)
+  const bname = opts.name || (D.hullName && D.hullName.text) || '';
+  if (bname && D.nameAt !== false && !D.hullName) {
+    const st = stations[0], [xt, , zt] = st[0];
+    let xb = xt, zb = 0.12;
+    for (let k = 1; k < st.length; k++) { const [xa, , za] = st[k - 1], [xc, , zc] = st[k]; if (za >= 0.12 && zc < 0.12) { xb = xa + (xc - xa) * (za - 0.12) / (za - zc); break; } }
+    const tilt = Math.atan2(xb - xt, zt - zb), f = 0.6, xm = xb + (xt - xb) * f, zmid = zb + (zt - zb) * f, w = Math.min(1.6, Lx.bDeck(0) * 1.5);
+    const dec = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), new THREE.MeshStandardMaterial({ map: transomDecal(C, bname, ''), transparent: true, roughness: 0.4 }));
+    dec.position.set(D.nameY ?? 0, zmid + Math.sin(tilt) * 0.012, -xm + Math.cos(tilt) * 0.012); dec.rotation.x = tilt;
+    inner.add(dec);
+  }
+  if (D.hullName && bname) {
+    const N = D.hullName, tex = canvasTex(`hullname-${C.id}-${bname}`, 512, 128, (g, w, h) => {
       g.clearRect(0, 0, w, h); g.fillStyle = N.color ?? '#1d2a44'; g.textAlign = 'center';
-      g.font = N.font ?? 'italic 700 78px Georgia, "Times New Roman", serif'; g.fillText(N.text, w / 2, 92);
+      let font = N.font ?? 'italic 700 78px Georgia, "Times New Roman", serif'; g.font = font;
+      const wd = g.measureText(bname).width; if (wd > w * 0.94) g.font = font.replace(/(\d+)px/, (m, px) => `${Math.floor(px * w * 0.94 / wd)}px`);
+      g.fillText(bname, w / 2, 92);
     });
     const x = bx(N.t), len = N.len ?? 1.2;
     for (const side of [-1, 1]) {
