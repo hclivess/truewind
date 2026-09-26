@@ -891,9 +891,9 @@ export class Boat {
       d.diffX = Dx; d.diffY = Dy;
       // ---- a breaking crest (WaveField.sample: brk on the upper front quarter of a steep crest). Its top is a
       // jet of water moving at about the crest's phase speed c = g / w (the lip of a plunger, the roller of a
-      // spilling breaker), a sheet ~ a quarter of the wave height thick. Where it meets the hull's exposed
+      // spilling breaker), a sheet ~0.3 of the local wave height thick. Where it meets the hull's exposed
       // side it stops against it: impact pressure 1/2 rho C_s v^2 on the area it strikes (v relative to the
-      // hull, C_s ~ 1.4, averaged over the slam; peaks are several times it), above the waterline, while the
+      // hull, C_s = BRK_CS averaged over the slam; peaks are several times it), above the waterline, while the
       // keel holds the bottom of the boat in the slower water beneath: the trip that knocks a boat down or
       // rolls it past 90 deg (a transom struck from astern: surge and bow-down pitch, the start of a
       // pitchpole). The energy behind it: E = rho g H^2 / 8 per m^2 of sea (a 4 m breaker 20 kJ/m^2),
@@ -902,7 +902,8 @@ export class Boat {
       // than its own weight in thrust for a fraction of a second. How much of that it takes is capped
       // below by what stops the relative flow within the step (implicit: the boat is carried at most up to
       // the jet's speed). Model tests after the 1979 Fastnet (Wolfson Unit, SNAME/USYRU 1985): beam-on,
-      // a breaker ~30 % of LOA high knocks a yacht down, ~55 % rolls most of them over (test/knockdown.mjs).
+      // a breaker ~30 % of LOA high knocks a yacht down, ~55 % rolls most of them over; here (C_s set to
+      // that order) 30 % rolls it ~55 deg, 50 % lays it flat past 90 deg (test/knockdown.mjs).
       let Fy = 0, Fx = 0, Kb = 0, Nb = 0, Mb = 0, Dl = 0, Dr = 0, Da = 0;
       const dxs = (C.bowX - C.sternX) / 6;
       for (let i = 0; i < 7; i++) {

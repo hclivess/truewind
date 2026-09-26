@@ -489,7 +489,7 @@ export class Renderer {
             float rh = hash(vec2(row, 1.9)) * 97.0 + 0.5;                      // this row's own noise (off the lattice)
             float fx = fpAlong(fl, eRf, eT), k1 = smoothstep(0.8, 0.3, fx * 0.03), k2 = smoothstep(0.8, 0.3, fx * 0.02), k3 = smoothstep(0.8, 0.3, fx * 0.08);
             float hur = smoothstep(25.0, 34.0, lw);                            // hurricane: streaks broaden and merge
-            float wdt = (0.3 + 1.2 * mix(0.5, qn(vec2(sw.x * 0.03, rh)), k1)) * (1.0 + 0.6 * hur);   // half-width, m
+            float wdt = (0.3 + 1.2 * mix(0.5, qn(vec2(sw.x * 0.03, rh)), k1)) * (1.0 + 0.3 * hur);   // half-width, m
             // runs tens of metres long with gaps, beaded with thicker clots every 10-20 m (filtered along the wind)
             float run = ssV(0.575, 0.125, mix(0.5, qn(vec2(sw.x * 0.02, rh + 0.5)), k2), 0.053 * (1.0 - k2 * k2))
                       * (0.35 + 0.65 * ssV(0.5, 0.2, mix(0.5, qn(vec2(sw.x * 0.08, rh + 0.25)), k3), 0.053 * (1.0 - k3 * k3)));
@@ -497,7 +497,7 @@ export class Renderer {
             // once the footprint spans rows the neighbours' streaks fall in it too: their mean cover
             float line = mix(clamp((min(fy + 0.5 * fw, wdt) - max(fy - 0.5 * fw, -wdt)) / fw, 0.0, 1.0), 2.0 * wdt / 9.0, smoothstep(3.0, 9.0, fwY)) * run;
             float streak = st * line * ssV(0.55, 0.25, f2, v2) * (0.4 + 0.6 * lace);
-            foam = max(act * (0.7 + 0.3 * f2), max(resid, streak * (0.55 + 0.3 * hur)));
+            foam = max(act * (0.7 + 0.3 * f2), max(resid, streak * (0.55 + 0.1 * hur)));
           }
           foam = max(foam, pers);
           // up close foam is bubbles and holes, not paint (faded out before the bubbles shrink to a pixel)
@@ -520,9 +520,10 @@ export class Renderer {
             float rol = smoothstep(0.85, 1.25, ph) * (1.0 - smoothstep(1.7, 2.0, ph));   // the crest's top, a little ahead
             // (broken along their length, thinning toward the foot of the face)
             float st2 = st * 0.7 + 0.3 * qn(vec2(acr * 0.4 + 3.1, ph * 4.0 - uTime * 1.3));
-            float cas = smoothstep(-0.3, 0.3, ph) * (1.0 - smoothstep(0.85, 1.25, ph)) * ssV(0.5 + 0.12 * (1.0 - smoothstep(0.0, 1.1, ph)), 0.1, st2, vs);
+            float cas = smoothstep(-0.3, 0.3, ph) * (1.0 - smoothstep(0.85, 1.25, ph)) * ssV(0.55 + 0.12 * (1.0 - smoothstep(0.0, 1.1, ph)), 0.08, st2, vs);
             float bk = smoothstep(1.7, 1.9, ph) * (1.0 - smoothstep(1.9, 2.5, ph)) * lace * 0.35;   // torn foam left behind
-            foam = max(foam, lb.w * lb.w * min(1.0, max(rol * (0.75 + 0.5 * st), max(cas * 0.9, bk))));
+            float rt = ssV(0.35, 0.2, st2 * 0.6 + f1 * 0.4, vs + 0.36 * v1);                  // the roller torn into clots
+            foam = max(foam, lb.w * lb.w * min(1.0, max(rol * (0.45 + 0.55 * rt), max(cas * 0.9, bk))));
           }
           // at a grazing angle the waves no pixel draws hide their own troughs (Smith masking, from the slope
           // variance lostF + mssSub) but not the crests that carry the foam: a sight line skims 1/G1 = 1 + L
