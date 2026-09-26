@@ -1,6 +1,6 @@
 // Race management (windward-leeward course, start sequence, OCS, roundings, finish), free-sail
 // waypoints, and AI crews that sail the same physics with a helm + tactician model.
-import { DEG, KT } from './env.js';
+import { DEG, KT, mulberry32 } from './env.js';
 import { autoTrim, wrap, clamp, lerp } from './physics.js';
 
 export const LEGS = ['Start', 'Windward mark', 'Leeward gate', 'Windward mark', 'Finish'];
@@ -150,17 +150,24 @@ export class Race {
 // ---------------------------------------------------------------------------------------------
 // AI crew: tactician picks the mode (beat / reach / run / pre-start), helm steers to a target TWA or
 // heading with a PD controller on yaw, trimmers run autoTrim. They read the wind they actually feel.
+// an AI crew's own random sequence: seeded by the race (room) seed and the boat's index
+export const aiRandom = (seed, i) => mulberry32(Math.imul((seed | 0) + 0x9e3779b9, 0x85ebca6b) ^ Math.imul((i | 0) + 1, 0xc2b2ae35));
+
 export class AIHelm {
+  // personality.seed: the race's seed (the same boat in the same race sails the same way, and every browser in
+  // a room agrees); its draws are keyed by that and the boat's id, never Math.random
   constructor(boat, personality = {}) {
     this.b = boat;
+    const r = aiRandom(personality.seed ?? 0, boat.id ?? 0);
     this.skill = personality.skill ?? 0.9;
-    this.startFrac = personality.startFrac ?? Math.random();
+    this.startFrac = r();
+    if (personality.startFrac !== undefined) this.startFrac = personality.startFrac;
     this.lastTack = -100;
-    this.overstand = (2 + Math.random() * 4) * DEG;
+    this.overstand = (2 + r() * 4) * DEG;
     this.tackMode = 0;
     this.twdMean = null;
     this.hold = null;
-    this.bias = (Math.random() - 0.5) * 2;
+    this.bias = (r() - 0.5) * 2;
   }
   update(dt, t, sim, racer, course, targets) {
     const b = this.b, d = b.diag;

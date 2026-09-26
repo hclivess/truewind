@@ -122,6 +122,24 @@ class ClothRig {
     c.v.fill(0); c.v0.fill(0); c.f.fill(0);
     this.side = side; this.needPose = false; this.sincePose = 0; this.warm = false;
   }
+  // carry a flying sail over from another detail level (o: the same sail's rig there, or this one): the cloth's
+  // shape and motion resampled onto this grid, the rig particles and state as they were; no fresh pose, and the
+  // air stays on. still: a cloth set aside a while (the strip model sailed meanwhile) comes back at rest
+  adopt(o, still = false) {
+    const c = this.cloth, oc = o.cloth, p = this._p, { nu, nv } = this;
+    if (o !== this) {
+      for (let k = 0; k < 3 * c.off; k++) { c.x[k] = oc.x[k]; c.v[k] = oc.v[k]; }
+      for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
+        const n = 3 * c.node(i, j), u = i / (nu - 1), v = j / (nv - 1);
+        oc.sample(oc.x, u, v, p); c.x[n] = p[0]; c.x[n + 1] = p[1]; c.x[n + 2] = p[2];
+        oc.sample(oc.v, u, v, p); c.v[n] = p[0]; c.v[n + 1] = p[1]; c.v[n + 2] = p[2];
+      }
+      for (const k of ['a', 'rate', 'elev', 'side', 'sideSmooth', 'windT', 'sincePose']) if (o[k] !== undefined) this[k] = o[k];
+    }
+    if (still) { c.v.fill(0); this.rate = 0; }
+    c.v0.set(c.v); c.f.fill(0);
+    this.needPose = false; this.warm = false; this.poseA = undefined;
+  }
   // the twist to pose with: the sail's last measured shape (diag.shape), when it was drawing
   // the clew angle to pose a headsail at: where it was (warm), else where the sheet would put it
   _poseAngle(b, sideSign) {
