@@ -401,6 +401,7 @@ export class Rigging {
     this.mainsheet = [0, 1, 2, 3].map(() => rope(0.006, 'main', 16));
     this.mainTail = rope(0.006, 'main', 40);
     this.travLines = [rope(0.0035, 'trav', 12), rope(0.0035, 'trav', 12)];
+    if (M.trav) this.travTail = rope(0.0035, 'trav', 16);             // the control's tail from the track end to its cam
     this.vang = [0, 1, 2, 3].map(() => rope(0.004, 'vang', 10));
     this.vangTail = rope(0.004, 'vang', 20);
     this.cunn = [rope(0.004, 'cunn', 10), rope(0.004, 'cunn', 10)];
@@ -564,6 +565,14 @@ export class Rigging {
       const tl = Math.max(5, (L.mainLoad || 0) * 0.15);
       this.travLines[0].set([V(hw.travX, -hw.travHalf, hw.travZ), car], tl, g);
       this.travLines[1].set([car, V(hw.travX, hw.travHalf, hw.travZ)], tl, g);
+      if (this.travTail) {
+        const th = this.throat('trav');
+        if (th && lineSpecs(C).trav.handler === 'cam') {
+          const end = V(hw.travX, (th.x > 0 ? 1 : -1) * hw.travHalf, hw.travZ);
+          this.travTail.freeEnd = true; this.travTail.tailRest = 0.5;
+          this.travTail.set([end, th, this.tailEnd('trav', th, th)], [tl, 2], g);
+        } else this.travTail.hide();
+      }
     }
     // --- vang: 4-part tackle from the boom to the mast base, tail to the deck
     const vTop = this.boomPt('main', C.id === 'dinghy' ? 0.45 : 0.7, -0.07);
@@ -724,7 +733,7 @@ export class Rigging {
         if (!w) return null;
         if (h === 'selfTailer') return [w.position.clone().add(_v.set(0, 0.185, 0)), w.position.clone().add(_w.set(0, 0.185, -1))];
         if (C.noWinches) return [this.seat(V(hw.winchX - 0.12, s * hw.winchY, C.freeboard + 0.3), 0), w.position];
-        const x = hw.winchX - (h === 'winchHorn' ? 0.28 : 0.22), y = s * (Math.abs(-w.position.x) - (h === 'winchHorn' ? 0.0 : 0.1));
+        const x = hw.winchX - (h === 'winchHorn' ? 0.28 : 0.25), y = s * (Math.abs(w.position.x) - (h === 'winchHorn' ? 0.0 : 0.04));   // just aft of the winch
         return [dk(x, y), w.position];
       }
       case 'stay': return [dk(C.mastX - 1.12, 0.27), V(C.mastX - 0.8, 0.25, vis.deckH(C.mastX - 0.8, 0.25))];   // aft end of the cabin top
@@ -831,7 +840,7 @@ export class Rigging {
   ropesFor(id) {
     const b = this.b, side = Math.sign((b.genDeploy > 0.5 ? b.side.gennaker : b.side.jib)) || 1, k = (side + 1) / 2;
     const m = {
-      main: [...this.mainsheet, this.mainTail], trav: this.travLines, vang: [...this.vang, this.vangTail], cunn: [...this.cunn, this.cunnTail],
+      main: [...this.mainsheet, this.mainTail], trav: [...this.travLines, this.travTail].filter(Boolean), vang: [...this.vang, this.vangTail], cunn: [...this.cunn, this.cunnTail],
       outhaul: [this.outhaul], backstay: this.backstayTackle || [], stay: this.staySheet || [], reef: this.reefLines || [],
       winch: b.genDeploy > 0.5 ? [this.genSheets?.[k]].filter(Boolean) : [this.jibSheets?.[k]].filter(Boolean),
       jibtail: b.genDeploy > 0.5 ? [this.genSheets?.[k]].filter(Boolean) : [this.jibSheets?.[k]].filter(Boolean),
