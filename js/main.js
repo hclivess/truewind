@@ -355,7 +355,7 @@ class Game {
       const data = await this.loadTraffic(v), keepOut = [{ x: player.x, z: player.z, r: 50 }];
       const C = this.course;
       if (C) { const r = Math.max(220, Math.hypot(C.committee.x - C.pin.x, C.committee.z - C.pin.z) / 2 + 120); for (let s = -250; s <= C.L + 150; s += 120) keepOut.push({ x: C.origin.x + C.ux * s, z: C.origin.z + C.uz * s, r }); }
-      try { this.traffic = new Traffic(world, data, { density: dens, seed: cond.seed, twd: cond.twd * DEG, keepOut }); } catch (e) { console.error('traffic', e); }
+      try { this.traffic = new Traffic(world, data, { density: dens, seed: cond.seed, twd: cond.twd * DEG, keepOut, venue: v.id }); } catch (e) { console.error('traffic', e); }
     }
     this.trafficView.setTraffic(this.traffic);
   }
@@ -1106,7 +1106,7 @@ class Game {
     this._swapT = (this._swapT || 0) + sim;
     if (this._swapT < 2 || fleet.length <= 6 || this.fleetSailLevel() !== 1 || this.timeWarp > 2) return;
     this._swapT = 0;
-    const c = this.renderer.camera.position, moves = fleetLevels(fleet.filter(sailsFlown), c, fleet.filter((b) => b.lod < 2).length);
+    const c = this.renderer.camera.position, moves = fleetLevels(fleet, c, fleet.filter((b) => b.lod < 2).length).filter(([b]) => sailsFlown(b));
     for (const [b, lod] of moves) setSailLevel(b, lod);
     if (moves.length) this.gov().after();
   }
@@ -1134,7 +1134,7 @@ class Game {
     if (this.traffic) this.traffic.collide(this.boats, (boat, v, sp) => {
       if (boat !== this.player || this.t - (this._bumpT || -9) < 2) return;
       this._bumpT = this.t;
-      this.hud.toast(`Collision with ${v.name ? 'the ' + v.name + ' ' + v.T.name : v.mode === 'rail' ? 'a ' + v.T.name : 'a moored ' + v.T.name}!`, 2.5);
+      this.hud.toast(`Collision with ${this.traffic.describe(v)}!`, 2.5);
       this.audio.thump(Math.min(1, sp / 2));
     });
     if (this.race) {

@@ -8,6 +8,7 @@
 // (or fetchTrafficGeo for a custom location). Drawn by js/traffic-render.js. No three.js here (node tests).
 import { makeProjection, MAP_RADIUS } from './world.js';
 import { mulberry32, KT, DEG } from './env.js';
+import { fleetIdentities, VENUE_NATION } from './boatid.js';
 
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 const wrap = (a) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
@@ -302,6 +303,24 @@ export function yachtHeel(twa, tws) {
 
 // ------------------------------------------------------------------ the traffic
 const HULLS = [0xf4f2ec, 0xf1efe8, 0xe9ecef, 0xffffff, 0x1d3557, 0xdfe6ea, 0x8b1e2d, 0x2e5e4e, 0xf4f1ea, 0x243447, 0xe8d8b0, 0xf6f6f2];
+// the ships that work each route (matched on the route's name and operator): [pattern, car ferries or big boats,
+// fast craft]. Where a route's fleet is not known the ferry goes by its route's name
+const FERRY_FLEETS = [
+  [/red funnel/i, ['Red Falcon', 'Red Osprey', 'Red Eagle'], ['Red Jet 6', 'Red Jet 7']],
+  [/wightlink/i, ['Victoria of Wight', 'Wight Light', 'Wight Sky', 'Wight Sun', 'St Clare', 'St Faith'], ['Wight Ryder I', 'Wight Ryder II']],
+  [/hovertravel|hover/i, [], ['Island Flyer', 'Solent Flyer']],
+  [/floating bridge|chain/i, ['Floating Bridge No. 6'], []],
+  [/manly/i, ['Freshwater', 'Queenscliff', 'Narrabeen', 'Collaroy', 'Fred Hollows', 'Victor Chang', 'Pemulwuy', 'Bungaree', 'Balarinji', 'Catherine Hamlin'], ['Manly Flyer', 'Manly Cove']],
+  [/parramatta|rivercat|meadowbank|rydalmere|sydney olympic/i, ['Betty Cuthbert', 'Dawn Fraser', 'Evonne Goolagong', 'Marlene Mathews', 'Marjorie Jackson', 'Shane Gould', 'Lauren Jackson'], []],
+  [/sydney ferries|transdev|circular quay/i, ['Sirius', 'Supply', 'Alexander', 'Borrowdale', 'Charlotte', 'Fishburn', 'Friendship', 'Golden Grove', 'Scarborough', 'May Gibbs', 'Olive Cotton', 'Kurt Fearnley', 'Ethel Turner', 'Ruby Langford Ginibi'], []],
+  [/golden gate/i, ['Del Norte', 'Mendocino', 'Napa', 'Sonoma', 'San Francisco', 'Golden Gate', 'Marin', 'Del Norte'], []],
+  [/water emergency|weta|sf bay ferry|san francisco bay ferry/i, ['Hydrus', 'Cetus', 'Carina', 'Argo', 'Pisces', 'Scorpio', 'Gemini', 'Taurus', 'Intintoli', 'Mare Island', 'Bay Breeze', 'Peralta'], []],
+  [/alcatraz/i, ['Alcatraz Flyer', 'Alcatraz Clipper', 'Alcatraz Voyager'], []],
+  [/fullers|waiheke|devonport|birkenhead|half moon|pine harbour|hobsonville|bayswater|rotoroa/i, ['Kea', 'Te Kotuku', 'Kawau Kat', 'Superflyte', 'Harbour Cat'], ['Quickcat', 'Jet Raider', 'Te Waka']],
+  [/navigazione|garda|limone|malcesine|riva/i, ['Brescia', 'Verona', 'Italia', 'Zanardelli', 'Andrea Doria', 'Tonale'], ['Freccia delle Riviere', 'Freccia del Garda']],
+];
+const SHIP_NAMES = ['Nordic Star', 'Atlantic Trader', 'Pacific Venture', 'Baltic Carrier', 'Ocean Harmony', 'Cape Mercy', 'Northern Dawn', 'Southern Cross', 'Iron Duke', 'Silver Pearl', 'Coral Sea', 'Eastern Promise'];
+const FISHING_NAMES = ['Girl Pat', 'Our Boys', 'Provider', 'Good Intent', 'Boy Andrew', 'Harvest Reaper', 'Ocean Pride', 'Silver Dawn', 'Guiding Star', 'Fruitful Bough', 'Brothers', 'Sea Harvester', 'Morning Glory', 'Two Sisters'];
 const FERRY_NAMES = { Wightlink: 0x1b3f8b, 'Red Funnel': 0xe03a2f, 'Sydney Ferries': 0x2f6e3a, 'Fullers': 0x0e3b66 };
 export class Traffic {
   // world: World; data: processTraffic() output (or null); opts: { density, seed, keepOut: [{x, z, r}], env }
@@ -323,6 +342,7 @@ export class Traffic {
     this.placeMoorings();
     this.placeAnchored();
     this.spawnMovers();
+    this.nameAll(opts.seed ?? 1, opts.venue);
     this.buildMs = Date.now() - t0;
   }
   counts() {
@@ -574,6 +594,34 @@ export class Traffic {
     }
   }
 
+  // ---------------- names: the ferries by their real ships, the rest by the game's fleet names (another draw
+  // than the race fleet's), ships and fishing boats by names of their kind
+  ferryName(fr) {
+    const nm = fr.name + ' ' + fr.op, F = FERRY_FLEETS.find(([re]) => re.test(nm)), fast = fr.type === 'fastcat';
+    const list = F ? (fast && F[2].length ? F[2] : F[1].length ? F[1] : F[2]) : [];
+    const used = this._fused || (this._fused = new Set()), free = list.filter(n => !used.has(n));
+    if (!free.length) return '';
+    const n = free[Math.floor(this.rnd() * free.length)]; used.add(n);
+    return n;
+  }
+  nameAll(seed, venue) {
+    const list = this.vessels.filter(v => !v.name && (v.type === 'yacht' || v.type === 'motor' || v.type === 'rib'));
+    // (the pool's worth: boats under way first, then the swinging ones, those met at sea; the rest go unnamed)
+    const rank = (v) => (v.mode === 'rail' ? 0 : v.mode === 'berth' ? 2 : 1);
+    list.sort((a, b) => rank(a) - rank(b));
+    const ids = fleetIdentities((seed | 0) + 101, Math.min(list.length, 90), VENUE_NATION[venue] || '');
+    ids.forEach((id, i) => { list[i].name = id.name; });
+    const r = this.rnd;
+    for (const v of this.vessels) if (!v.name && v.type === 'ship') v.name = SHIP_NAMES[Math.floor(r() * SHIP_NAMES.length)];
+    for (const v of this.vessels) if (!v.name && v.type === 'fishing') v.name = FISHING_NAMES[Math.floor(r() * FISHING_NAMES.length)];
+  }
+  // how a message names it: "the car ferry Red Falcon", "the Circular Quay - Manly ferry", "the moored yacht Tern"
+  describe(v) {
+    const what = v.T.name, lead = v.mode === 'rail' ? 'the ' : v.mode === 'anchor' ? 'the anchored ' : 'the moored ';
+    if (v.name) return `${lead}${what} ${v.name}`;
+    return v.route ? `the ${v.route} ${what}` : `${lead}${what}`;
+  }
+
   // ---------------- boats under way
   spawnMovers() {
     const W = this.world, r = this.rnd;
@@ -583,7 +631,7 @@ export class Traffic {
     for (const fr of this.ferryRails) {
       const per = fr.type === 'chain' ? 1 : fr.rail.L > 3000 && this.k > 0.6 ? 2 : 1;
       for (let i = 0; i < per && nf < fcap; i++, nf++) {
-        const v = this.make(fr.type, { mode: 'rail', ferry: fr, name: fr.name, color: Object.entries(FERRY_NAMES).find(([k]) => (fr.op + fr.name).includes(k))?.[1] ?? (fr.type === 'carferry' ? 0xf4f4f0 : [0x2f6e3a, 0xf1efe8, 0x0e3b66][Math.floor(r() * 3)]) });
+        const v = this.make(fr.type, { mode: 'rail', ferry: fr, name: this.ferryName(fr), route: fr.name, color: Object.entries(FERRY_NAMES).find(([k]) => (fr.op + fr.name).includes(k))?.[1] ?? (fr.type === 'carferry' ? 0xf4f4f0 : [0x2f6e3a, 0xf1efe8, 0x0e3b66][Math.floor(r() * 3)]) });
         v.need = 5; v.cruise = (v.T.kn[0] + r() * (v.T.kn[1] - v.T.kn[0])) * KT;
         v.rail = r() < 0.5 ? fr.rail : fr.rail.reversed(); v.fwd = v.rail === fr.rail;
         v.s = (i + r() * 0.6) / per * v.rail.L; v.u = v.cruise * 0.8;
