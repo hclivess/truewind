@@ -95,7 +95,7 @@ class Game {
     vl.querySelectorAll('.card').forEach(c => c.addEventListener('click', () => { this.venueTouched = true; this.pickVenue(c.dataset.v, true); }));
     document.querySelectorAll('.seg-b[data-mode]').forEach(b => b.addEventListener('click', () => { this.settings.mode = b.dataset.mode; this.refreshMenu(); }));
     document.querySelectorAll('.seg-b[data-weather]').forEach(b => b.addEventListener('click', () => { this.settings.weather = b.dataset.weather; this.refreshMenu(); }));
-    document.querySelectorAll('.seg-b[data-tod]').forEach(b => b.addEventListener('click', () => { this.settings.tod = b.dataset.tod; this.refreshMenu(); if (this.idle) this.clockBase = this.clockFor(); }));
+    document.querySelectorAll('.seg-b[data-tod]').forEach(b => b.addEventListener('click', () => { this.settings.tod = b.dataset.tod; this.refreshMenu(); this.retime(); }));
     const sliders = { tws: v => `${v} kn`, twd: v => `${String(v).padStart(3, '0')}°`, gust: v => `${Math.round(v * 100)}%`, shift: v => `±${v}°`, swell: v => v > 0 ? `${v} m` : 'none', current: v => v > 0 ? `${v} kn` : 'none', fleet: v => `${v}`, countdown: v => `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`, laps: v => `${v}` };
     for (const k in sliders) {
       const el = $('#' + k);
@@ -147,7 +147,8 @@ class Game {
     let txt = `Force ${bf < 0 ? 12 : bf}, ${name}.`, warn = false;
     if (plan > 0) { txt += ` The crew will tie in ${plan === 1 ? 'a reef' : 'two reefs'} before casting off.`; warn = kn > 30; }
     else if (kn > 22) { txt += ` Hard work for a ${C ? C.name : 'small boat'} — expect to be overpowered; automatic trim helps.`; warn = true; }
-    el.textContent = kn >= 16 ? txt : '';
+    const rg = this.currentVenueDef()?.regional;
+    el.textContent = (kn >= 16 ? txt : '') + (rg ? `${kn >= 16 ? ' ' : ''}Plus the ${rg.name}, by time of day.` : '');
     el.classList.toggle('warn', warn);
   }
   async liveWind() {
@@ -200,6 +201,16 @@ class Game {
       prev = e;
     }
     return at(rising ? 6 : 18.5);
+  }
+  // the menu's time of day, applied at once: now becomes that time, and everything that follows the sun moves
+  // with the sky (the thermal breeze and the sea it raises, the polar); a shared room keeps the room's clock
+  retime() {
+    if (!this.env || this.netEpoch !== null || this.settings.mode === 'online') return;
+    this.clockBase = this.clockFor() - this.t * 1000;
+    this.env.setClock(this.clockBase, this.t);
+    this.renderer.setWaves(this.env.waves);
+    this.world.updateShelter(this.env.wind.mean(this.t).dir);
+    if (this.player) this.computePolar(this.player.cls, this.env.wind.mean(this.t).speed);
   }
   currentVenueDef() { return this.settings.venue === 'custom' ? this.customV : VENUES.find(v => v.id === this.settings.venue); }
 
@@ -327,7 +338,9 @@ class Game {
     if (SAIL_MODEL !== 'strip') await loadBakedPolars(cls.id);      // (the cloth sails' polar: data/sails/<class>.json)
     player.auto.trim = S.autoTrim; player.auto.hike = S.autoHike;
     // in a blow the crew ties in the reefs before leaving (shaking one out is a keypress away)
-    const dockReef = idle ? 0 : startReef(cls, cond.tws);
+    // (for the wind at the dock now: the gradient with the venue's thermal breeze in it)
+    const kt0 = Math.round(Math.max(cond.tws, env.wind.mean(0).speed / KT));
+    const dockReef = idle ? 0 : startReef(cls, kt0);
     if (dockReef) player.ctrl.reef = dockReef;
     this.player = player;
     this.boats.push(player);
@@ -401,14 +414,14 @@ class Game {
     }
     this.showLaylines = S.laylines;
     this.polar = null; this.targets = null;
-    this.computePolar(cls, env.wind.tws);
+    this.computePolar(cls, env.wind.mean(0).speed);
     $('#loading').hidden = true;
     if (!idle) {
       $('#hud').hidden = false;
       this.running = true; this.paused = false;
       if (!online) this.hud.toast(S.mode === 'race' ? `Race at ${v.name} — gun in ${Math.floor(S.countdown / 60)}:${String(S.countdown % 60).padStart(2, '0')}` : `${cls.name} · ${v.name}`, 3.5);
-      if (dockReef) setTimeout(() => this.hud.toast(`${cond.tws} kn: ${dockReef === 1 ? 'one reef' : 'two reefs'} tied in at the dock — R to change`, 4), 3600);
-      else if (cond.tws > 22) setTimeout(() => this.hud.toast(`${cond.tws} kn is a lot for a ${cls.name} — ease early, T for automatic trim`, 4), 3600);
+      if (dockReef) setTimeout(() => this.hud.toast(`${kt0} kn: ${dockReef === 1 ? 'one reef' : 'two reefs'} tied in at the dock — R to change`, 4), 3600);
+      else if (kt0 > 22) setTimeout(() => this.hud.toast(`${kt0} kn is a lot for a ${cls.name} — ease early, T for automatic trim`, 4), 3600);
       if (this.race) this.audio.horn(true);
       this.hud.keysHint(document.body.classList.contains('touch'));
       this.syncTools();
@@ -431,7 +444,7 @@ class Game {
       hemi: v && !v.open && v.lat < 0 ? -1 : 1,     // puffs and squalls veer north of the equator, back south of it
       // sea/lake and land breezes by the real sun at the venue. clock0 = UTC ms at t = 0: online it is the
       // room's shared epoch (every peer's clock is epoch + t), offline the chosen time of day
-      thermal: world.open || !v ? null : { lat: v.lat, lon: v.lon, land: world,
+      thermal: world.open || !v ? null : { lat: v.lat, lon: v.lon, land: world, regional: v.regional,
         clock0: this.settings.mode === 'online' && cond.epoch ? cond.epoch * 1000 : this.clockFor() },
     });
     // sheltering by land slows the wind near a weather shore
@@ -976,7 +989,7 @@ class Game {
       const r0 = this.race && this.race.racers[0];
       this.net.update(dt, p, this.sharedRace && r0 ? { id: this.sharedRace.id, leg: r0.leg, fin: r0.finished ? r0.finishTime : 0 } : null);
       this.hud.update(dt);
-      this.audio.update(p, dt);
+      this.audio.update(p, dt, this.renderer.rainNow || 0);
       this.checkAlerts();
     }
   }
