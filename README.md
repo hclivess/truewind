@@ -126,7 +126,7 @@ The sportboat is J/70-sized, and the J/70's ORC certificate (2024) gives, in 12 
 
 In 20 kn the sportboat reaches at 13.5 kn and does 14.7 kn at 120° under gennaker, and the cat reaches at 18.8 kn. The Blackwatch sails upwind with 6° of leeway (a long keel) and cannot pass its 5.6 kn hull speed.
 
-Helm balance (`node test/helm.mjs`) is the rudder angle that holds a steady course. With the Munk moment included, the keelboats are neutral upwind in 12 kn and carry 1–2° of weather helm reaching.
+Helm balance (`node test/helm.mjs`) is the rudder angle that holds a steady course. The keels are where the real boats have them; what balances the sails' centre of effort, which lies well ahead of the keel as on the real boats, is the Munk moment of the hull, the long keel's lift carried at its forefoot (a low-aspect-ratio foil's quarter chord), the keel's downwash at the rudder (lifting line, nearly twice the downwash at the keel that far aft) and the J/70's 0.6 m of mast rake. In 12 kn the Blackwatch carries 2.6° of weather helm upwind and the J/70 is neutral, and both carry 1–2.5° reaching.
 
 ## What is approximated
 
