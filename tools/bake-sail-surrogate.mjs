@@ -18,13 +18,30 @@ async function sailAngle(cls, twsKn, twa, secs) {
   const C = CLASSES[cls], dt = 1 / 120, steps = Math.round(secs / dt);
   const gens = C.sails.some((s) => s.kind === 'spin') && twa >= 85 ? [false, true] : [false];
   let best = { bsp: 0, heel: 0, leeway: 0, gen: 0, bias: 0 };
+  const hold = Math.round(Math.min(4, 0.15 * secs) / dt);
   for (const gen of gens) for (const bias of BIASES) {
     const env = makeSteadyEnv(twsKn * KT), b = new Boat(C, { sailModel: 'cloth', lod: 0 });
     b.reset(0, 0, twa * DEG); b.u = 1.5; for (const k in b.booms) b.booms[k].a = 0.3; b.side.jib = 1; b.side.gennaker = 1;
     b.ctrl.gen = gen; b.genDeploy = gen ? 1 : 0; b.genFill = gen ? 1 : 0;
+    // warm start: the same boat settled first with the strip model (milliseconds): its speed, heel, boom angles and
+    // sheets are where the cloth run begins, held at that speed for its first seconds while the cloth fills. (From
+    // 1.5 m/s and default trim a heavy boat was still accelerating at the end of the window: a 15 t hull's speed
+    // settles over ~25 s, and a big overlapping genoa started eased out could fly round the forestay first.)
+    const w = new Boat(C, { sailModel: 'strip' }), sdt = 1 / 50;
+    w.reset(0, 0, twa * DEG); w.u = 1.5; for (const k in w.booms) w.booms[k].a = 0.3; w.side.jib = 1; w.side.gennaker = 1;
+    w.ctrl.gen = gen; w.genDeploy = gen ? 1 : 0; w.genFill = gen ? 1 : 0;
+    for (let i = 0; i < 50 * 45; i++) { autoTrim(w, sdt, bias); w.step(sdt, env, i * sdt); w.r = 0; w.psi = twa * DEG; w.rudder = 0; }
+    const u0 = Number.isFinite(w.u) && !w.capsized ? Math.max(1.0, w.u) : 1.5;
+    if (u0 > 1.0) {
+      Object.assign(b.ctrl, w.ctrl); Object.assign(b.lines, w.lines); for (const k in b.booms) b.booms[k].a = w.booms[k].a;
+      b.side.jib = w.side.jib; b.side.gennaker = w.side.gennaker; b.phi = w.phi; b.crewY = w.crewY; b.v = w.v;
+      if (b.sailSys) b.sailSys.reset(b);
+    }
+    b.u = u0;
     let acc = 0, n = 0, heel = 0, lee = 0, bad = false;
     for (let i = 0; i < steps; i++) {
       autoTrim(b, dt, bias); b.step(dt, env, i * dt); b.r = 0; b.psi = twa * DEG; b.rudder = 0;
+      if (i < hold) b.u = u0;
       if (!Number.isFinite(b.u)) { bad = true; break; }
       if (i > steps * 0.6) { acc += b.u; heel += b.phi; lee += b.diag.leeway || 0; n++; }
     }

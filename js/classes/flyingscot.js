@@ -19,7 +19,7 @@ export default {
   lwl: LWL, loa: 19 * FT, beam: 6.75 * FT, bowX: 2.95, sternX: -2.84, freeboard: 0.62, canoeDraft: 0.18, wetted: 7.0, draft: 4.0 * FT,
   massHull: M, zG: 0.3, crewN: 3, crewEach: 75, crewZ: 0.5, crewMaxOut: 0.98, crewLee: -0.35, hikeRate: 0.9,
   gm: 0.6, bmForm: 0.55, Ixx: 420, Izz: 900, amX: 0.05, amY: 0.6, amYaw: 0.45, amRoll: 0.25,
-  rr: rrTable(LWL, M + 225, { planing: 0.8 }),
+  rr: rrTable(LWL, M + 225, { dinghy: true }),
   keel: { x: 0.35, z: -0.6, area: 0.52, ARe: 4.0, stall: 13 * DEG, cd0: 0.011, span: 1.0, chord: 0.55, board: true },
   rudder: { x: -2.95, z: -0.3, area: 0.2, ARe: 3.0, stall: 15 * DEG, cd0: 0.012, max: 35 * DEG, span: 0.72, chord: 0.3, transom: true, loadRef: 420 },
   hullLat: { area: 0.6, cd: 0.9, z: -0.06 },

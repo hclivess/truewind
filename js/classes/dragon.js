@@ -20,11 +20,11 @@ export default {
   lwl: LWL, loa: 8.9, beam: 1.95, bowX: 4.55, sternX: -4.35, freeboard: 0.72, canoeDraft: 0.5, wetted: 13.5, draft: 1.2,
   massHull: M, zG: MP.zG, crewN: 3, crewEach: 90, crewZ: 0.75, crewMaxOut: 0.85, crewLee: -0.3, hikeRate: 0.6,
   gm: 0.8, bmForm: 0.5, Ixx: MP.Ixx, Izz: MP.Izz, amX: 0.05, amY: 0.8, amYaw: 0.55, amRoll: 0.3,
-  rr: rrTable(LWL, M + 270, { prism: 0.1 }),
+  rr: rrTable(LWL, M + 270),   // (her long overhangs lengthen the heeled waterline: the lines do that, js/hull.js)
   keel: { x: 0.2, z: -0.8, area: 1.75, ARe: 1.4, stall: 20 * DEG, cd0: 0.011, span: 0.72, chord: 2.5, long: true },
   rudder: { x: -1.45, z: -0.75, area: 0.34, ARe: 2.2, stall: 20 * DEG, cd0: 0.012, max: 35 * DEG, span: 0.72, chord: 0.45, loadRef: 900 },
   hullLat: { area: 1.3, cd: 0.9, z: -0.2 },
-  windage: { area: 3.2, z: 1.8, cd: 0.95 },
+  windage: { area: 2.7, z: 1.8, cd: 0.95 },
   mastX: 1.0, mastHeight: 10.4, boomZ: 1.35, mastR: 0.055, keelBulb: false,
   targetHeel: 22 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 1100,
   engine: null,

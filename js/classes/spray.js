@@ -29,7 +29,7 @@ export default {
   keel: { x: 0.1, z: -0.9, area: 5.2, ARe: 0.75, stall: 28 * DEG, cd0: 0.014, span: 0.6, chord: 8.5, long: true },
   rudder: { x: -5.55, z: -0.5, area: 1.25, ARe: 1.8, stall: 22 * DEG, cd0: 0.015, max: 35 * DEG, span: 1.4, chord: 0.95, transom: true, loadRef: 3000 },
   hullLat: { area: 4.5, cd: 0.9, z: -0.3 },
-  windage: { area: 13, z: 2.8, cd: 1.0 },
+  windage: { area: 8.5, z: 2.8, cd: 1.0 },
   mastX: 2.3, mastHeight: 11.4, boomZ: 2.3, mastR: 0.13, keelBulb: false,
   targetHeel: 12 * DEG, canCapsize: false, hasBackstay: false, hasBoard: false, sheetPower: 1800, reefTime: 110,
   cloth: 'canvas',
@@ -54,7 +54,7 @@ export default {
     keel: [[0, 0.55], [0.06, 0.05], [0.13, -0.38], [0.35, -0.62], [0.65, -0.62], [0.8, -0.5], [0.9, -0.2], [0.95, 0.15], [0.985, 0.8], [1, 1.35]],
     fin: [[0.01, -0.8], [0.06, -1.25], [0.5, -1.3], [0.78, -1.22], [0.88, -0.8], [0.94, -0.25]], finW: 0.2,
     bilge: [[0, 3.2], [0.45, 3.2], [0.85, 2.2], [1, 1.6]], dead: [[0, 0.2], [0.45, 0.2], [0.9, 0.5]], flare: 0.65,
-    crown: 0.07, transomRake: 0.35, stemX: 0.35,
+    crown: 0.07, transomRake: 0.35, stemX: 0.6,
   },
   model: {
     cockpit: { t0: 0.07, t1: 0.16, w: 0.45, sole: 0.95, seats: false, coaming: 0.12, coamingMat: 'teak' },

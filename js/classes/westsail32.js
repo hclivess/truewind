@@ -27,7 +27,7 @@ export default {
   keel: { x: 0.1, z: -0.95, area: 3.3, ARe: 1.0, stall: 26 * DEG, cd0: 0.013, span: 0.9, chord: 4.4, long: true },
   rudder: { x: -4.95, z: -0.6, area: 0.78, ARe: 2.0, stall: 22 * DEG, cd0: 0.014, max: 35 * DEG, span: 1.35, chord: 0.62, transom: true, loadRef: 2200 },
   hullLat: { area: 2.8, cd: 0.9, z: -0.25 },
-  windage: { area: 8.5, z: 2.6, cd: 0.95 },
+  windage: { area: 5.6, z: 2.6, cd: 0.95 },
   mastX: 0.6, mastHeight: 14.3, boomZ: 2.45, mastR: 0.075, keelBulb: false,
   targetHeel: 18 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 2400, reefTime: 75,
   // inboard: Volvo Penta MD2B (2-cyl diesel, 25 hp at 2,500 rpm, 2:1 reverse gear), 3-blade 16 x 11 in prop in the
@@ -47,7 +47,7 @@ export default {
   insignia: 'W32',
   lines: {
     sheer: [[0, 1.3], [0.2, 1.14], [0.5, 1.1], [0.8, 1.22], [1, 1.42]],
-    deck: [[0, 0.02], [0.05, 0.3], [0.2, 0.75], [0.45, 1.0], [0.65, 0.95], [0.85, 0.66], [0.96, 0.28], [1, 0.03]],
+    deck: [[0, 0.02], [0.06, 0.26], [0.14, 0.5], [0.26, 0.8], [0.45, 1.0], [0.65, 0.95], [0.85, 0.66], [0.96, 0.28], [1, 0.03]],
     wl: [[0, 0.5], [0.1, 0.6], [0.45, 0.88], [0.8, 0.72], [1, 0.3]],
     keel: [[0, 0.6], [0.05, 0.14], [0.12, -0.28], [0.3, -0.6], [0.6, -0.64], [0.82, -0.38], [0.91, 0.06], [0.96, 0.4], [1, 1.1]],
     fin: [[0.005, -0.9], [0.05, -1.45], [0.5, -1.52], [0.72, -1.3], [0.84, -0.75], [0.9, -0.3]], finW: 0.2,

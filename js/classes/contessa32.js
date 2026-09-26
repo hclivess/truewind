@@ -26,7 +26,7 @@ export default {
   keel: { x: 0.42, z: -1.05, area: 1.62, ARe: 2.4, stall: 17 * DEG, cd0: 0.012, span: 1.2, chord: 1.55 },
   rudder: { x: -3.55, z: -0.85, area: 0.5, ARe: 2.4, stall: 20 * DEG, cd0: 0.012, max: 35 * DEG, span: 0.95, chord: 0.52, loadRef: 1400 },
   hullLat: { area: 2.0, cd: 0.9, z: -0.2 },
-  windage: { area: 6.0, z: 2.4, cd: 0.95 },
+  windage: { area: 4.3, z: 2.4, cd: 0.95 },
   mastX: 1.02, mastHeight: 13.1, boomZ: 1.72, mastR: 0.065, keelBulb: false,
   targetHeel: 20 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 2000, reefTime: 60,
   // inboard: Yanmar 2GM20 (18 hp at 3,400 rpm, KM2P 2.2:1) under the cockpit, 2-blade 14 x 9 in prop in the skeg's lee

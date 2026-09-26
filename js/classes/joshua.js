@@ -29,7 +29,7 @@ export default {
   keel: { x: 0.2, z: -1.1, area: 4.6, ARe: 1.0, stall: 26 * DEG, cd0: 0.013, span: 0.88, chord: 5.4, long: true },
   rudder: { x: -6.12, z: -0.7, area: 1.0, ARe: 2.0, stall: 22 * DEG, cd0: 0.014, max: 35 * DEG, span: 1.5, chord: 0.72, transom: true, loadRef: 2800 },
   hullLat: { area: 4.0, cd: 0.9, z: -0.3 },
-  windage: { area: 12.5, z: 2.9, cd: 1.0 },
+  windage: { area: 7.8, z: 2.9, cd: 1.0 },
   mastX: 1.55, mastHeight: 15.0, boomZ: 2.55, mastR: 0.11, keelBulb: false,
   targetHeel: 16 * DEG, canCapsize: false, hasBackstay: false, hasBoard: false, sheetPower: 2200, reefTime: 90,
   engine: null,                     // (sailed without an engine on the Long Way, 1968-69)
@@ -58,7 +58,7 @@ export default {
     crown: 0.06, transomRake: 0, stemX: 0.1,
   },
   model: {
-    cockpit: { t0: 0.1, t1: 0.26, w: 0.5, sole: 0.8, seats: true, seat: 0.36, seatW: 0.34, coaming: 0.2, color: 0xe6e2d6 },
+    cockpit: { t0: 0.06, t1: 0.19, w: 0.5, sole: 0.8, seats: true, seat: 0.36, seatW: 0.34, coaming: 0.2, color: 0xe6e2d6 },
     deck: 'paint', deckColor: 0xdcd6c6, toerail: { bulwark: 0.12, cap: 'paint', capColor: 0xb3241c, color: 0xb3241c },
     cabins: [
       { t0: 0.29, t1: 0.66, h: [[0.29, 0.42], [0.66, 0.36]], w: [[0.29, 1.12], [0.55, 1.1], [0.66, 0.9]], slope: 0.05, camber: 0.08, frontRake: 0.1, aftRake: 0.03,

@@ -25,7 +25,7 @@ export default {
   keel: { x: 0.45, z: -0.85, area: 1.25, ARe: 2.1, stall: 17 * DEG, cd0: 0.01, span: 1.0, chord: 1.6 },
   rudder: { x: -2.75, z: -0.7, area: 0.34, ARe: 2.6, stall: 18 * DEG, cd0: 0.011, max: 34 * DEG, span: 0.8, chord: 0.42, loadRef: 900 },
   hullLat: { area: 1.2, cd: 0.9, z: -0.14 },
-  windage: { area: 3.2, z: 1.7, cd: 0.95 },
+  windage: { area: 2.7, z: 1.7, cd: 0.95 },
   mastX: 2.05, mastHeight: 11.55, boomZ: 1.4, mastR: 0.055, keelBulb: false,
   targetHeel: 22 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 1000,
   engine: null,

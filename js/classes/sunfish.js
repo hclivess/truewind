@@ -3,7 +3,9 @@
 // sail area 75 sq ft (7.0 m²), draft 2 ft 11 in (0.89 m) with the daggerboard down, lateen rig, US Portsmouth ~99-100);
 // Sunfish class rules / sail plan: luff (on the upper spar) ~14 ft 8 in, foot (on the boom) ~13 ft 1 in, the spars
 // joined by a gooseneck at the tack forward of the mast, the upper spar hoisted to the masthead. Here: luff laced to
-// a yard 4.47 m long raised 52° from the boom, foot 3.99 m, tack 0.7 m forward of the mast (area 7.0 m²).
+// a yard 4.47 m long raised 52° from the boom, foot 3.99 m (area 7.0 m²); the gooseneck ~22 in (0.56 m) aft of the
+// tack (Sunfish rigging guides: 15-24 in by wind strength), the halyard from the masthead to the yard ~5 ft below
+// its top, so the yard hangs beside the mast, not against its head.
 // Lines shaped to the dimensions and photographs: a flat deck a hand's breadth above the water, a small footwell,
 // a sharp entry and a flat run aft.
 // Line handling on the real boat: mainsheet 2:1 from the boom through a bridle (traveller rope) across the stern
@@ -19,7 +21,7 @@ export default {
   lwl: LWL, loa: 4.19, beam: 1.24, bowX: 2.12, sternX: -2.07, freeboard: 0.26, canoeDraft: 0.1, wetted: 3.4, draft: 0.89,
   massHull: M, zG: 0.18, crewN: 1, crewEach: 80, crewZ: 0.32, crewMaxOut: 0.8, crewLee: -0.25, hikeRate: 1.8,
   gm: 0.4, bmForm: 0.5, Ixx: 65, Izz: 110, amX: 0.05, amY: 0.5, amYaw: 0.4, amRoll: 0.2,
-  rr: rrTable(LWL, M + 80, { planing: 1 }),
+  rr: rrTable(LWL, M + 80, { dinghy: true }),
   keel: { x: 0.55, z: -0.5, area: 0.2, ARe: 4.2, stall: 13 * DEG, cd0: 0.011, span: 0.72, chord: 0.28, board: true },
   rudder: { x: -2.15, z: -0.28, area: 0.09, ARe: 3.2, stall: 15 * DEG, cd0: 0.012, max: 35 * DEG, span: 0.52, chord: 0.18, transom: true, loadRef: 200 },
   hullLat: { area: 0.4, cd: 0.9, z: -0.04 },
@@ -28,9 +30,9 @@ export default {
   targetHeel: 6 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 380,
   engine: null,
   sails: [
-    { key: 'main', kind: 'boom', rig: 'lateen', area: 7.0, luff: 3.51, rake: 2.77, fixedRake: true, tackFwd: 0.7, foot: 3.99, head: 0.05, roach: 0, mastTop: 3.05,
+    { key: 'main', kind: 'boom', rig: 'lateen', area: 7.0, luff: 3.51, rake: 2.77, fixedRake: true, tackFwd: 0.56, foot: 3.99, head: 0.05, roach: 0, mastTop: 3.05,
       depth: [0.12, 0.13, 0.12], twistMax: 24 * DEG, cd0: 0.07, ARe: 3.0, min: 3 * DEG, max: 88 * DEG, trav: null, Iboom: 14, boomMass: 5, reefs: 0,
-      vangBend: 0.1, sheetBend: 0.1, color: 0xf6f5f0, pockets: [], battens: { EI: 0, rows: [] }, boomMat: 'alu', yardR: 0.026, boomR: 0.026, window: true },
+      vangBend: 0.1, sheetBend: 0.1, color: 0xf6f5f0, pockets: [], battens: { EI: 0, rows: [] }, boomMat: 'alu', yardR: 0.026, boomR: 0.026, window: false },
   ],
   hull: { color: 0xf6f6f2, stripe: 0x1f6fb5, deck: 0xf4f4ef, boot: 0xf6f6f2, bare: true, levels: [-9, -9, 0.06, 0.035] },
   // the rainbow sail: red, orange, yellow, green, blue bands across the head, as the classic Sunfish wears them

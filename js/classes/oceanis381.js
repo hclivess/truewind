@@ -25,7 +25,7 @@ export default {
   keel: { x: 0.45, z: -1.35, area: 1.62, ARe: 3.3, stall: 15 * DEG, cd0: 0.01, span: 1.5, chord: 1.08 },
   rudder: { x: -4.25, z: -1.0, area: 0.72, ARe: 3.4, stall: 16 * DEG, cd0: 0.011, max: 32 * DEG, span: 1.38, chord: 0.54, loadRef: 2600 },
   hullLat: { area: 3.2, cd: 0.9, z: -0.25 },
-  windage: { area: 12.5, z: 3.1, cd: 0.95 },
+  windage: { area: 6.8, z: 3.1, cd: 0.95 },
   mastX: 1.55, mastHeight: 16.6, boomZ: 2.55, mastR: 0.1, keelBulb: false,
   targetHeel: 17 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 3200, reefTime: 30,
   // saildrive: Yanmar 3JH5E (29.4 kW at 3,000 rpm) on an SD60 leg (2.49:1), 3-blade folding 17 x 12 in prop

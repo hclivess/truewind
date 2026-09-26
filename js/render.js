@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { DEG } from './env.js';
 import { STRIP_F, REEF, clamp, lerp } from './physics.js';
 import { buildBoatModel, updateBoatModel } from './models.js';
+import './boats/detailed.js';      // (registers the detailed models of the classes in js/classes/)
 import { Rigging, tickGlow } from './rigging.js';
 import { buildStructures, indexFeatures, structureMask } from './structures.js';
 import { HullSplash, SeaSpray, NOISE as FOAM_NOISE } from './splash.js';

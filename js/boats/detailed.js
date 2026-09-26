@@ -360,7 +360,7 @@ function buildDetailed(boat, opts = {}) {
   const rodMesh = (r, m) => { const g = new THREE.CylinderGeometry(r, r * 0.85, 1, 10); g.translate(0, 0.5, 0); const o = new THREE.Mesh(g, m); o.castShadow = true; rig.add(o); return o; };
   for (const s of boat.sails) {
     if (s.rig === 'gaff') dyn.gaff = { s, mesh: rodMesh(s.gaffR ?? 0.045, spar(s.boomMat ?? mastSpec(C, D, 'main').mat)) };
-    if (s.rig === 'lateen') dyn.yard = { s, mesh: rodMesh(s.yardR ?? 0.028, spar(s.boomMat ?? 'alu')) };
+    if (s.rig === 'lateen') dyn.yard = { s, mesh: rodMesh(s.yardR ?? 0.028, spar(s.boomMat ?? 'alu')), halyard: rodMesh(0.004, paint(0xe8e2d0, 0.8)) };
     if (s.rig === 'sprit') dyn.sprit = { s, mesh: rodMesh(s.spritR ?? 0.018, spar(s.boomMat ?? 'wood')) };
     if (s.kind === 'spin' && s.pole) dyn.pole = { s, mesh: rodMesh(0.025, M.alu()) };
   }
@@ -407,7 +407,11 @@ function updateDetailed(vis, b, t) {
     return out.copy(V(lx - Math.cos(a) * chord, ly + Math.sin(a) * chord, (s.key === 'main' ? C.boomZ : s.tackZ) + v * s.luff + (s.headRise || 0) * u * v));
   };
   if (dyn.gaff) { corner(dyn.gaff.s, 0, 1, _a); const B = corner(dyn.gaff.s, 1, 1, new THREE.Vector3()); placeRod(dyn.gaff.mesh, _a, B, 0.12, 0.1); }
-  if (dyn.yard) { corner(dyn.yard.s, 0, 0, _a); const B = corner(dyn.yard.s, 0, 1, new THREE.Vector3()); placeRod(dyn.yard.mesh, _a, B, 0.08, 0.12); }
+  if (dyn.yard) {
+    corner(dyn.yard.s, 0, 0, _a); const B = corner(dyn.yard.s, 0, 1, new THREE.Vector3()), H = _a.clone().lerp(B, 0.72);
+    placeRod(dyn.yard.mesh, _a, B, 0.08, 0.12);
+    placeRod(dyn.yard.halyard, V(C.mastX, 0, C.mastHeight - 0.03), H);           // the halyard: masthead to its ring on the yard
+  }
   if (dyn.sprit) { const s = dyn.sprit.s; _a.copy(V(C.mastX + 0.01, 0, C.boomZ + s.snotterZ)); const B = corner(s, 1, 1, new THREE.Vector3()); placeRod(dyn.sprit.mesh, _a, B, 0, 0.04); }
   if (dyn.pole) {
     const s = dyn.pole.s, rg = act && b.sailSys.cloth(s.key), on = b.genDeploy > 0.3;
@@ -705,15 +709,12 @@ export const EXTRAS = {
     kit.box(wood(0x8a6a44), 0.9, 0.06, 0.08, V(C.mastX - 0.2, 0, deckH0(C.mastX, 0) + 0.7));   // pin rail
     for (let i = 0; i < 6; i++) kit.rod(wood(0x6a5030), V(C.mastX - 0.2, -0.38 + i * 0.15, deckH0(C.mastX, 0) + 0.62), V(C.mastX - 0.2, -0.38 + i * 0.15, deckH0(C.mastX, 0) + 0.85), 0.012);
   },
-  // Joshua: the wind-vane self-steering gear on its frame over the canoe stern, the boarding gate and the gallows
+  // Joshua: the wind-vane self-steering gear on its frame over the canoe stern
   joshuaDetails({ C, Lx, kit, deckH0 }) {
     const x = C.sternX, z = Lx.sheer(0) + 0.05;
     kit.rod(M.steel(), V(x + 0.35, 0.35, z), V(x - 0.45, 0, z + 0.25), 0.02); kit.rod(M.steel(), V(x + 0.35, -0.35, z), V(x - 0.45, 0, z + 0.25), 0.02);
     kit.rod(M.steel(), V(x - 0.45, 0, z + 0.25), V(x - 0.45, 0, z + 1.0), 0.025);
     kit.box(paint(0xe8e2d0, 0.6), 0.02, 0.7, 0.35, V(x - 0.5, 0, z + 1.45));                   // the vane
     kit.rod(M.steel(), V(x - 0.45, 0, z + 0.25), V(x - 0.1, 0, -0.9), 0.02);                  // the servo linkage to the rudder
-    const gx = C.sternX + 1.9, gz = deckH0(gx, 0);
-    for (const s of [-1, 1]) kit.rod(M.steel(), V(gx, s * 0.7, gz), V(gx, s * 0.6, gz + 1.2), 0.03);
-    kit.rod(M.steel(), V(gx, -0.62, gz + 1.2), V(gx, 0.62, gz + 1.2), 0.035);                  // boom gallows
   },
 };

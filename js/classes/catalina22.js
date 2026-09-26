@@ -26,7 +26,7 @@ export default {
   keel: { x: 0.32, z: -0.8, area: 0.52, ARe: 3.0, stall: 15 * DEG, cd0: 0.012, span: 1.0, chord: 0.55, board: true },
   rudder: { x: -3.34, z: -0.35, area: 0.24, ARe: 2.8, stall: 16 * DEG, cd0: 0.012, max: 35 * DEG, span: 0.85, chord: 0.33, transom: true, loadRef: 650 },
   hullLat: { area: 1.0, cd: 0.9, z: -0.12 },
-  windage: { area: 3.4, z: 1.9, cd: 0.95 },
+  windage: { area: 2.5, z: 1.9, cd: 0.95 },
   mastX: 0.84, mastHeight: 9.0, boomZ: 2.28, mastR: 0.045, keelBulb: false,
   targetHeel: 18 * DEG, canCapsize: false, hasBackstay: false, hasBoard: true, sheetPower: 800, reefTime: 50,
   // outboard: a 6 hp long-shaft four-stroke on a transom bracket (the class's usual fit: Tohatsu/Honda/Yamaha 6)

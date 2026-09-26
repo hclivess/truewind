@@ -26,7 +26,7 @@ export default {
   keel: { x: 0.32, z: -1.05, area: 1.45, ARe: 2.6, stall: 16 * DEG, cd0: 0.011, span: 1.1, chord: 1.32 },
   rudder: { x: -3.3, z: -0.95, area: 0.52, ARe: 3.0, stall: 17 * DEG, cd0: 0.011, max: 35 * DEG, span: 1.12, chord: 0.46, loadRef: 1500 },
   hullLat: { area: 2.3, cd: 0.9, z: -0.2 },
-  windage: { area: 7.8, z: 2.6, cd: 0.95 },
+  windage: { area: 4.6, z: 2.6, cd: 0.95 },
   mastX: 1.06, mastHeight: 13.85, boomZ: 2.78, mastR: 0.07, keelBulb: false,
   targetHeel: 18 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 2200, reefTime: 60,
   // inboard: Universal M25XP (3-cyl diesel, 23 hp at 3,000 rpm, 2:1 Hurth box), 2-blade fixed 13 x 9 in prop
