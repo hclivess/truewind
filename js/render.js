@@ -15,9 +15,11 @@ import { SeamarkLayer } from './seamark-render.js';
 const MAXW = 20;
 const FOAM_N = 512;   // persistent-foam map resolution (texels a side)
 
-// Gerstner components (same data as the physics): Wa = (dx, dz, k_deep, omega_doppler), Wb = (A, Q, phase, omega)
-// Depth from the chart texture (G channel, metres*8): finite-depth wavenumber, shoaling, breaking cap;
-// the phase field texture holds the integrated (k(h) - k_deep) along each component's direction.
+// Gerstner components (same data as the physics): Wa = (dx, dz, k_base, omega_doppler), Wb = (A, Q, phase, omega)
+// The coast (coastal.js, the same arrays WaveField.sample reads): per component a layer of tangent planes of its
+// local phase and its amplitude factor, (P, Gx, Gz, K): phase = P + G.x, wavevector G — refraction, shoaling,
+// shelter, diffraction and fetch — and at half resolution the waves the walls reflect. Depth from the chart
+// texture (G channel, metres*8) for depth-limited breaking.
 const WAVE_GLSL = /* glsl */`
 uniform vec4 uWa[${MAXW}];
 uniform vec4 uWb[${MAXW}];
@@ -65,29 +67,43 @@ float fpQ(vec2 s, vec2 eR, vec2 eT, vec2 fl, vec2 pr){
 float invTail(float p){ float t = sqrt(-2.0 * log(max(p, 1e-6)));
   return t - (2.515517 + 0.802853 * t + 0.010328 * t * t) / (1.0 + 1.432788 * t + 0.189269 * t * t + 0.001308 * t * t * t); }
 uniform sampler2D uSdf; uniform float uWorldR; uniform float uHasMap;
-uniform sampler2D uPF; uniform float uHasPF; uniform float uPFN;
-// GLSL tanh/sinh overflow to NaN for large arguments on many GPUs: keep them bounded
-float tanhS(float x) { x = clamp(x, -9.0, 9.0); float e = exp(2.0 * x); return (e - 1.0) / (e + 1.0); }
-float kDepth(float w, float h) { float k0 = w * w / 9.81; if (h > 30.0 || k0 * h > 6.0) return k0; return k0 / sqrt(max(tanhS(k0 * h), 1e-3)); }
-float shoal(float w, float h) {
-  float kh = kDepth(w, h) * h;
-  if (h > 30.0 || kh > 6.0) return 1.0;
-  float x = max(2.0 * kh, 1e-4);
-  float n = 0.5 * (1.0 + x / (0.5 * (exp(x) - exp(-x))));
-  return min(2.2, 1.0 / sqrt(max(0.2, n * tanhS(kh) / 0.5)));
-}
+uniform highp sampler2DArray uCst; uniform highp sampler2DArray uCstR; uniform sampler2D uCstM;
+uniform float uCstOn; uniform float uCstNR; uniform float uCstW; uniform vec2 uCstN; uniform float uCstRL[${MAXW}];
+uniform float uShoreW;   // metres of shore over which the sea fades into the beach
 float depthAt(vec2 x) {
   if (uHasMap < 0.5) return 99.0;
   vec4 s = texture2D(uSdf, (x + uWorldR) / (2.0 * uWorldR));
   return s.r * 255.0 - 128.0 > 0.0 ? max(0.05, s.g * 255.0 / 8.0) : 0.05;
 }
-float phaseOff(int i, vec2 x) {
-  if (uHasPF < 0.5) return 0.0;
-  vec2 uv = clamp((x + uWorldR) / (2.0 * uWorldR), 0.5 / uPFN, 1.0 - 0.5 / uPFN);
-  float tile = floor(float(i) / 4.0);
-  vec4 v = texture2D(uPF, vec2((tile + uv.x) / 5.0, uv.y));
-  int c = i - int(tile) * 4;
-  return c == 0 ? v.x : c == 1 ? v.y : c == 2 ? v.z : v.w;
+// a coastal layer at x: the tangent planes bilinearly blended (CoastalField._blend), by the float filter or,
+// where the GPU cannot filter floats, by hand from the four texels (CST_TEXEL)
+vec4 cstFetch(highp sampler2DArray t, vec2 x, float layer, float n) {
+  vec2 uv = (x + uCstW) / (2.0 * uCstW);
+#ifdef CST_TEXEL
+  vec2 f = uv * n - 0.5, i0 = floor(f), w = f - i0;
+  ivec2 a = ivec2(clamp(i0, 0.0, n - 1.0)), b = ivec2(clamp(i0 + 1.0, 0.0, n - 1.0));
+  int l = int(layer);
+  vec4 c = mix(mix(texelFetch(t, ivec3(a.x, a.y, l), 0), texelFetch(t, ivec3(b.x, a.y, l), 0), w.x),
+               mix(texelFetch(t, ivec3(a.x, b.y, l), 0), texelFetch(t, ivec3(b.x, b.y, l), 0), w.x), w.y);
+#else
+  vec4 c = textureLod(t, vec3(uv, layer), 0.0);
+#endif
+  return vec4(c.x + dot(c.yz, x), c.yzw);
+}
+// component i's local wave at x: (phase at t = 0 less its own constant, wavevector, amplitude factor)
+vec4 cstInc(int i, vec2 x) {
+  if (uCstOn < 0.5) { vec4 a = uWa[i]; return vec4(a.z * dot(a.xy, x), a.z * a.xy, 1.0); }
+  return cstFetch(uCst, x, float(i), uCstN.x);
+}
+// ...and its reflection off the walls, where there is one (the mask spares the fetches in open water)
+bool cstHasRef(vec2 x) { return uCstOn > 0.5 && uCstNR > 0.5 && textureLod(uCstM, (x + uCstW) / (2.0 * uCstW), 0.0).r > 0.0; }
+vec4 cstRef(int i, vec2 x) { float l = uCstRL[i]; return l < 0.0 ? vec4(0.0, 1.0, 0.0, 0.0) : cstFetch(uCstR, x, l, uCstN.y); }
+// the local limits on the summed waves (WaveField._limits): depth-limited breaking, the wave's height (twice its
+// envelope) held to 0.78 h by a soft cap; the trochoids' steepness sum Q k A to 0.8. Returns (cap, qs, breaking)
+vec3 seaLimits(float h, float e, float eH, float sK) {
+  float cap = 1.0, r = 0.0;
+  if (uHasMap > 0.5) { r = 2.0 * sqrt(e * e + eH * eH) / (0.78 * h); if (r > 0.3) cap = 1.0 / pow(1.0 + pow(r, 8.0), 0.125); }
+  return vec3(cap, min(1.0, 0.8 / max(1e-6, sK * cap)), r);
 }
 `;
 
@@ -123,6 +139,9 @@ export class Renderer {
     this.forceArrows = null;
     this.showForces = false;
     this.hemi = hemi;
+    // float textures filter linearly on nearly every GPU; where not, the coastal layers are blended by hand
+    this.cstLin = !!r.extensions.get('OES_texture_float_linear');
+    this.cstDef = this.cstLin ? '' : '#define CST_TEXEL\n';
     this._buildWater();
     this._buildRain();
     this.cloudMeshes = [];
@@ -164,13 +183,16 @@ export class Renderer {
     this.gustTex.magFilter = THREE.LinearFilter; this.gustTex.minFilter = THREE.LinearFilter; this.gustTex.needsUpdate = true;
     this.sdfTex = new THREE.DataTexture(new Uint8Array(4 * 4 * 4).fill(255), 4, 4, THREE.RGBAFormat);
     this.sdfTex.needsUpdate = true;
-    this.pfTex = new THREE.DataTexture(new Uint16Array(4 * 4 * 4), 4, 4, THREE.RGBAFormat, THREE.HalfFloatType); this.pfTex.needsUpdate = true;
+    const arr = (n) => { const t = new THREE.DataArrayTexture(new Float32Array(4 * n), 1, 1, n); t.format = THREE.RGBAFormat; t.type = THREE.FloatType; t.needsUpdate = true; return t; };
+    this.cstTex = arr(MAXW); this.cstRTex = arr(1);
+    this.cstMTex = new THREE.DataTexture(new Uint8Array(1), 1, 1, THREE.RedFormat); this.cstMTex.needsUpdate = true;
     const uniforms = {
       uWa: { value: Wa }, uWb: { value: Wb }, uWn: { value: 0 }, uTime: { value: 0 },
       uSunDir: { value: this.sunDir }, uCam: { value: new THREE.Vector3() }, uOffset: { value: new THREE.Vector2() },
       uGust: { value: this.gustTex }, uGustO: { value: new THREE.Vector2() }, uGustS: { value: 2048 },
       uSdf: { value: this.sdfTex }, uWorldR: { value: 6000 }, uHasMap: { value: 0 }, uOvercast: this.overcastU,
-      uPF: { value: this.pfTex }, uHasPF: { value: 0 }, uPFN: { value: 96 },
+      uCst: { value: this.cstTex }, uCstR: { value: this.cstRTex }, uCstM: { value: this.cstMTex }, uCstOn: { value: 0 }, uCstNR: { value: 0 },
+      uCstW: { value: 6000 }, uCstN: { value: new THREE.Vector2(1, 1) }, uCstRL: { value: new Array(MAXW).fill(-1) }, uShoreW: { value: 60 },
       uFlow: { value: new THREE.Vector2(0, 1) }, uWind: { value: 6 }, uK2: { value: 0 },
       uHs: { value: 0 }, uJSig: { value: 0.1 }, uLmin: { value: 4 },
       uFoam: { value: null }, uFoamC: { value: new THREE.Vector2() }, uFoamS: { value: 320 }, uFoamOff: { value: new THREE.Vector2() }, uFoamOn: { value: 0 },
@@ -184,9 +206,9 @@ export class Renderer {
     const m = new THREE.ShaderMaterial({
       uniforms, fog: false,
       vertexShader: /* glsl */`
-        ${WAVE_GLSL}
+        ${this.cstDef}${WAVE_GLSL}
         uniform vec2 uOffset; uniform vec3 uCam; attribute float spc;
-        varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore; varying float vBreak;
+        varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore; varying float vBreak; varying vec2 vLim;
         void main(){
           vec2 x0 = position.xz + uOffset;
           float dist = length(x0 - uCam.xz);
@@ -195,31 +217,36 @@ export class Renderer {
           float shore = 1.0;
           if (uHasMap > 0.5) {
             float s = (texture2D(uSdf, (x0 + uWorldR) / (2.0 * uWorldR)).r * 255.0 - 128.0);
-            shore = clamp(s / 60.0, 0.08, 1.0);
+            shore = clamp(s / uShoreW, 0.08, 1.0);
           }
-          // depth-limited breaking cap on the local significant height
-          float a2 = 0.0;
-          for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break; float A = uWb[i].x * shoal(uWb[i].w, h); a2 += A * A; }
-          float Hs = 4.0 * sqrt(a2 * 0.5);
-          float cap = uHasMap > 0.5 && Hs > 0.78 * h ? 0.78 * h / Hs : 1.0;
-          vBreak = clamp(Hs / (0.78 * h) - 0.7, 0.0, 1.0);
-          vec3 P = vec3(x0.x, 0.0, x0.y);
-          float eH = 0.0, s2 = 0.0;                       // Hilbert partner, trochoid self terms (WaveField.sample)
+          // every wave here — each component and, off a wall, its reflection — summed as WaveField.sample does,
+          // then the local limits: depth-limited breaking and the trochoids' steepness
+          bool hr = cstHasRef(x0);
+          vec2 D = vec2(0.0); float Y = 0.0, eH = 0.0, s2 = 0.0, sK = 0.0, a2 = 0.0;   // (Hilbert partner, self terms)
           for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break;
             vec4 a = uWa[i]; vec4 b = uWb[i];
-            float th = a.z * dot(a.xy, x0) + phaseOff(i, x0) - a.w * uTime + b.z;
-            float A = b.x * shoal(b.w, h) * cap * fade * shore * smoothstep(3.0 * spc, 6.0 * spc, 6.2832 / a.z);
-            float C = cos(th), S = sin(th);
-            P.x += b.y * A * a.x * C; P.z += b.y * A * a.y * C; P.y += A * S;
-            eH += A * C; s2 += b.y * A * A * (C * C - S * S);
+            for (int r = 0; r < 2; r++) {
+              if (r == 1 && !hr) break;
+              vec4 cw = r == 0 ? cstInc(i, x0) : cstRef(i, x0);
+              float kl = length(cw.yz); vec2 u = cw.yz / kl;
+              float A = b.x * cw.w * fade * smoothstep(3.0 * spc, 6.0 * spc, 6.2832 / kl);
+              float th = cw.x - a.w * uTime + b.z, C = cos(th), S = sin(th);
+              D += b.y * A * u * C; Y += A * S; eH += A * C; s2 += b.y * A * A * (C * C - S * S); sK += b.y * kl * A; a2 += A * A;
+            }
           }
-          P.y += uK2 * (P.y * P.y - eH * eH + s2);          // second order: sharper crests, flatter troughs
+          vec3 L = seaLimits(h, Y, eH, sK);
+          float cap = L.x, qs = L.y;
+          // second order: sharper crests, flatter troughs; the shore's fade last (WaveField.scaleFn)
+          vec3 P = vec3(x0.x + shore * cap * qs * D.x, shore * (cap * Y + uK2 * cap * cap * (Y * Y - eH * eH + qs * s2)), x0.y + shore * cap * qs * D.y);
+          // breaking: this crest spilling (its height at the depth limit), and the surf zone's share of broken water
+          vBreak = uHasMap > 0.5 ? max(smoothstep(0.85, 1.05, L.z), 0.6 * clamp(4.0 * sqrt(a2 * 0.5) / (0.78 * h) - 0.7, 0.0, 1.0)) : 0.0;
+          vLim = vec2(cap, qs);
           vPos = P; vX0 = x0; vFade = fade; vShore = shore;
           gl_Position = projectionMatrix * viewMatrix * vec4(P, 1.0);
         }`,
       fragmentShader: /* glsl */`
         ${this.low ? '#define LOWQ' : ''}
-        ${WAVE_GLSL}
+        ${this.cstDef}${WAVE_GLSL}
         ${SKY_LUT_GLSL}
         ${CLOUD_GLSL}
         uniform vec3 uSunDir; uniform vec3 uSunCol; uniform samplerCube uEnv; uniform float uAmbF; uniform vec3 uLightDir; uniform sampler2D uSkyRT; uniform mat4 uSkyVP;
@@ -227,7 +254,7 @@ export class Renderer {
         uniform vec2 uFlow; uniform float uWind; uniform float uHs; uniform float uJSig; uniform float uLmin;
         uniform sampler2D uFoam; uniform vec2 uFoamC; uniform float uFoamS; uniform vec2 uFoamOff; uniform float uFoamOn;
         uniform vec3 uDeep; uniform vec3 uShallow; uniform vec3 fogColor; uniform float fogDensity;
-        varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore; varying float vBreak;
+        varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore; varying float vBreak; varying vec2 vLim;
         // value noise and its gradient (quintic): (v, dv/dx, dv/dy)
         vec3 qnd(vec2 p){ vec2 i = floor(p), f = fract(p);
           vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0), du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
@@ -238,7 +265,6 @@ export class Renderer {
         void main(){
           vec2 x0 = vX0;
           float dist = length(vPos - uCam);
-          float hd = depthAt(x0);
           // the pixel's footprint on the water (long at grazing angles): waves shorter than a few footprints
           // cannot be drawn as normals — they alias into moire — so they are filtered out and their slope
           // becomes roughness (a glossier reflection and a wider sun glitter), as a real sea does at a distance
@@ -252,23 +278,29 @@ export class Renderer {
           // (R), and the spread of all of them (T) for the rest, which it can only show as a mean
           vec3 n = vec3(0.0, 1.0, 0.0); float J = 1.0, sJ2 = 0.0, Cs = 0.0, sS2 = 0.0, sC = 0.0, sJ2T = 0.0, sS2T = 0.0, sCT = 0.0, lostF = 0.0;
           float e1 = 0.0, eH = 0.0; vec2 gH = vec2(0.0), g2 = vec2(0.0);    // second order: height, Hilbert partner, slopes
+          bool hr = cstHasRef(x0);
           for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break;
             vec4 a = uWa[i]; vec4 b = uWb[i];
-            float th = a.z * dot(a.xy, x0) + phaseOff(i, x0) - a.w * uTime + b.z;
-            float kw = kDepth(b.w, hd);
-            float WAt = kw * b.x * shoal(b.w, hd) * vShore, WA0 = WAt * vFade;
+            float Q = b.y * vLim.y;                                          // (the local steepness limit)
+            for (int r = 0; r < 2; r++) {
+            if (r == 1 && !hr) break;
+            vec4 cw = r == 0 ? cstInc(i, x0) : cstRef(i, x0);                // the local wave (coastal.js)
+            float kw = length(cw.yz); vec2 u = cw.yz / kw;
+            float th = cw.x - a.w * uTime + b.z;
+            float WAt = kw * b.x * cw.w * vLim.x * vShore, WA0 = WAt * vFade;
             float att = smoothstep(fp * 2.0, fp * 6.0, 6.2832 / kw);
             lost += (1.0 - att) * WA0 * WA0 * 0.5;
             float WA = WA0 * att, C = cos(th), S = sin(th), A = WA / kw;
-            n.x -= a.x * WA * C; n.z -= a.y * WA * C; n.y -= b.y * WA * S;
+            n.x -= u.x * WA * C; n.z -= u.y * WA * C; n.y -= Q * WA * S;
             // resolved along its own direction (a crest seen end-on survives foreshortening) and only where
             // the geometry still draws it: no whitecap bands on a sea gone flat
-            float fw = fpAlong(a.xy, eRf, eT), WF = WA0 * smoothstep(2.0 * fw, 6.0 * fw, 6.2832 / kw);
-            float jR = b.y * WF, jT = b.y * WAt;
+            float fw = fpAlong(u, eRf, eT), WF = WA0 * smoothstep(2.0 * fw, 6.0 * fw, 6.2832 / kw);
+            float jR = Q * WF, jT = Q * WAt;
             J -= jR * S; sJ2 += jR * jR * 0.5; sJ2T += jT * jT * 0.5; lostF += (WAt * WAt - WF * WF) * 0.5;
             float ws = smoothstep(80.0, 20.0, 6.2832 / kw);                  // the short waves break on the long crests
             Cs += ws * jR * S; sS2 += ws * ws * jR * jR * 0.5; sS2T += ws * ws * jT * jT * 0.5; sC += ws * jR * jR * 0.5; sCT += ws * jT * jT * 0.5;
-            e1 += A * S; eH += A * C; gH += a.xy * WA * S; g2 -= a.xy * 4.0 * b.y * A * WA * S * C;
+            e1 += A * S; eH += A * C; gH += u * WA * S; g2 -= u * 4.0 * Q * A * WA * S * C;
+            }
           }
           // slope of eta2 = K2 (eta^2 - H^2 + Q-self): n.xz here is minus the first-order slope
           n.xz -= uK2 * (-2.0 * e1 * n.xz + 2.0 * eH * gH + g2);
@@ -494,13 +526,13 @@ export class Renderer {
     this.foamRT = [mk(), mk()]; this.foamI = 0; this.foamT = null;
     const U = this.waterU, v4 = () => [0, 1, 2, 3].map(() => new THREE.Vector4());
     const fu = { uPrev: { value: null }, uCp: { value: new THREE.Vector2() }, uDt: { value: 0 }, uDrift: { value: new THREE.Vector2() }, uLang: { value: 0 }, uKeep: { value: 0 }, uWake: { value: v4() }, uWakeW: { value: v4() } };
-    for (const k of ['uWa', 'uWb', 'uWn', 'uTime', 'uK2', 'uSdf', 'uWorldR', 'uHasMap', 'uPF', 'uHasPF', 'uPFN', 'uGust', 'uGustO', 'uGustS', 'uFlow', 'uWind', 'uFoamC', 'uFoamS', 'uFoamOff']) fu[k] = U[k];
+    for (const k of ['uWa', 'uWb', 'uWn', 'uTime', 'uK2', 'uSdf', 'uWorldR', 'uHasMap', 'uCst', 'uCstR', 'uCstM', 'uCstOn', 'uCstNR', 'uCstW', 'uCstN', 'uCstRL', 'uShoreW', 'uGust', 'uGustO', 'uGustS', 'uFlow', 'uWind', 'uFoamC', 'uFoamS', 'uFoamOff']) fu[k] = U[k];
     this.foamU = fu;
     const mat = new THREE.ShaderMaterial({
       uniforms: fu, depthTest: false, depthWrite: false,
       vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
       fragmentShader: /* glsl */`
-        ${WAVE_GLSL}
+        ${this.cstDef}${WAVE_GLSL}
         uniform sampler2D uPrev; uniform vec2 uCp; uniform float uDt; uniform vec2 uDrift; uniform float uLang; uniform float uKeep;
         const float uTexel = 1.0 / ${FOAM_N}.0;
         uniform vec4 uWake[4]; uniform vec4 uWakeW[4];          // stern path this frame (x0a, z0a, x0b, z0b); (half-width, strength)
@@ -510,24 +542,35 @@ export class Renderer {
         void main(){
           vec2 p = uFoamC + (vUv - 0.5) * uFoamS, cell = vec2(uFoamS * uTexel);
           float hd = depthAt(p), shore = 1.0;
-          if (uHasMap > 0.5) shore = clamp((texture2D(uSdf, (p + uWorldR) / (2.0 * uWorldR)).r * 255.0 - 128.0) / 60.0, 0.08, 1.0);
-          // crest compression as the water shader measures it (waves shorter than the map resolves left out)
-          float J = 1.0, sJ2 = 0.0, Cs = 0.0, sS2 = 0.0;
+          if (uHasMap > 0.5) shore = clamp((texture2D(uSdf, (p + uWorldR) / (2.0 * uWorldR)).r * 255.0 - 128.0) / uShoreW, 0.08, 1.0);
+          // crest compression as the water shader measures it (waves shorter than the map resolves left out),
+          // under the same local limits; and where the depth breaks the waves, their spilling crests
+          bool hr = cstHasRef(p);
+          float J = 0.0, sJ2 = 0.0, Cs = 0.0, sS2 = 0.0, Y = 0.0, eH = 0.0, sK = 0.0;
           for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break;
             vec4 a = uWa[i]; vec4 b = uWb[i];
-            float th = a.z * dot(a.xy, p) + phaseOff(i, p) - a.w * uTime + b.z;
-            float kw = kDepth(b.w, hd);
-            float WA = kw * b.x * shoal(b.w, hd) * shore * smoothstep(2.0 * cell.x, 4.0 * cell.x, 6.2832 / kw), S = sin(th);
-            J -= b.y * WA * S; sJ2 += b.y * b.y * WA * WA * 0.5;
-            float ws = smoothstep(80.0, 20.0, 6.2832 / kw);
-            Cs += ws * b.y * WA * S; sS2 += ws * ws * b.y * b.y * WA * WA * 0.5;
+            for (int r = 0; r < 2; r++) {
+              if (r == 1 && !hr) break;
+              vec4 cw = r == 0 ? cstInc(i, p) : cstRef(i, p);
+              float kw = length(cw.yz), A = b.x * cw.w, th = cw.x - a.w * uTime + b.z, S = sin(th);
+              Y += A * S; eH += A * cos(th); sK += b.y * kw * A;
+              float WA = kw * A * shore * smoothstep(2.0 * cell.x, 4.0 * cell.x, 6.2832 / kw);
+              J += b.y * WA * S; sJ2 += b.y * b.y * WA * WA * 0.5;
+              float ws = smoothstep(80.0, 20.0, 6.2832 / kw);
+              Cs += ws * b.y * WA * S; sS2 += ws * ws * b.y * b.y * WA * WA * 0.5;
+            }
           }
+          vec3 Lm = seaLimits(hd, Y, eH, sK);
+          float cq = Lm.x * Lm.y;
+          J = 1.0 - cq * J; sJ2 *= cq * cq; Cs *= cq; sS2 *= cq * cq;
           float lw = uWind * texture2D(uGust, (p - uGustO) / uGustS + 0.5).r * 2.0;
           float Wc = clamp(3.84e-6 * pow(max(lw, 0.0), 3.41), 0.0, 0.3);
           vec2 xd = p - uFoamOff, pr = vec2(-uFlow.y, uFlow.x);
           vec2 sw = vec2(dot(xd, uFlow), dot(xd, pr));
           float f1 = sfbmA(vec2(sw.x * 0.28, sw.y * 0.6), cell.x * 0.28);
           float act = Wc > 2e-4 ? smoothstep(invTail(0.4 * Wc) - 0.15, invTail(0.4 * Wc) + 0.4, crestZ(J, sJ2, Cs, sS2, 0.0, 0.0) + (f1 - 0.5) * 1.1) : 0.0;
+          // spilling breakers in the surf zone leave their foam behind them
+          act = max(act, uHasMap * smoothstep(0.85, 1.1, Lm.z) * (0.6 + 0.4 * f1));
           // Langmuir windrows: cross-wind convergence onto the water shader's streak lines (same rows)
           float ya = sw.y + 14.0 * (qn(sw * vec2(0.005, 0.012)) - 0.5) + 4.0 * (qn(sw * vec2(0.025, 0.05) + 5.0) - 0.5);
           float row = floor(ya / 9.0), fy = ya - 9.0 * (row + 0.3 + 0.4 * hash(vec2(row, 3.7)));
@@ -631,22 +674,26 @@ export class Renderer {
   setWavesEnabled(on, waves) {
     if (on) this.setWaves(waves); else this.waterU.uWn.value = 0;
   }
-  // finite-depth phase field -> half-float texture (5 tiles of 4 components)
-  setPhaseField(waves) {
-    const U = this.waterU;
-    if (!waves.phaseField) { U.uHasPF.value = 0; return; }
-    const N = waves.pfN, F = waves.phaseField;
-    const data = new Float32Array(N * 5 * N * 4);
-    for (let tile = 0; tile < 5; tile++) for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) for (let c = 0; c < 4; c++) {
-      const ci = tile * 4 + c;
-      data[((j * N * 5) + tile * N + i) * 4 + c] = ci < F.length ? F[ci][j * N + i] : 0;
-    }
-    this.pfTex.dispose();
-    this.pfTex = new THREE.DataTexture(data, N * 5, N, THREE.RGBAFormat, THREE.FloatType);
-    const lin = !!this.r.extensions.get('OES_texture_float_linear');
-    this.pfTex.magFilter = lin ? THREE.LinearFilter : THREE.NearestFilter; this.pfTex.minFilter = this.pfTex.magFilter; this.pfTex.needsUpdate = true;
-    U.uPF.value = this.pfTex; U.uHasPF.value = 1; U.uPFN.value = N;
+  // the coastal field (coastal.js) -> float array textures: one layer of (P, Gx, Gz, K) per component, the
+  // reflected waves' layers at half resolution, and the mask of where there are any. The same arrays
+  // WaveField.sample reads. Without one: plane waves at each component's base wavenumber.
+  setCoastal(waves) {
+    const U = this.waterU, f = waves && waves.coastal;
+    U.uShoreW.value = f ? 12 : 60;                 // (with the surf modelled, the old wide fade at the shore goes)
+    if (!f) { U.uCstOn.value = 0; return; }
+    if (this._cstSrc === f) { U.uCstOn.value = 1; return; }
+    this._cstSrc = f;
+    const filt = this.cstLin ? THREE.LinearFilter : THREE.NearestFilter;
+    const arr = (data, n, d) => { const t = new THREE.DataArrayTexture(data, n, n, d); t.format = THREE.RGBAFormat; t.type = THREE.FloatType; t.magFilter = t.minFilter = filt; t.needsUpdate = true; return t; };
+    this.cstTex.dispose(); this.cstRTex.dispose(); this.cstMTex.dispose();
+    this.cstTex = arr(f.incA, f.M, f.n);
+    this.cstRTex = arr(f.refA, f.Mr, Math.max(1, f.nr));
+    this.cstMTex = new THREE.DataTexture(f.rMask, f.Mr, f.Mr, THREE.RedFormat); this.cstMTex.magFilter = this.cstMTex.minFilter = THREE.LinearFilter; this.cstMTex.needsUpdate = true;
+    U.uCst.value = this.cstTex; U.uCstR.value = this.cstRTex; U.uCstM.value = this.cstMTex;
+    for (let i = 0; i < MAXW; i++) U.uCstRL.value[i] = i < f.n ? f.rIdx[i] : -1;
+    U.uCstW.value = f.R; U.uCstN.value.set(f.M, f.Mr); U.uCstNR.value = f.nr > 0 ? 1 : 0; U.uCstOn.value = 1;
   }
+  setPhaseField(waves) { this.setCoastal(waves); }
 
   // ---------------------------------------------------------------- weather: overcast, rain, squall clouds, lightning, mist
   _buildRain() {
