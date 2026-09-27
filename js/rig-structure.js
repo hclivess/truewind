@@ -131,18 +131,23 @@ export const RIG_DATA = {
   },
 };
 
-// A rig for a class with no entry: sized from its righting moment (shroud load ~ 1.5 x RM30 / half beam, wire at 3.5x
-// that, mast section from Euler with a factor of 2.5 on the compression), masthead or fractional from the jib's head.
+// A rig for a class with no entry, sized as a rig designer would from its righting moment at 30 deg (Nordic Boat
+// Standard / Skene order): cap shroud breaking load ~2.8 RM30 / chainplate half-beam, lowers 0.85 of its size, dock
+// tune ~12% of break; the mast (aluminium, an ellipse 1.55:1, wall 1/45 of the chord) stiff enough that its compression
+// (twice the shroud load RM30 / half-beam, plus the tune) is a third of the Euler load of its longest panel; one
+// spreader set under 13 m of mast, two above; keel-stepped over 9 m LOA, masthead or fractional as the jib's head says.
 export function genericRig(C) {
   const disp = C.massHull + (C.crewN || 0) * (C.crewEach || 80), hb = C.beam / 2 * 0.9;
-  const RM30 = disp * G * (C.gm || 1) * Math.sin(30 * DEG) * 0.8;
-  const Tsh = 1.5 * RM30 / hb, d = clamp(Math.sqrt(3.5 * Tsh / 800), 3, 16);
-  const zStep = C.freeboard + (C.cabin ? 0.35 : 0.08), L = C.mastHeight - zStep;
-  const Pc = 2.5 * (2 * Tsh + 0.5 * Tsh), EIneed = Pc * (L * 0.55) ** 2 / (Math.PI ** 2);
-  // an aluminium ellipse a = 1.5 b with t = a/40: EI = E pi/4 t a^2 (a + 3b) ~ 70e9 * 0.785 * a^4/40 * 3
-  const a = clamp(Math.pow(EIneed / (70e9 * 0.785 / 40 * 3), 0.25), 0.06, 0.35);
-  const nSpr = L > 13 ? 2 : 1, spreaders = [];
-  for (let k = 0; k < nSpr; k++) spreaders.push({ z: zStep + L * (k + 1) / (nSpr + 1.3), len: C.beam * 0.36 / (1 + 0.4 * k), sweep: 0.12, EA: 3e7, EI: 5e3 });
+  const RM30 = disp * G * (C.gm || 1) * Math.sin(30 * DEG) * 0.8, Tsh = RM30 / hb;
+  const d = clamp(Math.sqrt(2.8 * Tsh / 800), 3, 16);
+  const deck = C.freeboard + (C.cabin ? 0.35 : 0.08), keelStep = C.loa > 9;
+  const zStep = keelStep ? Math.max(-0.2, -0.5 * (C.canoeDraft || 0.4)) : deck, L = C.mastHeight - zStep;
+  const nSpr = L > 13 ? 2 : 1, panel = 1.1 * (C.mastHeight - deck) / (nSpr + 1);
+  const Pd = 2 * Tsh + 0.3 * wireBreak(d), EIneed = 3 * Pd * panel * panel / (Math.PI ** 2);
+  let lo = 0.05, hi = 0.5;
+  for (let k = 0; k < 40; k++) { const A = 0.5 * (lo + hi), sc = section({ a: A, b: A / 1.55, t: A / 45, mat: 'alu6061' }); if (Math.min(sc.EIx, sc.EIy) > EIneed) hi = A; else lo = A; }
+  const A = hi, spreaders = [];
+  for (let k = 0; k < nSpr; k++) spreaders.push({ z: deck + (C.mastHeight - deck) * (k + 1) / (nSpr + 1.3), len: C.beam * 0.36 / (1 + 0.4 * k), sweep: 0.12, EA: 3e7, EI: 5e3 * (A / 0.1) ** 4 });
   const wires = [
     { key: 'capShroud', to: 'hounds', via: 0, d, pre: 0.12 * wireBreak(d) },
     { key: 'lowerFwd', to: spreaders[0].z, dx: 0.3, d: d * 0.85, pre: 0.08 * wireBreak(d * 0.85) },
@@ -150,9 +155,9 @@ export function genericRig(C) {
   ];
   if (C.sails.some((s) => s.key === 'jib')) wires.push({ key: 'forestay', stay: 'jib', d });
   if (C.sails.some((s) => s.key === 'stay')) wires.push({ key: 'innerForestay', stay: 'stay', d: d * 0.85 });
-  if (C.hasBackstay) wires.push({ key: 'backstay', to: 'top', off: -0.05, low: 'transom', d, pre: 0.1 * wireBreak(d), adjust: 0.004 * L });
-  return { step: { type: C.loa > 9 ? 'keel' : 'deck', z: zStep, partners: C.freeboard + 0.05 }, spans: [{ z0: zStep, z1: C.mastHeight, a, b: a / 1.5, t: a / 40, mat: 'alu6061' }],
-    spreaders, chainX: -0.1, chainIn: 0.93, wires, prebend: 0.002 * L, generic: true };
+  if (C.hasBackstay) wires.push({ key: 'backstay', to: 'top', off: -0.05, low: 'transom', d, pre: 0.1 * wireBreak(d), adjust: 0.0025 * L });
+  return { step: { type: keelStep ? 'keel' : 'deck', z: zStep, partners: keelStep ? deck : undefined }, spans: [{ z0: zStep, z1: C.mastHeight, a: A, b: A / 1.55, t: A / 45, mat: 'alu6061' }],
+    spreaders, chainX: -0.1, chainIn: 0.93, wires, prebend: 0.002 * L, generic: true, lineMax: 2.5 * (C.sheetPower || 1000) };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
