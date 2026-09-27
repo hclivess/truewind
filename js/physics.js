@@ -1378,12 +1378,14 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
       const tr = clamp((want - easeAngle - s.trav[0]) / (s.trav[1] - s.trav[0]), 0, 1);
       c.trav = lerp(c.trav, tr, k * 2);
       const travAng = lerp(s.trav[0], s.trav[1], c.trav);
-      c.main = lerp(c.main, clamp((want - travAng) / (s.max - s.trav[1]), pinched ? 0.35 : 0, 1), k * 2);
+      // (the sheet that lets the boom out to the angle wanted, with the car where it is: js/boom.js geometry)
+      const eMain = s.track ? easeForBoomAngle(C, s, want, c.trav) : (want - travAng) / (s.max - s.trav[1]);
+      c.main = lerp(c.main, clamp(eMain, pinched ? 0.35 : 0, 1), k * 2);
     } else {
       const key = s.kind === 'boom' ? s.key : 'jib';
       if (key === 'jib' && s.kind === 'loose' && letFly) { c.jib = 1; continue; }
       if (key === 'jib' && s.kind === 'loose' && boat.backedByLazy) continue; // hove-to on purpose: leave it
-      const fr = clamp((want - s.min) / (s.max - s.min), 0, 1);
+      const fr = s.track ? easeForBoomAngle(C, s, want, c.trav) : clamp((want - s.min) / (s.max - s.min), 0, 1);
       c[key] = lerp(c[key] ?? 0.3, s.kind === 'loose' ? Math.sqrt(fr) : fr, k * 2);
     }
   }
