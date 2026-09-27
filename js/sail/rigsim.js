@@ -404,7 +404,7 @@ export class BoomSailRig extends ClothRig {
       const Fb = (b.ctrl.brake || 0) * (s0.brake || 0);
       if (Fb > 0) {
         const ex = c.x[E3] - this.px, ey = c.x[E3 + 1], r = hyp(ex, ey) || 1, tx = -ey / r, ty = ex / r;   // horizontal tangent
-        const vt = c.v[E3] * tx + c.v[E3 + 1] * ty, dv = Math.min(Math.abs(vt), Fb / c.m[this.E] * dt) * Math.sign(vt);
+        const vt = c.v[E3] * tx + c.v[E3 + 1] * ty, dv = Math.min(Math.abs(vt), Fb * clamp(Math.abs(vt) / 0.1, 0, 1) / c.m[this.E] * dt) * Math.sign(vt);
         c.v[E3] -= dv * tx; c.v[E3 + 1] -= dv * ty;
       }
       // the boom as a beam: the sheet's and the vang's downward pulls, held up by the leech at its end

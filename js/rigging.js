@@ -4,6 +4,8 @@
 import * as THREE from 'three';
 import { V } from './models.js';
 import { clamp, lerp, sstep, reefAt } from './physics.js';
+import { sheetCar } from './boom.js';
+const _car = [0, 0, 0];
 
 const ROPE_W = 1.4; // N/m, a little heavier than real so sag reads at a distance
 const _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _w = new THREE.Vector3();
@@ -286,6 +288,7 @@ export class Rigging {
     this.ropes = [];
     this.g = new THREE.Vector3(0, -1, 0);
     const bw = (x) => Lx.bDeck(clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1));
+    this._bw = bw;
     const bronze = C.id === 'blackwatch';
     const col = bronze ? { main: 0xe3d6b8, jib: 0xd9c7a0, ctl: 0xcdb98e, hal: 0xeee6d2 } : { main: 0xe8eef4, jib: 0x2f6fd6, ctl: 0xf2b33d, hal: 0xf4f4f4 };
     const floorAt = (p, rad) => {
@@ -418,6 +421,7 @@ export class Rigging {
     this.mainsheet = [0, 1, 2, 3].map(() => rope(0.006, col.main, 16));
     this.mainTail = rope(0.006, col.main, 40);
     this.travLines = [rope(0.0035, 0xff7a1a, 12), rope(0.0035, 0xff7a1a, 12)];
+    if (M.preventer) this.preventer = rope(0.006, 0x3a6fb0, 40);             // boom end to the bow, led aft
     this.vang = [0, 1, 2, 3].map(() => rope(0.004, 0x333840, 10));
     this.vangTail = rope(0.004, 0x333840, 20);
     this.cunn = [rope(0.004, col.ctl, 10), rope(0.004, col.ctl, 10)];
@@ -507,7 +511,11 @@ export class Rigging {
     const bb = this.boomPt('main', hw.boomS, -0.1);
     this.boomBlock.position.copy(bb);
     let carY = 0;
-    if (M.trav) {
+    if (M.trav && M.track) {
+      // the car on its straight track, where the physics has it (js/boom.js sheetCar), within the drawn track
+      const side = Math.sign(b.booms.main.a) || 1;
+      carY = clamp(sheetCar(C, M, b.ctrl.trav, side, b.booms.main.a, _car)[1] * hw.travHalf / M.track.half, -hw.travHalf, hw.travHalf);
+    } else if (M.trav) {
       const side = Math.sign(b.booms.main.a) || 1;
       const travA = lerp(M.trav[0], M.trav[1], b.ctrl.trav);
       carY = clamp(side * Math.tan(travA) * (C.mastX - hw.travX), -hw.travHalf, hw.travHalf);
@@ -627,6 +635,14 @@ export class Rigging {
         const tk = V(G.tackX, 0, G.tackZ);
         this.tackLine.set([tk.clone().add(_v.set(0, 0.3 * b.ctrl.tackLine, 0)), V(C.bowX - 0.5, 0, vis.deckH(C.bowX - 0.5, 0) + 0.05), V(C.mastX - 0.9, 0.3, vis.deckH(C.mastX - 0.9, 0.3) + 0.03)], 200, g);
       }
+    }
+    // --- preventer: from the boom end forward to a block at the bow on the boom's side, and back along the side deck
+    if (this.preventer) {
+      if (b.ctrl.preventer > 0.5) {
+        const side = Math.sign(b.booms.main.a) || 1, end = this.boomPt('main', b.sailBy.main.foot * 0.98, -0.05), bw = this._bw;
+        const bx = C.bowX - 0.3, by = side * bw(0.9) * 0.8, blk = V(bx, by, vis.deckH(bx, by) + 0.08), ax = C.mastX - 0.8, ay = side * bw(0.45) * 0.85;
+        this.preventer.set([end, blk, V(ax, ay, vis.deckH(ax, ay) + 0.05)], [Math.max(20, (L.preventerLoad || 0) / 4), 30], g);
+      } else this.preventer.set([], 1, g);
     }
     // --- self-tacking staysail: club block -> deck traveler -> aft along the cabin
     if (this.staySheet) {

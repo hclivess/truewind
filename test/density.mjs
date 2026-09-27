@@ -5,23 +5,23 @@ import '../js/sail/sailsim.js';   // the game's sail model (cloth by default; SA
 const KT = 0.514444, DEG = Math.PI / 180;
 let bad = 0;
 for (const cls of ['blackwatch', 'sportboat', 'dinghy', 'cat']) {
-  const res = [];
-  // (cloth sails fill over their first half second, and held at a fixed sheet a cloth sail may luff and flog, a chaotic
-  // state in which a small change moves the mean force by several per cent either way: the force is summed over four
-  // headings, one second each after the first)
-  for (const cold of [0, 1]) {
-    let F = 0, rho = 0;
-    for (const hdg of [50, 60, 70, 80]) {
+  // (a cloth sail luffs and breathes, and two runs a little apart in density soon differ by more than the density
+  // does: so two boats sail in lockstep in the same air for 1.5 s, then the air of one turns cold, and the force is
+  // compared on that step, the sails' shapes still identical; summed over four headings)
+  const res = [{ F: 0, rho: 0 }, { F: 0, rho: 0 }];
+  for (const hdg of [50, 60, 70, 80]) {
+    const cold = [0, 0], boats = [0, 1].map((k) => {
       const env = makeSteadyEnv(15 * KT), base = env.wind.sample;
-      env.wind.sample = (x, z, t, o) => { base(x, z, t, o); o.cold = cold; return o; };
-      const b = new Boat(cls); b.reset(0, 0, hdg * DEG); b.u = 2; for (const k in b.booms) b.booms[k].a = 0.35;
-      for (let i = 0; i < 240; i++) {
-        b.step(1 / 120, env, i / 120); b.u = 2; b.v = 0; b.r = 0; b.p = 0; b.phi = 0; b.psi = hdg * DEG;
-        if (i >= 120) F += Math.hypot(b.diag.sailX, b.diag.sailY) / 120;
-      }
-      rho = b.diag.rhoA;
+      env.wind.sample = (x, z, t, o) => { base(x, z, t, o); o.cold = cold[k]; return o; };
+      const b = new Boat(cls); b.reset(0, 0, hdg * DEG); b.u = 2; for (const kk in b.booms) b.booms[kk].a = 0.35;
+      return { b, env };
+    });
+    for (let i = 0; i <= 180; i++) {
+      if (i === 180) cold[1] = 1;
+      for (const { b, env } of boats) { b.step(1 / 120, env, i / 120); b.u = 2; b.v = 0; b.r = 0; b.p = 0; b.phi = 0; b.psi = hdg * DEG; }
     }
-    res.push({ F, rho });
+    // (the air's force on the sails, before the cloth takes any of it up in its own motion)
+    boats.forEach(({ b }, k) => { for (const s of b.sails) res[k].F += b.diag.strips[s.key].F || 0; res[k].rho = b.diag.rhoA; });
   }
   const r = res[1].F / res[0].F;
   if (!(r > 1.02 && r < 1.05)) bad++;

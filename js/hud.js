@@ -55,13 +55,14 @@ export class HUD {
     const bw = C.id === 'blackwatch';
     const rows = [['main', 'Mainsheet', bw ? '#e3d6b8' : '#e8eef4']];
     if (S.main.trav) rows.push(['trav', 'Traveler', '#ff7a1a']);
-    rows.push(['vang', 'Vang', '#333840'], ['cunn', 'Cunningham', bw ? '#cdb98e' : '#f2b33d'], ['outhaul', 'Outhaul', '#7fbf3f']);
+    rows.push(['vang', S.main.vang === 'rigid' ? 'Kicker' : 'Vang', '#333840'], ['cunn', 'Cunningham', bw ? '#cdb98e' : '#f2b33d'], ['outhaul', 'Outhaul', '#7fbf3f']);
     if (C.hasBackstay) rows.push(['backstay', 'Backstay', '#9b5de5']);
     if (S.stay) rows.push(['stay', 'Staysail sheet', bw ? '#d9c7a0' : '#2f6fd6']);
     if (S.jib) rows.push(['jib', S.gennaker ? 'Jib / genn. sheet' : 'Jib sheet', bw ? '#d9c7a0' : '#2f6fd6'], ['lazy', 'Lazy jib sheet', bw ? '#d9c7a0' : '#2f6fd6'], ['jibLead', 'Jib car', '#9aa1a8'], ['jibHalyard', 'Jib halyard', '#2f6fd6']);
     else rows.push(['pushBoom', 'Push boom out', '#9aa1a8']);
     if (S.gennaker) rows.push(['tackLine', 'Tack line', '#ff7a1a']);
     if (C.hasBoard) rows.push(['board', 'Daggerboard', '#f2f2ef']);
+    if (S.main.brake) rows.push(['brake', 'Boom brake', '#c9a227']);
     rows.push(['hike', 'Weight on rail', '#d33f49']);
     let h = `<div class="rg"><h3>Sails ${''}</h3>`;
     h += `<div class="sl2"><span>Main</span>${tt('main')}</div>`;
@@ -71,13 +72,13 @@ export class HUD {
     h += `</div><div class="rg"><h3>Lines <span class="muted" style="font-weight:500;letter-spacing:.02em;text-transform:none">or grab them on deck (7)</span></h3><div class="lines">`;
     // every control is here as press-and-hold buttons, and on deck as the real line / car / winch
     const BTN = { main: ['Trim', 'Ease'], jib: ['Trim', 'Ease'], lazy: ['Haul', 'Ease'], pushBoom: ['Port', 'Stbd'], stay: ['Trim', 'Ease'], trav: ['Windward', 'Leeward'], vang: ['−', '+'], cunn: ['−', '+'],
-      outhaul: ['−', '+'], backstay: ['−', '+'], jibHalyard: ['−', '+'], jibLead: ['Fwd', 'Aft'], tackLine: ['Down', 'Ease'], board: ['Up', 'Down'], hike: ['In', 'Out'] };
+      outhaul: ['−', '+'], backstay: ['−', '+'], brake: ['Off', 'On'], jibHalyard: ['−', '+'], jibLead: ['Fwd', 'Aft'], tackLine: ['Down', 'Ease'], board: ['Up', 'Down'], hike: ['In', 'Out'] };
     const btns = (k) => `<span class="nb"><button class="nbtn" data-k="${k}" data-d="-1">${BTN[k][0]}</button><button class="nbtn" data-k="${k}" data-d="1">${BTN[k][1]}</button></span>`;
     // lock: the line's cam cleat, clutch or self-tailer (released, a loaded line runs out by itself)
     const lockable = new Set(b.locks ? Object.keys(b.locks) : []);
     const hasCleat = (k) => lockable.has(k) && !(k === 'lazy' && C.noWinches) && !(k === 'jibHalyard' && C.id === 'dinghy') && !(k === 'trav' && !S.main.trav);
     const lk = (k) => hasCleat(k) ? `<button class="lk" data-lock="${k}" title="Cleat / release this line">⊓</button>` : `<span class="lk-sp"></span>`;
-    const ADV = new Set(['vang', 'cunn', 'outhaul', 'backstay', 'lazy', 'jibLead', 'jibHalyard', 'tackLine']);
+    const ADV = new Set(['vang', 'cunn', 'outhaul', 'backstay', 'lazy', 'jibLead', 'jibHalyard', 'tackLine', 'brake']);
     h += rows.map(([k, label, col]) => `<div class="ln${ADV.has(k) ? ' adv' : ''}" data-k="${k}"><i style="background:${col}"></i><span>${label}</span><b id="o-${k}"></b>${lk(k)}${btns(k)}</div>`).join('');
     h += `<div class="ln"><i style="background:#8a5a2b"></i><span>Helm</span><b id="o-helm"></b><span class="lk-sp"></span><span class="nb"><button class="nbtn" data-k="helm" data-d="-1">Port</button><button class="nbtn" data-k="helm" data-d="1">Stbd</button></span></div>`;
     h += `</div><div class="toggles acts">`;
@@ -85,6 +86,7 @@ export class HUD {
     h += `</div><div class="toggles acts">`;
     if (S.gennaker) h += `<button class="chip" id="a-gen">Hoist gennaker</button>`;
     if (S.jib) h += `<button class="chip" id="a-fly">Let jib sheet fly</button>`;
+    if (S.main.preventer) h += `<button class="chip" id="a-prev">Rig preventer</button>`;
     if (C.canCapsize) h += `<button class="chip" id="a-right">Right the boat</button>`;
     h += `<button class="chip" id="a-center">Centre helm</button>`;
     h += `</div><div class="toggles"><button class="chip" id="t-trim">Automatic trim</button><button class="chip" id="t-hike">Automatic weight</button></div></div>`;
@@ -109,6 +111,8 @@ export class HUD {
     const ag = document.getElementById('a-gen'); if (ag) hover(ag, 'gen');
     const gen = $('#a-gen'); if (gen) gen.addEventListener('click', () => this.g.toggleGen());
     document.querySelectorAll('#rig-body .lk').forEach(bt => { const k = bt.dataset.lock; hover(bt, 'lock:' + k); bt.addEventListener('click', () => this.g.toggleLock(k)); });
+    const prev = $('#a-prev');
+    if (prev) prev.addEventListener('click', () => { b.ctrl.preventer = b.ctrl.preventer > 0.5 ? 0 : 1; this.toast(b.ctrl.preventer ? 'Preventer rigged: the boom is held out' : 'Preventer off', 2); });
     const fly = $('#a-fly'); if (fly) { hover(fly, 'jibtail'); fly.addEventListener('click', () => this.g.letFly()); }
     const right = $('#a-right'); if (right) right.addEventListener('click', () => this.g.rightBoat());
     $('#a-center').addEventListener('click', () => { b.ctrl.helm = 0; });
@@ -208,11 +212,14 @@ export class HUD {
       else if (k === 'pushBoom') { txt = v ? (v < 0 ? 'to port' : 'to starboard') : '—'; frac = Math.abs(v); }
       else if (k === 'board') txt = `${Math.round(v * 100)}% down`;
       else if (k === 'jibLead') txt = `${Math.round(v * 100)}% aft`;
+      else if (k === 'vang' && S.main.vang === 'none') txt = 'none';
       else txt = `${Math.round(v * 100)}%`;
       o.textContent = txt;
       if (bar) bar.style.setProperty('--v', `${Math.round(clamp(frac, 0, 1) * 100)}%`);
     }
     document.querySelectorAll('#rig-body [data-reef]').forEach(btn => btn.classList.toggle('on', +btn.dataset.reef === (b.ctrl.reef | 0)));
+    const prev = document.getElementById('a-prev');
+    if (prev) { const on = b.ctrl.preventer > 0.5; prev.classList.toggle('on', on); prev.textContent = on ? `Preventer · ${Math.round(d.rig.preventerLoad || 0)} N` : 'Rig preventer'; }
     const gen = document.getElementById('a-gen'); if (gen) { gen.textContent = b.ctrl.gen ? 'Douse gennaker' : 'Hoist gennaker'; gen.classList.toggle('on', !!b.ctrl.gen); }
     const right = document.getElementById('a-right'); if (right) right.classList.toggle('on', !!b.capsized);
     document.querySelectorAll('#rig-body .lk').forEach(bt => { const free = b.locks && b.locks[bt.dataset.lock] === false; bt.classList.toggle('free', free); bt.textContent = free ? 'FREE' : 'LOCK'; });

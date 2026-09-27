@@ -85,7 +85,7 @@ export const CLASSES = {
         // end-boom sheeting to a track across the stern deck; an aluminium boom (~100 x 60 mm, EI ~80 kN m^2, yields at
         // ~4.5 kN m); rope vang and topping lift; a cruiser rigs a preventer and carries a boom brake
         track: { x: -2.44, z: 1.0, half: 0.55, s: 2.88 }, boomEI: 8e4, boomMmax: 4500, vang: 'rope', vangMax: 2500,
-        preventer: 8000, brake: 900 },
+        preventer: 8000, brake: 250 },
       { key: 'stay', kind: 'boom', selfTacking: true, area: 4.2, tackX: 2.55, tackZ: 1.45, luff: 4.8, foot: 1.6, head: 0.05, rake: 0.55,
         depth: [0.12, 0.13, 0.11], twistMax: 14 * DEG, cd0: 0.05, ARe: 3.2, min: 5 * DEG, max: 55 * DEG, Iboom: 6, boomMass: 5, color: 0x9c4f2e },
       { key: 'jib', kind: 'loose', area: 5.1, tackX: 4.2, tackZ: 1.05, luff: 7.0, foot: 2.05, head: 0.05, rake: 1.0, footRise: 0.9,
@@ -500,8 +500,9 @@ export class Boat {
       if (o.wet > 0) { dipT = o.torque; ax.X += o.X; ax.Y += o.Y; ax.K += o.K; ax.N += o.N; }
       this.diag.rig.boomWet = o.wet;
     }
-    // boom brake: friction torque against the swing (Coulomb: it slows the boom, never reverses it)
-    const brakeT = s.brake ? (ctrl.brake || 0) * s.brake * boomLen(s) : 0;
+    // boom brake: friction against the swing (a line round a drum: its drag rises to the set value as the boom starts
+    // to move, 0.1 m/s at the end, so it slows the swing, never holds a boom still or reverses it)
+    const brakeT = s.brake ? (ctrl.brake || 0) * s.brake * boomLen(s) * clamp(Math.abs(b.rate) * boomLen(s) / 0.1, 0, 1) : 0;
     const acc = (boomTorque + grav + inert + push + dipT - damp * b.rate) / s.Iboom;
     b.rate += acc * dt;
     if (brakeT > 0) { const dr = Math.min(Math.abs(b.rate), brakeT / s.Iboom * dt); b.rate -= Math.sign(b.rate) * dr; }
@@ -1213,6 +1214,14 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
       const pinchedC = awa < 28 * DEG && boat.u < 0.7;
       // (and while overpowered it does not haul in, whatever the telltales say)
       let dA = clamp(a - aim, -0.3, 0.3); if (dA < 0) dA *= 1 - clamp(tt.over, 0, 1);
+      if (s.key === 'main' && s.track && s.vang === 'none' && !s.track.horse) {
+        // no vang (the cat's fully battened main): the sheet is the leech control, so upwind the car is kept under the
+        // boom block, where the sheet pulls straight down, and the sheet trims by the telltales; off the wind the car
+        // goes to leeward as usual
+        const bm = boat.booms.main.a, yb = s.track.s * Math.sin(Math.abs(bm));
+        const under = clamp(0.5 + 0.5 * yb / s.track.half, 0, 1);
+        c.trav = lerp(c.trav, lerp(c.trav, under, shapeUp), k * 4);
+      }
       c[key] = clamp((c[key] ?? 0.3) + dA / (s.max - s.min) * k * 0.4 + (tt[key] - ease0), pinchedC && s.key === 'main' ? 0.35 : 0, 1);
       continue;
     }
