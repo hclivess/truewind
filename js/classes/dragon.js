@@ -18,10 +18,13 @@ export default {
   blurb: "Johan Anker's 1929 design, Olympic from 1948 to 1972 and still raced by kings: 8.9 m of varnish-and-navy elegance on a 5.7 m waterline. Long overhangs that lengthen her as she heels, a long keel with the rudder on it, three crew, runners and a spinnaker on a pole.",
   specs: 'LOA 8.90 m · LWL 5.66 m · Beam 1.95 m · Draft 1.20 m · 1,700 kg · ~1,000 kg ballast · Main 16.0 m² · Jib 11.7 m² · Spinnaker 23.6 m²',
   lwl: LWL, loa: 8.9, beam: 1.95, bowX: 4.55, sternX: -4.35, freeboard: 0.72, canoeDraft: 0.5, wetted: 13.5, draft: 1.2,
-  massHull: M, zG: MP.zG, crewN: 3, crewEach: 90, crewZ: 0.75, crewMaxOut: 0.85, crewLee: -0.3, hikeRate: 0.6,
+  massHull: M, zG: MP.zG, crewN: 3, crewEach: 90, crewZ: 0.75, crewMaxOut: 0.95, crewLee: -0.3, hikeRate: 0.6,
   gm: 0.8, bmForm: 0.5, Ixx: MP.Ixx, Izz: MP.Izz, amX: 0.05, amY: 0.8, amYaw: 0.55, amRoll: 0.3,
-  rr: rrTable(LWL, M + 270),   // (her long overhangs lengthen the heeled waterline: the lines do that, js/hull.js)
-  keel: { x: -0.3, z: -0.8, area: 1.75, ARe: 1.4, stall: 20 * DEG, cd0: 0.011, span: 0.72, chord: 2.5, long: true },
+  // (her long, fine overhangs make her sailing length ~6.4 m, not her 5.66 m static waterline: the wave-making follows
+  // the sailing length's slenderness; the lines give the dynamic waterline the Froude number is taken on, js/hull.js)
+  rr: rrTable(6.4, M + 270),
+  // (a long keel is part of the lines: its skin friction is in the hull's, so the foil keeps only its form drag)
+  keel: { x: -0.3, z: -0.8, area: 1.75, ARe: 1.4, stall: 20 * DEG, cd0: 0.003, span: 0.72, chord: 2.5, long: true },
   rudder: { x: -1.45, z: -0.75, area: 0.34, ARe: 2.2, stall: 20 * DEG, cd0: 0.012, max: 35 * DEG, span: 0.72, chord: 0.45, loadRef: 900 },
   hullLat: { area: 1.3, cd: 0.9, z: -0.2 },
   windage: { area: 2.7, z: 1.8, cd: 0.95 },

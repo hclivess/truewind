@@ -26,7 +26,8 @@ export default {
   massHull: M, zG: MP.zG, crewN: 1, crewEach: 80, crewZ: 1.2, crewMaxOut: 1.5, crewLee: -1.0, hikeRate: 0.4,
   gm: 1.5, bmForm: 1.2, Ixx: MP.Ixx, Izz: MP.Izz, amX: 0.09, amY: 1.0, amYaw: 0.7, amRoll: 0.35,
   rr: rrTable(LWL, M + 80, { prism: -0.12 }),
-  keel: { x: 0.1, z: -0.9, area: 5.2, ARe: 0.75, stall: 28 * DEG, cd0: 0.014, span: 0.6, chord: 8.5, long: true },
+  // (a long keel is part of the lines: its skin friction is in the hull's, so the foil keeps only its form drag)
+  keel: { x: 0.1, z: -0.9, area: 5.2, ARe: 0.75, stall: 28 * DEG, cd0: 0.003, span: 0.6, chord: 8.5, long: true },
   rudder: { x: -5.55, z: -0.5, area: 1.25, ARe: 1.8, stall: 22 * DEG, cd0: 0.015, max: 35 * DEG, span: 1.4, chord: 0.95, transom: true, loadRef: 3000 },
   hullLat: { area: 4.5, cd: 0.9, z: -0.3 },
   windage: { area: 8.5, z: 2.8, cd: 1.0 },
