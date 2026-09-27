@@ -81,6 +81,7 @@ class Rope {
     const S = this.sim, M = S.M, Minv = S.Minv, dt = Math.min(1 / 30, Math.max(1 / 240, S.dt || 1 / 60));
     const n = path.length, spans = n - 1, N = this.maxPts;
     const anchors = path.map(p => p.clone().applyMatrix4(M));
+    if (this._P && (S.reset || !Number.isFinite(this._P[0].x) || !Number.isFinite(this._P[this._P.length - 1].y))) this._P = null;
     // topology: particles per span in proportion to the span lengths (fixed once laid out)
     if (!this._P || this._spans !== spans) {
       const lens = []; let tot = 0;
@@ -497,6 +498,11 @@ export class Rigging {
       if (S.hasPrev) S.Mdelta.multiplyMatrices(vis.inner.matrixWorld, S.Minv); else S.Mdelta.identity();
       S.M.copy(vis.inner.matrixWorld); S.Minv.copy(S.M).invert(); S.dt = dt; S.hasPrev = true;
       S.carry = dt > 1 / 24;
+      // a jump (the clock resynced online, a reset, a long stall): the ropes are laid out afresh where they
+      // are now rather than integrated across it (Verlet over a teleport gives infinite speeds -> NaN)
+      const e = vis.inner.matrixWorld.elements, px = e[12], pz = e[14];
+      S.reset = dt > 0.5 || (S.px !== undefined && (px - S.px) ** 2 + (pz - S.pz) ** 2 > 4);   // > 2 m in one frame
+      S.px = px; S.pz = pz;
       const P = b.pose || b, w = env.wind.sample(P.x, P.z, t, S.w);
       S.wind.set(-Math.sin(w.dir) * w.speed, 0, Math.cos(w.dir) * w.speed);
       ctx = S;
