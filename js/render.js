@@ -805,7 +805,9 @@ export class Renderer {
     const dt0 = this.foamT === null ? 0 : t - this.foamT;
     const jump = this.foamT === null || dt0 < 0 || dt0 > 5;
     this.foamT = t;
-    const dt = jump ? 0 : Math.min(dt0, 0.25), W = env.waves, U = this.waterU;
+    // (up to a second a step: the carrying is semi-Lagrangian and the spreading clamped, so a slow frame
+    // or time warp keeps the foam's lifetimes in sim time instead of stretching them)
+    const dt = jump ? 0 : Math.min(dt0, 1), W = env.waves, U = this.waterU;
     const dr = env.wavesOn && W.drift ? W.drift : { x: 0, z: 0 };
     U.uFoamOff.value.x += dr.x * dt; U.uFoamOff.value.y += dr.z * dt;
     if (!this.foamRT || !player || (dt <= 0 && !jump)) return;
