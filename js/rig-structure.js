@@ -185,7 +185,9 @@ export function genericRig(C) {
   ];
   if (C.sails.some((s) => s.key === 'jib')) wires.push({ key: 'forestay', stay: 'jib', d });
   if (C.sails.some((s) => s.key === 'stay')) wires.push({ key: 'innerForestay', stay: 'stay', d: d * 0.85 });
-  if (C.hasBackstay) wires.push({ key: 'backstay', to: 'top', off: -0.05, low: 'transom', d, pre: 0.1 * wireBreak(d), adjust: 0.0025 * L });
+  // (a backstay where the class has one: adjustable where it has the control, fixed where only its drawing has one)
+  const fixedBs = !C.hasBackstay && C.model && C.model.backstay;
+  if (C.hasBackstay || fixedBs) wires.push({ key: 'backstay', to: 'top', off: -0.05, low: 'transom', d, pre: (fixedBs ? 0.14 : 0.1) * wireBreak(d), adjust: fixedBs ? 0 : 0.0025 * L });
   return { step: { type: keelStep ? 'keel' : 'deck', z: zStep, partners: keelStep ? deck : undefined }, spans: [{ z0: zStep, z1: C.mastHeight, a: A, b: B, t: T, mat }],
     spreaders, chainX: -0.1, chainIn: 0.93, wires, prebend: 0.002 * L, generic: true, lineMax: 2.5 * (C.sheetPower || 1000),
     houndsZ: MD.hounds, noHalyard: !!(C.sails.find((x) => x.key === 'main') || {}).rig };
@@ -654,7 +656,8 @@ export class RigStructure {
     // (between the 0.6% of the luff the cloth was cut with before and the ~1% sailmakers give the bendiest dinghy
     // spars: a linear column is least trustworthy at the Laser's top-section bends)
     this.designOff = off;
-    return clamp(0.9 * off, 0.35 * 0.018 * M.luff, 0.02 * M.luff);
+    // (a class without its own rig data: its sails were cut for its mast, whose bend is what it is)
+    return clamp(0.9 * off, (this.spec.generic ? 0.1 : 0.35) * 0.018 * M.luff, 0.02 * M.luff);
   }
 
   // ---------------------------------------------------------------- loads
