@@ -581,8 +581,9 @@ export class SailSystem {
   // pull swings the boom (a force at its end, handed to the cloth, whose rig passes it on to the hull), the rest of
   // the drag goes to the hull directly
   boomInSea(b, rig, ax) {
-    const o = this._dip || (this._dip = {}), eta = b._etaAt, sl = b._slLat, F = rig.dipF;
-    boomDip(b, rig.s0, rig.a, rig.elev, rig.Lb, rig.rate, ax, (x, y) => (eta ? eta(x) + (sl ? sl(x) * y : 0) : 0), o);
+    const o = this._dip || (this._dip = {}), F = rig.dipF;
+    const sea = this._sea || (this._sea = (x, y) => (b._etaAt ? b._etaAt(x) + (b._slLat ? b._slLat(x) * y : 0) : 0));
+    boomDip(b, rig.s0, rig.a, rig.elev, rig.Lb, rig.rate, ax, sea, o);
     b.diag.rig.boomWet = o.wet;
     if (!(o.wet > 0)) { F[0] = F[1] = F[2] = 0; return; }
     // the part that turns the boom: a force across its end with the same moment about the gooseneck

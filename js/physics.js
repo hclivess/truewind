@@ -495,8 +495,8 @@ export class Boat {
     let dipT = 0;
     if (ax && s.track) {
       const o = this._dip || (this._dip = {});
-      const eta = this._etaAt, sl = this._slLat;
-      boomDip(this, s, b.a, 0, boomLen(s), b.rate, ax, (x, y) => (eta ? eta(x) + (sl ? sl(x) * y : 0) : 0), o);
+      const sea = this._sea || (this._sea = (x, y) => (this._etaAt ? this._etaAt(x) + (this._slLat ? this._slLat(x) * y : 0) : 0));
+      boomDip(this, s, b.a, 0, boomLen(s), b.rate, ax, sea, o);
       if (o.wet > 0) { dipT = o.torque; ax.X += o.X; ax.Y += o.Y; ax.K += o.K; ax.N += o.N; }
       this.diag.rig.boomWet = o.wet;
     }

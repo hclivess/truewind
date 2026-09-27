@@ -103,16 +103,24 @@ export function sheetLen(C, s, ease) { const [a, b] = sheetLenRange(C, s); retur
 // the boom angle (>= 0, on the car's side) at which a sheet of length L comes taut; the shrouds stop it at s.max
 export function boomAngleForSheet(C, s, L, trav) {
   // (the distance grows with the angle from where the block is nearest the car: bisection)
-  let lo = 0, hi = s.max;
-  const car = (a) => sheetCar(C, s, trav, 1, a, _c);
-  if (sheetDist(C, s, hi, car(hi)) <= L) return hi;
-  // start where the block is nearest the car
-  let best = 0, bd = Infinity;
-  for (let i = 0; i <= 12; i++) { const a = s.max * i / 12, dd = sheetDist(C, s, a, car(a)); if (dd < bd) { bd = dd; best = a; } }
-  if (bd >= L) return best;
-  lo = best;
-  for (let i = 0; i < 30; i++) { const m = 0.5 * (lo + hi); if (sheetDist(C, s, m, car(m)) < L) lo = m; else hi = m; }
-  return 0.5 * (lo + hi);
+  // (memo: the crew moves the sheet and car slowly, and this is asked every step)
+  const M = s._memo || (s._memo = { L: NaN, trav: NaN, a: 0 });
+  if (M.L === L && M.trav === trav) return M.a;
+  let lo = 0, hi = s.max, res;
+  if (sheetDist(C, s, hi, sheetCar(C, s, trav, 1, hi, _c)) <= L) res = hi;
+  else {
+    // start where the block is nearest the car
+    let best = 0, bd = Infinity;
+    for (let i = 0; i <= 12; i++) { const a = s.max * i / 12, dd = sheetDist(C, s, a, sheetCar(C, s, trav, 1, a, _c)); if (dd < bd) { bd = dd; best = a; } }
+    if (bd >= L) res = best;
+    else {
+      lo = best;
+      for (let i = 0; i < 30; i++) { const m = 0.5 * (lo + hi); if (sheetDist(C, s, m, sheetCar(C, s, trav, 1, m, _c)) < L) lo = m; else hi = m; }
+      res = 0.5 * (lo + hi);
+    }
+  }
+  M.L = L; M.trav = trav; M.a = res;
+  return res;
 }
 // the ease that lets the boom out to angle a with the car at trav (the inverse, for the crew's trim)
 export function easeForBoomAngle(C, s, a, trav) {
