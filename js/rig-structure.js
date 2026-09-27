@@ -830,7 +830,7 @@ export class RigStructure {
     if (s.key === 'main') { this._entry = 0; this._entryW = 0; }
     // the leech's half of each row's normal load is carried by the leech tension along the curved leech to its ends:
     // about half of it to the head (up the mast, by the halyard), half to the clew (the boom and sheet)
-    let Lhx = 0, Lhy = 0;
+    let Lhx = 0, Lhy = 0, An0 = 0;
     for (const [z, Fx, Fy, ang, dep] of rows) {
       const ca = Math.cos(ang), sa = Math.sin(ang), cx = -ca, cy = sa;         // chord, aft from the luff
       const nx = sa, ny = ca;                                                  // its normal (to starboard for a centred chord)
@@ -840,12 +840,13 @@ export class RigStructure {
       if (s.key === 'main') this.loadMast(Math.min(this.zTop, z), Lx, Ly, 0, -this.track, 0);
       else if (stay) { const v = clamp((z - s.tackZ) / Math.max(0.5, s.luff), 0.03, 0.97); stay.P.push([v, Lx, Ly, 0]); }
       luff[0] += Lx; luff[1] += Ly;
-      Lhx += 0.25 * An * nx; Lhy += 0.25 * An * ny;
+      Lhx += 0.25 * An * nx; Lhy += 0.25 * An * ny; An0 += Math.abs(An);
       if (s.key === 'main') { const w = Math.abs(An); this._entry += w * (ang + Math.sign(An) * Math.atan(4 * dep)); this._entryW += w; }
     }
     // the leech tension: the sheet's load (a cloth sail's, as the cloth's sheet reports it), no more than the purchase
     const lead = Math.min(this.sheetMax, b.diag.rig[s.key + 'Load'] || (s.kind !== 'boom' ? b.diag.rig.jibLoad : 0) || 0);
-    let Th = 0.9 * lead;
+    // (never less than the membrane's own: a leech carrying a quarter of the sail's normal load along its sag, ~0.5 of it)
+    let Th = Math.max(0.9 * lead, 0.5 * An0);
     if (s.key === 'main') {
       // the vang: the boom's compression pushes the gooseneck forward, the vang pulls its foot on the mast aft; the
       // sheet pulls the boom (and so the gooseneck) down
@@ -853,7 +854,7 @@ export class RigStructure {
       const V = this.lineMax * clamp(b.ctrl.vang, 0, 1) ** 2;
       const zv = this.zVang, hz = C.boomZ - zv, bl = 0.22 * s.foot, l = Math.hypot(hz, bl);
       // the leech carries the sheet's pull and the vang's, levered down the boom (the vang is on at a fifth of it)
-      Th = 0.9 * lead + 0.22 * V * hz / l;
+      Th = Math.max(0.9 * lead, 0.5 * An0) + 0.22 * V * hz / l;
       const zH = Math.min(this.zTop, C.boomZ + s.luff * (b.reefPos ? 1 - 0.16 * b.reefPos : 1));
       // the head pulled toward the clew (where the boom has it), and the halyard's hauling part down the mast (a sleeved
       // luff has no halyard)
@@ -973,7 +974,10 @@ export class RigStructure {
     this.failed = bad; this.loadFrac = frac;
     // the shape the sails' luffs follow: eased toward the solution (~0.3 s, at most ~0.3 m/s). A cloth whose pinned luff
     // is jerked answers with a jerk in its pins' loads: moved at once, the luff and the rig would feed each other.
-    const us = this.us || (this.us = Float64Array.from(this.u)), ku = clamp(dt * every / 0.3, 0, 1), cap = 0.3 * dt * every;
+    // (over ~1 s: the sails' shape, the heel and the crew's hiking otherwise chase each other through the rig into a roll
+    // the crew would not let build)
+    const us = this.us || (this.us = Float64Array.from(this.u)), ku = clamp(dt * every / 1.0, 0, 1), cap = 0.3 * dt * every;
+    this._kS = ku;
     for (let i = 0; i < us.length; i++) us[i] += clamp((this.u[i] - us[i]) * ku, -cap, cap);
     for (const st of Object.values(this.stays)) st.Ts = st.Ts === undefined ? st.T : st.Ts + (st.T - st.Ts) * ku;
     // the shapes the sails and the drawing follow are the rig's deflection from its dock tune: the sails were cut for
@@ -1005,7 +1009,10 @@ export class RigStructure {
     const a = this._la || (this._la = [0, 0, 0]), b = this._lb || (this._lb = [0, 0, 0]);
     this.mastDisp(z0, a); this.mastDisp(z1, b); this.mastDisp(z, out);
     const f = clamp((z - z0) / (z1 - z0), 0, 1);
-    out[0] -= a[0] + (b[0] - a[0]) * f; out[1] -= a[1] + (b[1] - a[1]) * f;
+    // (fore-and-aft only: the mast's sideways bow against the luff's chord is drawn and carried in the loads, but fed to
+    // the cloth it turns a heeled J/70's main inside out at the head in 20 kn (the luff to windward of its chord,
+    // alternating with the camber): the cloth needs its luff's lateral curve handled first)
+    out[0] -= a[0] + (b[0] - a[0]) * f; out[1] = 0;
     const c = Math.cos(this.rot), s = Math.sin(this.rot);
     out[0] += this.axisX - this.track * c; out[1] += this.track * s;
     return out;
@@ -1051,7 +1058,8 @@ export class RigStructure {
       // (the sail is cut with the luff round of the mast's design bend: bent that much, the strip model's 0.35, its
       // nominal; each 1.8% of the luff more is one unit)
       this.luffOff = am - 0.5 * (a0 + a1);
-      this.bendN = clamp((this.luffOff - (this.luffRound ?? 0.35 * 0.018 * M0.luff)) / (0.018 * M0.luff) + 0.35, -0.3, 1.5);
+      const bN = clamp((this.luffOff - (this.luffRound ?? 0.35 * 0.018 * M0.luff)) / (0.018 * M0.luff) + 0.35, -0.3, 1.5);
+      this.bendN = this.bendN === undefined || !this._kS ? bN : this.bendN + (bN - this.bendN) * this._kS;
     }
     // forestay sag (mm) at its worst point, and the strip model's sag
     const J = b.sailBy.jib, st = this.stays.jib;
@@ -1059,7 +1067,8 @@ export class RigStructure {
       let mx = 0; const T = Math.max(50, st.T);
       for (let k = 0; k <= 16; k++) mx = Math.max(mx, hyp3(st.M[3 * k], st.M[3 * k + 1], st.M[3 * k + 2]) / T);
       this.sagMM = mx * 1000;
-      this.sagN = clamp(mx / (0.012 * J.luff * (J.sagK ?? 1)), 0, 1.5);
+      const sN = clamp(mx / (0.012 * J.luff * (J.sagK ?? 1)), 0, 1.5);
+      this.sagN = this.sagN === undefined || !this._kS ? sN : this.sagN + (sN - this.sagN) * this._kS;
     } else { this.sagMM = 0; this.sagN = 0; }
     // wire loads, the mast's compression and bending, the step and chainplates
     const W = {}, spec = {};
