@@ -132,10 +132,8 @@ export class Cloth {
   addCapsule(a, b, r, nodes) { const c = { a, b, r, nodes }; this.caps.push(c); return c; }
   // a wire (mast, stay, shroud: a polyline pts of radius r) the cloth cannot pass through. A thin wire slips between
   // the nodes of a coarse cloth, so it is the cloth's edges that are kept off it (every grid edge between the listed
-  // nodes), each on the side of the wire it was on at the start of the substep. pref: the side a sail can only be on
-  // (a main is always aft of its shrouds), enforced while the rig sets w.prefOn: an edge found clearly on the other side (a crash gybe carried it through
-  // between substeps, and the side memory would hold it wrapped there for good) is walked back through, 1 cm a substep
-  addWire(pts, r, nodes, pref = null) {
+  // nodes), each on the side of the wire it was on at the start of the substep
+  addWire(pts, r, nodes) {
     const set = new Set(nodes), nu = this.nu, E = [];
     for (const k of nodes) {
       const q = k - this.off, i = q % nu;
@@ -144,7 +142,7 @@ export class Cloth {
     }
     const P = pts.flat(), lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
     for (let i = 0; i < P.length; i++) { lo[i % 3] = Math.min(lo[i % 3], P[i] - r); hi[i % 3] = Math.max(hi[i % 3], P[i] + r); }
-    const c = { P: Float64Array.from(P), r, E: Int32Array.from(E), lo, hi, hits: 0, pref, prefOn: false, back: 0 };   // (hits, back: contacts and recoveries, diagnostics)
+    const c = { P: Float64Array.from(P), r, E: Int32Array.from(E), lo, hi, hits: 0, off: false };   // (hits: contacts, a diagnostic; off: set aside by the rig)
     (this.wires || (this.wires = [])).push(c); return c;
   }
 
@@ -333,7 +331,8 @@ export class Cloth {
   solveWires() {
     const x = this.x, xo = this.xo, kin = this.kin;
     for (const w of this.wires) {
-      const P = w.P, r = w.r, E = w.E, lo = w.lo, hi = w.hi, ns = P.length / 3 - 1, pf = w.pref;
+      const P = w.P, r = w.r, E = w.E, lo = w.lo, hi = w.hi, ns = P.length / 3 - 1;
+      if (w.off) continue;
       for (let e = 0; e < E.length; e += 2) {
         const p = 3 * E[e], q = 3 * E[e + 1];
         // (broad phase: the edge's box against the wire's)
@@ -355,20 +354,13 @@ export class Cloth {
           const nl = Math.sqrt(nx * nx + ny * ny + nz * nz);
           if (nl < 1e-6 || nl > r + 0.25) continue;
           nx /= nl; ny /= nl; nz /= nl;
-          let cap = Infinity;
-          if (pf && w.prefOn) {
-            // the preferred side across this segment: pref less its part along the wire
-            const el = Math.sqrt(Ee), pa = (pf[0] * d2x + pf[1] * d2y + pf[2] * d2z) / el;
-            const px = pf[0] - pa * d2x / el, py = pf[1] - pa * d2y / el, pz = pf[2] - pa * d2z / el, pl = Math.sqrt(px * px + py * py + pz * pz) || 1;
-            if ((nx * px + ny * py + nz * pz) / pl < -0.5) { nx = -nx; ny = -ny; nz = -nz; cap = 0.01; w.back++; }
-          }
           // now: the same point of the edge, how far out along n
           const sx = x[p] + u * (x[q] - x[p]) - wx, sy = x[p + 1] + u * (x[q + 1] - x[p + 1]) - wy, sz = x[p + 2] + u * (x[q + 2] - x[p + 2]) - wz;
           const gap = sx * nx + sy * ny + sz * nz;
           if (gap >= r) continue;
           const wp = kin[E[e]] ? 0 : 1 - u, wq = kin[E[e + 1]] ? 0 : u, ww = wp * wp + wq * wq;
           if (ww < 1e-9) continue;
-          const lam = Math.min(r - gap, cap) / ww; w.hits++;
+          const lam = (r - gap) / ww; w.hits++;
           x[p] += nx * lam * wp; x[p + 1] += ny * lam * wp; x[p + 2] += nz * lam * wp;
           x[q] += nx * lam * wq; x[q + 1] += ny * lam * wq; x[q + 2] += nz * lam * wq;
         }

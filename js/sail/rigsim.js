@@ -384,9 +384,15 @@ export class BoomSailRig extends ClothRig {
     const W = rigWires(C, boat.sailBy);
     if (onMast && !lateen) cloth.addCapsule(isMain ? [mastXAt(C, 0) + 0.05, 0, 0] : [gx + 0.05, 0, 0], isMain ? [mastXAt(C, C.mastHeight) + 0.05, 0, C.mastHeight] : [gx + 0.05, 0, s.mast.h], isMain ? 0.05 : 0.04, bodyNodes(cloth, nu, nv));
     // eased right out (running), the main comes up against the leeward shrouds and spreader and lies on them
-    // (a main lies on its shrouds from aft: caught on one with its boom well inside the shroud's angle, it was carried
-    // through it in a crash gybe and is walked back aft, js/sail/cloth.js pref)
-    this.shrouds = isMain && !lateen ? W.shrouds.map((sh) => cloth.addWire(sh, 0.03, bodyNodes(cloth, nu, nv), [-1, 0, 0])) : [];
+    // (only while the boom is out near them: each edge keeps the side of a wire it was on a moment before, and a main
+    // carried through a shroud in a crash gybe or a penalty turn's gybes was held wrapped round it for good, its boom
+    // at 13-50 deg with the sheet off; with the boom well inside, the shrouds let it go and it falls back aft of them)
+    // (each stops 0.2 m out from the mast: at the hounds the two meet on the mast's centreline, and the head, between
+    // them there, was pushed each way by each and jammed)
+    const clipY = (sh) => { const n = sh.length - 1, A = sh[n - 1], B = sh[n], f = (Math.abs(A[1]) - 0.2) / (Math.abs(A[1]) - Math.abs(B[1]));
+      if (!(Math.abs(A[1]) > 0.25 && Math.abs(B[1]) < 0.2)) return sh;
+      return [...sh.slice(0, n), [A[0] + f * (B[0] - A[0]), A[1] + f * (B[1] - A[1]), A[2] + f * (B[2] - A[2])]]; };
+    this.shrouds = isMain && !lateen ? W.shrouds.map((sh) => cloth.addWire(clipY(sh), 0.03, bodyNodes(cloth, nu, nv))) : [];
     if (!onMast) cloth.addWire(mastBelow(W, s.tackZ + s.luff), 0.06, bodyNodes(cloth, nu, nv, 2));   // (the staysail round the mast)
     this.a = 0; this.rate = 0; this.elev = 0;
   }
@@ -485,8 +491,12 @@ export class BoomSailRig extends ClothRig {
 
   step(b, dt, nsub, fr) {
     const wasTaut = this.sheet.taut, rate0 = this.rate, c = this.cloth, s0 = this.s0, E3 = 3 * this.E;
-    // (the boom 25° or more inside where the shroud stops it: the main has no business on a shroud)
-    if (this.shrouds.length) { const on = Math.abs(this.a) < (s0.max ?? 1.4) - 0.44; for (const w of this.shrouds) w.prefOn = on; }
+    // (the main has no business on a shroud with its boom 35 deg or more inside where the shroud stops it; back on
+    // within 30 deg, the head twisted off onto the spreader)
+    if (this.shrouds.length) {
+      const m = (s0.max ?? 1.4) - Math.abs(this.a);
+      for (const w of this.shrouds) w.off = w.off ? m > 0.52 : m > 0.61;
+    }
     if (this.track) {
       // the boom end in the sea (sailsim.js hands the water's pull over in dipF), and the rigid kicker's gas spring
       // pushing the boom up whenever the strut is shorter than its free length
