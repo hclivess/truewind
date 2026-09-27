@@ -87,10 +87,11 @@ export const CLASSES = {
     // auxiliary (js/engine.js): a long-shaft outboard on a transom bracket to port of the barn-door rudder — what the
     // boats carry (Blue Water Boatworks fitted no inboard; owners' listings: Tohatsu 4 hp long shaft, Mercury 5,
     // British Seagull 5). Tohatsu MFS4: 4 hp at 5000 rpm, 123 cc single, 2.15:1, 7.8 x 6 in three-blade, 26 kg (not in
-    // the designer's 1,021 kg). Steered by the rudder; tilted clear of the water when stopped.
+    // the designer's 1,021 kg). Steered by the rudder. A lifting bracket on the transom (x from the hull's stern station,
+    // js/engine.js transomX): 20 in shaft, clamp 0.35 m up with the prop 0.28 m down; slid up 0.42 m clear when stopped.
     engine: { type: 'outboard', model: 'Tohatsu MFS4 long shaft', kW: 2.94, rpmMax: 5000, rpmIdle: 1100, cyl: 1, fuel: 'petrol', gear: 2.15,
-      prop: { D: 0.198, P: 0.152, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-3.3, -0.45, -0.28], mount: [-3.1, -0.45, 0.36],
-      mass: 26, inMass: false, tilts: true, steers: false, exhaust: [-3.3, -0.45, 0.12] },
+      prop: { D: 0.198, P: 0.152, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-3.14, -0.45, -0.28], mount: [-3.0, -0.45, 0.35], lift: 0.42,
+      mass: 26, inMass: false, tilts: true, steers: false, exhaust: [-3.14, -0.45, 0.12] },
     sails: [
       { key: 'main', kind: 'boom', area: 10.4, luff: 6.5, foot: 3.0, head: 0.15, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
         cd0: 0.07, ARe: 3.2, min: 2 * DEG, max: 80 * DEG, trav: [-4 * DEG, 12 * DEG], Iboom: 42, boomMass: 18, reefs: 2,
@@ -135,10 +136,10 @@ export const CLASSES = {
     // auxiliary: J/70 class rule C.5.3 — one functioning outboard of at least 12 kg aboard, NOT FOR USE while racing
     // (stowed below, secured at the mast step: it is inside the class weight). A 3.5 hp four-stroke short shaft
     // (Tohatsu MFS3.5: 85 cc single, 5500 rpm, 2.08:1, 7.2 x 5 in three-blade, 17.4 kg) on the transom bracket for
-    // getting to and from the course; tilted up when stopped.
+    // getting to and from the course (15 in shaft; the clamp's x from the transom); slid up clear when stopped.
     engine: { type: 'outboard', model: '3.5 hp four-stroke short shaft', kW: 2.57, rpmMax: 5500, rpmIdle: 1150, cyl: 1, fuel: 'petrol', gear: 2.08,
-      prop: { D: 0.183, P: 0.127, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-3.78, -0.42, -0.27], mount: [-3.58, -0.42, 0.24],
-      mass: 17.4, inMass: true, stow: [0.55, 0, -0.12], tilts: true, steers: false, exhaust: [-3.78, -0.42, 0.1] },
+      prop: { D: 0.183, P: 0.127, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-3.62, -0.42, -0.27], mount: [-3.48, -0.42, 0.23], lift: 0.38,
+      mass: 17.4, inMass: true, stow: [0.55, 0, -0.12], tilts: true, steers: false, exhaust: [-3.62, -0.42, 0.1] },
     sails: [
       { key: 'main', kind: 'boom', area: 16.7, luff: 7.97, foot: 2.88, head: 0.45, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
         cd0: 0.06, ARe: 4.8, min: 1.5 * DEG, max: 78 * DEG, trav: [-6 * DEG, 12 * DEG], Iboom: 38, boomMass: 14, reefs: 0,
