@@ -305,7 +305,8 @@ export class AIHelm {
     if (R.t < (this.turnGo || 0) || Math.abs(wrap(twd - b.psi)) < up * 0.8) { this.turnGo = Math.max(this.turnGo || 0, R.t + 2); return desired; }
     // (a refusal stands for two seconds before she asks again)
     if (R.t > (this.turnNo || 0)) { if (R.canTurn(b, desired, 8)) { this.turnGo = R.t + 8; return desired; } this.turnNo = R.t + 2; }
-    return twd - cur * clamp(Math.abs(rel), up, 150 * DEG);
+    // held on this tack: the heading on it nearest the one wanted (close-hauled, or running by the lee's edge)
+    return twd - cur * (Math.abs(rel) < (210 * DEG - up) / 2 ? up : 150 * DEG);
   }
   // keeping clear of a boat ahead with nowhere to go: ease the sheets and slow down
   slow() { const c = this.b.ctrl; c.main = Math.max(c.main, 0.8); if (this.b.sailBy.jib) c.jib = Math.max(c.jib, 0.8); if (this.b.sailBy.gennaker) c.gen = false; }
