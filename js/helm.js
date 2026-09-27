@@ -11,7 +11,7 @@
 //    Wheel: rim force F = Q / (G R) with G the steering gear ratio (wheel turns lock to lock x 2 pi / rudder travel)
 //    and R the wheel radius, plus the cable/quadrant friction.
 //  * Putting the rudder over: the helm moves it at the rate a hand can move the tiller or the rim (tiller ~1.5 rad/s,
-//    a wheel rim ~1.2 m/s), slower in proportion as the torque against it approaches what the sailor can push (~300 N
+//    a wheel rim ~1.2 m/s), slower in proportion as the torque against it approaches what the sailor can push (~400 N
 //    on a tiller, ~250 N on a rim); a torque beyond that takes the rudder back (the helm is overpowered: a broach).
 //
 // Per class (all optional, C.helm): { type: 'tiller' | 'wheel', tiller: m, extension: m, wheelR: m, turns: lock-to-lock
@@ -39,7 +39,7 @@ export function helmSpec(C) {
   }
   const tiller = D.tiller ?? clamp(0.19 * C.loa, 0.6, 1.6), extension = D.extension ?? (C.loa < 8 ? 1.0 : 0);
   // (the extension's joint is at the tiller's end: whatever the angle it is held at, it pushes the tiller there)
-  return { type, tiller, extension, lever: tiller, handMax: D.handMax ?? 300, rate: D.rate ?? 1.5, friction: D.friction ?? 0.5, gear: 1, R: 0 };
+  return { type, tiller, extension, lever: tiller, handMax: D.handMax ?? 400, rate: D.rate ?? 1.5, friction: D.friction ?? 0.5, gear: 1, R: 0 };
 }
 
 // hydrodynamic torque about the stock (N m, + = toward more rudder angle) of a blade with normal force coefficient cn
