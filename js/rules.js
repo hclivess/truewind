@@ -72,15 +72,21 @@ function track(b, H, dt, out = []) {
   return out;
 }
 // least hull clearance between two sampled tracks (and when)
-function trackClear(a, ta, b, tb, dt) {
+// (stop: give up once it is below that; samples whose centres are too far apart to matter are skipped)
+const reach = (b) => Math.max(b.cls.bowX + spritOf(b), -b.cls.sternX) + b.cls.beam * 0.5;
+function trackClear(a, ta, b, tb, dt, stop = -1e9) {
   let best = 1e9, when = 0;
-  const n = Math.min(ta.length, tb.length);
+  const n = Math.min(ta.length, tb.length), R2 = reach(a) + reach(b);
   for (let i = 0; i < n; i += 3) {
+    const ex = ta[i] - tb[i], ez = ta[i + 1] - tb[i + 1], lim = best + R2;
+    if (ex * ex + ez * ez > lim * lim) continue;
     const d = capDist(capsule(a, ta[i], ta[i + 1], ta[i + 2], _c1), capsule(b, tb[i], tb[i + 1], tb[i + 2], _c2));
-    if (d < best) { best = d; when = (i / 3) * dt; }
+    if (d < best) { best = d; when = (i / 3) * dt; if (best < stop) break; }
   }
-  return [best, when];
+  _when = when;
+  return best;
 }
+let _when = 0;   // (when trackClear's least clearance comes, seconds ahead)
 
 export class RuleEngine {
   // opts: race, course, world, piers (thick segments), owned(b) (this browser decides her penalties: online, only its
@@ -247,7 +253,7 @@ export class RuleEngine {
     }
     // a boat between two others that overlaps both makes them overlap too (for rule 18: the chain inside at a mark)
     for (const pr of this.pairs.values()) {
-      if (pr.seen !== this.tick || pr.overlap || pr.sameTack === false) continue;
+      if (pr.seen !== this.tick || pr.overlap || !pr.mr || pr.d > 25) continue;     // (it matters only at a mark: rule 18)
       for (const q of this.rels.get(pr.a)) {
         if (!q.overlap || q.seen !== this.tick) continue;
         const c = q.a === pr.a ? q.b : q.a;
@@ -262,17 +268,25 @@ export class RuleEngine {
     this.hailStep();
     this.umpire();
   }
+  // a boat's track ahead (12 s, every half second), once per evaluation for every crew that plans around her
+  trackOf(b) {
+    const c = this._tr || (this._tr = new Map());
+    let e = c.get(b);
+    if (!e) c.set(b, e = { tick: -1, a: [] });
+    if (e.tick !== this.tick) { e.tick = this.tick; track(b, 12, 0.5, e.a); }
+    return e.a;
+  }
   pairOf(a, b) { const x = this.S(a).id, y = this.S(b).id; return this.pairs.get(Math.min(x, y) * 100003 + Math.max(x, y)); }
   between(c, a, b) { const ux = b.x - a.x, uz = b.z - a.z, L2 = ux * ux + uz * uz || 1, f = ((c.x - a.x) * ux + (c.z - a.z) * uz) / L2; return f > 0 && f < 1; }
 
   // the relationship between two boats now: who keeps clear, under which rule; who owes room
   relate(pr, A, B, SA, SB, chained = false) {
-    const fA = [Math.sin(A.psi), -Math.cos(A.psi)], fB = [Math.sin(B.psi), -Math.cos(B.psi)];
+    const fA0 = Math.sin(A.psi), fA1 = -Math.cos(A.psi), fB0 = Math.sin(B.psi), fB1 = -Math.cos(B.psi);
     const bowA = A.cls.bowX + spritOf(A), bowB = B.cls.bowX + spritOf(B);
     // clear astern: her hull and equipment behind a line abeam from the other's aftermost point (the transom)
-    const sternAx = A.x + fA[0] * A.cls.sternX, sternAz = A.z + fA[1] * A.cls.sternX, sternBx = B.x + fB[0] * B.cls.sternX, sternBz = B.z + fB[1] * B.cls.sternX;
-    const bAst = (B.x + fB[0] * bowB - sternAx) * fA[0] + (B.z + fB[1] * bowB - sternAz) * fA[1];   // < 0: B clear astern of A
-    const aAst = (A.x + fA[0] * bowA - sternBx) * fB[0] + (A.z + fA[1] * bowA - sternBz) * fB[1];
+    const sternAx = A.x + fA0 * A.cls.sternX, sternAz = A.z + fA1 * A.cls.sternX, sternBx = B.x + fB0 * B.cls.sternX, sternBz = B.z + fB1 * B.cls.sternX;
+    const bAst = (B.x + fB0 * bowB - sternAx) * fA0 + (B.z + fB1 * bowB - sternAz) * fA1;   // < 0: B clear astern of A
+    const aAst = (A.x + fA0 * bowA - sternBx) * fB0 + (A.z + fA1 * bowA - sternBz) * fB1;
     const prevOverlap = pr.overlap, prevAstern = pr.astern;
     if (!chained) {
       pr.overlap = !(bAst < 0 || aAst < 0);
@@ -373,9 +387,12 @@ export class RuleEngine {
     const La = A.cls.loa, Lb = B.cls.loa;
     const vA = Math.hypot(A.vgx ?? A.u, A.vgz ?? 0), vB = Math.hypot(B.vgx ?? B.u, B.vgz ?? 0);
     let clr = 1e9, when = 0, now = 1e9;
-    if (pr.d < (La + Lb) / 2 + (vA + vB) * 2 + 2) {
+    // (first the centres' closest approach in a straight line: most pairs are nowhere near touching)
+    const rvx = (B.vgx ?? 0) - (A.vgx ?? 0), rvz = (B.vgz ?? 0) - (A.vgz ?? 0), rx = B.x - A.x, rz = B.z - A.z;
+    const tc = clamp(-(rx * rvx + rz * rvz) / (rvx * rvx + rvz * rvz || 1), 0, 2), cpa = Math.hypot(rx + rvx * tc, rz + rvz * tc);
+    if (cpa < reach(A) + reach(B) + 3) {
       const ta = track(A, 2, 0.25, this._ta || (this._ta = [])), tb = track(B, 2, 0.25, this._tb || (this._tb = []));
-      [clr, when] = trackClear(A, ta, B, tb, 0.25);
+      clr = trackClear(A, ta, B, tb, 0.25); when = _when;
       now = capDist(capsule(A, A.x, A.z, A.psi, _c1), capsule(B, B.x, B.z, B.psi, _c2));
     }
     pr.clr = clr; pr.when = when; pr.now = now;
@@ -399,7 +416,7 @@ export class RuleEngine {
         // where she would be now, and going, had she held that course
         const vx = (R.vgx ?? 0) * Math.cos(-turn) - (R.vgz ?? 0) * Math.sin(-turn), vz = (R.vgx ?? 0) * Math.sin(-turn) + (R.vgz ?? 0) * Math.cos(-turn);
         const keep = { x: this.psiAgo(SR, 2.5, 1) + vx * 2.5, z: this.psiAgo(SR, 2.5, 2) + vz * 2.5, psi: old, u: R.u, r: 0, vgx: vx, vgz: vz, cls: R.cls, sailBy: R.sailBy, genDeploy: R.genDeploy };
-        const [c2] = trackClear(keep, track(keep, 2, 0.25, []), K, track(K, 2, 0.25, []), 0.25);
+        const c2 = trackClear(keep, track(keep, 2, 0.25, []), K, track(K, 2, 0.25, []), 0.25);
         if (c2 > 0.3) { off = R; vic = K; rule = '16.1'; }
       }
       // 17: sailing above her proper course, overlapped to leeward from clear astern
@@ -579,8 +596,8 @@ export class RuleEngine {
     for (const pr of this.relsOf(b)) {
       const o = pr.a === b ? pr.b : pr.a;
       if (pr.d > 45) continue;
-      const [c] = trackClear(me, tb, o, track(o, H, dt, this._to || (this._to = [])), dt);
-      if (c < 2 + b.cls.beam * 0.5) return false;
+      const need = 2 + b.cls.beam * 0.5, c = trackClear(me, tb, o, this.trackOf(o), dt, need);
+      if (c < need) return false;
     }
     return true;
   }
@@ -597,19 +614,26 @@ export function aiRules(ai, sim, desired, mode, t, up) {
   const markList = sim.course ? [...sim.course.marks(), sim.course.committee] : [];
   if (!rels.length && !markList.some(m => Math.abs(m.x - b.x) < 30 && Math.abs(m.z - b.z) < 30)) { ai.kc = null; return desired; }
   if (ai.kc && t < ai.kc.until) { ai.ease = ai.kc.ease; return ai.kc.h ?? desired; }
-  const plan = { until: t + 0.2, h: null, ease: false };
+  const plan = { until: t + 0.25, h: null, ease: false };
   ai.kc = plan;
   const H = clamp(4 + b.cls.loa * 0.9, 6, 12), dt = 0.5;
   const give = [], row = [];
-  for (const pr of rels) { const o = pr.a === b ? pr.b : pr.a; if (pr.d > 45) continue; (R.owes(pr, b) ? give : row).push([o, pr]); }
+  const Vr = Math.max(b.u, 1.2) + 1, Rb = reach(b);
+  for (const pr of rels) {
+    const o = pr.a === b ? pr.b : pr.a;
+    // (out of reach within the horizon whatever either does: nothing to plan for)
+    if (pr.d - (Vr + Math.hypot(o.vgx ?? 0, o.vgz ?? 0)) * H > Rb + reach(o) + 3) continue;
+    (R.owes(pr, b) ? give : row).push([o, pr]);
+  }
   // the others' tracks (for the whole plan)
   const tracks = new Map();
-  for (const [o] of [...give, ...row]) tracks.set(o, track(o, H, dt, []));
+  for (const [o] of give) tracks.set(o, R.trackOf(o));
+  for (const [o] of row) tracks.set(o, R.trackOf(o));
   const marks = markList.filter(m => Math.hypot(m.x - b.x, m.z - b.z) < 40);
   const V = Math.max(b.u, 1.2), cx = (b.vgx ?? 0) - b.u * Math.sin(b.psi), cz = (b.vgz ?? 0) + b.u * Math.cos(b.psi);
   const me = { cls: b.cls, sailBy: b.sailBy, genDeploy: b.genDeploy };
   const mine = [];
-  const clearFor = (h, list, HH = H) => {
+  const clearFor = (h, list, HH = H, stop = -1e9) => {
     // she comes round at ~25°/s (a keelboat less) toward h, then holds it
     // (slow, the rudder has little grip: about 7°/s per m/s of speed)
     const rate = clamp(b.u * 7, 4, b.cls.loa > 6 ? 18 : 28) * DEG;
@@ -620,7 +644,7 @@ export function aiRules(ai, sim, desired, mode, t, up) {
       x += (Math.sin(p) * V + cx) * dt; z += (-Math.cos(p) * V + cz) * dt;
     }
     let worst = 1e9;
-    for (const [o] of list) { const [c] = trackClear(me, mine, o, tracks.get(o), dt); worst = Math.min(worst, c); }
+    for (const [o] of list) { const c = trackClear(me, mine, o, tracks.get(o), dt, stop); worst = Math.min(worst, c); if (worst < stop) return worst; }
     for (const m of marks) for (let i = 0; i < mine.length; i += 3) {
       const cp = capsule(b, mine[i], mine[i + 1], mine[i + 2], _c1);
       worst = Math.min(worst, segDist(cp.ax, cp.az, cp.bx, cp.bz, m.x, m.z, m.x, m.z) - cp.r - (m.kind === 'committee' ? 2.6 : 1.2) + 0.8);
@@ -639,10 +663,11 @@ export function aiRules(ai, sim, desired, mode, t, up) {
     for (const [o, pr] of list) if (pr.d < nd) { nd = pr.d; near = o; }
     const s0 = near ? -(Math.sign(wrap(Math.atan2(near.x - b.x, -(near.z - b.z)) - b.psi)) || 1) : 1;
     let best = null, bc = -1e9;
-    for (let k = 1; k <= 20; k++) for (const s of [s0, -s0]) {
-      const hh = desired + s * k * 6 * DEG;
+    for (let k = 1; k <= 16; k++) for (const s of [s0, -s0]) {
+      const hh = desired + s * k * 7 * DEG;
       if (!sailable(hh)) continue;
-      const c = Math.min(clearFor(hh, list, HH), list === give ? clearFor(hh, row, HH) + margin - 0.5 : 1e9);
+      let c = clearFor(hh, list, HH, need);
+      if (c >= need && list === give && row.length) c = Math.min(c, clearFor(hh, row, HH, 0.5) + need - 0.5);
       if (c >= need) { if (!sim.world || sim.world.open || !ai.clearance || ai.clearance(sim, hh) > 0) return [hh, c]; }
       if (c > bc) { bc = c; best = hh; }
     }

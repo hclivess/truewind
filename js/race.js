@@ -185,8 +185,7 @@ export class AIHelm {
     // (22.2: she keeps clear while turning, so first she sails clear of the boats around her and out of the mark's
     // zone, 40 s at most)
     const pen = R && racer && !racer.finished ? R.penaltyOf(b) : null;
-    if (pen && (pen.dir || this.penGo || R.t - pen.t0 > 40 || (R.relsOf(b).every(pr => pr.d > 4 * b.cls.loa + 6) && ![...R.S(b).zone.values()].some(z => z.d < 5 * b.cls.loa)))) { this.penGo = true; return this.penaltyTurns(dt, pen, sim, t); }
-    this.penGo = false;
+    if (pen) return this.penaltyTurns(dt, pen, sim, t);
     this.penD = 0;
     this.twdMean = this.twdMean === null ? twd : this.twdMean + wrap(twd - this.twdMean) * dt / 90;
     const up = (targets?.up ?? 42) * DEG, dn = (targets?.dn ?? 145) * DEG;
@@ -319,11 +318,24 @@ export class AIHelm {
     autoTrim(b, dt, this.bias);
     if (b.sailBy.gennaker) b.ctrl.gen = false;
     this.mode = 'penalty';
+    const R = sim.rules, L = b.cls.loa, up = this.upAngle ?? 40 * DEG;
+    // first out of the traffic (22.2: she keeps clear of everyone meanwhile): a reach away from the boats around
+    // her and out of the mark's zone; again whenever a boat comes near while she turns (the turn is lost)
+    const crowd = R.relsOf(b).filter(pr => pr.d < 4 * L + 6), inZone = [...R.S(b).zone.values()].some(z => z.d < 5 * L);
+    const near = R.relsOf(b).some(pr => pr.d < 2.5 * L + 3 || (pr.clr < 3 && pr.when <= 2));
+    if (((crowd.length || inZone) && !pen.dir && R.t - pen.t0 < 45) || near) {
+      if (!this.awayT || t > this.awayT) {       // (the side with fewer boats, decided every few seconds)
+        let lft = 0, rgt = 0;
+        for (const pr of R.relsOf(b)) { const o = pr.a === b ? pr.b : pr.a, s = wrap(Math.atan2(o.x - b.x, -(o.z - b.z)) - twd); if (s > 0) rgt += 1 / pr.d; else lft += 1 / pr.d; }
+        this.awayS = rgt > lft ? -1 : 1; this.awayT = t + 4;
+      }
+      this.steer(dt, aiRules(this, sim, twd + this.awayS * 100 * DEG, 'reach', t, up));
+      if (this.ease) this.slow();
+      return;
+    }
     // too slow to come through the wind: first a reach to build speed (a stalled turn ends in irons)
     const vT = Math.max(1, Math.min(this.targetsUpBsp ?? 2, 0.45 * (b.diag.tws ?? 5)));
     if (!pen.dir && b.u < 0.7 * vT) { this.steer(dt, twd - tack * 100 * DEG); return; }
-    // about to hit someone (she keeps clear of them all: 22.2): break off the turn
-    if (sim && sim.rules && sim.rules.relsOf(b).some(pr => pr.clr < 1 && pr.when <= 2)) { this.steer(dt, aiRules(this, sim, b.psi, 'reach', t, this.upAngle ?? 40 * DEG)); return; }
     this.steer(dt, b.psi + this.penD * 70 * DEG, true);
   }
 
