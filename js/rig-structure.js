@@ -1084,6 +1084,14 @@ export class RigStructure {
     const sb = this.stepF;
     Object.assign(L, W);
     L.mastComp = comp; L.mastStep = [sb[0], sb[1], sb[2]]; L.mastMoment = mMax; L.mastStress = util; L.buckling = this.buckled ? 1 : pcr; L.buckled = !!this.buckled;
+    // for js/damage.js: the lowers of a side together (it rates them as one part), and each load's breaking strength
+    // (the wires' from their size; the mast's compression against its panel's Euler load)
+    const lowerKeys = ['lowerShroud', 'lowerFwd', 'lowerAft'].filter((k) => W[k]);
+    if (lowerKeys.length) L.lowerShrouds = [0, 1].map((i) => lowerKeys.reduce((a, k) => a + W[k][i], 0));
+    const mbl = L.mbl || (L.mbl = {});
+    for (const k in spec) mbl[k] = spec[k];
+    if (lowerKeys.length) mbl.lowerShrouds = lowerKeys.reduce((a, k) => a + spec[k], 0);
+    mbl.mastComp = pcr > 0.01 ? comp / pcr : 1e9;
     if (this.spritStrut) {
       const s = this.spritStrut, k0 = s.node, dz = u[k0.dof + 2];
       L.bowsprit = { comp: Math.max(0, -s.kAx * (u[k0.dof] * (k0.p[0] - s.root[0]) + dz * (k0.p[2] - s.root[2])) / s.L), moment: Math.abs(s.kV * dz * s.L), stress: Math.abs(s.kV * dz * s.L) / s.Zv / s.sy };
