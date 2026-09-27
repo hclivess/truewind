@@ -71,34 +71,20 @@ export class HUD {
     // read-only: every control is a real line on deck (or a key); this panel reports state
     const C = b.cls, S = b.sailBy;
     const tt = (key) => `<span class="tt" id="tt-${key}"><span class="st">·</span><span class="st">·</span><span class="st">·</span></span>`;
-<<<<<<< HEAD
-    const bw = C.id === 'blackwatch';
-    const rows = [['main', 'Mainsheet', bw ? '#e3d6b8' : '#e8eef4']];
-    if (S.main.trav) rows.push(['trav', 'Traveler', '#ff7a1a']);
-    rows.push(['vang', 'Vang', '#333840'], ['cunn', 'Cunningham', bw ? '#cdb98e' : '#f2b33d'], ['outhaul', 'Outhaul', '#7fbf3f']);
-    if (C.hasBackstay) rows.push(['backstay', 'Backstay', '#9b5de5']);
-    // (a class can name its sails and board: the 49er's self-tacking jib is a 'stay' here, a spinnaker is the 'gennaker')
-    const stayName = S.stay ? S.stay.label ?? 'Staysail' : '', genName = S.gennaker ? S.gennaker.label ?? 'Gennaker' : '';
-    if (S.stay) rows.push(['stay', `${stayName} sheet`, bw ? '#d9c7a0' : '#2f6fd6']);
-    if (S.jib) rows.push(['jib', S.gennaker ? 'Jib / genn. sheet' : 'Jib sheet', bw ? '#d9c7a0' : '#2f6fd6'], ['lazy', 'Lazy jib sheet', bw ? '#d9c7a0' : '#2f6fd6'], ['jibLead', 'Jib car', '#9aa1a8'], ['jibHalyard', 'Jib halyard', '#2f6fd6']);
-    else rows.push(['pushBoom', 'Push boom out', '#9aa1a8']);
-    if (S.gennaker) rows.push(['tackLine', S.gennaker.pole ? 'Pole height' : 'Tack line', '#ff7a1a']);
-    if (C.hasBoard) rows.push(['board', C.keel.pivot ? 'Centreboard' : 'Daggerboard', '#f2f2ef']);
-    rows.push(['hike', 'Weight on rail', '#d33f49']);
-=======
     // every line's swatch is its rope (colour and braid: find it on deck by its colour); the label is tinted to match
     const rc = (k) => { const L = ropeLook(C, ropeKey(C, k)); return { css: ropeCSS(L), tint: L.swatch }; };
     const rows = [['main', 'Mainsheet', rc('main')]];
     if (S.main.trav) rows.push(['trav', 'Traveler', rc('trav')]);
     rows.push(['vang', 'Vang', rc('vang')], ['cunn', 'Cunningham', rc('cunn')], ['outhaul', 'Outhaul', rc('outhaul')]);
     if (C.hasBackstay) rows.push(['backstay', 'Backstay', rc('backstay')]);
-    if (S.stay) rows.push(['stay', 'Staysail sheet', rc('stay')]);
+    // (a class can name its sails and board: the 49er's self-tacking jib is a 'stay' here, a spinnaker is the 'gennaker')
+    const stayName = S.stay ? S.stay.label ?? 'Staysail' : '', genName = S.gennaker ? S.gennaker.label ?? 'Gennaker' : '';
+    if (S.stay) rows.push(['stay', `${stayName} sheet`, rc('stay')]);
     if (S.jib) rows.push(['jib', S.gennaker ? 'Jib / genn. sheet' : 'Jib sheet', rc('jib')], ['lazy', 'Lazy jib sheet', rc('lazy')], ['jibLead', 'Jib car', { css: '#9aa1a8' }], ['jibHalyard', 'Jib halyard', rc('jibHalyard')]);
     else rows.push(['pushBoom', 'Push boom out', { css: '#9aa1a8' }]);
-    if (S.gennaker) rows.push(['tackLine', 'Tack line', rc('tackLine')]);
-    if (C.hasBoard) rows.push(['board', 'Daggerboard', { css: '#f2f2ef' }]);
+    if (S.gennaker) rows.push(['tackLine', S.gennaker.pole ? 'Pole height' : 'Tack line', rc('tackLine')]);
+    if (C.hasBoard) rows.push(['board', C.keel.pivot ? 'Centreboard' : 'Daggerboard', { css: '#f2f2ef' }]);
     rows.push(['hike', 'Weight on rail', { css: '#d33f49' }]);
->>>>>>> main
     let h = `<div class="rg"><h3>Sails ${''}</h3>`;
     h += `<div class="sl2"><span>Main</span>${tt('main')}</div>`;
     if (S.stay) h += `<div class="sl2"><span>${stayName}</span>${tt('stay')}</div>`;
