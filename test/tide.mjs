@@ -95,15 +95,15 @@ const maxOver = (tide, lat, lon, v, t0, t1, dir) => {
   const V = VENUES.find(v => v.id === 'solent'), tide = streamsOf('solent');
   if (!tide) check(false, 'Solent: no baked stream maps (node tools/bake-tide.mjs solent)');
   else {
-    // springs: full moon 26 September 2026
-    const [hurst] = maxOver(tide, 50.7055, -1.5465, V, utc('2026-09-26 00:00'), utc('2026-09-29 00:00'));
+    // mean springs 10–12 October 2026 (Portsmouth's range 3.9 m, as MHWS − MLWS), neaps 4–6 October (2.1 m)
+    const [hurst] = maxOver(tide, 50.7055, -1.5465, V, utc('2026-10-10 00:00'), utc('2026-10-12 12:00'));
     check(hurst >= 3 && hurst <= 4.5, `Hurst Narrows, springs: ${hurst.toFixed(1)} kn (3–4.5)`);
-    const [cowes] = maxOver(tide, 50.772, -1.31, V, utc('2026-09-26 00:00'), utc('2026-09-29 00:00'));
-    const [shoal] = maxOver(tide, 50.795, -1.36, V, utc('2026-09-26 00:00'), utc('2026-09-29 00:00'));
+    const [cowes] = maxOver(tide, 50.772, -1.31, V, utc('2026-10-10 00:00'), utc('2026-10-12 12:00'));
+    const [shoal] = maxOver(tide, 50.795, -1.36, V, utc('2026-10-10 00:00'), utc('2026-10-12 12:00'));
     check(hurst > cowes && cowes > shoal, `strongest in the narrows, then the channel off Cowes (${cowes.toFixed(1)} kn), weakest over the Beaulieu shallows (${shoal.toFixed(1)} kn)`);
     // neaps are gentler than springs
-    const [hN] = maxOver(tide, 50.7055, -1.5465, V, utc('2026-10-02 12:00'), utc('2026-10-05 12:00'));
-    check(hN < 0.8 * hurst, `Hurst Narrows at neaps ${hN.toFixed(1)} kn, springs ${hurst.toFixed(1)} kn`);
+    const [hN] = maxOver(tide, 50.7055, -1.5465, V, utc('2026-10-04 00:00'), utc('2026-10-06 00:00'));
+    check(hN < 0.75 * hurst, `Hurst Narrows at neaps ${hN.toFixed(1)} kn, springs ${hurst.toFixed(1)} kn`);
   }
 }
 

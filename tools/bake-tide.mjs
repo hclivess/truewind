@@ -35,7 +35,7 @@ const DAYS = opt('--days', 15.5), SPIN = opt('--spin', 1.2), CALN = opt('--cal',
 // (one anchor set for every open side, so the forced level is smooth round the corners: a step there drives a jet)
 const SOLENT_BC = ['Bournemouth', 'Swanage', 'Sandown', 'Portsmouth'];
 export const MODELS = {
-  solent: { box: [-1.626, 50.555, -0.944, 50.989], dx: 200, n: 0.026, date: '2026-06-01',
+  solent: { box: [-1.626, 50.555, -0.944, 50.989], dx: 200, n: 0.029, date: '2026-06-01',
     cal: { Bournemouth: 'Lymington', Swanage: 'Lymington', Sandown: 'Portsmouth', Portsmouth: 'Portsmouth' },
     sides: { W: { a: SOLENT_BC }, E: { a: SOLENT_BC }, S: { a: SOLENT_BC } },
     check: [['Hurst Narrows', 50.7055, -1.5465], ['Needles Channel', 50.672, -1.575], ['Yarmouth Roads', 50.712, -1.49], ['Cowes (Egypt Pt)', 50.772, -1.31], ['Bramble Bank', 50.79, -1.29], ['Calshot', 50.815, -1.305], ['Spithead', 50.76, -1.10], ['Portsmouth entrance', 50.793, -1.108]] },
