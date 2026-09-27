@@ -1339,36 +1339,36 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
       // in a roll cycle)
       const ease0 = tt[key] ?? 0;
       // (a kite is eased hardest: its sheet is the crew's main depower reaching, and it drives the bow down most)
-      tt[key] = clamp(tt.over, 0, 1.5) * (s.key === 'main' ? 0.25 : s.kind === 'spin' ? 0.3 : 0.1);
+      // (a main on a traveller track: its sheet lets the boom out faster than linearly, js/boom.js, so half the ease)
+      tt[key] = clamp(tt.over, 0, 1.5) * (s.key === 'main' ? (s.track && s.trav ? 0.12 : 0.25) : s.kind === 'spin' ? 0.3 : 0.1);
       // (pinched, the main is eased to let the bow fall off: for a cloth main only when really stopped head to
       // wind, since in light air a slow boat sails close-hauled at these angles and an eased main just stops it)
       const pinchedC = awa < 28 * DEG && boat.u < 0.7;
       // (and while overpowered it does not haul in, whatever the telltales say)
-      let dA = clamp(a - aim, -0.3, 0.3); if (dA < 0) dA *= 1 - clamp(tt.over, 0, 1);
-      if (s.key === 'main' && s.track && s.vang === 'none' && !s.track.horse) {
-        // no vang (the cat's fully battened main): the sheet is the leech control, so upwind the car is kept under the
-        // boom block, where the sheet pulls straight down, and the sheet trims by the telltales; off the wind the car
-        // goes to leeward as usual
-        const bm = boat.booms.main.a, yb = s.track.s * Math.sin(Math.abs(bm));
-        const under = clamp(0.5 + 0.5 * yb / s.track.half, 0, 1);
-        c.trav = lerp(c.trav, lerp(c.trav, under, shapeUp), k * 4);
-      }
+      // (a kite, overpowered, is not hauled in again whatever its luff says: reaching in a blow its pull is what trips
+      // the boat; a main or jib is, or it flogs and the boat stops, still heeled by the flogging)
+      let dA = clamp(a - aim, -0.3, 0.3); if (dA < 0 && s.kind === 'spin') dA *= 1 - clamp(tt.over, 0, 1);
       if (s.key === 'main' && s.track && shapeUp > 0.5 && sh.main) {
-        // where the sheet pulls straight down on the leech (the cat's car under the boom, any main sheeted hard over
-        // its car with the vang off), upwind the sheet also sets the twist: eased while the top batten is closed, and,
-        // with no vang to do it, hauled while it is open. (A Laser sheeted to its horse off the transom pulls nearly
-        // straight down on the leech: its sailor eases a little to let the head twist off; closing it is the vang's)
         // (the top batten's twist breathes with the sheet it answers to: the crew goes by its trend over a couple of
         // seconds, or sheet and twist chase each other round a cycle)
         tt.twTop = lerp(tt.twTop ?? sh.main[2].tw, clamp(sh.main[2].tw, -10 * DEG, 30 * DEG), clamp(dt * 0.5, 0, 1));
         const e = (11 + 8 * over) * DEG - tt.twTop;
-        // (the twist weighs more than the angle: a few degrees off the telltales' angle cost less than a hooked or
-        // open leech; the traveller cannot take the angle over from the sheet, its car wandering to windward drags a
-        // vangless boom across and the leech with it)
-        if (s.vang === 'none') dA += clamp(1.5 * e, -0.3, 0.3);
-        else if ((s.track.horse || c.vang < 0.05) && e > 0) dA += clamp(2 * e, 0, 0.3);
+        if (s.vang === 'none' && s.trav) {
+          // No vang (the Hobie's fully battened main): upwind the sheet is its leech, and a vangless main eased flogs
+          // with its boom lifted. So the sheet stays hard, eased only as far as the head needs to twist off, and the
+          // traveller carries the angle by the telltales (the boom sits over the car, block to block): out to leeward
+          // while the sail meets the wind at more than it wants and when overpowered, in while less, never past the
+          // centreline to windward (a car there drags a vangless boom across)
+          c.trav = clamp(c.trav + (dA + 0.3 * clamp(tt.over, 0, 1)) * k * 1.5, 0.5, 1);
+          c.main = clamp(c.main + (clamp(2 * e, -0.3, 0.3) * 0.4 - 0.02) * k, 0, 1);
+          continue;
+        }
+        // where the sheet pulls nearly straight down on the leech (a Laser sheeted to its horse off the transom, any
+        // main sheeted hard over its car with the vang off), the sailor eases a little to let the head twist off;
+        // closing it is the vang's
+        if ((s.track.horse || c.vang < 0.05) && e > 0) dA += clamp(2 * e, 0, 0.3);
       }
-      c[key] = clamp((c[key] ?? 0.3) + dA / (s.max - s.min) * k * 0.4 + (tt[key] - ease0), pinchedC && s.key === 'main' ? 0.35 : 0, 1);
+      c[key] = clamp((c[key] ?? 0.3) + dA / (s.max - s.min) * k * 0.4 + (tt[key] - ease0), pinchedC && s.key === 'main' && s.vang !== 'none' ? 0.35 : 0, 1);
       continue;
     }
     if (s.key === 'main' && s.trav) {
@@ -1415,6 +1415,9 @@ export function vppStart(b, twsMS, twaDeg, gen) {
   const breeze = twsMS > 16 * KT && twaDeg >= 70;
   b.u = breeze ? Math.min(0.4 * twsMS, 5) : 1.5; for (const k in b.booms) b.booms[k].a = 0.3; b.side.jib = 1; b.side.gennaker = 1;
   if (breeze) for (const k of ['main', 'jib', 'stay']) { b.ctrl[k] = 1; b.lines[k] = 1; }
+  // (a main with no vang, the Hobie's, starts sheeted in over its car: left at the default ease its boom lifts, the
+  // leech opens and it flogs, and in a blow the boat never gathers way)
+  else if (b.sailBy.main.vang === 'none') { b.ctrl.main = b.lines.main = 0.05; b.ctrl.trav = 0.6; }
   b.ctrl.gen = gen; b.genDeploy = gen ? 1 : 0; b.genFill = gen ? 1 : 0;
   return b;
 }
