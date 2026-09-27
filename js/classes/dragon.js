@@ -39,11 +39,11 @@ export default {
       cd0: 0.06, ARe: 4.6, min: 1.5 * DEG, max: 80 * DEG, trav: [-5 * DEG, 12 * DEG], Iboom: 36, boomMass: 10, reefs: 0,
       vangBend: 0.18, sheetBend: 0.12, color: 0xf3f2ec, boomMat: 'wood' },
     { key: 'jib', kind: 'loose', area: 11.7, tackX: 3.72, tackZ: 0.92, luff: 7.55, foot: 3.1, head: 0.06, footRise: 0.15,
-      depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 4.0, min: 8.5 * DEG, max: 45 * DEG, sagK: 1.1, color: 0xf3f2ec },
+      depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 4.0, min: 8.5 * DEG, max: 45 * DEG, sagK: 1.1, color: 0xf3f2ec, window: false },
     { key: 'gennaker', kind: 'spin', pole: 2.6, area: 23.6, tackX: 3.72, tackZ: 1.1, luff: 7.4, rake: 2.72, fixedRake: true, foot: 4.3, head: 0.4,
       depth: [0.2, 0.22, 0.2], cd0: 0.1, ARe: 1.8, min: 18 * DEG, max: 100 * DEG, color: 0xf3f2ec },
   ],
-  hull: { color: 0xffffff, wood: '#b2582a', stripe: 0xd8b26a, deck: 0xb07a45, boot: 0x1e2a3e, bootTop: 0x1e2a3e, levels: [-0.01, 0.0, 0.035, 0.022] },
+  hull: { color: 0xffffff, wood: '#cd7a35', stripe: 0xd8b26a, deck: 0xb07a45, boot: 0x1e2a3e, bootTop: 0x1e2a3e, levels: [-0.01, 0.0, 0.035, 0.022] },
   sailcloth: { cloth: 0xf4f2ea, kind: 'dacron', num: '#16171a', logo: '#c8282e', trans: 0.3, rough: 0.58 },
   insignia: 'D',
   offsets: {
