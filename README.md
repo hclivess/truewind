@@ -38,10 +38,13 @@ These venues use real OpenStreetMap coastlines, lakes and piers, baked into `dat
 
 You can also type any latitude and longitude on Earth. The game then downloads that coastline live from the Overpass API. **Use live wind here** fetches the current wind and gusts for the venue from Open-Meteo.
 
+### Harbour traffic
+The harbours are busy the way the real ones are (`js/traffic.js`, drawn by `js/traffic-render.js`; setting **Traffic**: off, light, normal, busy). Yachts and motor boats lie bows-in along the marina pontoons mapped in OpenStreetMap, at the heads of private jetties and on swing moorings (the mapped ones, and fields in the sheltered water off every harbour), lying to the wind and the tide on their scope; ships swing at anchor in the charted anchorages. Under way are the ferries on their real routes (Red Funnel and Wightlink across the Solent and the Cowes chain ferry, the Sydney, Auckland and Bay ferries), fishing boats, motor boats and cruising yachts, which sail by a polar, tack up the channels and motor where there is no room. Everything moving follows a path planned over the water (A* on the chart's distance-to-shore grid), gives way roughly by the rules of the road (to you always, power to sail, to a vessel on the starboard hand, small craft to ships) by slowing and stepping to starboard, rides the sea, leaves a wake and after dark shows its lights by their arcs: masthead, sidelights, stern light, a trawler's green over white, anchor lights. Hitting one bumps you off. Numbers for the busy setting (`node test/traffic.mjs`): Solent about 670 boats berthed, 100 on moorings, 4 ships at anchor, 8 ferries on 5 routes and 30 other boats under way; Sydney 760, 470, 24, 12 and about 25. The map data is baked into `data/venues/<id>.traffic.json` (or fetched live for a custom location).
+
 ## Modes
 
 - **Free sail.** You sail anywhere. Click the tactical map to drop a waypoint, and the instruments switch to VMC (velocity made good on course) with laylines. Time warp is available up to ×8.
-- **Race.** A windward–leeward course is laid automatically in open water on the real map. It has a start sequence with signals, an OCS (over the line early) call with a dip-back requirement, a windward mark rounded to port, a leeward gate and a finish. The AI fleet sails the same physics as you do.
+- **Race.** A windward–leeward course is laid automatically in open water on the real map. It has a start sequence with signals, an OCS (over the line early) call with a dip-back requirement, a windward mark rounded to port, a leeward gate and a finish. The AI fleet (up to 29 boats; the line grows with it) sails the same physics as you do; in a big fleet only as many boats as the frame budget carries sail in cloth, those nearest the camera, and the rest on the strip model (`js/fleet.js`). Harbour traffic keeps clear of the course.
 
 ## Navigation
 
@@ -218,9 +221,10 @@ Development tools:
 
 - `node test/vpp.mjs [class]` prints polars.
 - `node test/race.mjs solent sportboat 6 25` runs a headless AI race on a real map.
-- `node test/vlm.mjs`, `node test/cloth.mjs` and `node test/sailshape.mjs [class]` check the vortex lattice, the sailcloth and the cloth sails' shapes. `node test/bench.mjs [class]` times one physics step per sail model, `node test/bench-fleet.mjs [class] [n]` a race fleet.
+- `node test/vlm.mjs`, `node test/cloth.mjs` and `node test/sailshape.mjs [class]` check the vortex lattice, the sailcloth and the cloth sails' shapes. `node test/bench.mjs [class]` times one physics step per sail model, `node test/bench-fleet.mjs [class] [n]` a race fleet (for n > 6 also the game's cloth/strip mix). `NCLOTH=6 node test/race.mjs solent sportboat 24 25` races a big fleet as the game mixes it.
+- `node test/traffic.mjs [venue|all] [minutes] [density]` runs the harbour traffic on every venue: vessels stay on the water, nobody gets stuck, ferries finish their legs (`IMG=dir` draws a chart of each).
 - `node tools/bake-sail-surrogate.mjs [class…]` re-bakes the cloth sails' polars into `data/sails/` (about 15 minutes for all four classes on 10 cores). Tests run with the cloth sails; `SAILS=strip` runs them with the strip model.
-- `node tools/fetch-venues.mjs [id…]` re-bakes venues from OpenStreetMap (`--land` for buildings and roads, `--seamarks` for lights, buoys and beacons).
+- `node tools/fetch-venues.mjs [id…]` re-bakes venues from OpenStreetMap (`--land` for buildings and roads, `--seamarks` for lights, buoys and beacons, `--traffic` for the marinas, moorings, anchorages and ferry routes).
 - `node test/seamarks.mjs` checks light characters, sectors, IALA regions and the venues' seamarks.
 - `node test/damage.mjs`, `node test/anchor.mjs`, `node test/mob.mjs` and `node test/fatigue.mjs` check rig loads against the righting-moment rule, the dismasting threshold, collision energy, leak rate and sinking time, rudder and keel damage and sail tearing; the rode's catenary, holding and swinging; the drift and recovery of a person in the water; hiking endurance and the crew's work reserve.
 
