@@ -205,7 +205,9 @@ export const CLASSES = {
     windage: { area: 1.3, z: 1.0, cd: 1.0 },
     // (the rig from the class sail plan: mast 2.3 m aft of the stem, 8.25 m above the water, boom 0.9 m over the deck)
     mastX: 0.1, mastHeight: 8.25, boomZ: 1.25, keelBulb: false, houndsF: 0.3,
-    targetHeel: 8 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 520,
+    // (fullPowerTws: the wind in which both crew are out and the sails still at full power, kn; past it the crew
+    // twists the main off, as test/sailshape.mjs knows)
+    targetHeel: 8 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 520, fullPowerTws: 10,
     sailcloth: 'laminate', battens: { EI: 15, full: true, rows: [0.14, 0.28, 0.42, 0.56, 0.7, 0.84] },
     sails: [
       { key: 'main', kind: 'boom', area: 15.0, luff: 6.85, foot: 2.8, head: 0.8, depth: [0.14, 0.16, 0.15], twistMax: 17 * DEG,
@@ -483,11 +485,11 @@ export const CLASSES = {
     windage: { area: 16, z: 2.8, cd: 0.95 },
     mastX: 1.9, mastHeight: 27.3, boomZ: 2.7, keelBulb: false, houndsF: 0.1,
     targetHeel: 9 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 9000,
-    sailcloth: 'dacronCruise', battens: { EI: 60, full: true, rows: [0.12, 0.24, 0.36, 0.48, 0.6, 0.72, 0.84, 0.93] },
+    sailcloth: 'dacronCruise', battens: { EI: 25, full: true, rows: [0.12, 0.24, 0.36, 0.48, 0.6, 0.72, 0.84, 0.93] },
     sails: [
-      { key: 'main', kind: 'boom', area: 205, luff: 23.6, foot: 8.6, head: 2.6, depth: [0.11, 0.13, 0.12], twistMax: 18 * DEG,
+      { key: 'main', kind: 'boom', area: 205, luff: 23.6, foot: 8.6, head: 1.6, depth: [0.11, 0.13, 0.12], twistMax: 18 * DEG,
         cd0: 0.06, ARe: 5.0, min: 1 * DEG, max: 70 * DEG, trav: [-4 * DEG, 22 * DEG], Iboom: 3200, boomMass: 90, reefs: 2,
-        vangBend: 0.08, sheetBend: 0.06, ropeK: 20, color: 0xcfc3a4 },
+        vangBend: 0.15, sheetBend: 0.06, ropeK: 20, vangTravel: 6, color: 0xcfc3a4 },
       { key: 'jib', kind: 'loose', area: 95, tackX: 9.3, tackZ: 1.55, luff: 21.4, foot: 8.2, head: 0.15, footRise: 0.2,
         depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 4.8, min: 8 * DEG, max: 40 * DEG, sagK: 1.0, color: 0xcfc3a4 },
     ],

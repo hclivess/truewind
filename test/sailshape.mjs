@@ -1,5 +1,5 @@
 // Cloth sail shapes (js/sail/rigsim.js + cloth.js under the lattice's loads).
-//  1. beating in 12 kn with the automatic crew: main depth, draft position and twist at the three heights
+//  1. beating in 12 kn (or the class's full-power wind, C.fullPowerTws) with the automatic crew: main depth, draft position and twist at the three heights
 //  2. every string does what it does on a real boat (sign checks, one control moved, the rest held):
 //     outhaul in -> flatter foot; cunningham on -> draft forward; backstay on -> flatter main, less headstay sag
 //     (flatter jib); vang on -> less twist; jib car aft -> flatter jib foot, more jib twist
@@ -13,7 +13,9 @@ const classes = process.argv[2] ? [process.argv[2]] : CLASS_ORDER;
 
 // settle a boat close-hauled (heading and helm held), auto crew, then hold a set of controls and settle again
 function settle(cls, set = null, secs = 14) {
-  const env = makeSteadyEnv(12 * KT), b = new Boat(cls);
+  // (in 12 kn, or in the wind where the class is still at full power: a skiff or a big multihull is twisting off to
+  // depower in 12 kn, as its crew would)
+  const env = makeSteadyEnv(Math.min(12, CLASSES[cls].fullPowerTws ?? 12) * KT), b = new Boat(cls);
   attachSails(b, 'cloth', 0);
   const twa = CLASSES[cls].multihull || CLASSES[cls].amas ? 50 : 45;
   b.reset(0, 0, twa * DEG); b.u = 2.5; for (const k in b.booms) b.booms[k].a = 0.15;

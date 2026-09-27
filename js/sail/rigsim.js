@@ -288,7 +288,8 @@ export class BoomSailRig extends ClothRig {
     if (this.needPose) this.pose(b.booms[s.key].a, this._poseTwist(b));
     // luff: cunningham tension stretches it a little; the halyard eased while reefing lets it sag
     const slack = this.isMain ? b.reefSlack : 0;
-    const luff = this.luff0 * (1 + 0.006 * ((this.isMain ? ctrl.cunn : 0.3) - 0.3) - 0.06 * slack);
+    // (s.cunnTravel: a big main's cunningham pulls its tack down further)
+    const luff = this.luff0 * (1 + 0.006 * (s.cunnTravel ?? 1) * ((this.isMain ? ctrl.cunn : 0.3) - 0.3) - 0.06 * slack);
     const bend = this.lroundK * bendRig;
     for (let j = 0; j < nv; j++) {
       const v = j / (nv - 1), n = c.node(0, j);
@@ -313,7 +314,8 @@ export class BoomSailRig extends ClothRig {
       const L0 = hyp(this.tv * this.Lb, this.dv);
       // hard on, the vang pulls the boom a little below level: that stretch is the leech tension
       const vg = clamp(ctrl.vang, 0, 1);
-      this.vang.len = L0 - 0.012 * vg + 0.05 * (1 - vg) ** 1.3;
+      // (s.vangTravel: a longer boom needs the vang to pull further down for the same leech tension)
+      this.vang.len = L0 - 0.012 * vg * (s.vangTravel ?? 1) + 0.05 * (1 - vg) ** 1.3;
     }
     this.topping.len = hyp(this.Lb, this.mastHead[2] - this.pz + 0.15 * this.Lb);
   }
