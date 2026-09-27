@@ -73,22 +73,24 @@ const maxOver = (tide, lat, lon, v, t0, t1, dir) => {
     // springs at the end of September 2026: NOAA predicts 4.4 kn of ebb at the Bay Entrance (SFB1201)
     const [ebb, te] = maxOver(tide, 37.8200, -122.4750, V, utc('2026-09-28 12:00'), utc('2026-10-01 12:00'), 247 * Math.PI / 180);
     check(ebb >= 3.5 && ebb <= 5.5, `Golden Gate under the bridge: strongest spring ebb ${ebb.toFixed(1)} kn (3.5–5.5)`);
-    // NOAA SFB1201 (Bay Entrance, outside): ebb and flood maxima and slacks, spring tides; model at the station
-    const NO = [['2026-09-29 23:57', 'ebb', -4.3], ['2026-09-30 00:56', 'ebb', -4.42], ['2026-09-30 07:23', 'flood', 2.9], ['2026-09-30 13:10', 'ebb', -3.2], ['2026-09-30 19:21', 'flood', 3.1]];
-    const P = makeProjection(V.lat, V.lon), [x, z] = P.fwd(37.8106, -122.502), o = {}, fd = 61 * Math.PI / 180;
+    // NOAA SFB1203 (Golden Gate Bridge, 0.46 nm E; 30 ft down, flood 069°): the maxima and slacks of 29–30 September
+    const NO = [['2026-09-29 19:01', 'flood', 2.83], ['2026-09-30 00:36', 'ebb', -2.92], ['2026-09-30 08:02', 'flood', 2.53], ['2026-09-30 13:46', 'ebb', -1.17], ['2026-09-30 19:46', 'flood', 2.61]];
+    const SL = ['2026-09-29 21:41', '2026-09-30 04:38', '2026-09-30 11:31', '2026-09-30 16:12', '2026-09-30 22:22'];
+    const P = makeProjection(V.lat, V.lon), [x, z] = P.fwd(37.82007, -122.473), o = {}, fd = 69 * Math.PI / 180;
     const major = (t) => { tide.streams.atTime(x, z, t, o); return (o.x * Math.sin(fd) - o.z * Math.cos(fd)) / KT; };
-    let dts = [], ratio = [];
+    const dts = [], ratio = [], sdt = [];
     for (const [t, kind, sp] of NO) {
       const T = utc(t); let bt = T, bv = 0;
-      for (let d = -120; d <= 120; d += 5) { const v = major(T + d * 60e3); if (kind === 'ebb' ? v < bv : v > bv) { bv = v; bt = T + d * 60e3; } }
+      for (let d = -150; d <= 150; d += 5) { const v = major(T + d * 60e3); if (kind === 'ebb' ? v < bv : v > bv) { bv = v; bt = T + d * 60e3; } }
       dts.push((bt - T) / 60e3); ratio.push(bv / sp);
     }
-    const dtAbs = Math.max(...dts.map(Math.abs));
-    console.log(`     SFB1201 max-current times, model − NOAA (min): ${dts.map(d => d.toFixed(0)).join(' ')}; speed ratios ${ratio.map(r => r.toFixed(2)).join(' ')}`);
-    check(dtAbs <= 60 && Math.min(...ratio) > 0.5 && Math.max(...ratio) < 1.6, `Bay Entrance (NOAA SFB1201): current maxima within ${dtAbs.toFixed(0)} min, speeds ${Math.min(...ratio).toFixed(2)}–${Math.max(...ratio).toFixed(2)} × NOAA's`);
+    for (const t of SL) { const T = utc(t); let bt = T, bv = 9; for (let d = -150; d <= 150; d += 5) { const v = Math.abs(major(T + d * 60e3)); if (v < bv) { bv = v; bt = T + d * 60e3; } } sdt.push((bt - T) / 60e3); }
+    const dtAbs = Math.max(...dts.map(Math.abs)), sAbs = Math.max(...sdt.map(Math.abs));
+    console.log(`     SFB1203: maxima, model − NOAA (min) ${dts.map(d => d.toFixed(0)).join(' ')}, speed ratios ${ratio.map(r => r.toFixed(2)).join(' ')}; slacks ${sdt.map(d => d.toFixed(0)).join(' ')} min`);
+    check(Math.max(dtAbs, sAbs) <= 45 && Math.min(...ratio) > 0.6 && Math.max(...ratio) < 1.6, `Golden Gate (NOAA SFB1203): maxima within ${dtAbs.toFixed(0)} min and slacks within ${sAbs.toFixed(0)} min of NOAA's, speeds ${Math.min(...ratio).toFixed(2)}–${Math.max(...ratio).toFixed(2)} × NOAA's`);
     // flow accelerates in the Gate: stronger there than in the open bay off the City Front and on the shoals
-    const [bay] = maxOver(tide, 37.815, -122.37, V, utc('2026-09-28 12:00'), utc('2026-10-01 12:00'));
-    check(ebb > 1.6 * bay, `the Gate (${ebb.toFixed(1)} kn) runs much harder than the bay off Treasure Island (${bay.toFixed(1)} kn)`);
+    const [bay] = maxOver(tide, 37.807, -122.445, V, utc('2026-09-28 12:00'), utc('2026-10-01 12:00'));
+    check(ebb > 2 * bay, `the Gate (${ebb.toFixed(1)} kn) runs much harder than the shallows off Crissy Field (${bay.toFixed(1)} kn)`);
   }
 }
 {
