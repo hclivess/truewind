@@ -111,7 +111,16 @@ export function massProps(C, rig = null) {
   const shell = Math.max(0.15 * C.massHull, C.massHull - inHull);
   const pts = [];
   for (const it of [...items, ...extra]) for (const [x, y, z, w] of samples(it)) pts.push([x, y, z, w * it.m]);
-  for (const [x, y, z, w] of shellSamples(C)) pts.push([x, y, z, w * shell]);
+  // the mass the list does not name (the hull shell, its laminate's thickening low down, floors, tanks, fastenings):
+  // spread over the hull's surface, and as much of it low in the bilge as puts the boat's centre of gravity where the
+  // class's stability data has it (C.zG, the figure the righting moment is calibrated to)
+  const sh = shellSamples(C), zLow = -0.8 * (C.canoeDraft || 0.2);
+  let m0 = 0, z0 = 0; for (const [, , z, w] of pts) { m0 += w; z0 += w * z; }
+  let zs = 0; for (const [, , z, w] of sh) zs += w * z;
+  const zg1 = (z0 + shell * zs) / (m0 + shell), zg2 = (z0 + shell * zLow) / (m0 + shell);
+  const low = C.zG === undefined || C.id === 'dinghy' || C.multihull ? 0 : clamp((zg1 - C.zG) / Math.max(1e-6, zg1 - zg2), 0, 0.8);
+  for (const [x, y, z, w] of sh) pts.push([x, y, z, w * shell * (1 - low)]);
+  if (low > 0) for (let i = 0; i < 8; i++) for (const s of [-1, 1]) pts.push([C.sternX * 0.85 + (C.bowX * 0.85 - C.sternX * 0.85) * (i + 0.5) / 8, s * 0.12 * C.beam, zLow, shell * low / 16]);
   // the crew, on both rails at 0.7 of their reach (the average of their places)
   const crew = (C.crewN || 0) * (C.crewEach || 0), yc = 0.7 * (C.crewMaxOut || 0.5);
   const crewPts = crew ? [[-(C.lwl || C.loa) * 0.15, yc, C.crewZ || 0.5, crew / 2], [-(C.lwl || C.loa) * 0.15, -yc, C.crewZ || 0.5, crew / 2]] : [];
@@ -132,7 +141,7 @@ export function massProps(C, rig = null) {
     IxxB += w * (y * y + dz * dz); IyyB += w * (dx * dx + dz * dz); IzzB += w * (dx * dx + y * y);
   }
   return {
-    boatMass: boatM, shell, xG, zG, Ixx, Iyy, Izz, IxxBoat: IxxB, IyyBoat: IyyB, IzzBoat: IzzB,
+    boatMass: boatM, shell, shellLow: low, xG, zG, Ixx, Iyy, Izz, IxxBoat: IxxB, IyyBoat: IyyB, IzzBoat: IzzB,
     kxx: Math.sqrt(Ixx / M), kyy: Math.sqrt(Iyy / M), kzz: Math.sqrt(Izz / M), total: M,
     items: [...items, ...extra].reduce((o, it) => { o[it.name] = (o[it.name] || 0) + it.m; return o; }, { shell }),
   };

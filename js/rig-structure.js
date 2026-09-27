@@ -62,7 +62,7 @@ export const RIG_DATA = {
   // J/70: deck-stepped tapered carbon mast (Southern Spars), one pair of swept spreaders 4.97 m up, cap shrouds over
   // them to the hounds, lowers to the spreader root, forestay to the hounds (fractional), adjustable backstay from the
   // masthead crane (8:1 cascade + fine tune: ~80 mm of stay). Section est. 125 x 80 mm, 3 mm wall (~15 kg with fittings), tapering above the
-  // hounds; wire est.: 5 mm caps, 4 mm lowers and forestay. Dock tune ~ North Sails' base setting order (caps ~10% of
+  // hounds; 4 mm caps, lowers and forestay (as js/damage.js's class data). Dock tune ~ North Sails' base setting order (caps ~10% of
   // break, lowers slacker).
   sportboat: {
     step: { type: 'deck', z: 0.95 },
@@ -70,7 +70,7 @@ export const RIG_DATA = {
     spreaders: [{ z: 4.97, len: 0.78, sweep: 0.27, EA: 1.5e7, EI: 3000 }],
     chainX: -0.45, chainIn: 0.93,
     wires: [
-      { key: 'capShroud', to: 'hounds', via: 0, d: 5, pre: 2000 },
+      { key: 'capShroud', to: 'hounds', via: 0, d: 4, pre: 1600 },
       { key: 'lowerShroud', to: 4.97, dx: 0.08, d: 4, pre: 700 },
       { key: 'forestay', stay: 'jib', d: 4 },
       { key: 'backstay', to: 'top', off: -0.22, low: 'transom', d: 5, pre: 350, adjust: 0.12 },
@@ -92,7 +92,7 @@ export const RIG_DATA = {
       { key: 'lowerAft', to: 4.75, dx: -0.3, d: 5, pre: 800 },
       { key: 'forestay', stay: 'jib', d: 5 },
       { key: 'innerForestay', stay: 'stay', d: 4, pre: 500 },
-      { key: 'backstay', to: 'top', off: -0.05, low: 'transom', d: 5, pre: 1000, adjust: 0.008 },
+      { key: 'backstay', to: 'top', off: -0.05, low: 'transom', d: 4, pre: 1000, adjust: 0.008 },
       { key: 'bobstay', sprit: true, low: 'stem', d: 6 },
       { key: 'whisker', sprit: true, low: 'whisker', d: 4, pre: 300 },
     ],
@@ -112,16 +112,16 @@ export const RIG_DATA = {
   },
   // Hobie 16: rotating aluminium wing mast (8.07 m) on a ball on the front beam, side stays to the hulls, forestay to
   // the bridle from the bows, diamond wires over a pair of diamond spreaders, trapezes from the hounds; the mast
-  // rotation limiter stops it ~60 deg each side (est.). Section est. 140 x 80 mm, 1.9 mm wall; 4 mm stays, 3 mm diamonds.
+  // rotation limiter stops it ~60 deg each side (est.). Section est. 140 x 80 mm, 1.9 mm wall; 3/16 in (4.8 mm) stays, 3 mm diamonds.
   cat: {
     step: { type: 'ball', z: 0.53 },
     spans: [{ z0: 0.53, z1: 8.6, a: 0.14, b: 0.08, t: 0.0019, mat: 'alu6061' }],
     spreaders: [{ z: 3.9, len: 0.33, sweep: 0, EA: 1e7, EI: 800, diamond: true }],
     chainX: -0.12,
     wires: [
-      { key: 'capShroud', to: 'hounds', d: 4, pre: 500 },
+      { key: 'capShroud', to: 'hounds', d: 4.8, pre: 500 },
       { key: 'diamond', diamond: [6.4, 1.5], via: 0, d: 3, pre: 1200 },
-      { key: 'forestay', stay: 'jib', d: 4 },
+      { key: 'forestay', stay: 'jib', d: 4.8 },
       { key: 'bridle', bridle: true, d: 4 },
     ],
     rotating: { limit: 60 * DEG, track: 0.05 },
@@ -822,6 +822,9 @@ export class RigStructure {
     }
     const luff = this._luffSum = [0, 0, 0];
     if (s.key === 'main') { this._entry = 0; this._entryW = 0; }
+    // the leech's half of each row's normal load is carried by the leech tension along the curved leech to its ends:
+    // about half of it to the head (up the mast, by the halyard), half to the clew (the boom and sheet)
+    let Lhx = 0, Lhy = 0;
     for (const [z, Fx, Fy, ang, dep] of rows) {
       const ca = Math.cos(ang), sa = Math.sin(ang), cx = -ca, cy = sa;         // chord, aft from the luff
       const nx = sa, ny = ca;                                                  // its normal (to starboard for a centred chord)
@@ -831,6 +834,7 @@ export class RigStructure {
       if (s.key === 'main') this.loadMast(Math.min(this.zTop, z), Lx, Ly, 0, -this.track, 0);
       else if (stay) { const v = clamp((z - s.tackZ) / Math.max(0.5, s.luff), 0.03, 0.97); stay.P.push([v, Lx, Ly, 0]); }
       luff[0] += Lx; luff[1] += Ly;
+      Lhx += 0.25 * An * nx; Lhy += 0.25 * An * ny;
       if (s.key === 'main') { const w = Math.abs(An); this._entry += w * (ang + Math.sign(An) * Math.atan(4 * dep)); this._entryW += w; }
     }
     // the leech tension: the sheet's load (a cloth sail's, as the cloth's sheet reports it), no more than the purchase
@@ -850,6 +854,9 @@ export class RigStructure {
       const ba = (b.booms && b.booms.main && b.booms.main.a) || 0, head = { kind: 'mast', i: this.node(zH), ox: -this.track, oy: 0 };
       this.pull(head, { kind: 'fixed', p: [this.axisX - this.track - s.foot * Math.cos(ba), s.foot * Math.sin(ba), C.boomZ] }, Th);
       if (!this.spec.noHalyard) this.pull(head, { kind: 'mast', i: 0, ox: 0, oy: 0 }, Th);
+      this.loadMast(zH, Lhx, Lhy, 0, -this.track, 0);
+      // (and the clew's share, through the boom: the part the gooseneck takes, the sheet's lever on the boom being 0.86)
+      this.loadMast(C.boomZ, 0.14 * Lhx, 0.14 * Lhy, 0, -this.track, 0);
       this.loadMast(C.boomZ, V * bl / l, 0, -V * hz / l - lead);
       this.loadMast(zv, -V * bl / l, 0, V * hz / l);
       this.loads.vang = V; this.loads.gooseneck = Math.hypot(V * bl / l, V * hz / l + lead);
@@ -859,6 +866,7 @@ export class RigStructure {
       const cx = s.tackX - s.foot * Math.cos(cl), cy = s.foot * Math.sin(cl);
       this.pull(stay.b, { kind: 'fixed', p: [cx, cy, s.tackZ + (s.footRise || 0)] }, Th);
       this.pull(stay.b, { kind: 'mast', i: 0, ox: 0, oy: 0 }, 0.6 * Th);
+      this.loadAt(stay.b, Lhx, Lhy, 0);
     } else if (s.kind === 'spin') {
       // a free-flying gennaker: its halyard at the masthead (the luff's tension ~ its sheet's), its tack on the sprit
       const zH = Math.min(this.zTop, s.tackZ + s.luff);

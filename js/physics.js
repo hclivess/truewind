@@ -851,7 +851,7 @@ export class Boat {
       const kx = q * (fc.cl * vl / V - fc.cd * ul / V), kn = q * (-fc.cl * ul / V - fc.cd * vl / V);
       X += kx; Y += kn * cphi; K += kn * zk; N += g.x * kn * cphi;
       // the bulb: a body of revolution's friction and form drag, low down
-      if (S.bulb && g.imm > 0.5) { const Db = bulbDrag(S.bulb, ul); X -= Db; d.bulbDrag = Db; }
+      if (S.bulb && g.imm > 0.5 && (this.keelEff ?? 1) > 0.5) { const Db = bulbDrag(S.bulb, ul); X -= Db; d.bulbDrag = Db; }
       d.Nkeel = g.x * kn * cphi; d.keelCl = fc.cl;
       d.keelX = kx; d.keelY = kn * cphi; d.keelStall = fc.stalled; d.leeway = Math.atan2(this.v, Math.max(0.05, this.u));
       d.keelARe = g.ARe; d.keelImm = g.imm; d.keelVent = fc.vent; d.keelRe = fc.Re; d.keelStallA = fc.ast;

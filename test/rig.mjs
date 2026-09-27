@@ -70,9 +70,9 @@ const sail = (cls, tws, twa, secs, set = {}) => {
   }
   const RM = Math.abs(b.diag.RM), hb = Math.abs(rs.wires.find((w) => w.key === 'capShroud' && w.seg === 'lower').a.p[1]);
   const est = RM / hb, Tw = L.capShroud[ww] + L.lowerShroud[ww] - L.capShroud[lw] - L.lowerShroud[lw];
-  // (a rig designer's RM / half-beam puts the whole heeling moment through the shrouds; in fact the sheets take the
-  // clews' share of the sails' side force straight to the hull, about half of it)
-  check(Tw > 0.35 * est && Tw < 1.1 * est, `J/70 at 14 kn: windward less leeward shroud tension ${Tw.toFixed(0)} N vs RM/half-beam ${est.toFixed(0)} N (RM ${RM.toFixed(0)} N m, half-beam ${hb.toFixed(2)} m): ${(100 * Tw / est).toFixed(0)}%`);
+  // (a rig designer's RM / half-beam puts the whole heeling moment through the shrouds; the sheets take the clews'
+  // share of the sails' side force straight to the hull, so a little less goes through them)
+  check(Tw > 0.65 * est && Tw < 1.1 * est, `J/70 at 14 kn: windward less leeward shroud tension ${Tw.toFixed(0)} N vs RM/half-beam ${est.toFixed(0)} N (RM ${RM.toFixed(0)} N m, half-beam ${hb.toFixed(2)} m): ${(100 * Tw / est).toFixed(0)}%`);
   check(L.mastComp > 0 && L.mastStep[2] > 0 && Number.isFinite(L.forestay) && L.backstay > 0, `J/70 loads for the damage model: mast ${L.mastComp.toFixed(0)} N, step ${L.mastStep[2].toFixed(0)} N, forestay ${L.forestay.toFixed(0)} N, backstay ${L.backstay.toFixed(0)} N`);
   const bs0 = sail('sportboat', 14, 45, 20, { backstay: 0 }).diag.rig, bs1 = sail('sportboat', 14, 45, 20, { backstay: 1 }).diag.rig;
   check(bs1.bendMM > bs0.bendMM + 40 && bs1.sagMM < bs0.sagMM, `J/70 backstay: bend ${bs0.bendMM.toFixed(0)} -> ${bs1.bendMM.toFixed(0)} mm, forestay sag ${bs0.sagMM.toFixed(0)} -> ${bs1.sagMM.toFixed(0)} mm`);
