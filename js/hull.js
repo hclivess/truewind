@@ -155,7 +155,7 @@ export function hullOffsets(C) { return C.multihull ? [-C.hullSpacing / 2, C.hul
 export function hullParts(C) {
   if (C.amas) {
     const A = C.amas;
-    return [{ y: 0, sy: 1, sz: 1, szTop: 1, dz: 0, t0: 0, t1: 1 }, ...[-1, 1].map((s) => ({ y: s * A.y, sy: A.sy, sz: A.sz, szTop: A.szTop ?? A.sz, dz: A.dz, t0: A.t0, t1: A.t1, tumble: A.tumble ?? 0 }))];
+    return [{ y: 0, sy: 1, sz: 1, szTop: 1, dz: 0, t0: 0, t1: 1 }, ...[-1, 1].map((s) => ({ y: s * A.y, sy: A.sy, sz: A.sz, szTop: A.szTop ?? A.sz, dz: A.dz, t0: A.t0, t1: A.t1, tumble: A.tumble ?? 0, tube: A.tube ?? null, len: (C.bowX - C.sternX) * (A.t1 - A.t0) }))];
   }
   return hullOffsets(C).map((y) => ({ y, sy: 1, sz: 1, szTop: 1, dz: 0, t0: 0, t1: 1 }));
 }
@@ -163,6 +163,14 @@ export function hullParts(C) {
 export function partSection(C, Lx, t, P) {
   if (t < P.t0 - 1e-9 || t > P.t1 + 1e-9) return null;
   const whole = P.t0 === 0 && P.t1 === 1, h = hullSection(C, Lx, whole ? t : (t - P.t0) / (P.t1 - P.t0));
+  if (P.tube) {
+    // a float that is a plain tube (the Waterworld trimaran's): a circle of radius tube.r about its axis tube.z above the
+    // DWL, closed at both ends in round domes; as many points as the main hull's section, from the top round to the keel
+    const u = (t - P.t0) / (P.t1 - P.t0), R0 = P.tube.r, e = Math.min(u, 1 - u) * P.len;
+    const R = e >= R0 ? R0 : R0 * Math.sqrt(Math.max(0.0004, 1 - (1 - e / R0) ** 2));
+    const n = h.length;
+    return h.map((_, i) => { const th = Math.PI / 2 - Math.PI * i / (n - 1); return [Math.max(0, R * Math.cos(th)), P.tube.z + R * Math.sin(th)]; });
+  }
   if (whole && P.sy === 1 && P.sz === 1 && P.szTop === 1 && !P.dz) return h;
   // (tumble: the float's topsides curve in toward its deck, so it is a round-topped tube rather than a scaled hull)
   const zt = h[0][1] > 0 ? h[0][1] : 1;
