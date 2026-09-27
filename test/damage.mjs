@@ -249,6 +249,10 @@ console.log('\n7. Sails');
   const e2 = makeSteadyEnv(45 * KT);
   const g = new Boat('sportboat'); g.reset(0, 0, 110 * DEG); g.u = 6; g.ctrl.gen = true; g.genDeploy = 1; g.genFill = 1;
   const DG = new Damage(g);
+  // (the rig is kept standing: this checks the sail. Knocked to 60° with its boom end dragging in the sea, the J/70 can
+  // part a lower first, and a dismasting marks every sail blown before the gennaker has torn; the rig's own failures
+  // are checked in sections 1-5)
+  DG.dismast = () => {};
   run(g, DG, e2, 30, () => autoTrim(g, dt, 0, true), null, () => { g.psi = 110 * DEG; g.r = 0; });
   const S = DG.sails.gennaker;
   console.log('     (gennaker state', JSON.stringify({ tear: S.tear, D: S.D, ratio: S.ratio, peak: S.peak, blown: S.blown }), ')');

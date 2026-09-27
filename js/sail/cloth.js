@@ -356,7 +356,7 @@ export class Cloth {
           if (nl < 1e-6 || nl > r + 0.25) continue;
           nx /= nl; ny /= nl; nz /= nl;
           let cap = Infinity;
-          if (pf && w.prefOn && Math.abs(wy) > 0.15) {     // (clear of the mast: at the hounds the head wraps both ways)
+          if (pf && w.prefOn) {
             // the preferred side across this segment: pref less its part along the wire
             const el = Math.sqrt(Ee), pa = (pf[0] * d2x + pf[1] * d2y + pf[2] * d2z) / el;
             const px = pf[0] - pa * d2x / el, py = pf[1] - pa * d2y / el, pz = pf[2] - pa * d2z / el, pl = Math.sqrt(px * px + py * py + pz * pz) || 1;
