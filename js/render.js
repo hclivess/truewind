@@ -103,7 +103,8 @@ float aerated(vec2 p, float w, float c) {
   float gk = smoothstep(0.8, 0.3, w * 25.0), g = mix(0.5, qn(q * 25.0 + vec2(7.7, 3.3)), gk), vg = 0.053 * (1.0 - gk * gk) * 0.02;
   float ridge = 1.0 - abs(2.0 * m - 1.03);
   float clump = ssV(0.84 - 0.6 * c, 0.035, n + 0.25 * (g - 0.5), vn + 3.2 * vg);
-  float lace = ssV(0.96 - 0.3 * c, 0.04, ridge + 0.21 * (g - 0.5), 4.0 * vm + 2.3 * vg) * smoothstep(0.02, 0.2, c);
+  // (the lace fringes the clumps, where the old foam of their edges is bursting: not contour lines everywhere)
+  float lace = ssV(0.9 - 0.3 * c, 0.05, ridge + 0.21 * (g - 0.5), 4.0 * vm + 2.3 * vg) * smoothstep(0.02, 0.2, c) * ssV(0.66 - 0.5 * c, 0.08, n, vn);
   // (dense foam is not a sheet either: the water shows through its finest grooves)
   float r2 = 1.0 - abs(2.0 * d - 0.03), k2 = smoothstep(0.8, 0.3, w * 6.1);
   return max(clump * mix(0.86, 0.72 + 0.28 * smoothstep(0.25, 0.75, r2), k2), lace * 0.75);
@@ -451,7 +452,7 @@ export class Renderer {
           // the lip of a breaking crest, thrown forward and thinned to a translucent sheet: turquoise light through
           // it (from the sky, and far more with the sun behind it), between the torn foam on it
           float lip = lb.w * smoothstep(0.25, 0.7, lb.w) * smoothstep(0.65, 0.95, phJ) * (1.0 - smoothstep(1.3, 1.55, phJ));   // (only where it really breaks)
-          sss += vec3(0.05, 0.40, 0.33) * lip * (uAmbF * 0.35 + uSunCol * (0.2 + 1.6 * back) * (1.0 - 0.8 * uOvercast) * shadow * step(0.0, L.y));
+          sss += vec3(0.04, 0.30, 0.25) * lip * (uAmbF * 0.35 + uSunCol * (0.2 + 1.6 * back) * (1.0 - 0.8 * uOvercast) * shadow * step(0.0, L.y));
           vec3 col = mix(body + sss, refl, F) + uSunCol * spec * 1.5;
           // ---- whitecaps and foam, Beaufort coverage from the wind (Monahan: W = 3.84e-6 U^3.41), placed
           // on the steepest crests: a z-score of crest compression (1 - Jacobian) against its local spread
@@ -561,18 +562,18 @@ export class Renderer {
           // a dense roller over the crest's top, the translucent lip ahead of it torn by foam, the plunge where
           // the jet lands a little down the face, exploding white and pouring down to there, but no further (the
           // broken water rides with the crest; nothing breaks ahead of it); behind the crest the foam it has left,
-          // thinning into lace over the back of the wave. Its texture in metres
-          // across the crest and down the face (stretched down it: the water pours), churning with time; the
+          // thinning into lace over the back of the wave. Its texture is fixed in the water (metres across the
+          // crest and along it, stretched along it where the water pours down the face), churning with time; the
           // whole varies along the crest (alB, phJ)
           float fshade = 1.0;
           if (lb.w > 0.01) {
             float kb = max(uBrk.x, 1e-3), sc = kb * 5.0, casc = smoothstep(1.1, 0.5, phJ);
             float roll = 0.85 * smoothstep(1.25, 1.5, phJ) * (1.0 - smoothstep(1.9, 2.15, phJ));
             float lipc = 0.35 * smoothstep(0.6, 0.9, phJ) * (1.0 - smoothstep(1.4, 1.6, phJ));
-            float plng = 0.75 * smoothstep(-0.25, 0.3, phJ) * (1.0 - smoothstep(0.65, 0.95, phJ));
+            float plng = 0.75 * smoothstep(0.15, 0.45, phJ) * (1.0 - smoothstep(0.65, 0.95, phJ));
             float cov = max(max(roll, 0.35 * smoothstep(3.2, 2.0, phJ) * smoothstep(1.6, 1.9, phJ)), max(lipc, plng)) * (0.65 + 0.35 * alB) * lb.w;
-            vec2 bp = vec2(acrB * 5.0, (phB / kb) * sc * (1.0 - 0.35 * casc) - uTime * 0.12 * casc) + vec2(0.0, uTime * 0.03);
-            float bw = fpAlong(vec2(-uDm.y, uDm.x), eRf, eT) * sc;
+            vec2 bp = vec2(acrB * 5.0, dot(x0, uDm) * sc * (1.0 - 0.35 * casc) + uTime * 0.12 * casc) + vec2(0.0, uTime * 0.03);
+            float bw = max(fpAlong(vec2(-uDm.y, uDm.x), eRf, eT), fpAlong(uDm, eRf, eT)) * sc;   // (the footprint's long axis: no aliasing)
             foam = max(foam, aerated(bp, bw, cov));
             // lit and shadowed clumps: the foam is a heap, not a sheet
             fshade = mix(1.0, 0.88 + 0.12 * smoothstep(0.3, 0.7, sfbmA(bp * 0.7 + vec2(5.5, 1.1), bw * 0.7)), smoothstep(0.1, 0.5, cov));
