@@ -261,7 +261,7 @@ body.online .online-only { display: block; }
 #rig .rg.adv, #rig .ln.adv { display: none; }
 #rig.adv .rg.adv { display: block; }
 #rig.adv .ln.adv { display: grid; }
-.ln span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ln span { overflow-wrap: anywhere; line-height: 1.1; }   /* long line names wrap onto a second line rather than being cut */
 
 #results { z-index: 18; align-items: center; background: rgba(8,14,20,.55); }
 .res-inner { width: min(460px, 100%); padding: 18px 20px; }
