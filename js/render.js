@@ -553,7 +553,8 @@ export class Renderer {
               streak = max(streak, amp * mix(sf, mean, smoothstep(0.5 * sp, sp, fwY)));
             }
             streak *= st * (0.55 + 0.45 * lace);
-            foam = max(act, resid); foamFlat = streak * (0.8 + 0.2 * hur);
+            // (a breaking crest churns the streaks it runs over into its own white water)
+            foam = max(act, resid); foamFlat = streak * (0.8 + 0.2 * hur) * (1.0 - smoothstep(0.05, 0.35, lb.w));
           }
           foamFlat = max(foamFlat, pers);
           // depth-limited breaking on real bathymetry
