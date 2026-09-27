@@ -86,6 +86,7 @@ export class Gear {
       if (b.mob) b.mob.post(dt, ctx);
       if (b.fat) b.fat.post(dt, b.anchor && b.anchor.state === 'weighing' ? b.anchor.work || 0 : 0);
       if (b.anchor) b.anchor.post(dt, ctx);
+      if (b.furl > 0.8) b.hikeLimit = 0.02;              // sails down, at rest: the crew sits in
     }
     this.drainEvents();
   }
@@ -139,9 +140,11 @@ export class Gear {
       return { msg: b.unmanned ? `In the water — the boat is ${Math.round(d)} m off. Swimming…` : `MAN OVERBOARD ${Math.round(d)} m · ${String(brg).padStart(3, '0')}° — come alongside slowly, stop within 2 m`, bad: true };
     }
     if (D.inflow > 1e-4 || D.water > 20) return { msg: `Taking water: ${Math.round(D.inflow * 60000)} L/min in, pumps ${Math.round(D.pumpOut * 60000)} L/min · ${Math.round(D.water)} L aboard`, bad: D.inflow > D.pumpOut };
-    if (D.rig.down) return { msg: D.rig.cut ? 'Dismasted — rig cut away' : 'Dismasted — rig over the side: cut it away (Boat panel) before it holes her', bad: true };
+    if (D.rig.down) return { msg: D.rig.cut ? 'Dismasted — rig cut away' : 'Dismasted — the rig is over the side dragging her: cut it away (Boat panel)', bad: true };
     if (D.hull.keelLost) return { msg: 'Keel gone — she is on her side', bad: true };
     if (b.anchor && b.anchor.dragging) return { msg: `Anchor dragging in ${b.anchor.bed} — let out more scope or re-anchor`, bad: true };
+    if (b.anchor && b.anchor.state !== 'up') return { msg: b.anchor.state === 'weighing' ? 'Weighing anchor' : `At anchor in ${b.anchor.bed} — U to weigh`, bad: false };
+    if (b.moor && b.moor.tied) return { msg: b.moor.kind === 'buoy' ? 'On the mooring — B to slip it' : 'Alongside — B to cast off', bad: false };
     return null;
   }
 
@@ -157,7 +160,7 @@ export class Gear {
     if (!A || !A.has) { g.hud.toast(A && A.lost ? 'The anchor is lost' : `No anchor aboard a ${b.cls.name}`, 1.8); return; }
     if (A.state === 'up') {
       const sog = Math.hypot(b.vgx || 0, b.vgz || 0);
-      if (sog > 1.5 * KT * 1.6) { g.hud.toast('Too fast to anchor — head up and stop first', 2); return; }
+      if (sog > 1.2 * KT) { g.hud.toast(`${(sog / KT).toFixed(1)} kn is too fast to anchor — head up, stop, then drop it and fall back`, 2.2); return; }
       const depth = g.world.depthAt(b.x, b.z);
       if (depth > A.spec.chain.L + A.spec.rope.L - 2) { g.hud.toast(`${depth.toFixed(0)} m is too deep for ${A.spec.chain.L + A.spec.rope.L} m of rode`, 2.2); return; }
       if (b.moor && b.moor.tied) { g.hud.toast('Alongside — cast off first (B)', 1.6); return; }

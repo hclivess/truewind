@@ -83,7 +83,9 @@ export class Mooring {
       ['Fore spring', 0.3, side * half, ex(pm - 2.6)],
       ['Aft spring', -0.3, side * half, ex(pm + 2.6)],
     ];
-    this.lines = lines.map(([name, bx, by, p]) => { const w = this.toWorld(bx, by); return { name, bx, by, bz: C.freeboard + 0.05, px: p.x, pz: p.z, L0: hyp(p.x - w.x, p.z - w.z) + 0.3, T: 0, Lp: null }; });
+    // (the dock's deck height as js/structures.js draws it: a pier on piles 2.6 m up, a jetty or breakwater 1.4 m)
+    const dy = dock.pier.kind === 'pier' ? 2.6 : 1.4;
+    this.lines = lines.map(([name, bx, by, p]) => { const w = this.toWorld(bx, by); return { name, bx, by, bz: C.freeboard + 0.05, px: p.x, pz: p.z, py: dy, L0: Math.hypot(p.x - w.x, p.z - w.z, dy - C.freeboard) + 0.3, T: 0, Lp: null }; });
     this.fenders = { side, xs: [C.sternX * 0.55, 0, C.bowX * 0.55], r: 0.1 + 0.03 * clamp(b.mass / 1000, 0, 2), pier: dock.pier, half };
     this.kind = 'dock';
     this.events.push({ msg: `Made fast alongside — bow, stern and springs, ${this.fenders.xs.length} fenders out` });
@@ -107,7 +109,7 @@ export class Mooring {
     const m = b.mass, cz = b.heave;
     for (const L of this.lines) {
       const w = this.toWorld(L.bx, L.by, this._w || (this._w = {}));
-      const dx = L.px - w.x, dz = L.pz - w.z, dy = (L.buoy ? 0 : 0.8) - (cz + L.bz);   // (the dock ~0.8 m above the water)
+      const dx = L.px - w.x, dz = L.pz - w.z, dy = (L.buoy ? 0 : L.py ?? 1) - (cz + L.bz);
       const len = Math.sqrt(dx * dx + dz * dz + dy * dy);
       const Ld = L.Lp === null ? 0 : (len - L.Lp) / dt; L.Lp = len;
       const k = this.EA / Math.max(1, L.L0) * 0.25;          // knots, the cleat and the rope's construction: softer than the bare rope

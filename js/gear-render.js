@@ -98,7 +98,7 @@ export class GearVis {
       // ---- anchor rode and light
       const A = b.anchor;
       if (A && A.state !== 'up') {
-        if (!o.rode) o.rode = new LiveTube(this.R.scene, 26, A.spec.chain.w > 0.7 ? 0.012 : 0.009, M('rode', 0x6f6a5c, { roughness: 0.8 }));
+        if (!o.rode) o.rode = new LiveTube(this.R.scene, 26, A.spec.chain.w > 0.7 ? 0.012 : 0.009, M('rode', 0x8e8a7c, { roughness: 0.7, metalness: 0.3 }));
         const pts = A.curve(this._cp || (this._cp = []));
         const depth = g.world ? Math.max(0.5, g.world.depthAt(A.x, A.z)) : 10;
         vis.inner.updateMatrixWorld();
@@ -130,7 +130,7 @@ export class GearVis {
         vis.inner.updateMatrixWorld();
         Mo.lines.forEach((L, i) => {
           const a = vis.inner.localToWorld(V(L.bx, L.by * 0.98, L.bz + 0.05));
-          const e = new THREE.Vector3(L.px, L.buoy ? 0.1 : 0.85, L.pz);
+          const e = new THREE.Vector3(L.px, L.buoy ? 0.1 : (L.py ?? 1) + 0.45, L.pz);
           const pts = [];
           const sag = Math.max(0, 0.25 - L.T / 4000);
           for (let j = 0; j < 10; j++) { const f = j / 9; const p = a.clone().lerp(e, f); p.y -= Math.sin(Math.PI * f) * sag; pts.push(p); }

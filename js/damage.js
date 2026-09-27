@@ -371,7 +371,7 @@ export class Damage {
     b.zG = (this.C.massHull * this.C.zG - H.ballast * H.zBallast) / Math.max(1, b.mHull);
     recomputeMass(b);
     if (h.keelHole !== undefined && h.holes[h.keelHole]) h.holes[h.keelHole].A = 60e-4;
-    this.event('keel', 'KEEL LOST — she will roll over');
+    this.event('keel', 'KEEL LOST — no ballast, no grip: she slides and lies over, and a knockdown leaves her capsized');
   }
 
   // ---- before the physics step: loads that the physics must carry (wreck over the side, water aboard)

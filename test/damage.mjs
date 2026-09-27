@@ -183,11 +183,25 @@ console.log('\n6. Grounding by the seabed, a lost keel');
   {
     // a keelboat's ballast is what keeps her up when the crew cannot: lost keel, crew sitting in, 16 kn: over she goes
     const env = makeSteadyEnv(16 * KT);
-    const b = new Boat('sportboat', { sailModel: 'strip' }); b.reset(0, 0, 60 * DEG); b.u = 3; b.auto.hike = false; b.ctrl.hike = 0;
-    const D = new Damage(b); D.loseKeel();
-    let maxPhi = 0;
-    run(b, D, env, 25, () => { b.ctrl.main = 0.15; b.ctrl.jib = 0.15; b.ctrl.trav = 0.5; b.ctrl.hike = 0; }, null, () => { maxPhi = Math.max(maxPhi, Math.abs(b.phi)); });
-    check(maxPhi > 70 * DEG, `  ...and with the sheets made fast and the crew sitting in, in 16 kn she goes over to ${(maxPhi / DEG).toFixed(0)}°`);
+    const heel = (lose) => {
+      const b = new Boat('sportboat', { sailModel: 'strip' }); b.reset(0, 0, 60 * DEG); b.u = 3; b.auto.hike = false; b.ctrl.hike = 0;
+      const D = new Damage(b); if (lose) D.loseKeel();
+      let maxPhi = 0;
+      run(b, D, env, 25, () => { b.ctrl.main = 0.15; b.ctrl.jib = 0.15; b.ctrl.trav = 0.5; b.ctrl.hike = 0; }, null, () => { maxPhi = Math.max(maxPhi, Math.abs(b.phi)); });
+      return maxPhi;
+    };
+    const h0 = heel(false), h1 = heel(true);
+    check(h1 > 1.4 * h0, `  sheets made fast, crew sitting in, 16 kn: she lies over ${(h1 / DEG).toFixed(0)}° without her keel (${(h0 / DEG).toFixed(0)}° with it; with no keel she also slides off sideways instead of heeling)`);
+    // the range of stability: knocked to 110° by a sea, with her keel she comes back; without it she stays capsized
+    const flip = (lose) => {
+      const b = new Boat('sportboat', { sailModel: 'strip' }); b.reset(0, 0, 60 * DEG); b.auto.hike = false; b.ctrl.hike = 0;
+      const D = new Damage(b); if (lose) D.loseKeel();
+      b.phi = 110 * DEG; b.p = 0.3;
+      run(b, D, makeSteadyEnv(8 * KT), 30);
+      return Math.abs(b.phi);
+    };
+    const f0 = flip(false), f1 = flip(true);
+    check(f0 < 45 * DEG && f1 > 80 * DEG, `  knocked to 110° by a sea: with her keel she comes back to ${(f0 / DEG).toFixed(0)}° within 30 s; without it she stays capsized at ${(f1 / DEG).toFixed(0)}° (held on her side only by the floating mast)`);
   }
   // a real grounding in the physics: a shoal ahead, rock
   const shoal = { depthAt: (x, z) => (z < -8 ? 0.6 : 6), gradDepth: () => [0, 1], sdfAt: () => 100, bed: () => 'rock' };
