@@ -238,6 +238,7 @@ class ClothRig {
   }
 }
 const wrapA = (a) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
+const nu1 = (r) => r.nu - 1;
 
 // A sail set on a boom: the main (luff on the mast, boom on the gooseneck, sheet to the traveller car, vang,
 // topping lift), a mizzen on its own mast (s.mast) or the Blackwatch's self-tacking staysail (luff on the inner
@@ -253,7 +254,7 @@ export class BoomSailRig extends ClothRig {
     // (the gooseneck: on the main's mast, on the mizzen's, or the staysail's tack)
     const gx = isMain ? C.mastX - 0.02 : onMast ? s.tackX - 0.02 : s.tackX, gz = isMain ? C.boomZ : s.tackZ;
     super(boat, s, lod, { extra: 1, px: lateen ? gx + s.tackFwd : gx, pz: gz, rake: onMast && !lateen ? 0 : (s.rake || 0),
-      luffRound: onMast && !lateen ? 0.35 * 0.018 * s.luff : 0 });
+      luffRound: onMast && !lateen ? (isMain && boat.rigStruct && boat.rigStruct.luffRound ? boat.rigStruct.luffRound * s.luff / s0.luff : 0.35 * 0.018 * s.luff) : 0 });
     this.isMain = isMain; this.onMast = onMast; this.lateen = lateen; this.reefLevel = reef; this.s0 = s0;
     const cloth = this.cloth, nu = this.nu, nv = this.nv;
     this.E = 0;
@@ -342,13 +343,17 @@ export class BoomSailRig extends ClothRig {
     // (s.cunnTravel: a big main's cunningham pulls its tack down further)
     const luff = this.luff0 * (1 + 0.006 * (s.cunnTravel ?? 1) * ((this.isMain ? ctrl.cunn : 0.3) - 0.3) - 0.06 * slack);
     const bend = this.lroundK * bendRig;
+    // (with the rig's structure solved, the luff follows the mast's solved shape, or the stay's sag: js/rig-structure.js)
+    const rs = b.rigStruct && b.rigStruct.ready && b.rigStruct.feedLuff ? b.rigStruct : null, P = this._q, onStay = rs && !this.isMain && rs.stays[s.key] && rs.stays[s.key].M;
     if (this.lateen) {
       // the yard swings with the boom: the luff laced to it turns about the mast with the boom's angle
       const g = this.Gp[0], ca = Math.cos(this.a), sa = Math.sin(this.a);
       for (let j = 0; j < nv; j++) { const v = j / (nv - 1), dx = this.px - this.rake * v - g; c.pin(c.node(0, j), g + dx * ca, -dx * sa, this.pz + v * luff); }
     } else for (let j = 0; j < nv; j++) {
-      const v = j / (nv - 1), n = c.node(0, j);
-      c.pin(n, this.px - this.rake * v + bend * Math.sin(Math.PI * v), 0, this.pz + v * luff);
+      const v = j / (nv - 1), n = c.node(0, j), z = this.pz + v * luff;
+      if (rs && this.isMain && !s.rig) { rs.luffAt(z, P); c.pin(n, P[0], P[1], z); }
+      else if (onStay) { const sg = rs.staySag(s.key) * 4 * v * (1 - v), sd = Math.sign(c.x[1 + 3 * c.node(nu1(this), 0)] || 1); c.pin(n, this.px - this.rake * v - 0.3 * sg, 0.95 * sd * sg, z); }
+      else c.pin(n, this.px - this.rake * v + bend * Math.sin(Math.PI * v), 0, z);
     }
     // outhaul: the clew's place on the boom
     const out = this.isMain ? ctrl.outhaul : 0.5;
@@ -427,6 +432,11 @@ export class JibRig extends ClothRig {
     // the luff on the stay, sagging to leeward and a little aft under load (less with backstay tension)
     const cl = 3 * this.clew, side = Math.sign(c.x[cl + 1]) || this.side;
     const dx = -0.3, dy = 0.95 * side;
+    // (with the rig's structure solved, the stay sags as far as its tension and its load make it: js/rig-structure.js.
+    // The cloth takes that sag to leeward and a little aft, where the hanks' load puts it: fed the load's own direction
+    // too, the luff and its load chase each other through the level switches' fresh cloths)
+    const rs = b.rigStruct && b.rigStruct.ready && b.rigStruct.feedStay && b.rigStruct.stays[s.key] && b.rigStruct.stays[s.key].M ? b.rigStruct : null;
+    if (rs) sagM = rs.staySag(s.key);
     for (let j = 0; j < nv; j++) {
       const v = j / (nv - 1), sg = (sagM || 0) * 4 * v * (1 - v);
       c.pin(c.node(0, j), this.px - this.rake * v + dx * sg, dy * sg, this.pz + v * this.luff0);
