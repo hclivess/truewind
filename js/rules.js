@@ -619,7 +619,7 @@ export function aiRules(ai, sim, desired, mode, t, up) {
   ai.ease = false;
   const rels = R.relsOf(b);
   const markList = sim.course ? [...sim.course.marks(), sim.course.committee] : [];
-  if (!rels.length && !markList.some(m => Math.abs(m.x - b.x) < 30 && Math.abs(m.z - b.z) < 30)) { ai.kc = null; return desired; }
+  if (!rels.length && !markList.some(m => Math.abs(m.x - b.x) < 30 && Math.abs(m.z - b.z) < 30)) { ai.kc = null; ai.holdPsi = null; return desired; }
   if (ai.kc && t < ai.kc.until) { ai.ease = ai.kc.ease; return ai.kc.h ?? desired; }
   const plan = { until: t + 0.25, h: null, ease: false };
   ai.kc = plan;
@@ -720,15 +720,20 @@ export function aiRules(ai, sim, desired, mode, t, up) {
     if (b.u > 1.2 && (ok < 0 || give.some(([o, pr]) => pr.rule === '12' && pr.astern === b && pr.d < 2 * b.cls.loa && o.u < b.u)) && !marks.some(m => Math.hypot(m.x - b.x, m.z - b.z) < 3 * b.cls.loa)) plan.ease = true;
   }
   // 2. right of way: hold her course while a keep-clear boat is close (16) — but not into contact (14)
-  else if (row.length) {
+  else if (!row.length) ai.holdPsi = null;
+  else {
     let danger = false, close = false;
     for (const [o, pr] of row) {
       if (pr.clr !== undefined && pr.clr < 0.6 && pr.when < 2.5) danger = true;
       if (pr.d < 3 * (b.cls.loa + o.cls.loa) / 2) close = true;
     }
     const s = R.S(b), rounding = s.marks && s.marks.some(m => s.zone.get(m)?.in);
+    // (held to within a few degrees of the heading she had when the keep-clear boat came close, not of the
+    // heading of the moment: a few degrees each plan is a turn all the same)
+    if (!close || rounding || danger) ai.holdPsi = null;
+    else if (ai.holdPsi == null) ai.holdPsi = b.psi;
     if (danger) { const [hh] = search(row, 0.3, 3); if (hh !== null) h = hh; }
-    else if (close && !rounding) h = b.psi + clamp(wrap(desired - b.psi), -(mode === 'prestart' ? 10 : 6) * DEG, (mode === 'prestart' ? 10 : 6) * DEG);
+    else if (ai.holdPsi != null) h = ai.holdPsi + clamp(wrap(desired - ai.holdPsi), -6 * DEG, 6 * DEG);
   }
   plan.h = h === desired ? null : h;
   if (plan.h !== null) { ai.kcSide = Math.sign(wrap(h - desired)) || ai.kcSide; ai.kcSideT = t; }
