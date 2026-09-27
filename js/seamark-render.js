@@ -148,8 +148,9 @@ export class SeamarkLayer {
       }
       if (m.L) m.L.forEach((L, li) => this.addLight(m, L, li, lightY));
     }
-    if (!stat.empty) { const mesh = new THREE.Mesh(stat.build(), this.mat); mesh.castShadow = false; mesh.receiveShadow = true; mesh.matrixAutoUpdate = false; this.group.add(mesh); }
-    if (!lanterns.empty) { const mesh = new THREE.Mesh(lanterns.build(), this.lanternMat); mesh.matrixAutoUpdate = false; this.group.add(mesh); }
+    this.fixed = [];                                                       // (they sink with the land at high water: setLevel)
+    if (!stat.empty) { const mesh = new THREE.Mesh(stat.build(), this.mat); mesh.castShadow = false; mesh.receiveShadow = true; mesh.matrixAutoUpdate = false; this.group.add(mesh); this.fixed.push(mesh); }
+    if (!lanterns.empty) { const mesh = new THREE.Mesh(lanterns.build(), this.lanternMat); mesh.matrixAutoUpdate = false; this.group.add(mesh); this.fixed.push(mesh); }
     // buoys: one instanced mesh per design
     this.designs = [...designs.values()];
     for (const d of this.designs) {
@@ -246,6 +247,13 @@ export class SeamarkLayer {
     this.points = pts; this.group.add(pts);
   }
 
+  // the tide's level: fixed marks stand on the ground, which the renderer lowers by it (buoys float at the surface)
+  setLevel(eta) {
+    if (this.level === eta) return;
+    this.level = eta;
+    for (const m of this.fixed || []) { m.position.y = -eta; m.updateMatrix(); }
+  }
+
   placeBuoy(b, h, sx, sz) {
     const q = _q.setFromEuler(_e.set(Math.atan(sz) * 0.8, b.yaw, -Math.atan(sx) * 0.8, 'YXZ'));
     _m.compose(_v.set(b.x, h - 0.1, b.z), q, _s);
@@ -278,7 +286,8 @@ export class SeamarkLayer {
       this.lights.forEach((l, i) => {
         let y = l.y;
         if (l.buoy === undefined) l.buoy = this.buoys.find(b => b.m === l.m) || null;
-        if (l.buoy) { y = l.buoy.y + l.y; this.pPos[i * 3 + 1] = y; }
+        if (l.buoy) y = l.buoy.y + l.y; else if (!l.m.far) y = l.y - (this.level || 0);
+        this.pPos[i * 3 + 1] = y;
         const dx = l.m.x - cam.x, dz = l.m.z - cam.z, dy = y - cam.y, dm = Math.hypot(dx, dz, dy), d = Math.max(0.005, dm / 1852);
         let tgt = 0, ci = 0;
         if (on > 0 && d < l.rng * 1.6) {
@@ -306,7 +315,7 @@ export class SeamarkLayer {
       if (!vis) continue;
       const u = ((t + l.off) % l.P.per + l.P.per) % l.P.per;
       const az = Math.atan2(dx, -dz) + TAU * (u - bm.c) / l.P.per;
-      bm.mesh.position.set(l.m.x, l.y, l.m.z);
+      bm.mesh.position.set(l.m.x, l.y - (l.m.far ? 0 : this.level || 0), l.m.z);
       bm.mesh.rotation.set(0, -az, 0, 'YXZ');
       bm.mesh.material.uniforms.uI.value = on * 0.55 * Math.exp(-((fogDensity * dist) ** 2) * 0.15);
     }

@@ -84,7 +84,9 @@ function townGrid(world, land) {
 const RELIEF = { progreso: 0.05, meredith: 0.5 };
 export function groundHeight(world, x, z) {
   const s = world.sdfAt(x, z);
-  if (s > 0) return -Math.min(world.depthAt(x, z), 6) - 0.35;
+  // (the sea bed at its real height below MSL, so the banks the tide uncovers show where the physics has them dry;
+  // the renderer lowers the whole terrain by the tide's level)
+  if (s > 0) return world.bed ? -Math.min(world.bedAt(x, z), 6) : -Math.min(world.depthAt(x, z), 6) - 0.35;
   const d = -s, rel = RELIEF[world.venue?.id] ?? 1;
   const beach = 0.35 + Math.min(d, 60) * 0.022 + 0.25 * sstep(0, 40, d);   // beach face, then the berm
   const w = sstep(25, 220, d);
@@ -93,9 +95,9 @@ export function groundHeight(world, x, z) {
 }
 
 export function buildTerrain(world, land, opts = {}) {
-  const R = world.R, f = opts.low ? 24 : 12, Nf = Math.ceil(2 * R / f);
+  const R = world.R, f = (opts.low ? 24 : 12) * (R > 10000 ? 2 : 1), Nf = Math.ceil(2 * R / f);
   const tropical = Math.abs(opts.lat ?? land?.lat ?? 45) < 30;
-  const cover = opts.cover || coverGrid(world, land), town = opts.town || townGrid(world, land);
+  const cover = opts.cover || coverGrid(world, land, R > 10000 ? 16 : 8), town = opts.town || townGrid(world, land);
   const H = new Float32Array((Nf + 1) * (Nf + 1)).fill(NaN);
   const hv = (i, j) => { i = clamp(i, 0, Nf); j = clamp(j, 0, Nf); const k = j * (Nf + 1) + i; let v = H[k]; if (v !== v) v = H[k] = groundHeight(world, -R + i * f, -R + j * f); return v; };
   // exact height of the rendered surface (fine grid, same triangulation as the mesh)
@@ -141,9 +143,10 @@ export function buildTerrain(world, land, opts = {}) {
   for (let tj = 0; tj < nt; tj++) for (let ti = 0; ti < nt; ti++) {
     const x0 = -R + ti * T, z0 = -R + tj * T;
     // classify: skip open water; full detail along the shore; coarse inland
-    let smin = Infinity, smax = -Infinity;
-    for (let b = 0; b <= 8; b++) for (let a = 0; a <= 8; a++) { const s = world.sdfAt(x0 + a * T / 8, z0 + b * T / 8); smin = Math.min(smin, s); smax = Math.max(smax, s); }
-    if (smin > 120) continue;
+    let smin = Infinity, smax = -Infinity, bmin = Infinity;
+    for (let b = 0; b <= 8; b++) for (let a = 0; a <= 8; a++) { const s = world.sdfAt(x0 + a * T / 8, z0 + b * T / 8); smin = Math.min(smin, s); smax = Math.max(smax, s); if (world.bed && s > 120) bmin = Math.min(bmin, world.bedAt(x0 + a * T / 8, z0 + b * T / 8)); }
+    // (offshore, only where the tide can uncover the bank: above the lowest tide)
+    if (smin > 120 && !(bmin < (world.tide ? world.tide.z0At(x0, z0) : 0) + 0.3)) continue;
     const step = smin < 40 && smax > -40 ? 1 : smax > -900 ? 2 : 4, n = cells / step, i0 = ti * cells, j0 = tj * cells;
     const nv = (n + 1) * (n + 1), skirt = 4 * n;
     const pos = new Float32Array((nv + skirt * 2) * 3), nor = new Float32Array((nv + skirt * 2) * 3), cl = new Float32Array((nv + skirt * 2) * 3);
@@ -459,10 +462,14 @@ export function buildScenery(world, land, opts = {}) {
   const t0 = performance.now();
   const lat = opts.lat ?? land.lat ?? 45, tropical = Math.abs(lat) < 30, low = !!opts.low;
   const onStructure = opts.onStructure || (() => false);
-  const R = world.R;
+  // (the town grids only cover what the OSM land data covers: for the big Solent, the 6 km round Cowes)
+  let ext = 0;
+  for (const b of land.buildings) for (let k = 0; k < b.pts.length; k++) ext = Math.max(ext, Math.abs(b.pts[k]));
+  for (const r of land.roads) for (let k = 0; k < r.pts.length; k++) ext = Math.max(ext, Math.abs(r.pts[k]));
+  const R = world.R > 10000 ? Math.min(world.R, Math.ceil(ext / 500) * 500 + 500) : world.R;
   const terrain = opts.terrain || buildTerrain(world, land, { low, lat });
   const H = terrain.h, cover = terrain.cover || coverGrid(world, land);
-  const rand = rng(0x5eed ^ Math.round(R));
+  const rand = rng(0x5eed ^ Math.round(world.R));
   // occupancy (4 m): 1 road, 2 OSM building, 4 procedural house, 8 tree
   const oc = 4, ON = Math.ceil(2 * R / oc), occ = new Uint8Array(ON * ON);
   const oi = (x, z) => { const i = Math.floor((x + R) / oc), j = Math.floor((z + R) / oc); return i < 0 || j < 0 || i >= ON || j >= ON ? -1 : j * ON + i; };

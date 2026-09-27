@@ -151,7 +151,7 @@ export class Anchor {
     if (!s || this.state === 'up') return;
     const world = ctx.world, env = ctx.env;
     const depth = world ? Math.max(0.5, world.depthAt(this.x, this.z)) : 10;
-    // (the tide agent may add a tide level: world.tideAt)
+    // (world.depthAt already carries the tide's level, js/tide.js; a world.tideAt would add another on top)
     const tide = world && world.tideAt ? world.tideAt(this.x, this.z, ctx.t || 0) : 0;
     const r = this.roller();
     const dx = r.x - this.x, dz = r.z - this.z, X = Math.hypot(dx, dz);
