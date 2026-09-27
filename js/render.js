@@ -450,7 +450,7 @@ export class Renderer {
           vec3 sss = sssCol * thin * (uSunCol * back * face * 0.9 * (1.0 - 0.85 * uOvercast) * shadow * step(0.0, L.y) + uAmbF * 0.10);
           // the lip of a breaking crest, thrown forward and thinned to a translucent sheet: turquoise light through
           // it (from the sky, and far more with the sun behind it), between the torn foam on it
-          float lip = lb.w * smoothstep(0.65, 0.95, phJ) * (1.0 - smoothstep(1.3, 1.55, phJ));
+          float lip = lb.w * smoothstep(0.25, 0.7, lb.w) * smoothstep(0.65, 0.95, phJ) * (1.0 - smoothstep(1.3, 1.55, phJ));   // (only where it really breaks)
           sss += vec3(0.05, 0.40, 0.33) * lip * (uAmbF * 0.35 + uSunCol * (0.2 + 1.6 * back) * (1.0 - 0.8 * uOvercast) * shadow * step(0.0, L.y));
           vec3 col = mix(body + sss, refl, F) + uSunCol * spec * 1.5;
           // ---- whitecaps and foam, Beaufort coverage from the wind (Monahan: W = 3.84e-6 U^3.41), placed
