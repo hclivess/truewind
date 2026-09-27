@@ -229,7 +229,7 @@ export class BoomSailRig extends ClothRig {
     const C = boat.cls, isMain = s0.key === 'main';
     const rf = reefAt(reef), s = reef > 0 ? { ...s0, luff: s0.luff * rf.l, area: s0.area * rf.a } : s0;
     super(boat, s, lod, { extra: 1, px: isMain ? C.mastX - 0.02 : s.tackX, pz: isMain ? C.boomZ : s.tackZ, rake: isMain ? 0 : (s.rake || 0),
-      luffRound: isMain ? 0.35 * 0.018 * s.luff : 0 });
+      luffRound: isMain ? (boat.rigStruct && boat.rigStruct.luffRound ? boat.rigStruct.luffRound * s.luff / s0.luff : 0.35 * 0.018 * s.luff) : 0 });
     this.isMain = isMain; this.reefLevel = reef; this.s0 = s0;
     const cloth = this.cloth, nu = this.nu, nv = this.nv;
     this.E = 0;
@@ -288,9 +288,13 @@ export class BoomSailRig extends ClothRig {
     const slack = this.isMain ? b.reefSlack : 0;
     const luff = this.luff0 * (1 + 0.006 * ((this.isMain ? ctrl.cunn : 0.3) - 0.3) - 0.06 * slack);
     const bend = this.lroundK * bendRig;
+    // (with the rig's structure solved, the luff follows the mast's solved shape, or the stay's sag: js/rig-structure.js)
+    const rs = b.rigStruct && b.rigStruct.ready ? b.rigStruct : null, P = this._q, onStay = rs && !this.isMain && rs.stays[s.key] && rs.stays[s.key].M;
     for (let j = 0; j < nv; j++) {
-      const v = j / (nv - 1), n = c.node(0, j);
-      c.pin(n, this.px - this.rake * v + bend * Math.sin(Math.PI * v), 0, this.pz + v * luff);
+      const v = j / (nv - 1), n = c.node(0, j), z = this.pz + v * luff;
+      if (rs && this.isMain) { rs.luffAt(z, P); c.pin(n, P[0], P[1], z); }
+      else if (onStay) { rs.stayAt(s.key, v, P); c.pin(n, P[0], P[1], z); }
+      else c.pin(n, this.px - this.rake * v + bend * Math.sin(Math.PI * v), 0, z);
     }
     // outhaul: the clew's place on the boom
     const out = this.isMain ? ctrl.outhaul : 0.5;
@@ -368,9 +372,12 @@ export class JibRig extends ClothRig {
     // the luff on the stay, sagging to leeward and a little aft under load (less with backstay tension)
     const cl = 3 * this.clew, side = Math.sign(c.x[cl + 1]) || this.side;
     const dx = -0.3, dy = 0.95 * side;
+    // (with the rig's structure solved: the stay between its displaced ends, sagging where its load puts it)
+    const rs = b.rigStruct && b.rigStruct.ready && b.rigStruct.stays[s.key] && b.rigStruct.stays[s.key].M ? b.rigStruct : null, P = this._p;
     for (let j = 0; j < nv; j++) {
       const v = j / (nv - 1), sg = (sagM || 0) * 4 * v * (1 - v);
-      c.pin(c.node(0, j), this.px - this.rake * v + dx * sg, dy * sg, this.pz + v * this.luff0);
+      if (rs) { rs.stayAt(s.key, v, P); c.pin(c.node(0, j), P[0], P[1], this.pz + v * this.luff0); }
+      else c.pin(c.node(0, j), this.px - this.rake * v + dx * sg, dy * sg, this.pz + v * this.luff0);
     }
     // leads: the car forward (0) closes the leech and deepens the foot, aft (1) opens the leech, flattens the foot
     const lead = clamp(ctrl.jibLead, 0, 1), cx = this.px - this.footLen * Math.cos(s.min), dz = this.pz + this.footRise - this.leadZ;
