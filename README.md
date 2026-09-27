@@ -203,7 +203,7 @@ The production and famous boats (`js/classes/`, baked at 8, 12 and 16 kn with th
 | Contessa 32 | 44°, 5.63, 4.05 (44°, 5.80, 4.17) | 6.10 (6.4) | 5.69 (5.9) | 4.77 (5.1) | 4.43 at 180° (4.41) |
 | Westsail 32 | 40°, 4.49, 3.44 (40°, 4.40, 3.37) | 5.64 (6.2) | 5.33 (5.6) | 4.43 (4.8) | 4.04 at 165° (4.11) |
 | Optimist | 44°, 3.21, 2.31 (40°, 3.14, 2.40) | 3.78 (4.0) | 3.83 (3.9) | 3.72 (3.7) | 3.62 at 180° (3.49) |
-| Sunfish | 44°, 4.78, 3.43 (40°, 4.73, 3.62) | 5.77 (6.1) | 5.27 (5.6) | 4.55 (4.7) | 4.33 at 180° (4.41) |
+| Sunfish | 36°, 4.25, 3.44 (40°, 4.73, 3.62) | 5.52 (6.1) | 5.20 (5.6) | 4.52 (4.7) | 4.32 at 180° (4.41) |
 | Flying Scot | 40°, 5.05, 3.87 (40°, 5.28, 4.05) | 5.85 g (7.4g) | 6.17 g (7.7g) | 4.91 g (6.1g) | 4.96 at 180° (5.32) |
 | Dragon | 40°, 4.91, 3.76 (40°, 4.79, 3.67) | 5.78 (6.2g) | 5.63 (6.4g) | 5.11 g (5.9g) | 4.76 at 165° (5.14) |
 | Etchells | 40°, 5.66, 4.34 (40°, 5.69, 4.36) | 6.89 (7.8g) | 6.54 g (8.2g) | 5.54 g (6.8g) | 5.64 at 180° (5.91) |
@@ -223,7 +223,7 @@ Checked against their ratings, as the time to sail a mile of windward-leeward co
   - **The propeller.** Her three-blade 16 in fixed prop turns in the deadwood's wake (a Taylor wake fraction of 0.3, not the 0.1 of a shaft under a fin-keel hull), which takes its windmilling drag at 5 kn from 115 N to 95 N. With the engines in the physics (js/engine.js), a stopped fixed prop is 12–15% of a heavy cruiser's resistance at 4–5 kn. Counting it took the Contessa from 234 to 266; the Westsail was at 332 (13%) before the engines, and would be about there without her prop. That share looks high for a prop left in neutral, and is the first thing to check against measured drag.
   - **What is left** is mostly in her sails. Close-hauled, the yankee (the high-cut jib) works at a lift coefficient of 0.85–0.93 against the main's 1.3, and reaching the club-footed staysail cannot be eased past about 27°. A club vang on the staysail was tried and removed: it made her slower (implied PHRF 403).
 - **Optimist**: implied DPN 130.4 against the Portsmouth 136 (4% faster; RYA PN 1646, the slowest on the list).
-- **Sunfish**: implied DPN 96 against 100 (4% faster); on a reach in 16 kn it planes at 8.8 kn.
+- **Sunfish**: implied DPN 96 against 100 (4% faster); on a reach in 16 kn it planes at 8.4 kn. Helm (`node test/helm.mjs 12 sunfish`): 0° close-hauled, 7° reaching in 12 kn with the boom eased (1–4° in 8 kn).
 - **Flying Scot**: implied DPN 85 against 90 (6% faster), with its hull drag scaled 1.3x the Laser-type table's for its beamy, hard-bilged shape.
 - **Dragon**: no PHRF; RYA PN 986. 4.9 kn close-hauled at 40° and 5.8 kn at 90° in 12 kn, and 6.5 kn in 16 kn: her overhangs make her sailing length (and the lines give her dynamic waterline) longer than the 5.66 m static one.
 - **Etchells**: implied PHRF 149 against 138 (1.5% slower).
