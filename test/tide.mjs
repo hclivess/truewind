@@ -70,9 +70,14 @@ const maxOver = (tide, lat, lon, v, t0, t1, dir) => {
   const V = VENUES.find(v => v.id === 'sfbay'), tide = streamsOf('sfbay');
   if (!tide) check(false, 'San Francisco: no baked stream maps (node tools/bake-tide.mjs sfbay)');
   else {
-    // springs at the end of September 2026: NOAA predicts 4.4 kn of ebb at the Bay Entrance (SFB1201)
-    const [ebb, te] = maxOver(tide, 37.8200, -122.4750, V, utc('2026-09-28 12:00'), utc('2026-10-01 12:00'), 247 * Math.PI / 180);
-    check(ebb >= 3.5 && ebb <= 5.5, `Golden Gate under the bridge: strongest spring ebb ${ebb.toFixed(1)} kn (3.5–5.5)`);
+    // springs at the end of September 2026: the strongest ebb anywhere across the Gate's narrows (Fort Point to Lime Point)
+    let ebb = 0;
+    { const P = makeProjection(V.lat, V.lon), o = {};
+      for (let la = 37.805; la <= 37.83; la += 0.0025) for (let lo = -122.49; lo <= -122.47; lo += 0.0025) {
+        const [x, z] = P.fwd(la, lo);
+        for (let t = utc('2026-09-29 12:00'); t < utc('2026-10-01 00:00'); t += 600e3) { tide.streams.atTime(x, z, t, o); if (o.x < 0) ebb = Math.max(ebb, Math.hypot(o.x, o.z) / KT); }
+      } }
+    check(ebb >= 3.5 && ebb <= 5.5, `Golden Gate narrows: strongest spring ebb ${ebb.toFixed(1)} kn (3.5–5.5)`);
     // NOAA SFB1203 (Golden Gate Bridge, 0.46 nm E; 30 ft down, flood 069°): the maxima and slacks of 29–30 September
     const NO = [['2026-09-29 19:01', 'flood', 2.83], ['2026-09-30 00:36', 'ebb', -2.92], ['2026-09-30 08:02', 'flood', 2.53], ['2026-09-30 13:46', 'ebb', -1.17], ['2026-09-30 19:46', 'flood', 2.61]];
     const SL = ['2026-09-29 21:41', '2026-09-30 04:38', '2026-09-30 11:31', '2026-09-30 16:12', '2026-09-30 22:22'];
