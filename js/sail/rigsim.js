@@ -7,6 +7,7 @@
 // gravity at the waterline), as physics.js uses.
 import { clamp, lerp, sstep, STRIP_F, reefAt, mastXAt } from '../physics.js';
 import { rigWires, sheetCar, sheetLen, boomBend } from '../boom.js';
+import { tackleOf } from '../linehandlers.js';
 import { G as GRAV } from '../env.js';
 import { Cloth } from './cloth.js';
 import { clothSize, clothMaterial, battens } from './specs.js';
@@ -320,6 +321,14 @@ export class BoomSailRig extends ClothRig {
       // no vang on the cat (the fully battened main hangs on its sheet); the J/70's rigid kicker holds the boom up
       if (s0.vang === 'none' && this.vang) { this.vang.len = 60; this.noVang = true; }
       if (s0.vang === 'rigid') this.topping.len = 60;
+      // The vang as rigged (js/linehandlers.js tackleOf: its purchase and rope, n^2 EA / length) and pulled no harder
+      // than the crew can on its tail: full on, about s.vangMax (N) along it. (The old rule, a stiff spring held 12 mm
+      // short, read up to 19 kN on a J/70's vang, whose real maximum is about 3 kN.)
+      if (this.vang && !this.noVang && s0.vangMax) {
+        const tk = tackleOf(C, 'vang');
+        this.vang.w = Math.min(this.vang.w, tk.stretchK || this.vang.w); cloth._dirty = true;
+        this.vangHaul = s0.vangMax / this.vang.w;
+      }
       this.bend = { M: 0, dv: 0, ds: 0, ratio: 0 };
     }
     this.dipF = [0, 0, 0];
@@ -429,7 +438,7 @@ export class BoomSailRig extends ClothRig {
     this.sheet.len = sheetLen(C, s0, ease) - 0.035 * (1 - sstep(0, 0.25, ease));
     if (this.vang && !this.noVang) {
       const L0 = hyp(this.tv * this.Lb, this.dv), vg = clamp(ctrl.vang, 0, 1);
-      this.vang.len = L0 - 0.012 * vg + 0.05 * (1 - vg) ** 1.3;
+      this.vang.len = L0 - (this.vangHaul ?? 0.012) * vg + 0.05 * (1 - vg) ** 1.3;
     }
     if (s0.vang !== 'rigid') this.topping.len = hyp(this.Lb, this.mastHead[2] - this.pz + 0.15 * this.Lb);
     // preventer: rigged, it is made fast at the length it has, on the side the boom is on; released, it runs free
@@ -511,7 +520,9 @@ export class JibRig extends ClothRig {
     const st = boat.sailBy.stay;
     if (st && st !== s) cloth.addCapsule([st.tackX, 0, st.tackZ], [st.tackX - (st.rake || 0), 0, st.tackZ + st.luff], 0.03, nodes);
     // (and edge-wise, so the mast and the inner stay cannot slip between its nodes as it crosses in a tack)
-    if (s.kind === 'loose') {
+    // (only a jib whose clew is forward of the mast: an overlapping genoa sweeps round the mast's lee side in a tack,
+    // and a cloth posed across the mast's line would be held on the wrong side of it)
+    if (s.kind === 'loose' && s.tackX - this.footLen > C.mastX + 0.3) {
       const W = rigWires(C, boat.sailBy);
       cloth.addWire(mastBelow(W, s.tackZ + s.luff), 0.06, bodyNodes(cloth, nu, nv, 2));
       if (W.inner && st !== s) cloth.addWire(W.inner, 0.03, bodyNodes(cloth, nu, nv));

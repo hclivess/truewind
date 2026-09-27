@@ -13,6 +13,9 @@ const DEG = Math.PI / 180;
 // the mast's x at height z (raked aft about the gooseneck by C.mastRake at the masthead)
 export const mastXAt = (C, z) => C.mastX - (C.mastRake || 0) * (z - C.boomZ) / (C.mastHeight - C.boomZ);
 
+// an unstayed mast (a Laser's, an Optimist's, a Sunfish's): no shrouds for the sail or the boom to meet (the same
+// test as js/damage.js rigSpec: a class's own rigSpec, else a single-sail dinghy with no backstay)
+export const stayed = (C) => (C.rigSpec ? C.rigSpec.stayed !== false : C.id !== 'dinghy' && !(!C.hasBackstay && !C.multihull && C.sails.length === 1 && C.massHull + C.crewN * C.crewEach < 250));
 // The standing rigging (rig frame, as models.js draws it): the mast's front face, the stays a headsail is hanked
 // to, and the shrouds (a keelboat's cap shrouds from the chainplates over the spreader tips to the hounds; a cat's
 // from the hulls to the hounds; the una-rig dinghy's mast stands alone)
@@ -23,7 +26,7 @@ export function rigWires(C, sails) {
   if (C.multihull) {
     const hz = C.mastHeight - mastLen * 0.25;
     for (const sd of [-1, 1]) w.shrouds.push([[C.mastX - 0.05, sd * C.hullSpacing / 2, C.freeboard + 0.1], [mastXAt(C, hz), sd * 0.02, hz]]);
-  } else if (C.id !== 'dinghy') {
+  } else if (stayed(C)) {
     // (the J/70's swept carbon spreaders 4.97 m up and cap shrouds to the hounds at the jib head)
     const sb = C.id === 'sportboat', J = sails.jib;
     const sprZ = sb ? 4.97 : mastBase + mastLen * 0.5, hz = sb && J ? J.tackZ + J.luff + 0.05 : C.mastHeight - 0.25;
