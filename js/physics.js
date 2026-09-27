@@ -29,6 +29,8 @@
 
 import { G, DEG, KT } from './env.js';
 import { HullHydro } from './hull.js';
+import { LOCKABLE, initLines, stepLines, swapJib } from './linehandlers.js';
+export { LOCKABLE };
 import { Engine } from './engine.js';
 // (Math.hypot allocates when V8 does not inline it: these do not)
 const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
@@ -75,6 +77,13 @@ export const CLASSES = {
     // mast stepped on the cabin top 2.1 m aft of the stem (photos of hull #66: 37% of LOD from the bow)
     mastX: 0.72, mastHeight: 8.4, boomZ: 1.5, keelBulb: false,
     targetHeel: 18 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 900,
+    // line handlers (js/linehandlers.js): a traditional small cutter. Bronze winches with horn cleats for the jib
+    // sheets and (at the mast foot) the jib halyard, a V-jammer for the staysail sheet, cam on the mainsheet fiddle,
+    // push-button traveller car, cunningham on a mast horn cleat, outhaul in a clam on the boom; classic cream ropes
+    lines: { main: { handler: 'cam', n: 4, at: 'car' }, trav: { handler: 'pinStop', at: 'car' }, jib: { handler: 'winchHorn', at: 'winch' },
+      stay: { handler: 'jam', n: 2, at: 'cabin' }, vang: { handler: 'cam', n: 6, at: 'deck' }, cunn: { handler: 'horn', n: 2, at: 'mast' },
+      outhaul: { handler: 'clam', n: 4, at: 'boom' }, backstay: { handler: 'cam', n: 6, at: 'deck' }, jibHalyard: { handler: 'winchHorn', winch: 'cabin', at: 'mast' } },
+    ropeStyle: 'classic',
     // auxiliary (js/engine.js): a long-shaft outboard on a transom bracket to port of the barn-door rudder — what the
     // boats carry (Blue Water Boatworks fitted no inboard; owners' listings: Tohatsu 4 hp long shaft, Mercury 5,
     // British Seagull 5). Tohatsu MFS4: 4 hp at 5000 rpm, 123 cc single, 2.15:1, 7.8 x 6 in three-blade, 26 kg (not in
@@ -115,6 +124,14 @@ export const CLASSES = {
     // masthead, gooseneck 1.7 m above the waterline
     mastX: 1.03, mastHeight: 10.0, boomZ: 1.7, keelBulb: true,
     targetHeel: 17 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 1400,
+    // J/70 (Harken layout, J/70 building spec): 6:1 mainsheet (a 2:1 fine tune on top) to a switchable Carbo ratchet on a 144 swivel base
+    // with a 150 cam; 2:1 jib sheets on B8 / SnubbAir winches with cam cleats; gennaker sheets hand-held through
+    // 2x-grip Ratchamatics on the quarters; 2:1 traveller and the backstay cascade on cams; tack line on a cabin-top cam;
+    // halyard and control leads through a clutch bank to the cabin-top winch
+    lines: { main: { handler: 'ratchetCam', n: 6, at: 'sole' }, trav: { handler: 'cam', n: 2, at: 'deck' }, jib: { handler: 'winchCam', n: 2, at: 'winch' },
+      gen: { handler: 'ratchet', hold: 20, at: 'quarter' }, vang: { handler: 'clutch', n: 16, winch: 'cabin', at: 'cabin' }, cunn: { handler: 'clutch', n: 4, winch: 'cabin', at: 'cabin' },
+      outhaul: { handler: 'clutch', n: 4, winch: 'cabin', at: 'cabin' }, backstay: { handler: 'cam', n: 16, at: 'deck' },
+      jibHalyard: { handler: 'clutch', n: 4, winch: 'cabin', at: 'cabin' }, tackLine: { handler: 'cam', at: 'cabin' } },
     // auxiliary: J/70 class rule C.5.3 — one functioning outboard of at least 12 kg aboard, NOT FOR USE while racing
     // (stowed below, secured at the mast step: it is inside the class weight). A 3.5 hp four-stroke short shaft
     // (Tohatsu MFS3.5: 85 cc single, 5500 rpm, 2.08:1, 7.2 x 5 in three-blade, 17.4 kg) on the transom bracket for
@@ -150,6 +167,10 @@ export const CLASSES = {
     // the deck tube: the gooseneck is ~0.6 m above the deck, the masthead ~6.2 m above the waterline
     mastX: 1.15, mastHeight: 6.24, boomZ: 1.0, keelBulb: false,
     targetHeel: 6 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 420,
+    // Laser / ILCA: the mainsheet is hand-held through the ratchet block on the cockpit floor (no cleat); vang
+    // (15:1 cascade), cunningham and outhaul led to Harken cam cleats on the deck
+    lines: { main: { handler: 'ratchet', n: 3, at: 'sole' }, vang: { handler: 'cam', n: 15, size: 'micro', at: 'deck' },
+      cunn: { handler: 'cam', n: 8, size: 'micro', at: 'deck' }, outhaul: { handler: 'cam', n: 8, size: 'micro', at: 'deck' } },
     engine: null,                       // a dinghy is paddled, not motored
     sails: [
       { key: 'main', kind: 'boom', area: 7.06, luff: 5.1, foot: 2.75, head: 0.25, depth: [0.12, 0.14, 0.12], twistMax: 24 * DEG,
@@ -182,6 +203,12 @@ export const CLASSES = {
     // 8.07 m (26' 6") rotating mast stepped on the front beam
     mastX: 0.6, mastHeight: 8.6, boomZ: 1.25, keelBulb: false,
     targetHeel: 7 * DEG, canCapsize: true, hasBackstay: false, hasBoard: false, sheetPower: 700,
+    // Hobie 16: 6:1 mainsheet, lower block a triple Ratchamatic with a 150 cam on the traveller car; the traveller
+    // line cleats in a cam on the car; 2:1 jib sheets in swivel cam cleats; spinnaker sheets hand-held through
+    // ratchet blocks; downhaul cam at the mast, outhaul in a clam on the boom
+    lines: { main: { handler: 'ratchetCam', n: 6, at: 'car' }, trav: { handler: 'carCam', n: 2, at: 'car' }, jib: { handler: 'cam', n: 2, at: 'deck' },
+      gen: { handler: 'ratchet', hold: 20, at: 'quarter' }, cunn: { handler: 'cam', n: 6, at: 'mast' }, outhaul: { handler: 'clam', n: 4, at: 'boom' }, jibHalyard: { handler: 'cam', n: 6, at: 'mast' },
+      tackLine: { handler: 'cam', at: 'deck' } },
     engine: null,
     sails: [
       { key: 'main', kind: 'boom', area: 13.7, luff: 7.2, foot: 2.6, head: 1.1, depth: [0.1, 0.12, 0.11], twistMax: 15 * DEG,
@@ -200,9 +227,6 @@ export const CLASSES = {
 for (const C of Object.values(CLASSES)) for (const s of C.sails) {
   if (s.kind === 'loose' || (s.kind === 'boom' && s.key !== 'main')) s.rake = s.tackX - (C.mastX + 0.07);
 }
-// lines that are held by a cleat, clutch or self-tailer (and which way they run when released)
-export const LOCKABLE = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibHalyard', 'tackLine'];
-const RUNS_UP = new Set(['main', 'jib', 'lazy', 'stay', 'trav', 'tackLine']);
 export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat'];
 
 export const STRIP_F = [0.17, 0.5, 0.82];
@@ -347,10 +371,9 @@ export class Boat {
     this.rudder = 0; this.crewY = 0; this.crewX = 0;
     this.lines = { main: this.ctrl.main, jib: this.ctrl.jib, stay: this.ctrl.stay, lazy: this.ctrl.lazy };
     this.backedByLazy = false;
-    // every line is held by something: a cam cleat, a clutch or a winch self-tailer. Released, a loaded line
-    // runs out by itself until it is cleated again (or held: the game marks lines the player is hauling)
-    this.locks = Object.fromEntries(LOCKABLE.map(k => [k, true]));
-    this.held = {};
+    // every line is held by something (js/linehandlers.js: cam, clam, jammer, horn, clutch, ratchet, winch...).
+    // Released, a loaded line runs out by itself until it is made fast again (or held: the player is hauling it)
+    initLines(this);
     this.heave = 0; this.heaveV = 0; this.pitch = 0; this.pitchV = 0;
     this.capsized = false; this.capsizeT = 0; this.righting = false;
     this.aground = 0;
@@ -660,17 +683,8 @@ export class Boat {
     const qMid = 0.5 * rhoA * (axm * axm + aym * aym);
     d.awaMid = awaMid; d.qMid = qMid;
 
-    // ---- released lines run out under their load (sheets ease, controls lose tension, the car slides) ----
-    for (const k of LOCKABLE) {
-      if (this.held[k] > 0) { this.held[k] -= dt; continue; }
-      if (this.locks[k] !== false || ctrl[k] === undefined) continue;
-      const ld = k === 'main' || k === 'jib' || k === 'stay' ? (d.rig[k + 'Load'] || 0) / SP : k === 'lazy' ? (d.rig.lazyLoad || 0) / SP : k === 'trav' ? (d.rig.mainLoad || 0) / SP : 0.35 * (ctrl[k] || 0) + 0.1;
-      if (ld < 0.01) continue;
-      const rate = Math.min(2.5, 0.25 + 1.6 * ld) * dt;
-      if (RUNS_UP.has(k)) ctrl[k] = Math.min(1, ctrl[k] + rate);        // sheets and tack line ease, the car goes to leeward
-      else ctrl[k] = Math.max(0, ctrl[k] - rate);                        // vang, cunningham, outhaul, backstay, halyard go slack
-      if (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy') this.lines[k] = Math.max(this.lines[k], Math.min(ctrl[k], this.lines[k] + rate * 1.5));
-    }
+    // ---- lines: handlers take their time, slip when overloaded; released lines run out under their load ----
+    stepLines(this, dt);
     // ---- running rigging: lines move at crew/winch speed, slower under load ----
     for (const k of ['main', 'jib', 'stay', 'lazy']) {
       const target = ctrl[k] ?? (k === 'lazy' ? 1 : 0.3);
@@ -714,6 +728,7 @@ export class Boat {
         const byLazy = this.lines.lazy < this.lines.jib;
         [ctrl.jib, ctrl.lazy] = [ctrl.lazy, ctrl.jib];
         [this.lines.jib, this.lines.lazy] = [this.lines.lazy, this.lines.jib];
+        swapJib(this);
         this.backedByLazy = byLazy && -Math.sign(awaMid) !== Math.sign(this.side.jib);
       }
     }
