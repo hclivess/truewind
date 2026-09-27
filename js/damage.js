@@ -38,6 +38,7 @@
 
 import { G, DEG } from './env.js';
 import { RHO_W, clamp, lerp, sstep, STRIP_W, STRIP_F, sailHooks } from './physics.js';
+import { RIG_DATA, SPAR_MATERIALS, genericRig } from './rig-structure.js';
 
 // 1x19 AISI 316 stainless wire rope, minimum breaking load (N) by diameter (mm): Gunnebo / Blue Wave / Sta-Lok
 // tables agree within ~10% (3 mm 7.4 kN, 4 mm 12.8, 5 mm 20.1, 6 mm 28.9). 7x19 flexible: ~70% of it.
@@ -81,11 +82,11 @@ export const RIG = {
       fore: { name: 'Forestay', spec: '1x19 316 Ø4 mm', mbl: w1x19(4) },
       back: { name: 'Backstay', spec: 'Dynema SK78 Ø5 mm (~)', mbl: 18e3 },
     } },
-  // ILCA / Laser: unstayed two-part aluminium mast. Bottom section Ø63.5 mm, top Ø~51 mm, walls ~2.0 / 1.6 mm (~),
-  // alloy yield ~240 MPa (6000-series T6)
+  // ILCA / Laser: unstayed two-part aluminium mast. Bottom section Ø63.5 mm, top Ø50.8 mm, walls ~1.8 / 1.55 mm (~, from
+  // the sections' weights: as js/rig-structure.js), alloy yield ~240 MPa (6000-series T6)
   dinghy: { stayed: false, mRig: 12, zRig: 2.8, sy: 240e6, tau: 0.2,   // (a bendy unstayed spar gives for longer)
-    tubes: { bottom: { name: 'Bottom section', spec: 'Al tube Ø63.5 × 2.0 mm (~)', r: 0.03175, t: 0.0020 },
-      top: { name: 'Top section', spec: 'Al tube Ø51 × 1.6 mm (~)', r: 0.0254, t: 0.0016 } },
+    tubes: { bottom: { name: 'Bottom section', spec: 'Al tube Ø63.5 × 1.8 mm (~)', r: 0.03175, t: 0.0018 },
+      top: { name: 'Top section', spec: 'Al tube Ø50.8 × 1.55 mm (~)', r: 0.0254, t: 0.00155 } },
     joint: 2.6 },        // joint height above the waterline (2.865 m section, heel 0.355 m below the deck)
   // Hobie 16: rotating mast on a ball, one shroud a side and a forestay on a bridle, no spreaders; 1x19 3/16" (~)
   cat: { stayed: true, b: 1.1, cap: 1.0, pre: 0.05, spreader: null, falls: true, mRig: 26, zRig: 3.9, panel: 0.6, hounds: 6.3,
@@ -121,9 +122,15 @@ export function rigSpec(C) {
   const b = 0.42 * (C.multihull ? C.hullSpacing + C.beam * 0.2 : C.beam);
   const need = 2.8 * 0.45 * RM / Math.max(0.3, b);            // designed with ~2.8x on the cap at RM30
   const d = [2.5, 3, 4, 5, 6, 7, 8, 10].find((x) => w1x19(x) >= need) ?? 12;
-  if (!C.hasBackstay && !C.multihull && C.sails.length === 1 && m < 250)
-    return { stayed: false, mRig: 10, zRig: C.mastHeight * 0.45, sy: 240e6, joint: null,
-      tubes: { bottom: { name: 'Mast', spec: 'Al tube (~)', r: 0.03 + 0.004 * C.mastHeight / 6, t: 0.002 } } };
+  if (!C.hasBackstay && !C.multihull && C.sails.length === 1 && m < 250) {
+    // an unstayed spar: the section the rig model has for it (js/rig-structure.js: the class's own, e.g. the Optimist's
+    // 45 mm 7075 tube or the Sunfish's 2-1/4 in 6061, else sized)
+    const sp = ((RIG_DATA[C.id] && !(RIG_DATA[C.id].wires || []).length ? RIG_DATA[C.id] : genericRig(C)).spans || [])[0] || { dia: 0.06, t: 0.002, mat: 'alu6061' };
+    const M = SPAR_MATERIALS[sp.mat || 'alu6061'] || SPAR_MATERIALS.alu6061, dia = sp.dia ?? sp.b ?? 0.06, own = !!RIG_DATA[C.id];
+    const alloy = { alu6061: 'Al 6061-T6', alu7075: 'Al 7075-T6', carbon: 'Carbon', spruce: 'Spruce' }[sp.mat || 'alu6061'] || 'Al';
+    return { stayed: false, mRig: 10, zRig: C.mastHeight * 0.45, sy: M.sy, joint: null,
+      tubes: { bottom: { name: 'Mast', spec: `${alloy} tube Ø${+(dia * 1000).toFixed(1)} × ${+(sp.t * 1000).toFixed(2)} mm${own ? '' : ' (~)'}`, r: dia / 2, t: sp.t } } };
+  }
   return { stayed: true, b, cap: C.multihull ? 1 : 0.45, pre: 0.12, spreader: C.mastHeight * 0.5, mRig: m * 0.04, zRig: C.mastHeight * 0.45,
     parts: {
       cap: { name: 'Cap shroud', spec: `1x19 316 Ø${d} mm (~)`, mbl: w1x19(d) },
@@ -528,10 +535,24 @@ export class Damage {
         for (let i = 0; i < 40; i++) { const f = (i + 0.5) / 40, z = C.boomZ + f * s.luff, c = s.foot * (1 - f) + s.head * f; A += c; Mz += c * z; if (zj && z > zj) { Aj += c; Mj += c * (z - zj); } }
         this._kj = zj ? Mj / Mz : 0;
       }
-      const Mp = Math.abs(Maero) + this.Mb + Math.abs(this.Mslam) + R.mRig * G * R.zRig * Math.abs(Math.sin(b.phi));
-      const Mj = Math.abs(Maero) * this._kj + (this.Mbj || 0) + Math.abs(this.Mslam) * 0.6 + R.mRig * 0.3 * G * 1.4 * Math.abs(Math.sin(b.phi));
-      load('bottom', Mp);
-      if (P.top) load('top', Mj);
+      const UR = b.rigLoads && typeof b.rigLoads === 'object' && b.rigLoads.mastSpans;
+      if (UR) {
+        // the structural rig model's own bending stress in each tube (the sail's load where it reaches the mast: a luff
+        // sleeve, a sprit's thrust and its throat, a lateen's halyard and gooseneck; the vang; the spar's weight and roll
+        // inertia), as a fraction of its yield, times the tube's yield moment; plus the sea on a wet rig and a gybe's slam,
+        // which it does not see
+        for (const k in R.tubes) {
+          const p = P[k]; if (!p) continue;
+          let u = 0;
+          for (const sp of UR) if (k === 'top' ? sp.z0 >= R.joint - 1e-6 : !(R.joint && sp.z0 >= R.joint - 1e-6)) u = Math.max(u, sp.util || 0);
+          load(k, u * p.mbl + (k === 'top' ? (this.Mbj || 0) + Math.abs(this.Mslam) * 0.6 : this.Mb + Math.abs(this.Mslam)));
+        }
+      } else {
+        const Mp = Math.abs(Maero) + this.Mb + Math.abs(this.Mslam) + R.mRig * G * R.zRig * Math.abs(Math.sin(b.phi));
+        const Mj = Math.abs(Maero) * this._kj + (this.Mbj || 0) + Math.abs(this.Mslam) * 0.6 + R.mRig * 0.3 * G * 1.4 * Math.abs(Math.sin(b.phi));
+        load('bottom', Mp);
+        if (P.top) load('top', Mj);
+      }
     }
     this.maxR = this._wr; this.worst = this._worst;
   }

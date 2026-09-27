@@ -2,10 +2,17 @@
 // Sources: Wikipedia "Sunfish (sailboat)" (LOA 13 ft 9 in (4.19 m), beam 4 ft 1 in (1.24 m), hull 120 lb (54 kg),
 // sail area 75 sq ft (7.0 m²), draft 2 ft 11 in (0.89 m) with the daggerboard down, lateen rig, US Portsmouth ~99-100);
 // Sunfish class rules / sail plan: luff (on the upper spar) ~14 ft 8 in, foot (on the boom) ~13 ft 1 in, the spars
-// joined by a gooseneck at the tack forward of the mast, the upper spar hoisted to the masthead. Here: luff laced to
-// a yard 4.47 m long raised 52° from the boom, foot 3.99 m (area 7.0 m²); the gooseneck ~22 in (0.56 m) aft of the
-// tack (Sunfish rigging guides: 15-24 in by wind strength), the halyard from the masthead to the yard ~5 ft below
-// its top, so the yard hangs beside the mast, not against its head.
+// joined by a gooseneck at the tack forward of the mast, the upper spar hoisted to the masthead. Both spars are
+// 13 ft 8 in (4.17 m) of 1.5 in tube, so the luff on the yard is at most ~4.1 m; with the foot 3.99 m and 75 sq ft
+// that sets the yard ~59° above the boom (0.5 · 4.1 · 3.99 · sin 59° = 7.0 m²), as the photographs show it (a
+// Sunfish rigged head to wind: yard ~66° from the horizontal, the boom rising ~7° aft). Here the boom level, the
+// peak 3.51 m above it and 2.11 m aft of the tack. The gooseneck ~24 in (0.6 m) aft of the tack (rigging guides:
+// 15-24 in by wind strength; the photographs ~0.6 m), the halyard from the masthead to the yard ~5 ft below its
+// top, so the yard hangs beside the mast, not against its head. The mast 1.24 m abaft the bow, the boom's end
+// ~0.5 m past the transom (the same photograph, scaled on the 4.19 m hull and the 4.17 m boom).
+// The daggerboard trunk's aft end butts against the forward cockpit bulkhead (Small Boats Magazine, "Sunfish"):
+// the board is ~0.9 m abaft the mast, just forward of the sailor's feet, not under the mast. With the rig's centre
+// of effort where the geometry puts it, that is what gives the boat her light, near-neutral helm.
 // Lines shaped to the dimensions and photographs: a flat deck a hand's breadth above the water, a small footwell,
 // a sharp entry and a flat run aft.
 // Line handling on the real boat: mainsheet 2:1 from the boom through a bridle (traveller rope) across the stern
@@ -22,7 +29,7 @@ export default {
   massHull: M, zG: 0.18, crewN: 1, crewEach: 80, crewZ: 0.32, crewMaxOut: 0.8, crewLee: -0.25, hikeRate: 1.8,
   gm: 0.4, bmForm: 0.5, Ixx: 65, Izz: 110, amX: 0.05, amY: 0.5, amYaw: 0.4, amRoll: 0.2,
   rr: rrTable(LWL, M + 80, { dinghy: true }),
-  keel: { x: 0.55, z: -0.5, area: 0.2, ARe: 4.2, stall: 13 * DEG, cd0: 0.011, span: 0.72, chord: 0.28, board: true },
+  keel: { x: 0.1, z: -0.5, area: 0.2, ARe: 4.2, stall: 13 * DEG, cd0: 0.011, span: 0.72, chord: 0.28, board: true },
   rudder: { x: -2.15, z: -0.28, area: 0.09, ARe: 3.2, stall: 15 * DEG, cd0: 0.012, max: 35 * DEG, span: 0.52, chord: 0.18, transom: true, loadRef: 200 },
   hullLat: { area: 0.4, cd: 0.9, z: -0.04 },
   windage: { area: 0.6, z: 0.8, cd: 1.0 },
@@ -32,7 +39,7 @@ export default {
   lines: { main: { handler: 'ratchet', n: 2, at: 'sole' }, vang: { handler: 'cam', n: 2, size: 'micro', at: 'deck' },
     cunn: { handler: 'cam', n: 2, at: 'deck' }, outhaul: { handler: 'cam', n: 1, size: 'micro', at: 'deck' } },
   sails: [
-    { key: 'main', kind: 'boom', rig: 'lateen', area: 7.0, luff: 3.51, rake: 2.77, fixedRake: true, tackFwd: 0.56, foot: 3.99, head: 0.05, roach: 0, mastTop: 3.05,
+    { key: 'main', kind: 'boom', rig: 'lateen', area: 7.0, luff: 3.51, rake: 2.11, fixedRake: true, tackFwd: 0.6, foot: 3.99, head: 0.05, roach: 0, mastTop: 3.05,
       depth: [0.12, 0.13, 0.12], twistMax: 24 * DEG, cd0: 0.07, ARe: 3.0, min: 3 * DEG, max: 88 * DEG, trav: null, Iboom: 14, boomMass: 5, reefs: 0,
       vangBend: 0.1, sheetBend: 0.1, color: 0xf6f5f0, pockets: [], battens: { EI: 0, rows: [] }, boomMat: 'alu', yardR: 0.026, boomR: 0.026, window: false },
   ],

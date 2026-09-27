@@ -131,12 +131,21 @@ function buildDetailed(boat, opts = {}) {
     inner.add(dec);
   }
   if (D.hullName && bname) {
-    const N = D.hullName, tex = canvasTex(`hullname-${C.id}-${bname}`, 512, 128, (g, w, h) => {
-      g.clearRect(0, 0, w, h); g.fillStyle = N.color ?? '#1d2a44'; g.textAlign = 'center';
+    const N = D.hullName, tex = canvasTex(`hullname-${C.id}-${bname}${N.board ? '-board' : ''}`, 512, 128, (g, w, h) => {
+      g.clearRect(0, 0, w, h);
+      if (N.board) { g.fillStyle = N.bg ?? '#f4f2ec'; g.fillRect(0, 0, w, h); g.strokeStyle = N.color ?? '#111'; g.lineWidth = 5; g.strokeRect(4, 4, w - 8, h - 8); }
+      g.fillStyle = N.color ?? '#1d2a44'; g.textAlign = 'center';
       let font = N.font ?? 'italic 700 78px Georgia, "Times New Roman", serif'; g.font = font;
       const wd = g.measureText(bname).width; if (wd > w * 0.94) g.font = font.replace(/(\d+)px/, (m, px) => `${Math.floor(px * w * 0.94 / wd)}px`);
       g.fillText(bname, w / 2, 92);
     });
+    // (N.board: a name board lashed to the rail above the deck, as Joshua carries hers at La Rochelle)
+    if (N.board) for (const side of [-1, 1]) {
+      const x = bx(N.t), len = N.len ?? 1.6, zs = Lx.sheer(N.t), y = Lx.bDeck(N.t) + 0.03;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(len, len / 4), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 }));
+      m.position.copy(V(x, side * y, zs + (N.dz ?? 0.32))); m.rotation.y = side > 0 ? Math.PI / 2 : -Math.PI / 2; inner.add(m);
+    }
+    else {
     // (painted on: a strip that follows the topsides, which curve in toward a bow or a canoe stern within the name's
     // length — a flat board there sank its forward letters into the hull)
     const x0 = bx(N.t), len = N.len ?? 1.2, hh = len / 8, S = 16, mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.4 });
@@ -149,6 +158,7 @@ function buildDetailed(boat, opts = {}) {
       for (let i = 0; i < S; i++) { const a = 2 * i; side > 0 ? idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3) : idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
       g.setIndex(idx); g.computeVertexNormals(); inner.add(new THREE.Mesh(g, mat));
+    }
     }
   }
   // ---- portlights in the topsides (bronze, in a classic's bulwark band)
@@ -816,9 +826,9 @@ export const EXTRAS = {
       kit.add(M.black(), new THREE.CylinderGeometry(0.33, 0.35, 0.1, 18), new THREE.Matrix4().makeTranslation(0, z - 0.03, -x));
     }
     for (const s of [-1, 1]) {
-      const t = 0.9, x = bx(t), zz = Lx.sheer(t) - 0.28, y = s * (hullHalfBreadth(Lx, t, zz) + 0.004);
-      const el = new THREE.CircleGeometry(0.18, 20); el.scale(1, 0.72, 1); el.rotateY(s * Math.PI / 2); el.translate(y, zz, -x); kit.add(M.black(), el);
-      const eye = new THREE.CircleGeometry(0.06, 12); eye.rotateY(s * Math.PI / 2); eye.translate(y + s * 0.002, zz + 0.01, -(x - 0.05)); kit.add(paint(0xf2f0ea, 0.4), eye);
+      const t = 0.83, x = bx(t), zz = Lx.sheer(t) - 0.42, y = s * (Math.max(hullHalfBreadth(Lx, t, zz), hullHalfBreadth(Lx, (x - 0.38 - C.sternX) / (C.bowX - C.sternX), zz)) + 0.01);   // (clear of the topsides over its whole length)
+      const el = new THREE.CircleGeometry(0.38, 24); el.scale(1, 0.62, 1); el.rotateY(s * Math.PI / 2); el.translate(y, zz, -x); kit.add(M.black(), el);
+      const eye = new THREE.CircleGeometry(0.1, 16); eye.rotateY(s * Math.PI / 2); eye.translate(y + s * 0.002, zz + 0.02, -(x + 0.12)); kit.add(paint(0xf2f0ea, 0.4), eye);
     }
     const x = C.sternX, z = Lx.sheer(0) + 0.05;
     kit.rod(M.steel(), V(x + 0.35, 0.35, z), V(x - 0.45, 0, z + 0.25), 0.02); kit.rod(M.steel(), V(x + 0.35, -0.35, z), V(x - 0.45, 0, z + 0.25), 0.02);

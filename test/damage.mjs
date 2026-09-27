@@ -5,6 +5,7 @@ import { Boat, autoTrim, makeSteadyEnv, RHO_W } from '../js/physics.js';
 import '../js/sail/sailsim.js';
 import { Damage, rigSpec, collisionEnergy, impactPair, torricelli } from '../js/damage.js';
 import { resolveCollisions } from '../js/race.js';
+import { RigStructure, RIG_DATA } from '../js/rig-structure.js';
 const KT = 0.514444, DEG = Math.PI / 180, G = 9.81;
 let fails = 0;
 const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (!ok) fails++; };
@@ -67,6 +68,24 @@ for (const cls of ['blackwatch', 'sportboat', 'cat', 'dinghy']) {
   let pBreak = null, why = '';
   for (const p0 of [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4]) { const D = knock(cls, 100, p0); if (D.rig.down) { pBreak = p0; why = D.rig.why; break; } }
   check(pBreak !== null && pBreak >= 0.5 && pBreak <= 3, `${cls.padEnd(10)} rolled past 90° with the mast going into the sea: breaks at ${pBreak ?? '>4'} rad/s (${why})`);
+}
+// unstayed spars read the rig model's own bending stress: the class masts stand in a breeze (Optimists race in 20+ kn);
+// the same Optimist with a far thinner wall (a mast that could not take it) breaks at its thwart
+{
+  const trial = (cls, kn, wall) => {
+    const env = makeSteadyEnv(kn * KT);
+    const b = new Boat(cls, { sailModel: 'strip' }); b.reset(0, 0, 45 * DEG); b.u = 2;
+    if (wall) b.rigStruct = new RigStructure(b, { ...RIG_DATA[cls], spans: RIG_DATA[cls].spans.map((s) => ({ ...s, t: wall })) });
+    const D = new Damage(b); let peak = 0;
+    run(b, D, env, 30, () => autoTrim(b, dt, 0, true), null, () => { b.psi = 45 * DEG; b.r = 0; peak = Math.max(peak, D.parts.bottom.r); });
+    return { D, peak };
+  };
+  for (const [cls, kn] of [['optimist', 22], ['sunfish', 22]]) {
+    const { D, peak } = trial(cls, kn);
+    check(!D.rig.down && peak > 0.15 && peak < 0.8, `${cls.padEnd(10)} ${kn} kn upwind: mast (${D.parts.bottom.spec}) at ${Math.round(peak * 100)}% of its yield moment at most: it stands`);
+  }
+  const { D } = trial('optimist', 22, 0.0005);
+  check(D.rig.down, `optimist   22 kn with a 0.5 mm wall: ${D.rig.down ? D.rig.why : 'stands (should break)'}`);
 }
 // crash gybe: the boom slams across at omega and the sheet stops it (J = I_boom omega in ~0.08 s)
 {
