@@ -367,12 +367,11 @@ export class BoomSailRig extends ClothRig {
     const ey = c.x[1];
     if (Math.abs(ey) > 0.05 * this.Lb) this.side = Math.sign(ey);
     sheetCar(C, s0, ctrl.trav, this.side, this.a, this.car);
-    // (the boom bows down between gooseneck and leech under the sheet and vang: at the block and the vang's eye it
-    // sits that much lower than a straight boom would, and the lines are that much slacker)
-    this.sheet.len = sheetLen(C, s0, ease) - 0.035 * (1 - sstep(0, 0.25, ease)) + bd.ds;
+    void bd;
+    this.sheet.len = sheetLen(C, s0, ease) - 0.035 * (1 - sstep(0, 0.25, ease));
     if (this.vang && !this.noVang) {
       const L0 = hyp(this.tv * this.Lb, this.dv), vg = clamp(ctrl.vang, 0, 1);
-      this.vang.len = L0 - 0.012 * vg + 0.05 * (1 - vg) ** 1.3 + bd.dv;
+      this.vang.len = L0 - 0.012 * vg + 0.05 * (1 - vg) ** 1.3;
     }
     if (s0.vang !== 'rigid') this.topping.len = hyp(this.Lb, this.mastHead[2] - this.pz + 0.15 * this.Lb);
     // preventer: rigged, it is made fast at the length it has, on the side the boom is on; released, it runs free

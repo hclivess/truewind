@@ -12,10 +12,10 @@ const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (
 const classes = process.argv[2] ? [process.argv[2]] : ['blackwatch', 'sportboat', 'dinghy', 'cat'];
 
 // settle a boat close-hauled (heading and helm held), auto crew, then hold a set of controls and settle again
-function settle(cls, set = null, secs = 14) {
+function settle(cls, set = null, secs = 14, twa0 = null) {
   const env = makeSteadyEnv(12 * KT), b = new Boat(cls);
   attachSails(b, 'cloth', 0);
-  const twa = cls === 'cat' ? 50 : 45;
+  const twa = twa0 ?? (cls === 'cat' ? 50 : 45);
   b.reset(0, 0, twa * DEG); b.u = 2.5; for (const k in b.booms) b.booms[k].a = 0.15;
   const dt = 1 / 120;
   for (let i = 0; i < 120 * secs; i++) {
@@ -56,8 +56,10 @@ for (const cls of classes) {
     const [a, b] = pair('cunn', 0, 1);
     check(b.sh.main[1][1] < a.sh.main[1][1], `${cls}: cunningham pulls the draft forward (${(a.sh.main[1][1] * 100).toFixed(0)}% -> ${(b.sh.main[1][1] * 100).toFixed(0)}%)`);
   }
-  {
-    const [a, b] = pair('vang', 0.1, 0.9);
+  if (C.sails.find((x) => x.key === 'main').vang !== 'none') {           // (the cat has no vang)
+    // (on a reach: close-hauled, a main sheeted hard in over a car under the boom (the Blackwatch's end-boom sheet)
+    // has its leech held by the sheet and the vang hangs slack, as on the real boat; eased, the vang holds it)
+    const [a, b] = [settle(cls, { vang: 0.1 }, 14, 90), settle(cls, { vang: 0.9 }, 14, 90)];
     check(b.sh.main[2][2] < a.sh.main[2][2], `${cls}: vang on closes the leech (twist ${(a.sh.main[2][2] / DEG).toFixed(0)}° -> ${(b.sh.main[2][2] / DEG).toFixed(0)}°)`);
   }
   if (C.hasBackstay) {

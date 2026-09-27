@@ -153,7 +153,10 @@ export const CLASSES = {
         vangBend: 0.6, sheetBend: 0.45, color: 0xf4f3ee,
         // Laser: the sheet's block rides a rope horse across the transom; a thin aluminium tube (63.5 x 1.6 mm, EI ~11 kN
         // m^2, ~1 kN m) that bows visibly under the vang, which is the Laser's strongest control
-        track: { x: -1.78, z: 0.45, half: 0.45, s: 2.67, horse: true }, boomEI: 1.1e4, boomMmax: 1000, vang: 'rope', vangMax: 2200 },
+        track: { x: -1.78, z: 0.45, half: 0.45, s: 2.67, horse: true }, boomEI: 1.1e4, boomMmax: 1000, vang: 'rope', vangMax: 2200,
+        // (luff round cut into the sail, fraction of the full mast bend: the Laser's is cut for the bend of its
+        // two-part unstayed mast under the vang and the sheet it sails with, more than a stayed mast's)
+        luffRoundK: 0.6 },
     ],
     hull: { color: 0xf6f6f2, stripe: 0xf6f6f2, deck: 0xe6e3da, boot: 0xc8412c, sectionN: 2.2, transom: 0.72, bowRake: 0.15, sheer: 0.05 },
   },
@@ -182,7 +185,9 @@ export const CLASSES = {
     mastX: 0.6, mastHeight: 8.6, boomZ: 1.25, keelBulb: false,
     targetHeel: 7 * DEG, canCapsize: true, hasBackstay: false, hasBoard: false, sheetPower: 700,
     sails: [
-      { key: 'main', kind: 'boom', area: 13.7, luff: 7.2, foot: 2.6, head: 1.1, depth: [0.1, 0.12, 0.11], twistMax: 15 * DEG,
+      // (a fully battened main cut full, 13% at mid height: its battens, tensioned in their pockets, hold the depth
+      // the sheet's pull on the leech would stretch out of a soft sail)
+      { key: 'main', kind: 'boom', area: 13.7, luff: 7.2, foot: 2.6, head: 1.1, depth: [0.11, 0.13, 0.12], twistMax: 15 * DEG,
         cd0: 0.06, ARe: 4.6, min: 1 * DEG, max: 75 * DEG, trav: [-4 * DEG, 24 * DEG], Iboom: 16, boomMass: 6, reefs: 0,
         vangBend: 0.2, sheetBend: 0.25, color: 0xf2f4f6,
         // Hobie 16: the mainsheet to a car on the rear beam's track, nearly hull to hull; no vang (the fully battened
@@ -408,10 +413,9 @@ export class Boat {
       if (s.key === 'main') {
         const ease = this.lines.main;
         // the sheet pulls down on the leech as much as it runs down to its car: hard in over the car, all of it; eased
-        // with the car inboard, little (js/boom.js geometry, while the sheet holds the boom). The vang's pull is less
-        // what the boom's bend takes up (a thin dinghy boom bows under it: boomBend)
+        // with the car inboard, little (js/boom.js geometry, while the sheet holds the boom)
         const sheetDown = s.track ? (this._sheetDown ?? 1 - sstep(0, 0.32, ease)) : 1 - sstep(0, 0.32, ease);
-        const vangEff = s.vang === 'none' ? 0 : c.vang * 0.95 * (1 - clamp((this.diag.rig.boomBendMM || 0) / 150, 0, 0.5));
+        const vangEff = s.vang === 'none' ? 0 : c.vang * 0.95;
         const LT = Math.max(vangEff, sheetDown * (s.trav ? 1 : 0.85));
         tw = (s.twistMax * (1 - 0.82 * LT) + 5 * DEG * bend) * Math.pow(fr, 1.3);
         if (i === 0) d *= 1.28 - 0.6 * c.outhaul;
@@ -1221,6 +1225,21 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
         const bm = boat.booms.main.a, yb = s.track.s * Math.sin(Math.abs(bm));
         const under = clamp(0.5 + 0.5 * yb / s.track.half, 0, 1);
         c.trav = lerp(c.trav, lerp(c.trav, under, shapeUp), k * 4);
+      }
+      if (s.key === 'main' && s.track && shapeUp > 0.5 && sh.main) {
+        // where the sheet pulls straight down on the leech (the cat's car under the boom, any main sheeted hard over
+        // its car with the vang off), upwind the sheet also sets the twist: eased while the top batten is closed, and,
+        // with no vang to do it, hauled while it is open. (A Laser sheeted to its horse off the transom pulls nearly
+        // straight down on the leech: its sailor eases a little to let the head twist off; closing it is the vang's)
+        // (the top batten's twist breathes with the sheet it answers to: the crew goes by its trend over a couple of
+        // seconds, or sheet and twist chase each other round a cycle)
+        tt.twTop = lerp(tt.twTop ?? sh.main[2].tw, clamp(sh.main[2].tw, -10 * DEG, 30 * DEG), clamp(dt * 0.5, 0, 1));
+        const e = (11 + 8 * over) * DEG - tt.twTop;
+        // (the twist weighs more than the angle: a few degrees off the telltales' angle cost less than a hooked or
+        // open leech; the traveller cannot take the angle over from the sheet, its car wandering to windward drags a
+        // vangless boom across and the leech with it)
+        if (s.vang === 'none') dA += clamp(1.5 * e, -0.3, 0.3);
+        else if ((s.track.horse || c.vang < 0.05) && e > 0) dA += clamp(2 * e, 0, 0.3);
       }
       c[key] = clamp((c[key] ?? 0.3) + dA / (s.max - s.min) * k * 0.4 + (tt[key] - ease0), pinchedC && s.key === 'main' ? 0.35 : 0, 1);
       continue;
