@@ -299,9 +299,13 @@ export class AIHelm {
     this.mode = mode;
   }
   // no tack or gybe where it would put her in someone's way (13, 15): the same angle to the wind on this tack
+  // (once begun, a tack or gybe is finished: turning back half way leaves her head to wind, stopped, in the way)
   gateTurn(R, desired, twd, up) {
     const b = this.b, cur = Math.sign(wrap(twd - b.psi)) || 1, rel = wrap(twd - desired);
-    if ((Math.sign(rel) || 1) === cur || R.canTurn(b, desired, 8)) return desired;
+    if ((Math.sign(rel) || 1) === cur) return desired;
+    if (R.t < (this.turnGo || 0) || Math.abs(wrap(twd - b.psi)) < up * 0.8) { this.turnGo = Math.max(this.turnGo || 0, R.t + 2); return desired; }
+    if (R.t > (this.turnNo || 0) && R.canTurn(b, desired, 8)) { this.turnGo = R.t + 8; return desired; }
+    this.turnNo = R.t + 2;
     return twd - cur * clamp(Math.abs(rel), up, 150 * DEG);
   }
   // keeping clear of a boat ahead with nowhere to go: ease the sheets and slow down

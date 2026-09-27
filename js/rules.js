@@ -302,7 +302,8 @@ export class RuleEngine {
     // 15: right of way changed hands; did the new keep-clear boat do it herself (tacked, gybed, began turning)?
     if (pr.give && give !== pr.give && rule !== '23') {
       const sg = give === A ? SA : SB;
-      pr.acq = { t: this.t, row: give === A ? B : A, own: !(this.t - sg.changeT < 2.5 || rule === '22') };
+      // (she caused it herself: a tack or gybe, a sharp turn, or starting a penalty or returning to start)
+      pr.acq = { t: this.t, row: give === A ? B : A, own: !(this.t - sg.changeT < 2.5 || rule === '22' || Math.abs(wrap(give.psi - this.psiAgo(sg, 2.5))) > 20 * DEG) };
     }
     pr.give = give; pr.rule = rule;
     // 17: overlapped to leeward from clear astern within two of her lengths: no sailing above her proper course
@@ -540,8 +541,10 @@ export class RuleEngine {
   }
   // an online penalty from the room: the other sailor protested and her umpire (the same rules) upheld it
   remotePenalty(b, rule) {
-    const inc = { rule, off: b, vic: null, kind: 'avoid', status: 'pending', remote: true };
-    this.log(inc); this.decide(inc, null);
+    // (the incident as this browser saw it, if it did)
+    let inc = this.incidents.slice().reverse().find(i => i.off === b && (i.status === 'pending' || i.status === 'noprotest') && this.t - i.at < 30);
+    if (!inc) { inc = { rule, off: b, vic: null, kind: 'avoid', status: 'pending', remote: true }; this.log(inc); }
+    this.decide(inc, inc.vic);
   }
   penaltyOf(b) { const s = this.st.get(b); return s && s.pen && !s.pen.done ? s.pen : null; }
   relsOf(b) { return this.rels.get(b) || []; }
@@ -568,7 +571,7 @@ export class RuleEngine {
     const mid = b.psi + wrap(h - b.psi) / 2;
     let x = b.x, z = b.z;
     for (let t = 0; t <= H + 1e-6; t += dt) {
-      const p = t < T1 ? mid + wrap(h - mid) * t / T1 : h, v = t < T1 ? V * 0.6 : V;
+      const p = t < T1 ? mid + wrap(h - mid) * t / T1 : h, v = t < T1 ? V * 0.35 : V;   // (all but stopped through the wind)
       tb.push(x, z, p);
       x += Math.sin(p) * v * dt + ((b.vgx ?? 0) - b.u * Math.sin(b.psi)) * dt;     // (plus the tide and leeway she makes now)
       z += -Math.cos(p) * v * dt + ((b.vgz ?? 0) + b.u * Math.cos(b.psi)) * dt;
@@ -608,7 +611,8 @@ export function aiRules(ai, sim, desired, mode, t, up) {
   const mine = [];
   const clearFor = (h, list, HH = H) => {
     // she comes round at ~25°/s (a keelboat less) toward h, then holds it
-    const rate = (b.cls.loa > 6 ? 18 : 28) * DEG;
+    // (slow, the rudder has little grip: about 7°/s per m/s of speed)
+    const rate = clamp(b.u * 7, 4, b.cls.loa > 6 ? 18 : 28) * DEG;
     let x = b.x, z = b.z, p = b.psi; mine.length = 0;
     for (let tt = 0; tt <= HH + 1e-6; tt += dt) {
       mine.push(x, z, p);
@@ -624,7 +628,10 @@ export function aiRules(ai, sim, desired, mode, t, up) {
     return worst;
   };
   const margin = 1 + b.cls.beam * 0.5;
-  const sailable = (h) => Math.abs(wrap(twd - h)) >= up * 0.9;
+  // (headings on the other tack only when she is already turning through the wind: tacks and gybes are chosen
+  // above, where they are checked clear)
+  const tk = Math.sign(wrap(twd - b.psi)) || 1, midTurn = Math.abs(wrap(twd - b.psi)) < up * 0.8;
+  const sailable = (h) => Math.abs(wrap(twd - h)) >= up * 0.9 && (midTurn || (Math.sign(wrap(twd - h)) || 1) === tk);
   let h = desired;
   const search = (list, need, HH) => {
     // turn away from the nearest threat first; the smallest change of course that is clear
@@ -652,7 +659,8 @@ export function aiRules(ai, sim, desired, mode, t, up) {
     }
     if (hh !== null) h = hh;
     // no clear heading (boxed in, or clear astern with nowhere to go): slow down as well
-    if (ok < 0 || give.some(([o, pr]) => pr.rule === '12' && pr.astern === b && pr.d < 2 * b.cls.loa && o.u < b.u)) plan.ease = true;
+    // (not beside a mark: stopped, she drifts down onto it)
+    if ((ok < 0 || give.some(([o, pr]) => pr.rule === '12' && pr.astern === b && pr.d < 2 * b.cls.loa && o.u < b.u)) && !marks.some(m => Math.hypot(m.x - b.x, m.z - b.z) < 3 * b.cls.loa)) plan.ease = true;
   }
   // 2. right of way: hold her course while a keep-clear boat is close (16) — but not into contact (14)
   else if (row.length) {
@@ -665,6 +673,7 @@ export function aiRules(ai, sim, desired, mode, t, up) {
     if (danger) { const [hh] = search(row, 0.3, 3); if (hh !== null) h = hh; }
     else if (close && !rounding && mode !== 'prestart') h = b.psi + clamp(wrap(desired - b.psi), -6 * DEG, 6 * DEG);
   }
+  if (globalThis.DBGAI && globalThis.DBGAI(b)) console.log(`  AI ${b.id} t ${t.toFixed(1)} psi ${(b.psi / DEG).toFixed(0)} want ${(desired / DEG).toFixed(0)} -> ${(h / DEG).toFixed(0)} give [${give.map(([o, pr]) => o.id + ":" + pr.rule + ":" + pr.d.toFixed(0)).join(" ")}] row [${row.map(([o, pr]) => o.id + ":" + pr.rule).join(" ")}] cD ${cD.toFixed(1)} ease ${plan.ease}`);   // TEMPDBG
   plan.h = h === desired ? null : h;
   ai.ease = plan.ease;
   return h;
