@@ -498,7 +498,7 @@ export const CLASSES = {
     lines: { main: { handler: 'selfTailer', n: 6, at: 'winch' }, trav: { handler: 'cam', n: 4, at: 'sole' }, jib: { handler: 'selfTailer', at: 'winch' },
       gen: { handler: 'selfTailer', at: 'winch' }, vang: { handler: 'clutch', n: 12, winch: 'cabin', at: 'cabin' }, cunn: { handler: 'clutch', n: 4, winch: 'cabin', at: 'cabin' },
       outhaul: { handler: 'clutch', n: 4, winch: 'cabin', at: 'cabin' }, backstay: { handler: 'cam', n: 24, at: 'deck' },
-      jibHalyard: { handler: 'clutch', n: 2, winch: 'cabin', at: 'cabin' }, tackLine: { handler: 'clutch', winch: 'cabin', at: 'cabin' } },
+      jibHalyard: { handler: 'clutch', n: 4, winch: 'cabin', at: 'cabin' }, tackLine: { handler: 'clutch', winch: 'cabin', at: 'cabin' } },
     massHull: 7450, zG: 0.07, crewN: 9, crewEach: 85, crewZ: 1.35, crewMaxOut: 1.72, crewLee: -0.8, hikeRate: 0.5,
     gm: 1.35, bmForm: 0.8, Ixx: 23000, Izz: 82000, amX: 0.06, amY: 0.8, amYaw: 0.45, amRoll: 0.25,
     // residuary resistance / weight: a moderate-displacement cruiser-racer (D/L ~ 170, L/vol^(1/3) 5.3)
