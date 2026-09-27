@@ -1,4 +1,4 @@
-// Bakes the cloth sails' polars: node tools/bake-sail-surrogate.mjs [class...] [--tws=4,6,8,...] [--jobs=N] [--secs=30]
+// Bakes the cloth sails' polars: node tools/bake-sail-surrogate.mjs [class...] [--tws=4,6,8,...] [--jobs=N] [--secs=30] [--biases=-4,0,4]
 //
 // For each class and wind speed, the full cloth + vortex-lattice model (level 0, the player's) sails at each of the
 // VPP's true wind angles at the game's 120 Hz step, yaw locked, flat water, steady wind with its gradient, with the
@@ -10,7 +10,8 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { cpus } from 'node:os';
 
 const KT = 0.514444, DEG = Math.PI / 180;
-const BIASES = [-4, 0, 4];
+// (--biases=0 for a quick bake on a busy machine: the automatic crew's own trim only)
+const BIASES = isMainThread ? (process.argv.find((x) => x.startsWith('--biases=')) || '--biases=-4,0,4').split('=')[1].split(',').map(Number) : workerData.biases;
 
 async function sailAngle(cls, twsKn, twa, secs) {
   const { Boat, autoTrim, makeSteadyEnv, CLASSES } = await import('../js/physics.js');
@@ -81,7 +82,7 @@ if (!isMainThread) {
   };
   await new Promise((resolve) => {
     let next = 0, alive = 0;
-    const workers = Array.from({ length: Math.min(nJobs, jobs.length) }, () => new Worker(new URL(import.meta.url), { workerData: { secs } }));
+    const workers = Array.from({ length: Math.min(nJobs, jobs.length) }, () => new Worker(new URL(import.meta.url), { workerData: { secs, biases: BIASES } }));
     const feed = (w) => { if (next < jobs.length) { w.postMessage(jobs[next++]); return true; } w.terminate(); return false; };
     for (const w of workers) {
       alive++;
