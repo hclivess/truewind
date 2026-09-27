@@ -616,7 +616,7 @@ export class Renderer {
           // ---- hull waves (hullwaves.js): white water where the boats' own waves break (the bow wave, and
           // the divergent crests once the boat goes fast), laid down with the wake's foam
           #ifdef HWSIM
-          wake += hwAt(p, 0.0).w * (0.5 + f1) * 4.0 * uDt;
+          wake += hwAt(p, 0.0).w * (0.3 + f1) * 3.0 * uDt;
           #endif
           gl_FragColor = vec4(min(old + vec3(src, wake, slk), 1.0), 1.0);
         }`,
