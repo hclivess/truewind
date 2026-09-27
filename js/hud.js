@@ -2,6 +2,7 @@
 // polar, physics readout, toasts.
 import { DEG, KT } from './env.js';
 import { polarSpeedAt, vmgTargets, clamp, wrap, REEF } from './physics.js';
+import { drawTrafficMap } from './traffic.js';
 import { lineStatus, ropeLook, ropeKey, lineName, HANDLERS, specOf, lineSpecs } from './linehandlers.js';
 import { ropeCSS } from './linegear.js';
 
@@ -472,6 +473,7 @@ export class HUD {
         ctx.beginPath(); ctx.moveTo(tgt.x, tgt.z); ctx.lineTo(tgt.x + Math.sin(d2) * L, tgt.z - Math.cos(d2) * L); ctx.stroke();
       }
     }
+    drawTrafficMap(ctx, g.traffic, lw);
     // boats
     for (const o2 of g.boats) {
       const me = o2 === b;
