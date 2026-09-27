@@ -28,12 +28,13 @@ const race = new Race(course, boats, { countdown: 90 });
 const rules = RULES ? new RuleEngine({ race, course, world, piers: geo?.piers || [] }) : null;
 if (rules) rules.upTwa = vt.up.twa;
 const sim = { boats, world, race, env, rules, course };   // as in the game: the AI reads the tide field
-let collisions = 0, contactT = 0; const lastHit = new Map();
+let collisions = 0, contactT = 0; const lastHit = new Map(), pairT = new Map();
 const onTouch = (b, o) => {
   if (rules) rules.touch(b, o);
   if (!o.cls) return;
   contactT += dt; const k = Math.min(b.id, o.id) * 1000 + Math.max(b.id, o.id);
-  if (t - (lastHit.get(k) ?? -1e9) > 3) collisions++;   // (one collision: contact after three seconds apart)
+  if (t - (lastHit.get(k) ?? -1e9) > 3) { collisions++; if (process.env.DBG) console.log(`t=${race.clock.toFixed(0)}s contact ${b.id}-${o.id}`); }   // (one collision: contact after three seconds apart)
+  pairT.set(k, (pairT.get(k) || 0) + dt);
   lastHit.set(k, t);
 };
 const dt=1/120; let t=0; let aground=0;   // (dt: the game's physics step)
@@ -65,6 +66,7 @@ for (const r of race.standings()) console.log('boat', r.boat.id, 'leg', r.leg, r
 console.log('aground steps', aground);
 const inc = rules ? rules.incidents : [];
 console.log(`collisions ${collisions} (in contact ${contactT.toFixed(1)} s) · incidents ${inc.length} · penalties ${inc.filter(i => i.turns).length} · taken ${inc.filter(i => i.status === 'taken').length} · DSQ ${race.racers.filter(r => r.dsq).length} · rules ${RULES ? 'on' : 'off'}`);
-const unfinished = race.racers.filter(r => !r.finished).length;
+if (pairT.size) { const [k, v] = [...pairT].sort((a, b) => b[1] - a[1])[0]; console.log(`longest contact: boats ${Math.floor(k / 1000)} and ${k % 1000}, ${v.toFixed(1)} s`); }
+const unfinished = race.racers.filter(r => !r.finished && !r.dsq).length;   // (a boat the umpire disqualified is out of the race, as scored)
 if (unfinished) console.log(`${unfinished} boat(s) did not finish`);
 process.exit(unfinished ? 1 : 0);

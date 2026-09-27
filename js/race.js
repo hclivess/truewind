@@ -387,6 +387,9 @@ export class AIHelm {
     autoTrim(b, dt, this.bias);
     if (this.ease) this.slow();
     this.steer(dt, desired);
+    // (not while keeping clear of someone close: stopped, she only drifts down onto her)
+    const R = sim.rules;
+    if (luff && R && ((this.kc && this.kc.h !== null) || R.relsOf(b).some(pr => pr.d < 2 * b.cls.loa && R.owes(pr, b)))) luff = false;
     if (luff) { b.ctrl.main = 1; b.ctrl.jib = 1; b.ctrl.stay = 1; }
     if (b.sailBy.gennaker) b.ctrl.gen = false;
     this.mode = 'prestart';

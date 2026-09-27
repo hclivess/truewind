@@ -682,6 +682,16 @@ export function aiRules(ai, sim, desired, mode, t, up) {
     }
     return [best, -1];
   };
+  // 0. tangled with another boat and all but stopped: bear off away from her (whoever was right), sails drawing
+  const stuck = rels.find(pr => pr.now < 0.4 && b.u < 1.2);
+  if (stuck) {
+    const o = stuck.a === b ? stuck.b : stuck.a, away = Math.atan2(b.x - o.x, -(b.z - o.z));
+    const rel = wrap(twd - away), side = Math.sign(wrap(twd - b.psi)) || 1;
+    // (the heading away from her on this tack, never into the wind: at least a close reach)
+    plan.h = twd - side * clamp(Math.sign(rel) === side ? Math.abs(rel) : Math.PI - Math.abs(rel), up + 25 * DEG, 160 * DEG);
+    plan.until = t + 1.5;
+    return plan.h;
+  }
   // 1. keep clear of the boats she owes it to (and the marks)
   const cD = give.length || marks.length ? clearFor(desired, give) : 1e9;
   if (cD < margin) {
@@ -705,7 +715,7 @@ export function aiRules(ai, sim, desired, mode, t, up) {
     }
     const s = R.S(b), rounding = s.marks && s.marks.some(m => s.zone.get(m)?.in);
     if (danger) { const [hh] = search(row, 0.3, 3); if (hh !== null) h = hh; }
-    else if (close && !rounding && mode !== 'prestart') h = b.psi + clamp(wrap(desired - b.psi), -6 * DEG, 6 * DEG);
+    else if (close && !rounding) h = b.psi + clamp(wrap(desired - b.psi), -(mode === 'prestart' ? 10 : 6) * DEG, (mode === 'prestart' ? 10 : 6) * DEG);
   }
   plan.h = h === desired ? null : h;
   ai.ease = plan.ease;
