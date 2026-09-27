@@ -25,7 +25,9 @@ function run(b, D, env, secs, each, world = null, hold = null) {
 console.log('\n1. Shroud loads against the righting-moment rule (Nordic Boat Standard / Skene: T_cap = k RM / b + pretension)');
 for (const cls of ['blackwatch', 'sportboat', 'cat']) {
   const env = makeSteadyEnv(16 * KT);
-  const b = new Boat(cls, { sailModel: 'strip' }); b.reset(0, 0, 45 * DEG); b.u = 2;
+  // (the static estimate's own check: with the rig's structure running, its wire loads replace this estimate and are
+  // checked against the righting moment in test/rig.mjs)
+  const b = new Boat(cls, { sailModel: 'strip', rigStructure: false }); b.reset(0, 0, 45 * DEG); b.u = 2;
   const D = new Damage(b), R = rigSpec(b.cls), P = D.parts.cap;
   let sT = 0, sRM = 0, n = 0;
   run(b, D, env, 40, () => autoTrim(b, dt, 0, true), null, () => { b.psi = 45 * DEG; b.r = 0; });
@@ -191,7 +193,9 @@ console.log('\n6. Grounding by the seabed, a lost keel');
       return maxPhi;
     };
     const h0 = heel(false), h1 = heel(true);
-    check(h1 > 1.4 * h0, `  sheets made fast, crew sitting in, 16 kn: she lies over ${(h1 / DEG).toFixed(0)}° without her keel (${(h0 / DEG).toFixed(0)}° with it; with no keel she also slides off sideways instead of heeling)`);
+    // (1.3: the rudder keeps its grip at this heel now (js/foils.js: it only loses it by ventilating), so with no keel
+    // she skids a little more and heels a little less than with the old heel-scaled rudder)
+    check(h1 > 1.3 * h0, `  sheets made fast, crew sitting in, 16 kn: she lies over ${(h1 / DEG).toFixed(0)}° without her keel (${(h0 / DEG).toFixed(0)}° with it; with no keel she also slides off sideways instead of heeling)`);
     // the range of stability: knocked to 110° by a sea, with her keel she comes back; without it she stays capsized
     const flip = (lose) => {
       const b = new Boat('sportboat', { sailModel: 'strip' }); b.reset(0, 0, 60 * DEG); b.auto.hike = false; b.ctrl.hike = 0;

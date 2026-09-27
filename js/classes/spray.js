@@ -7,7 +7,7 @@
 // ballast stanchioned down, three tons of it later exchanged for tridacna shells); Wikipedia "Spray (sailing
 // vessel)"; H. I. Chapelle's lines of Spray (Smithsonian, "American Small Sailing Craft", 1951). Not published
 // with the dimensions, so estimated here (and marked so): LWL ~33 ft (10.2 m), draft ~4 ft 2 in (1.27 m),
-// displacement ~15 t, sail areas (main ~58 m², jib ~22 m², jigger ~6 m²) from the sail plan in the appendix.
+// displacement ~15 t, sail areas (main ~52 m², jib ~22 m², jigger ~6 m²) from the sail plan in the appendix.
 // Lines shaped to Chapelle's plan: a broad, shallow, hard-bilged hull, a straight keel, a raked stem with a clipper
 // head, a broad square stern with the rudder hung outboard, low bulwarks.
 // Line handling on the real boat: everything belayed to pins and cleats — jib sheets to cleats on the rail, the
@@ -31,7 +31,7 @@ export default {
   rudder: { x: -5.55, z: -0.5, area: 1.25, ARe: 1.8, stall: 22 * DEG, cd0: 0.015, max: 35 * DEG, span: 1.4, chord: 0.95, transom: true, loadRef: 3000 },
   hullLat: { area: 4.5, cd: 0.9, z: -0.3 },
   windage: { area: 8.5, z: 2.8, cd: 1.0 },
-  mastX: 2.3, mastHeight: 11.4, boomZ: 2.3, mastR: 0.13, keelBulb: false,
+  mastX: 2.05, mastHeight: 11.4, boomZ: 2.3, mastR: 0.13, keelBulb: false,
   targetHeel: 12 * DEG, canCapsize: false, hasBackstay: false, hasBoard: false, sheetPower: 1800, reefTime: 110,
   cloth: 'canvas',
   engine: null,                     // (none: Slocum sailed her everywhere, and sculled her in calms)
@@ -40,7 +40,7 @@ export default {
     outhaul: { handler: 'horn', n: 2, at: 'boom' }, jibHalyard: { handler: 'horn', n: 2, at: 'mast' } },
   ropeStyle: 'classic',
   sails: [
-    { key: 'main', kind: 'boom', rig: 'gaff', area: 58, luff: 6.4, foot: 8.2, head: 5.0, headRise: 3.4, roach: 0,
+    { key: 'main', kind: 'boom', rig: 'gaff', area: 52, luff: 6.86, foot: 8.2, head: 3.7, headRise: 4.4, roach: 0,
       depth: [0.13, 0.14, 0.13], twistMax: 26 * DEG, cd0: 0.08, ARe: 2.2, min: 3 * DEG, max: 80 * DEG, trav: [-3 * DEG, 8 * DEG], Iboom: 900, boomMass: 90, reefs: 2,
       vangBend: 0, sheetBend: 0, color: 0xece2c8, pockets: [], battens: { EI: 0, rows: [] }, boomMat: 'wood', gaffR: 0.07, boomR: 0.09, boomRound: true },
     { key: 'jib', kind: 'loose', area: 22, tackX: 8.7, tackZ: 1.85, luff: 7.6, foot: 4.8, head: 0.06, footRise: 0.5,
@@ -62,17 +62,17 @@ export default {
     crown: 0.07, transomRake: 0.35, stemX: 0.6,
   },
   model: {
-    cockpit: { t0: 0.07, t1: 0.16, w: 0.45, sole: 0.95, seats: false, coaming: 0.12, coamingMat: 'teak' },
+    cockpit: { t0: 0.03, t1: 0.1, w: 0.45, sole: 0.95, seats: false, coaming: 0.12, coamingMat: 'teak' },
     deck: 'teak', toerail: { bulwark: 0.3, cap: 'teak', color: 0xf1ede2 }, bronze: true, cleats: false,
     cabins: [
-      { t0: 0.17, t1: 0.52, h: [[0.17, 0.62], [0.52, 0.62]], w: [[0.17, 1.2], [0.52, 1.25]], slope: 0.02, camber: 0.1, frontRake: 0.02, aftRake: 0.02,
+      { t0: 0.11, t1: 0.36, h: [[0.11, 0.62], [0.36, 0.62]], w: [[0.11, 1.25], [0.36, 1.35]], slope: 0.02, camber: 0.1, frontRake: 0.02, aftRake: 0.02,
         color: 0xe4d8b6, roof: 'paint', roofColor: 0xd9ccaa, eyebrow: 'teak', trim: 'teak',
-        windows: [{ kind: 'port', t0: 0.22, t1: 0.47, n: 4, r: 0.08, zf: 0.52, mat: 'bronze' }], companion: { w: 0.62, mat: 'teak' },
-        hatches: [{ t: 0.22, w: 0.66, l: 0.6, kind: 'slide' }, { t: 0.42, w: 0.6, l: 0.6 }] },
-      { t0: 0.72, t1: 0.8, h: [[0.72, 0.5], [0.8, 0.5]], w: [[0.72, 0.62], [0.8, 0.55]], slope: 0.02, camber: 0.08, color: 0xe4d8b6, roof: 'paint', roofColor: 0xd9ccaa, trim: 'teak',
-        windows: [{ kind: 'port', t0: 0.74, t1: 0.78, n: 1, r: 0.06, zf: 0.5, mat: 'bronze' }], hatches: [{ t: 0.76, w: 0.5, l: 0.45, kind: 'slide' }] },
+        windows: [{ kind: 'port', t0: 0.15, t1: 0.32, n: 3, r: 0.08, zf: 0.52, mat: 'bronze' }], companion: { w: 0.62, mat: 'teak' },
+        hatches: [{ t: 0.17, w: 0.66, l: 0.6, kind: 'slide' }, { t: 0.3, w: 0.6, l: 0.6 }] },
+      { t0: 0.51, t1: 0.62, h: [[0.51, 0.55], [0.62, 0.55]], w: [[0.51, 0.85], [0.62, 0.8]], slope: 0.02, camber: 0.08, color: 0xe4d8b6, roof: 'paint', roofColor: 0xd9ccaa, trim: 'teak',
+        windows: [{ kind: 'port', t0: 0.54, t1: 0.59, n: 2, r: 0.06, zf: 0.5, mat: 'bronze' }], hatches: [{ t: 0.55, w: 0.55, l: 0.45, kind: 'slide' }] },
     ],
-    steering: { kind: 'tiller', len: 1.7, rise: 0.12, mat: 'wood', r: 0.04 },
+    steering: { kind: 'wheel', x: -4.8, r: 0.42, hub: 0.95 },
     rudder: { kind: 'transom', x: -5.5, top: 1.55, bottom: -1.3, chordTop: 0.5, heel: 0.3, lean: 0.28, mat: 'wood', thick: 0.08, pintles: [-1.0, -0.2, 0.6, 1.3] },
     keel: { kind: 'full' },
     bowsprit: { len: 3.0, kind: 'pole', mat: 'wood', r: 0.11, steeve: 0.35, inboard: 1.4, bobZ: 0.05 },
@@ -82,7 +82,7 @@ export default {
       mizzen: { mat: 'wood', r: 0.07, rTop: 0.05, round: true, spreaders: [], hounds: 6.6, stayTo: -6.7, stayToZ: 1.7 },
     },
     backstay: false, windex: false, noNumber: true, hullName: { text: 'SPRAY', t: 0.9, z: 1.2, len: 1.1, color: '#1e1e1e' },
-    extras: ['sprayDetails'],
+    extras: ['sprayDetails', 'sprayDory'],
   },
-  hw: { trav: [-5.1, 1.2], boomS: 0.97, winch: [-3.6, 1.75], jibTrack: [0.8, -0.8, 1.9], helm: 'Tiller', bronze: true, winchR: 0.06 },
+  hw: { trav: [-5.1, 1.2], boomS: 0.97, winch: [-3.6, 1.75], jibTrack: [0.8, -0.8, 1.9], helm: 'Wheel', bronze: true, winchR: 0.06 },
 };

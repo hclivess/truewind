@@ -20,6 +20,8 @@ import { work, letFly as flyLine, handlerOf, lineName, handRate } from './lineha
 import { sunPosition } from './sky.js';
 import './sail/sailsim.js';   // (registers the cloth / lattice sail model with physics.js)
 import { SailGovernor, setSailLevel, sailsFlown } from './governor.js';
+import { Tide } from './tide.js';
+import { decodeBathy, fetchBathy } from './bathy.js';
 import { loadBakedPolars, bakedPolars } from './sail/surrogate.js';
 import { Traffic, fetchTrafficGeo } from './traffic.js';
 import { TrafficView } from './traffic-render.js';
@@ -65,7 +67,7 @@ class Game {
     this.polarCache = new Map();
     this.keys = new Set();
     this.settings = {
-      cls: 'blackwatch', venue: 'progreso', mode: 'free', tws: 14, twd: 70, gust: 0.5, shift: 7, swell: 0, current: 0.4,
+      cls: 'blackwatch', venue: 'progreso', mode: 'free', tws: 14, twd: 70, gust: 0.5, shift: 7, swell: 0, current: 0.4, tide: 'real', tideDate: '',
       fleet: 5, sailNo: '', boatName: '', countdown: 120, laps: 1, weather: 'changing', tod: 'afternoon', traffic: 'normal', autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true, rules: true,
       damage: 'realistic',    // or 'off' (the Boat section of the rig panel)
     };
@@ -132,7 +134,12 @@ class Game {
     document.querySelectorAll('.seg-b[data-weather]').forEach(b => b.addEventListener('click', () => { this.settings.weather = b.dataset.weather; this.refreshMenu(); }));
     document.querySelectorAll('.seg-b[data-tod]').forEach(b => b.addEventListener('click', () => { this.settings.tod = b.dataset.tod; this.refreshMenu(); this.retime(); }));
     document.querySelectorAll('.seg-b[data-traffic]').forEach(b => b.addEventListener('click', () => { this.settings.traffic = b.dataset.traffic; this.refreshMenu(); }));
-    const sliders = { tws: v => `${v} kn`, twd: v => `${String(v).padStart(3, '0')}°`, gust: v => `${Math.round(v * 100)}%`, shift: v => `±${v}°`, swell: v => v > 0 ? `${v} m` : 'none', current: v => v > 0 ? `${v} kn` : 'none', fleet: v => `${v}`, countdown: v => `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`, laps: v => `${v}` };
+    // the tide: real (for the date: the menu's time of day on that day) or a steady current set by hand
+    document.querySelectorAll('.seg-b[data-tide]').forEach(b => b.addEventListener('click', () => { this.settings.tide = b.dataset.tide; this.refreshMenu(); }));
+    const td = $('#tide-date');
+    td.value = this.settings.tideDate || new Date().toISOString().slice(0, 10);
+    td.addEventListener('change', () => { this.settings.tideDate = /^\d{4}-\d{2}-\d{2}$/.test(td.value) ? td.value : ''; this.refreshMenu(); this.retime(); });
+    const sliders = { tws: v => `${v} kn`, twd: v => `${String(v).padStart(3, '0')}°`, gust: v => `${Math.round(v * 100)}%`, shift: v => `±${v}°`, swell: v => v > 0 ? `${v} m` : 'none', current: v => this.hasTide() && this.settings.tide !== 'steady' ? this.tideNote() : v > 0 ? `${v} kn` : 'none', fleet: v => `${v}`, countdown: v => `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`, laps: v => `${v}` };
     for (const k in sliders) {
       const el = $('#' + k);
       el.value = this.settings[k];
@@ -172,6 +179,10 @@ class Game {
     document.querySelectorAll('.seg-b[data-weather]').forEach(b => { const on = b.dataset.weather === this.settings.weather; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
     document.querySelectorAll('.seg-b[data-tod]').forEach(b => { const on = b.dataset.tod === this.settings.tod; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
     document.querySelectorAll('.seg-b[data-traffic]').forEach(b => { const on = b.dataset.traffic === this.settings.traffic; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
+    document.querySelectorAll('.seg-b[data-tide]').forEach(b => { const on = b.dataset.tide === this.settings.tide; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
+    const tf = $('.tide-f'), has = this.hasTide();
+    tf.classList.toggle('notide', !has); tf.classList.toggle('steady', !has || this.settings.tide === 'steady');
+    $('#current-v').textContent = has && this.settings.tide !== 'steady' ? this.tideNote() : this.settings.current > 0 ? `${this.settings.current} kn` : 'none';
     this.windNote();
     document.body.classList.toggle('racing', this.settings.mode === 'race');
     document.body.classList.toggle('online', this.settings.mode === 'online');
@@ -211,8 +222,9 @@ class Game {
     st.textContent = 'Downloading coastline from OpenStreetMap… (can take ~20 s)';
     try {
       const marks = fetchSeamarks(lat, lon).catch(() => null);        // (in parallel; a failure only costs the seamarks)
+      const bathy = fetchBathy(lat, lon, 6000, makeProjection(lat, lon)).catch(() => null);   // (ETOPO 2022 from NOAA NCEI; else estimated)
       const geo = await fetchVenueGeo(lat, lon);
-      geo.seamarks = await marks;
+      geo.seamarks = await marks; geo.bathy = await bathy;
       this.customV = { id: 'custom', name: 'Custom location', place: `${lat.toFixed(3)}, ${lon.toFixed(3)}`, lat, lon, wind: this.settings.twd, windKt: this.settings.tws, depth: 12, note: '' };
       this.geoCache.set('custom', geo);
       this.geoCache.delete('custom-traffic');
@@ -225,11 +237,27 @@ class Game {
   }
   // where on Earth we are (for the sun and moon); open water is somewhere in the North Atlantic
   skyPlace() { const v = this.currentVenueDef(); return !v || (v.open && !v.preset) ? { lat: 32, lon: -40 } : { lat: v.lat, lon: v.lon }; }
-  // UTC time for the chosen time of day, today, in local solar time at the venue (Live = now)
+  // does the venue have a real tide (harmonic constants baked)? Lakes and custom places do not.
+  hasTide() { const v = this.currentVenueDef(); return !!v && !v.open && !v.lake && v.id !== 'custom'; }
+  // the menu's line for the real tide: the day's high and low waters at the venue's reference gauge (loaded lazily)
+  tideNote() {
+    const v = this.currentVenueDef(); if (!v) return '';
+    const g = this.geoCache.get(v.id);
+    if (!g || !g.tideJ) { if (!this._tideLoading) { this._tideLoading = true; this.loadGeo(v).then(() => { this._tideLoading = false; this.refreshMenu(); }).catch(() => { this._tideLoading = false; }); } return 'real'; }
+    const tide = g.tideObj || (g.tideObj = new Tide(g.tideJ)), st = tide.ref; if (!st) return 'real';
+    const c0 = this.clockFor(), lon = v.lon, day0 = c0 - ((c0 / 3600e3 + lon / 15) % 24 + 24) % 24 * 3600e3;   // local solar midnight
+    const ex = st.extremes(day0, day0 + 24 * 3600e3);
+    const hm = (t) => { const h = ((t / 3600e3 + lon / 15) % 24 + 24) % 24; return `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor(h % 1 * 60)).padStart(2, '0')}`; };
+    const hw = ex.filter(e => e.hw), lw = ex.filter(e => !e.hw);
+    const rng = hw.length && lw.length ? Math.max(...hw.map(e => e.h)) - Math.min(...lw.map(e => e.h)) : 0;
+    return `${hw.length ? 'HW ' + hw.map(e => hm(e.t)).join(', ') : ''}${rng ? ` · range ${rng.toFixed(1)} m` : ''}`;
+  }
+  // UTC time for the chosen time of day, on the chosen day (today unless the tide's date is set), in local solar
+  // time at the venue (Live = now)
   clockFor() {
     const tod = this.settings.tod || 'afternoon';
     if (tod === 'live' || this.settings.mode === 'online') return Date.now();
-    const { lat, lon } = this.skyPlace(), now = new Date();
+    const { lat, lon } = this.skyPlace(), now = this.settings.tideDate ? new Date(this.settings.tideDate + 'T12:00:00Z') : new Date();
     const day = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
     const at = (h) => day + (h - lon / 15) * 3600e3;
     const fixed = { morning: 9, noon: 12.3, afternoon: 15.5, night: 23 };
@@ -362,7 +390,12 @@ class Game {
     if (this.geoCache.has(v.id)) return this.geoCache.get(v.id);
     const r = await fetch(`data/venues/${v.id}.json`);
     const g = await r.json();
-    g.seamarks = await fetch(`data/venues/${v.id}.seamarks.json`).then(r => r.ok ? r.json() : null).catch(() => null);   // lights, buoys, beacons
+    const [marks, bathy, tideJ] = await Promise.all([
+      fetch(`data/venues/${v.id}.seamarks.json`).then(r => r.ok ? r.json() : null).catch(() => null),   // lights, buoys, beacons
+      v.lake ? null : fetch(`data/venues/${v.id}.bathy.bin`).then(r => r.ok ? r.arrayBuffer() : null).then(b => b ? decodeBathy(b) : null).catch(() => null),   // the surveyed bottom
+      v.lake ? null : fetch(`data/venues/${v.id}.tide.json`).then(r => r.ok ? r.json() : null).catch(() => null),         // harmonic constants, stream maps
+    ]);
+    g.seamarks = marks; g.bathy = bathy; g.tideJ = tideJ;
     this.geoCache.set(v.id, g);
     return g;
   }
@@ -399,12 +432,20 @@ class Game {
     this.obstacles = null;
     const world = new World(v, geo);
     this.world = world;
+    // the real bottom under the real tide (a steady current from the menu keeps the water at mean sea level)
+    const tide = geo && geo.tideJ && !v.lake ? new Tide(geo.tideJ) : null;
+    if (tide && v.residual) tide.residual = v.residual;              // a steady non-tidal drift (Progreso's coastal current)
+    const realTide = !!tide && (idle || S.tide !== 'steady');
+    if (tide) tide.still = !realTide;
+    world.setBathy(geo && geo.bathy, tide);
+    this.tide = tide;
     this.obstacles = ((geo && geo.piers) || []).filter(p => p.kind !== 'bridge' || (() => { let wet = 0; for (let i = 0; i < p.pts.length; i += 2) if (world.sdfAt(p.pts[i], p.pts[i + 1]) > 0) wet++; return wet > 0; })());
     const online = S.mode === 'online' && !idle;
     const cond = {
       seed: Math.floor(Math.random() * 100000), epoch: Date.now() / 1000,
       tws: idle ? v.windKt : S.tws, twd: idle ? v.wind : S.twd, gust: S.gust, shift: S.shift, swell: S.swell,
       current: idle ? 0 : S.current, currentDir: v.current?.dir ?? 90, weather: idle ? 'steady' : S.weather,
+      tide: realTide ? 'real' : 'steady',
     };
     this.cond = cond;
     const env = this.makeEnv(cond);
@@ -430,11 +471,13 @@ class Game {
     this.player = player;
     this.boats.push(player);
     const P = makeProjection(v.lat, v.lon);
+    // (with a real tide: deep enough at the lowest tide, below chart datum)
+    const dep = (x, z) => world.bed && world.tide && !world.tide.still ? Math.min(world.depthAt(x, z), world.chartDepthAt(x, z)) : world.depthAt(x, z);
     const safe = (x, z, need) => { // nearest water deep enough for this keel
-      if (world.depthAt(x, z) > need) return [x, z];
+      if (dep(x, z) > need) return [x, z];
       for (let r = 20; r < 3000; r += 20) for (let a = 0; a < 6.28; a += 0.3) {
         const px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
-        if (world.depthAt(px, pz) > need && world.sdfAt(px, pz) > 25) return [px, pz];
+        if (dep(px, pz) > need && world.sdfAt(px, pz) > 25) return [px, pz];
       }
       return [x, z];
     };
@@ -539,18 +582,20 @@ class Game {
     const fetchM = world.open ? 60000 : world.fetchAt(0, 0, twd, 6000);
     // open ocean: effectively unlimited fetch, the sea grows to fully developed (Pierson-Moskowitz)
     const fetchKm = world.open ? 2000 : fetchM >= 6000 ? 25 : Math.max(0.4, fetchM / 1000);
+    const clock0 = this.settings.mode === 'online' && cond.epoch ? cond.epoch * 1000 : this.clockFor();
+    if (this.tide) this.tide.still = cond.tide === 'steady';
     // an open-ocean gale brings its own swell, raised in its earlier hours and its other sectors, running
     // under the local sea and crossing it (0.4 of the fully developed sea by 50 kn); the slider's if bigger
     const U = cond.tws * KT, sw = world.open ? Math.max(cond.swell, 0.4 * 0.21 * U * U / 9.81 * clamp((cond.tws - 30) / 20, 0, 1)) : cond.swell;
     const env = new Environment({
+      tide: this.tide, tideMode: cond.tide === 'steady' ? 'steady' : 'real', tideClock0: clock0,
       tws: cond.tws * KT, twd: cond.twd, gust: cond.gust, shift: cond.shift, seed: cond.seed, weather: cond.weather ?? 'changing',
       fetchKm, swellH: sw, swellT: 6 + 3.4 * Math.sqrt(Math.max(0.1, sw)),   // longer swell for bigger swell: 1 m 9 s, 8 m 16 s, 16 m 20 s
       currentKt: cond.current, currentDir: cond.currentDir,
       hemi: v && v.lat < 0 ? -1 : 1,     // puffs and squalls veer north of the equator, back south of it
       // sea/lake and land breezes by the real sun at the venue. clock0 = UTC ms at t = 0: online it is the
       // room's shared epoch (every peer's clock is epoch + t), offline the chosen time of day
-      thermal: world.open || !v ? null : { lat: v.lat, lon: v.lon, land: world, regional: v.regional,
-        clock0: this.settings.mode === 'online' && cond.epoch ? cond.epoch * 1000 : this.clockFor() },
+      thermal: world.open || !v ? null : { lat: v.lat, lon: v.lon, land: world, regional: v.regional, clock0 },
     });
     // sheltering by land slows the wind near a weather shore
     const base = env.wind.sample.bind(env.wind);
@@ -1179,7 +1224,12 @@ class Game {
       b.pose = { x: lerp(p.x, b.x, alpha), z: lerp(p.z, b.z, alpha), psi: p.psi + wrapA(b.psi - p.psi) * alpha,
         heave: lerp(p.heave, b.heave, alpha), pitch: lerp(p.pitch, b.pitch, alpha), phi: lerp(p.phi, b.phi, alpha) };
     }
+    // the tide: the sea's stream from the boat's water (a shared room: the venue's centre, so every peer's sea
+    // agrees), the level at the boat for the land, the banks and the shader
+    const pl = this.player;
+    if (pl) { const f = this.env.focus; if (this.netEpoch !== null) { f.x = 0; f.z = 0; } else { f.x = pl.x; f.z = pl.z; } }
     if (this.env.tick(this.t)) this.renderer.setWaves(this.env.waves);
+    this.renderer.setTide(pl && this.world ? this.world.levelAt(pl.x, pl.z) : 0);
     this.cstAcc = (this.cstAcc || 0) + dt;
     if (this.cstAcc > 5 && this.cstBuilt && this.cstBuilt.env === this.env) {
       this.cstAcc = 0;

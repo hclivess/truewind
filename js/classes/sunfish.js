@@ -37,15 +37,16 @@ export default {
       vangBend: 0.1, sheetBend: 0.1, color: 0xf6f5f0, pockets: [], battens: { EI: 0, rows: [] }, boomMat: 'alu', yardR: 0.026, boomR: 0.026, window: false },
   ],
   hull: { color: 0xf6f6f2, stripe: 0x1f6fb5, deck: 0xf4f4ef, boot: 0xf6f6f2, bare: true, levels: [-9, -9, 0.06, 0.035] },
-  // the rainbow sail: red, orange, yellow, green, blue bands across the head, as the classic Sunfish wears them
-  sailcloth: { cloth: 0xf6f5f0, kind: 'dacron', num: '#1d2a44', logo: '#e05a1a', trans: 0.36, rough: 0.55,
-    stripes: [[0.52, 0.6, '#d8312b'], [0.6, 0.68, '#ef7d1a'], [0.68, 0.76, '#f3c623'], [0.76, 0.84, '#3a9b44'], [0.84, 0.92, '#1f6fb5']] },
-  // the class emblem: the sunfish itself, a deep round-bodied fish in outline
-  insignia: (g, cx, cy, cl) => {
-    g.strokeStyle = '#e05a1a'; g.fillStyle = 'rgba(240,160,40,0.9)'; g.lineWidth = 5;
-    g.beginPath(); g.moveTo(cx + 46, cy); g.bezierCurveTo(cx + 30, cy - 40, cx - 20, cy - 44, cx - 38, cy - 6); g.lineTo(cx - 62, cy - 30); g.lineTo(cx - 56, cy + 2);
-    g.lineTo(cx - 62, cy + 32); g.lineTo(cx - 38, cy + 8); g.bezierCurveTo(cx - 20, cy + 44, cx + 30, cy + 40, cx + 46, cy); g.closePath(); g.fill(); g.stroke();
-    g.fillStyle = '#1d2a44'; g.beginPath(); g.arc(cx + 26, cy - 8, 5, 0, 7); g.fill();
+  // the rainbow sail, as the Sunfish wears it: diagonal bands over the whole sail, yellow at the peak through orange and
+  // red to blue at the tack, the band edges leaning from the boom up to the yard
+  sailcloth: { cloth: 0xf6f5f0, kind: 'dacron', num: '#16171a', logo: '#16171a', trans: 0.36, rough: 0.55,
+    bands: [[-0.6, 0.18, '#f3d02a'], [0.18, 0.36, '#f4a11f'], [0.36, 0.56, '#ef6f1c'], [0.56, 0.78, '#d8312b'], [0.78, 1.6, '#2a62c4']], bandTilt: 0.45 },
+  // the class emblem: a black sunfish, round-bodied, its tail to the left
+  insignia: (g, cx, cy) => {
+    g.fillStyle = '#16171a';
+    g.beginPath(); g.moveTo(cx + 40, cy); g.bezierCurveTo(cx + 30, cy - 38, cx - 18, cy - 40, cx - 30, cy - 4); g.lineTo(cx - 52, cy - 26); g.lineTo(cx - 46, cy + 2);
+    g.lineTo(cx - 52, cy + 28); g.lineTo(cx - 30, cy + 6); g.bezierCurveTo(cx - 18, cy + 40, cx + 30, cy + 38, cx + 40, cy); g.fill();
+    g.fillStyle = '#f6f5f0'; g.beginPath(); g.arc(cx + 22, cy - 8, 4, 0, 7); g.fill();
   },
   offsets: {
     sheer: [[0, 0.24], [0.5, 0.25], [0.85, 0.3], [1, 0.34]],
@@ -62,6 +63,7 @@ export default {
     rudder: { kind: 'transom', top: 0.3, bottom: -0.5, chordTop: 0.15, heel: 0.2, mat: 'wood', thick: 0.02 },
     keel: { kind: 'dagger', color: 0xc89a64 },
     masts: { main: { mat: 'alu', r: 0.028, rTop: 0.024, round: true, mastCollar: false, spreaders: [], lowers: false, shrouds: false } },
+    extras: ['sunfishDeck'],
   },
   hw: { style: 'dinghy', trav: [-1.95, 0.45], boomS: 0.62, ratchet: [-0.35, 0.08], helm: 'Tiller extension' },
   noWinches: true,
