@@ -549,7 +549,7 @@ export class Renderer {
             float a = PP.w * (0.6 + 0.55 * na + 0.35 * (nb - 0.5));
             vec3 lit = uAmbF * (0.62 + 0.25 * shadow) + uSunCol * (0.2 + 0.25 * NdL) * shadow;
             vec3 bub = mix(vec3(0.16, 0.46, 0.44), vec3(0.62, 0.78, 0.76), smoothstep(0.35, 1.2, a)) * lit;
-            body = mix(body, bub, clamp(0.85 * smoothstep(0.03, 0.7, a), 0.0, 0.9));
+            body = mix(body, bub, clamp(0.85 * smoothstep(0.08, 0.8, a), 0.0, 0.9));
             sss *= 1.0 - clamp(a, 0.0, 1.0);
             // the churned surface at the freshest part: froth, broken up
             PP.y = max(PP.y, smoothstep(0.55, 1.3, a) * 0.9);
