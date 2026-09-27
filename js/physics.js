@@ -35,6 +35,7 @@ import { LOCKABLE, initLines, stepLines, swapJib } from './linehandlers.js';
 export { LOCKABLE };
 import { Engine } from './engine.js';
 import { FAMOUS } from './classes/famous.js';
+import { RACE } from './classes/race.js';
 // (Math.hypot allocates when V8 does not inline it: these do not)
 const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
@@ -61,10 +62,11 @@ export const wrap = (a) => { if (!isFinite(a)) return 0; return a - 2 * Math.PI 
 
 // ---------------------------------------------------------------------------------------------
 // Boat classes. Geometry in metres from the centre of gravity (x fwd), heights above waterline.
-// Sail kinds: 'boom' (main, self-tacking staysail), 'loose' (jib), 'spin' (asymmetric gennaker).
+// Sail kinds: 'boom' (main, self-tacking staysail or jib), 'loose' (jib), 'spin' (asymmetric gennaker, or a
+// symmetric spinnaker when it has a pole: s.pole, its length).
 export const CLASSES = {
   blackwatch: {
-    id: 'blackwatch', name: 'Blackwatch 19/24',
+    id: 'blackwatch', group: 'cruiser', name: 'Blackwatch 19/24',
     blurb: "Dave Autry's 1979 pocket bluewater cutter from Blue Water Boatworks. Long keel, transom-hung rudder, teak bowsprit, self-tacking staysail, flying jib, double-reefed main. Heavy, stiff, forgiving — and it will not go faster than its 5.6 kn hull speed.",
     specs: 'LOA 5.64 m (≈7.2 m incl. bowsprit) · LWL 5.33 m · Beam 2.29 m · Draft 0.61 m · 1,021 kg · 363 kg iron ballast · Sail area 19.7 m²',
     lwl: 5.33, loa: 5.64, beam: 2.29, bowX: 2.85, sternX: -2.79, freeboard: 0.78, canoeDraft: 0.42, wetted: 11.6, draft: 0.61,
@@ -115,7 +117,7 @@ export const CLASSES = {
     hull: { color: 0x15171b, stripe: 0xb8902f, deck: 0xcdbf9f, boot: 0x7a1f1f, sectionN: 1.8, transom: 0.62, bowRake: 0.35, sheer: 0.18 },
   },
   sportboat: {
-    id: 'sportboat', name: 'Sportboat 23',
+    id: 'sportboat', group: 'keelboat', name: 'Sportboat 23',
     blurb: '7 m one-design sportboat, 4 crew, carbon mast, asymmetric gennaker on a retractable bowsprit. Planes downwind from about 13 kn of wind.',
     specs: 'LOA 6.93 m · LWL 6.10 m · Beam 2.25 m · Draft 1.45 m · 794 kg · Main 16.7 m² · Jib 9.1 m² · Gennaker 39.5 m²',
     lwl: 6.1, loa: 6.93, beam: 2.25, bowX: 3.55, sternX: -3.38, freeboard: 0.72, canoeDraft: 0.28, wetted: 10.2, draft: 1.45,
@@ -167,7 +169,7 @@ export const CLASSES = {
     hull: { color: 0xf3f4f1, stripe: 0x1d4e89, deck: 0xdcd8cc, boot: 0x1d4e89, sectionN: 2.6, transom: 0.78, bowRake: 0.25, sheer: 0.08 },
   },
   dinghy: {
-    id: 'dinghy', name: 'Singlehander 14',
+    id: 'dinghy', group: 'dinghy', name: 'Singlehander 14',
     blurb: '4.2 m una-rig Olympic-style dinghy. One sailor, unstayed bendy mast, daggerboard, vang-sheeting. Capsizes if you let it.',
     specs: 'LOA 4.23 m · LWL 3.81 m · Beam 1.37 m · Hull 59 kg · Sail 7.06 m²',
     lwl: 3.81, loa: 4.23, beam: 1.37, bowX: 2.2, sternX: -2.03, freeboard: 0.38, canoeDraft: 0.16, wetted: 3.3, draft: 0.9,
@@ -202,7 +204,7 @@ export const CLASSES = {
     hull: { color: 0xf6f6f2, stripe: 0xf6f6f2, deck: 0xe6e3da, boot: 0xc8412c, sectionN: 2.2, transom: 0.72, bowRake: 0.15, sheer: 0.05 },
   },
   cat: {
-    id: 'cat', name: 'Beach Cat 16',
+    id: 'cat', group: 'multihull', name: 'Beach Cat 16',
     blurb: '16 ft beach catamaran: twin asymmetric banana hulls with no daggerboards, trampoline, kick-up rudders on a tiller crossbar, fully battened rotating rig, both crew on trapeze. Flies a hull from about 10 kn, and pitchpoles if you bury the bows.',
     specs: 'LOA 5.04 m · Beam 2.41 m · Hull 160 kg · Main 13.7 m² (full battens) · Jib 5.2 m² · Spinnaker 17.5 m²',
     multihull: true, hullBeam: 0.42, hullSpacing: 2.0, noWinches: true, trapeze: true,
@@ -250,7 +252,7 @@ export const CLASSES = {
   },
 };
 // production and famous boats (js/classes/*.js)
-for (const C of FAMOUS) CLASSES[C.id] = C;
+for (const C of [...RACE, ...FAMOUS]) CLASSES[C.id] = C;
 // headsails are set on stays that run from the tack up to the mast: the head sits at the mast, so the
 // luff's rake is the horizontal distance from the tack to the mast (a free-flying gennaker keeps its own; a sail on
 // its own mast, a mizzen, keeps its, as does a sail marked fixedRake). A raked mast (mastRake: m aft at the masthead,
@@ -271,7 +273,8 @@ for (const C of Object.values(CLASSES)) {
   M.max = boomContactAngle(C, by);
   if (M.trav) { const h = Math.atan2(M.track.half, goose(C).x - M.track.x); M.trav = [-h, h]; }
 }
-export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat', ...FAMOUS.map(C => C.id)];
+// (the menu shows them in this order within their groups: C.group, js/main.js CLASS_GROUPS)
+export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat', ...RACE.map(C => C.id), ...FAMOUS.map(C => C.id)];
 // sheets the crew trims (a boomed sail's sheet is keyed by the sail: a mizzen has its own)
 const SHEETS = ['main', 'jib', 'stay', 'lazy', 'mizzen'];
 
@@ -552,19 +555,26 @@ export class Boat {
     // una-rig in irons: the sailor pushes the boom out against the wind to sail backwards and turn
     const push = (ctrl.pushBoom && !this.sailBy.jib && key === 'main') ? (ctrl.pushBoom * 0.8 - b.a) * s.Iboom * 20 : 0;
     // the boom end in the sea: water drag on the immersed length swings it (js/boom.js boomDip); the hull takes the rest
-    let dipT = 0;
-    if (ax && s.track) {
+    // (the water's drag grows with the square of the boom's swing: integrated explicitly it overshoots and blows up
+    // once the boom swings fast in the sea, so its dependence on the swing is taken implicitly: T = T0 - c rate)
+    let dipT = 0, dipC = 0;
+    if (ax && s.track && Number.isFinite(b.a) && Number.isFinite(b.rate)) {
       const o = this._dip || (this._dip = {});
       const sea = this._sea || (this._sea = (x, y) => (this._etaAt ? this._etaAt(x) + (this._slLat ? this._slLat(x) * y : 0) : 0));
       boomDip(this, s, b.a, 0, boomLen(s), b.rate, ax, sea, o);
-      if (o.wet > 0) { dipT = o.torque; ax.X += o.X; ax.Y += o.Y; ax.K += o.K; ax.N += o.N; }
+      if (o.wet > 0) {
+        const T1 = o.torque; ax.X += o.X; ax.Y += o.Y; ax.K += o.K; ax.N += o.N;
+        const o0 = this._dip0 || (this._dip0 = {});
+        boomDip(this, s, b.a, 0, boomLen(s), 0, ax, sea, o0);
+        dipT = o0.torque; dipC = Math.abs(b.rate) > 1e-4 ? Math.max(0, (o0.torque - T1) / b.rate) : 0;
+      }
       this.diag.rig.boomWet = o.wet;
     }
     // boom brake: friction against the swing (a line round a drum: its drag rises to the set value as the boom starts
     // to move, 0.1 m/s at the end, so it slows the swing, never holds a boom still or reverses it)
     const brakeT = s.brake ? (ctrl.brake || 0) * s.brake * boomLen(s) * clamp(Math.abs(b.rate) * boomLen(s) / 0.1, 0, 1) : 0;
     const acc = (boomTorque + grav + inert + push + dipT - damp * b.rate) / s.Iboom;
-    b.rate += acc * dt;
+    b.rate = (b.rate + acc * dt) / (1 + dipC * dt / s.Iboom);
     if (brakeT > 0) { const dr = Math.min(Math.abs(b.rate), brakeT / s.Iboom * dt); b.rate -= Math.sign(b.rate) * dr; }
     b.a += b.rate * dt;
     // preventer (rigged: the boom may not swing back inboard of where it was made fast; it parts if overloaded)
@@ -911,7 +921,7 @@ export class Boat {
       const vx = interp7(W7, 'vx', xb) * e1 + dr.x * e2, vz = interp7(W7, 'vz', xb) * e1 + dr.z * e2;
       wo.u = vx * fx + vz * fz; wo.v = vx * sx + vz * sz; return wo;
     };
-    if (C.multihull) {
+    if (C.multihull && !C.amas) {
       const vh = imm.Vh || [imm.V / 2, imm.V / 2];
       this.flyIn = clamp(Math.min(vh[0], vh[1]) / Math.max(1e-6, Math.max(vh[0], vh[1])), 0, 1);
     } else this.flyIn = 1;
@@ -975,13 +985,14 @@ export class Boat {
       // round-bilged hulls (beam/length ~0.08) carry no planing surface: they stay displacement hulls, and
       // their residuary table (towing-tank C_R, which is referenced to the static wetted area) already
       // holds whatever sinkage and trim they take at speed
-      const planeLift = C.multihull ? 0 : sstep(0.45, 0.95, Fn);
+      const slender = C.multihull || C.amas;                             // (a trimaran's hulls are slender too)
+      const planeLift = slender ? 0 : sstep(0.45, 0.95, Fn);
       const Swet = imm.girthLen * (1 - 0.3 * planeLift);                 // wetted surface of the real hull
       const Rf = 0.5 * RHO_W * Swet * uw * uw * cfITTC(uw, lwlDyn) * 1.08;
       // fore-aft crew weight: forward in light air (bury the bow, lift the transom), aft when planing
       const optTrim = lerp(-0.6, 0.8, sstep(0.3, 0.55, Fn));
       const trimPen = 1 + 0.09 * (this.crewX - optTrim) ** 2;
-      const Rr = disp * G * interp(C.rr, Fn) * (C.multihull ? 1 + 0.3 * (1 - this.flyIn) : 1 + 0.5 * this.phi * this.phi) * trimPen;
+      const Rr = disp * G * interp(C.rr, Fn) * (C.multihull ? 1 + 0.3 * (1 - this.flyIn) : C.amas ? 1 : 1 + 0.5 * this.phi * this.phi) * trimPen;
       let Raw = 0;
       if (wv) {
         // added resistance in waves comes from the waves about the boat's own length (it rides the long ones
@@ -1010,9 +1021,9 @@ export class Boat {
       const N0 = N;
       N -= 0.5 * RHO_W * T * 0.9 * (L ** 4 / 32) * this.r * Math.abs(this.r);
       N -= 0.5 * RHO_W * T * L ** 3 * 0.03 * (Math.abs(uw) + 0.3) * this.r;
-      if (!C.multihull) N -= 0.011 * 0.5 * RHO_W * uw * Math.abs(uw) * L * L * T * Math.sin(this.phi);
+      if (!slender) N -= 0.011 * 0.5 * RHO_W * uw * Math.abs(uw) * L * L * T * Math.sin(this.phi);
       // hull drag acts where the immersed volume is: a multihull on its leeward hull wants to bear away
-      if (imm.V > 1e-6) N += (Rf + Rr) * Math.sign(uw) * (imm.My / imm.V) * cphi * (C.multihull ? 1 : 0.3);
+      if (imm.V > 1e-6) N += (Rf + Rr) * Math.sign(uw) * (imm.My / imm.V) * cphi * (slender ? 1 : 0.3);
       // Munk moment: a hull moving at a drift angle carries more fluid momentum sideways than lengthwise,
       // and the difference turns it broadside to the flow, N = -(m_y - m_x) u v (Kirchhoff; the added-mass
       // Coriolis term the surge and sway equations already carry, closed in yaw). With leeway it adds weather

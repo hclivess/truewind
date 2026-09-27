@@ -169,7 +169,7 @@ export function boomDip(b, s, a, e, L, rate, ax, etaAt, o) {
     const x = G.x - r * Math.cos(e) * Math.cos(a), y = r * Math.cos(e) * Math.sin(a), z = G.z + r * Math.sin(e);
     const Yl = y * cphi + z * sphi, H = z * cphi - y * sphi + heaveH;
     const depth = etaAt(x, Yl) - H;
-    if (depth <= -0.02) continue;
+    if (!(depth > -0.02)) continue;                 // (dry, or a non-finite state: nothing)
     const imm = clamp((depth + 0.02) / 0.15, 0, 1);
     // water velocity relative to the boom point (level frame): the boom moves with the hull and swings about G
     const vx = -(b.u - b.r * Yl) - rate * y, vy = -(b.v + b.r * x + b.p * H) - rate * (G.x - x) * cphi;

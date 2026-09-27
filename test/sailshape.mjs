@@ -1,23 +1,25 @@
 // Cloth sail shapes (js/sail/rigsim.js + cloth.js under the lattice's loads).
-//  1. beating in 12 kn with the automatic crew: main depth, draft position and twist at the three heights
+//  1. beating in 12 kn (or the class's full-power wind, C.fullPowerTws) with the automatic crew: main depth, draft position and twist at the three heights
 //  2. every string does what it does on a real boat (sign checks, one control moved, the rest held):
 //     outhaul in -> flatter foot; cunningham on -> draft forward; backstay on -> flatter main, less headstay sag
 //     (flatter jib); vang on -> less twist; jib car aft -> flatter jib foot, more jib twist
 // Run: node test/sailshape.mjs [class]
-import { Boat, autoTrim, makeSteadyEnv, CLASSES } from '../js/physics.js';
+import { Boat, autoTrim, makeSteadyEnv, CLASSES, CLASS_ORDER } from '../js/physics.js';
 import { attachSails } from '../js/sail/sailsim.js';
 const KT = 0.514444, DEG = Math.PI / 180;
 let fails = 0;
 const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (!ok) fails++; };
-const classes = process.argv[2] ? [process.argv[2]] : ['blackwatch', 'sportboat', 'dinghy', 'cat'];
+const classes = process.argv[2] ? [process.argv[2]] : CLASS_ORDER;
 
 // settle a boat close-hauled (heading and helm held), auto crew, then hold a set of controls and settle again
 function settle(cls, set = null, secs = null, twa0 = null) {
   // (a heavy boat takes longer to come up to speed and settle: ~14 s for the light ones, up to 40 s for a 15 t boat)
   const Cc = CLASSES[cls]; secs = secs ?? Math.round(Math.max(14, Math.min(40, 6 + (Cc.massHull + Cc.crewN * Cc.crewEach) / 400)));
-  const env = makeSteadyEnv(12 * KT), b = new Boat(cls);
+  // (in 12 kn, or in the wind where the class is still at full power: a skiff or a big multihull is twisting off to
+  // depower in 12 kn, as its crew would)
+  const env = makeSteadyEnv(Math.min(12, Cc.fullPowerTws ?? 12) * KT), b = new Boat(cls);
   attachSails(b, 'cloth', 0);
-  const twa = twa0 ?? (cls === 'cat' ? 50 : 45);
+  const twa = twa0 ?? (CLASSES[cls].multihull || CLASSES[cls].amas ? 50 : 45);
   b.reset(0, 0, twa * DEG); b.u = 2.5; for (const k in b.booms) b.booms[k].a = 0.15;
   const dt = 1 / 120;
   for (let i = 0; i < 120 * secs; i++) {

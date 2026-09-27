@@ -16,7 +16,7 @@ import { clamp, lerp, sstep, shapeCoef, STRIP_F, STRIP_W, reefAt, sailHooks } fr
 import { DEG } from '../env.js';
 import { SailLattice } from './vlm.js';
 import { latticeSize } from './specs.js';
-import { BoomSailRig, JibRig, SpinRig, chordAt, areaScale } from './rigsim.js';
+import { BoomSailRig, JibRig, SpinRig, PoleSpinRig, chordAt, areaScale } from './rigsim.js';
 import './surrogate.js';
 import { boomDip } from '../boom.js';
 // (Math.hypot allocates when V8 does not inline it: these do not)
@@ -78,7 +78,7 @@ export class SailSystem {
     const NS = this.L.NS, N = this.L.N;
     this.sails.forEach((x, i) => { x.part = this.L.parts[i]; });
     // cloth sails (the rest keep the rig-set shapes)
-    for (const x of this.sails) x.rig = model !== 'cloth' ? null : x.s.kind === 'boom' ? new BoomSailRig(boat, x.s, lod) : x.s.kind === 'loose' ? new JibRig(boat, x.s, lod) : new SpinRig(boat, x.s, lod);
+    for (const x of this.sails) x.rig = model !== 'cloth' ? null : x.s.kind === 'boom' ? new BoomSailRig(boat, x.s, lod) : x.s.kind === 'loose' ? new JibRig(boat, x.s, lod) : x.s.pole ? new PoleSpinRig(boat, x.s, lod) : new SpinRig(boat, x.s, lod);
     this.fr = { u: 0, v: 0, r: 0, p: 0, ud: 0, vd: 0, rd: 0, pd: 0, hd: 0, cphi: 1, sphi: 0, hv: 0, first: true };
     // per strip: polar inputs and outputs
     this.pd = new Float64Array(NS); this.pf = new Float64Array(NS);
@@ -583,12 +583,16 @@ export class SailSystem {
   // the drag goes to the hull directly
   boomInSea(b, rig, ax) {
     const o = this._dip || (this._dip = {}), F = rig.dipF;
+    if (!Number.isFinite(rig.a) || !Number.isFinite(rig.rate)) { F[0] = F[1] = F[2] = 0; return; }
     const sea = this._sea || (this._sea = (x, y) => (b._etaAt ? b._etaAt(x) + (b._slLat ? b._slLat(x) * y : 0) : 0));
     boomDip(b, rig.s0, rig.a, rig.elev, rig.Lb, rig.rate, ax, sea, o);
     b.diag.rig.boomWet = o.wet;
     if (!(o.wet > 0)) { F[0] = F[1] = F[2] = 0; return; }
-    // the part that turns the boom: a force across its end with the same moment about the gooseneck
-    const a = rig.a, Ft = o.torque / rig.Lb, fx = Ft * Math.sin(a), fyl = Ft * Math.cos(a);
+    // the part that turns the boom: a force across its end with the same moment about the gooseneck (no more than
+    // stops the boom end's motion through the water in one step: the drag is explicit here, and grows with the square
+    // of the swing)
+    const a = rig.a, vEnd = Math.abs(rig.rate) * rig.Lb + Math.abs(b.u) + Math.abs(b.v) + 0.5, mE = rig.cloth.m[rig.E];
+    const Ft = clamp(o.torque / rig.Lb, -mE * vEnd / ax.dt, mE * vEnd / ax.dt), fx = Ft * Math.sin(a), fyl = Ft * Math.cos(a);
     const { cphi, sphi } = ax;
     F[0] = fx; F[1] = fyl * cphi; F[2] = fyl * sphi;
     const ex = rig.px - rig.Lb * Math.cos(a), ey = rig.Lb * Math.sin(a), Yl = ey * cphi + rig.pz * sphi, H = rig.pz * cphi - ey * sphi;

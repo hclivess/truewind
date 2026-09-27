@@ -317,6 +317,7 @@ export class Rigging {
     // ---------------- hardware layout (physics coordinates)
     const hw = this.hw = {};
     const M = boat.sailBy.main;
+    this.clutchX = C.hw?.clutchX ?? (C.id === 'sportboat' ? C.mastX - 0.75 : C.mastX - 1.0);
     if (C.hw && C.hw.style !== 'dinghy') {
       // the class's own hardware table (physics coordinates): traveller, primary winches, jib tracks
       const H = C.hw;
@@ -629,7 +630,7 @@ export class Rigging {
     const exitZ = vis.mastBase + 0.5;
     const hals = [V(C.mastX - 0.07, 0.02, exitZ), V(C.mastX + 0.07, 0, exitZ + 0.2), V(C.mastX + 0.07, -0.02, exitZ + 0.1)];
     // clutches on the aft end of the cabin roof (or the deck ahead of the cockpit), halyards run along the top
-    const cx0 = C.hw?.clutchX ?? (C.id === 'sportboat' ? C.mastX - 0.75 : C.mastX - 1.0);
+    const cx0 = this.clutchX;
     const clutch = (i) => V(cx0 - i * 0.02, (i - 1) * 0.08 + (isDinghy(C) ? 0 : 0.18), vis.deckH(cx0, 0.18) + 0.03);
     for (let i = 0; i < 3; i++) {
       const on = i === 0 || (i === 1 && b.sailBy.gennaker && b.genDeploy > 0.02) || (i === 2 && (b.sailBy.jib || b.sailBy.stay));
@@ -696,16 +697,22 @@ export class Rigging {
         const G = b.sailBy.gennaker, side = Math.sign(b.side.gennaker) || 1;
         const clew = this.clew('gennaker');
         const gl = Math.max(4, (L.jibLoad || 0));
+        // a symmetric spinnaker: its tack is on the pole end, held there by the guy (the windward sheet)
+        const prig = G.pole && b.sailSys && b.sailSys.active(b) ? b.sailSys.cloth('gennaker') : null;
+        const poleEnd = G.pole ? (prig && prig.tack ? V(prig.tack[0], prig.tack[1], prig.tack[2]) : V(G.tackX, 0, G.tackZ)) : null;
         for (let k = 0; k < 2; k++) {
           // hand-held through the ratchet block on the quarter, the tail forward in the cockpit
           const s = k ? 1 : -1, B = this.genBlocks[k], bl = this.hwPt(B, B.userData.inTop()), out = this.hwPt(B, B.userData.out());
           const tailEnd = s === side && this.hands.jib ? this.hands.jib : out.clone().add(_w.set(-s * 0.25, -0.15, -0.5));
           this.genSheets[k].freeEnd = !(s === side && this.hands.jib); this.genSheets[k].tailRest = s === side ? 0.6 + (1 - b.lines.jib) * 3 : 1.2;
           if (s === side) this.genSheets[k].set([clew, bl, out, tailEnd], [gl, gl * 0.1, 3], g);
+          else if (poleEnd) this.genSheets[k].set([poleEnd, bl, out, tailEnd], [gl * 0.8, gl * 0.1, 3], g);   // the guy
           else this.genSheets[k].set([clew, V(G.tackX + 0.2, 0, G.tackZ + 0.5), bl, out, tailEnd], [5, 5, 5, 3], g, 0.3, t);
         }
         const tk = V(G.tackX, 0, G.tackZ);
-        this.tackLine.tailRest = 0.5; lead(this.tackLine, 'tackLine', [tk.clone().add(_v.set(0, 0.3 * b.ctrl.tackLine, 0)), V(C.bowX - 0.5, 0, vis.deckH(C.bowX - 0.5, 0) + 0.05), V(C.mastX - 0.9, 0.3, vis.deckH(C.mastX - 0.9, 0.3) + 0.03)], 200);
+        this.tackLine.tailRest = 0.5;
+        if (poleEnd) lead(this.tackLine, 'tackLine', [poleEnd, V(C.mastX + 0.12, 0, vis.mastBase + 0.08), V(C.mastX - 0.9, 0.3, vis.deckH(C.mastX - 0.9, 0.3) + 0.03)], 150);   // the pole downhaul
+        else lead(this.tackLine, 'tackLine', [tk.clone().add(_v.set(0, 0.3 * b.ctrl.tackLine, 0)), V(C.bowX - 0.5, 0, vis.deckH(C.bowX - 0.5, 0) + 0.05), V(C.mastX - 0.9, 0.3, vis.deckH(C.mastX - 0.9, 0.3) + 0.03)], 200);
       }
     }
     // --- preventer: from the boom end forward to a block at the bow on the boom's side, and back along the side deck
@@ -762,7 +769,7 @@ export class Rigging {
   handlerAt(k, cs) {
     const b = this.b, C = b.cls, vis = this.vis, hw = this.hw, M = b.sailBy.main, sp = lineSpecs(C)[k], h = sp.handler;
     const dk = (x, y) => this.seat(V(x, y, vis.deckH(x, y) + 0.02), 0);
-    const bank = (i) => { const cx0 = C.id === 'sportboat' ? C.mastX - 0.75 : C.mastX - 1.0; return [dk(cx0 + 0.13, 0.06 + i * 0.062), V(cx0 + 0.7, 0.06 + i * 0.062, vis.deckH(cx0, 0.1))]; };   // a bank on the aft end of the cabin top
+    const bank = (i) => { const cx0 = this.clutchX; return [dk(cx0 + 0.13, 0.06 + i * 0.062), V(cx0 + 0.7, 0.06 + i * 0.062, vis.deckH(cx0, 0.1))]; };   // a bank on the aft end of the cabin top
     if (h === 'clutch' && this.cabinLines && this.cabinLines.includes(k)) return bank(this.cabinLines.indexOf(k));
     switch (k) {
       case 'main': {
@@ -803,7 +810,7 @@ export class Rigging {
       case 'jibHalyard':
         if (this.mastWinch && this.cabinWinch) { const w = this.cabinWinch.position; return [dk(-w.z - 0.3, w.x + 0.02), w]; }
         if (sp.at === 'mast') return [dk(C.mastX - 0.3, 0.16), V(C.mastX, 0.05, vis.mastBase)];
-        { const cx0 = C.id === 'sportboat' ? C.mastX - 0.75 : C.mastX - 1.0; return [dk(cx0 - 0.07, 0.26), V(cx0 + 0.5, 0.26, vis.deckH(cx0, 0.26))]; }
+        { const cx0 = this.clutchX; return [dk(cx0 - 0.07, 0.26), V(cx0 + 0.5, 0.26, vis.deckH(cx0, 0.26))]; }
       case 'tackLine': return [dk(C.mastX - 0.95, 0.34), V(C.mastX - 0.3, 0.3, vis.deckH(C.mastX - 0.3, 0.3))];
     }
     return null;
@@ -858,7 +865,7 @@ export class Rigging {
     // a halyard at the mast foot: from the drum to its horn cleat; a control aft: from the mast base through its clutch
     const th = this.throat(k);
     if (this.mastWinch) { const h = th || top.clone().add(_w.set(0, -0.1, 0.3)); this.cabinLead.set([top, h, this.tailEnd(k, h, h.clone().add(_w.set(0.1, -0.05, 0.2)))], [T * 0.1, 2], g); return; }
-    const cx0 = C.id === 'sportboat' ? C.mastX - 0.75 : C.mastX - 1.0;
+    const cx0 = this.clutchX;
     const clutch = th || V(cx0 + 0.05, 0.12 + i * 0.05, vis.deckH(cx0, 0.18) + 0.035);
     const base = V(C.mastX - 0.12, 0.08, vis.mastBase + 0.06);
     this.cabinLead.set([base, clutch, top, top.clone().add(_w.set(0.3, -0.1, 0.25))], [T, T, 3], g);
@@ -985,10 +992,12 @@ export class Rigging {
     for (const [k, c] of Object.entries(this.cleats)) if (c.visible) lockGrab(k, c);
     if (this.genBlocks && b.genDeploy > 0.5) lockGrab('jib', this.genBlocks[((Math.sign(b.side.gennaker) || 1) + 1) / 2]);
     // tiller: drag it sideways — the bow goes the other way
-    const tp = vis.extension
+    const tp = vis.wheel ? vis.wheel.localToWorld(new THREE.Vector3(0, vis.wheel.userData.r, 0))
+      : vis.extension
       ? vis.extension.localToWorld(new THREE.Vector3(0, vis.extension.userData.len, 0).applyAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2 + 0.08))
       : vis.rudderPivot.localToWorld(vis.tillerEnd.clone());
-    list.push({ id: 'tiller', label: C.id === 'blackwatch' || C.hw?.helm ? (C.hw?.helm ?? 'Tiller') : 'Tiller extension', hint: 'drag sideways; push it to port and the bow goes to starboard', kind: 'tiller', pos: tp, info: () => `rudder ${Math.round(b.rudder * 180 / Math.PI)}°` });
+    if (vis.wheel) list.push({ id: 'tiller', label: 'Wheel', hint: 'drag the rim sideways; turn it to starboard and the bow goes to starboard', kind: 'tiller', wheel: true, pos: tp, info: () => `rudder ${Math.round(b.rudder * 180 / Math.PI)}°` });
+    else list.push({ id: 'tiller', label: C.hw?.helm ?? (vis.extension ? 'Tiller extension' : 'Tiller'), hint: 'drag sideways; push it to port and the bow goes to starboard', kind: 'tiller', pos: tp, info: () => `rudder ${Math.round(b.rudder * 180 / Math.PI)}°` });
     return list;
   }
 }
