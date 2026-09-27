@@ -165,6 +165,13 @@ export function boomDip(b, s, a, e, L, rate, ax, etaAt, o) {
   const C = b.cls, G = goose(C), { cphi, sphi, heaveH } = ax;
   o.X = 0; o.Y = 0; o.K = 0; o.N = 0; o.torque = 0; o.wet = 0;
   const n = 5, dl = L / n, D = 0.08 + 0.12;          // boom depth plus the sail's foot that goes under with it
+  {
+    // (the sea is dear to sample: first the boom's end, its lowest point once heeled its way; the boom's height runs
+    // straight from the gooseneck to it, so both well clear of the sea there means all of it is)
+    const xe = G.x - L * Math.cos(e) * Math.cos(a), ye = L * Math.cos(e) * Math.sin(a), ze = G.z + L * Math.sin(e);
+    const eta = etaAt(xe, ye * cphi + ze * sphi);
+    if (!(eta - (ze * cphi - ye * sphi + heaveH) > -1.2) && eta - (G.z * cphi + heaveH) < -2) return o;
+  }
   for (let i = 0; i < n; i++) {
     const r = (i + 0.5) * dl;
     const x = G.x - r * Math.cos(e) * Math.cos(a), y = r * Math.cos(e) * Math.sin(a), z = G.z + r * Math.sin(e);
