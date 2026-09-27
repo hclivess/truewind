@@ -31,8 +31,9 @@ const HULL_PARAMS = {
 
 // Lines of one hull. depthScale lets the hydrostatic calibration match the real displacement.
 export function linesFor(C, depthScale = C._depthScale ?? 1) {
-  if (C.offsets) return offsetLines(C, depthScale);
-  const H = HULL_PARAMS[C.id] || HULL_PARAMS.sportboat;
+  // a class's hull (C.offsets): a table of offsets, or the parametric form (HULL_PARAMS' parameters: tm, tr, be, ...)
+  if (C.offsets && C.offsets.tm === undefined) return offsetLines(C, depthScale);
+  const H = C.offsets || HULL_PARAMS[C.id] || HULL_PARAMS.sportboat;
   const B = (C.hullBeam ?? C.beam) / 2, F = C.freeboard, D = C.canoeDraft * depthScale;
   const bDeck = (t) => B * (t < H.tm ? lerp(H.tr, 1, Math.sin(t / H.tm * Math.PI / 2) ** 0.85) : Math.pow(Math.max(0, Math.cos(Math.min(1, (t - H.tm) / (1 - H.tm)) * Math.PI / 2)), H.be));
   const sheer = (t) => F * (1 + H.sheerBow * sstep(0.45, 1, t) ** 1.6 + H.sheerStern * sstep(0.45, 0, t) ** 1.5 - 0.05 * Math.sin(Math.PI * t));
@@ -131,7 +132,7 @@ function offsetLines(C, ds) {
 export function hullSection(C, Lx, t) {
   if (Lx.section) return Lx.section(t);
   const b = Lx.bDeck(t), sh = Lx.sheer(t), zk = Lx.keelZ(t), fl = Lx.flareAt(t), flat = Lx.flatAt(t);
-  const bW = b * (0.93 - 0.3 * fl);
+  const bW = b * ((Lx.H.wl ?? 0.93) - 0.3 * fl);               // (H.wl: waterline half-beam over the deck's, amidships)
   const pts = [[b, sh], [b * (1 - 0.1 * fl) - 0.01, sh * 0.55], [bW, Math.max(0.02, zk * 0.05 + 0.02)]];
   pts.push([bW * lerp(0.6, 0.93, flat), zk * lerp(0.5, 0.72, flat)]);
   pts.push([bW * lerp(0.2, 0.55, flat), zk * lerp(0.9, 0.97, flat)]);
@@ -148,6 +149,25 @@ export function hullSection(C, Lx, t) {
 
 // hull centre-line offsets (y) — one hull for monohulls, two for a catamaran
 export function hullOffsets(C) { return C.multihull ? [-C.hullSpacing / 2, C.hullSpacing / 2] : [0]; }
+// Every hull of a boat: its centre-line offset y and, for a trimaran's floats (amas, C.amas), a copy of the main hull's
+// lines scaled across (sy), in depth below (sz) and above (szTop) the waterline, lifted by dz and set over the part
+// t0..t1 of the main hull's length
+export function hullParts(C) {
+  if (C.amas) {
+    const A = C.amas;
+    return [{ y: 0, sy: 1, sz: 1, szTop: 1, dz: 0, t0: 0, t1: 1 }, ...[-1, 1].map((s) => ({ y: s * A.y, sy: A.sy, sz: A.sz, szTop: A.szTop ?? A.sz, dz: A.dz, t0: A.t0, t1: A.t1, tumble: A.tumble ?? 0 }))];
+  }
+  return hullOffsets(C).map((y) => ({ y, sy: 1, sz: 1, szTop: 1, dz: 0, t0: 0, t1: 1 }));
+}
+// half section of hull part P at station t of the main hull (null where that part does not reach)
+export function partSection(C, Lx, t, P) {
+  if (t < P.t0 - 1e-9 || t > P.t1 + 1e-9) return null;
+  const whole = P.t0 === 0 && P.t1 === 1, h = hullSection(C, Lx, whole ? t : (t - P.t0) / (P.t1 - P.t0));
+  if (whole && P.sy === 1 && P.sz === 1 && P.szTop === 1 && !P.dz) return h;
+  // (tumble: the float's topsides curve in toward its deck, so it is a round-topped tube rather than a scaled hull)
+  const zt = h[0][1] > 0 ? h[0][1] : 1;
+  return h.map(([y, z]) => [y * P.sy * (1 - (P.tumble || 0) * (z > 0 ? Math.pow(z / zt, 2.2) : 0)), z * (z < 0 ? P.sz : P.szTop) + P.dz]);
+}
 
 // ---------------------------------------------------------------------------------------------
 // Hydrostatic model: closed section polygons at stations along the length
@@ -158,13 +178,14 @@ function buildStations(C, nStations) {
   for (let i = 0; i < nStations; i++) {
     const t = (i + 0.5) / nStations;
     const x = lerp(L0, L1, t);
-    const half = hullSection(C, Lx, t);
     const polys = [];
-    for (const off of hullOffsets(C)) {
-      // closed polygon: starboard half from sheer to keel, then port half back up
-      const p = [];
-      for (const [y, z] of half) p.push(off + y, z);
-      for (let k = half.length - 2; k >= 0; k--) p.push(off - half[k][0], half[k][1]);
+    for (const P of hullParts(C)) {
+      // closed polygon: starboard half from sheer to keel, then port half back up (empty where this hull does not reach)
+      const half = partSection(C, Lx, t, P), off = P.y, p = [];
+      if (half) {
+        for (const [y, z] of half) p.push(off + y, z);
+        for (let k = half.length - 2; k >= 0; k--) p.push(off - half[k][0], half[k][1]);
+      }
       polys.push(p);
     }
     let full = 0;
@@ -187,7 +208,7 @@ function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, sl
   const cp = Math.cos(phi), sp = Math.sin(phi), ac = ACC;
   let V = 0, My = 0, Mx = 0, girthLen = 0, xmin = 1e9, xmax = -1e9, FKx = 0, FKy = 0, FKn = 0;
   let FAx = 0, FAy = 0, FAn = 0, FAz = 0, FAm = 0, FAk = 0;
-  const Vh = out.Vh || (out.Vh = [0, 0]); Vh[0] = 0; Vh[1] = 0;
+  const Vh = out.Vh || (out.Vh = new Array(stations[0].polys.length).fill(0)); Vh.fill(0);   // volume per hull
   let deckSub = 0;
   for (const st of stations) {
     const eta = etaAt(st.x), sl = slopeLatAt(st.x);

@@ -125,6 +125,22 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 .card .t { font: 700 20px/1 var(--display); letter-spacing: .02em; text-transform: uppercase; }
 .card .s { font: 500 12px var(--cond); color: var(--muted); letter-spacing: .03em; }
 .card .d { font-size: 13px; color: #c5d1da; }
+/* class picker: group tabs and a search over a short scrolling list, then the chosen class's card */
+#boat-list { gap: 8px; }
+.cls-tools { display: grid; gap: 6px; }
+.cls-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.cls-tab { background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; color: var(--muted); font: 600 12px var(--cond); letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+.cls-tab.on { color: var(--text); border-color: var(--accent); }
+.cls-search { background: var(--ink-2); border: 1px solid var(--line); border-radius: 4px; padding: 6px 9px; color: var(--text); font: 500 14px var(--cond); min-width: 0; }
+.cls-list { display: grid; gap: 4px; max-height: 232px; overflow: auto; padding-right: 2px; }
+.card.cls-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 6px 10px; }
+.card.cls-row[hidden] { display: none; }
+.cls-row .n { font: 700 16px/1.1 var(--display); letter-spacing: .03em; text-transform: uppercase; }
+.cls-row .g { font: 500 11px var(--cond); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+.cls-detail { display: grid; gap: 3px; background: var(--glass); border: 1px solid var(--accent); border-radius: 6px; padding: 10px 12px; box-shadow: inset 3px 0 0 var(--accent); }
+.cls-detail .t { font: 700 20px/1 var(--display); letter-spacing: .02em; text-transform: uppercase; }
+.cls-detail .s { font: 500 12px var(--cond); color: var(--muted); letter-spacing: .03em; }
+.cls-detail .d { font-size: 13px; color: #c5d1da; }
 .venues { grid-template-columns: 1fr 1fr; max-height: 440px; overflow: auto; padding-right: 2px; }
 .venues .card .t { font-size: 17px; }
 .custom-loc { margin-top: 12px; }

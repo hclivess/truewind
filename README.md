@@ -16,6 +16,13 @@ It runs in any modern browser with WebGL, with no install and no build step.
 | **Sportboat 23** | A 7 m one-design keelboat with four crew, a carbon mast and an asymmetric gennaker. It planes downwind from about 13 kn of wind. |
 | **Singlehander 14** | A 4.2 m una-rig Olympic-style dinghy with one sailor, a bendy unstayed mast and a daggerboard. It capsizes. |
 | **Beach Cat 16** | A 5 m beach catamaran with two crew on trapeze, twin daggerboards and rudders, and a gennaker. It flies a hull from about 10 kn and pitchpoles if you bury the bows. |
+| **Nordic Folkboat** | Tord Sundén's 1941 clinker-built one-design: LOA 7.68 m, LWL 6.00 m, beam 2.20 m, draft 1.20 m, 1,930 kg with a 1,000 kg iron keel, main 16.2 m² and jib 8.9 m² on a 3/4 rig, three crew. A long keel with the rudder hung on its aft end, a spoon bow, a raked transom, strakes you can see. No spinnaker. |
+| **J/24** | Rod Johnstone's 1977 one-design: LOA 7.32 m, LWL 6.10 m, beam 2.69 m, draft 1.24 m, 1,444 kg with 431 kg of lead, main 15.4 m², 153% genoa 17.8 m², a 34.6 m² symmetric spinnaker on a 2.98 m pole, five crew. The rig is 7/8 fractional (forestay at 8.19 m, spinnaker halyard at the same height). Lead fin, transom-hung rudder, one reef. |
+| **Star** | The two-man Olympic keelboat of 1911–2012: LOA 6.92 m, LWL 4.72 m, beam 1.73 m, draft 1.02 m, 671 kg of which 401 kg is the bulb, main 20.5 m², jib 6.0 m², running backstays and no backstay, no spinnaker. Its long overhangs lengthen the waterline as it heels. |
+| **J/122** | A 40 ft cruiser-racer (Alan Johnstone, 2007): LOA 12.20 m, LWL 10.55 m, beam 3.64 m, draft 2.24 m, 7,450 kg, a carbon fractional rig with two swept spreaders, main 50.1 m², 106% jib 42.8 m², a 155.9 m² asymmetric on a retractable bowsprit, bulb keel, spade rudder, wheel steering, nine crew, two reefs. |
+| **470** | The Olympic two-person dinghy: LOA 4.70 m, LWL 4.40 m, beam 1.69 m, 120 kg hull, main 9.12 m², jib 3.58 m², a 13 m² symmetric spinnaker on a pole, a pivoting centreboard; the crew on trapeze, the helm hiking. It capsizes. |
+| **49er** | The Olympic skiff: LOA 4.88 m, beam 1.75 m (2.74 m over the wings), 94 kg hull, 20 m² of square-top main and self-tacking jib, a 37 m² gennaker off a retractable pole, both crew on trapeze from the wings. It planes upwind in 12 kn and capsizes, often. |
+| **Mariner's trimaran (Waterworld)** | The film's 60 ft ocean-racing trimaran (VPLP, built by Jeanneau Techniques Avancées in the moulds of the ORMA 60 *Pierre 1er*): LOA 18.28 m, beam 15 m, draft 1.54/2.88 m, about 6 t, a 27.5 m mast that folds on a tabernacle and is raised by a geared winch, a patched, fully battened 205 m² main and a 95 m² jib. Weathered: rust, scrap plate, lashed drums. Its floats fly from about 10 kn. |
 | **Catalina 22** | Frank Butler's 1969 trailer sailer, the most built in its size: 6.55 m, 1,129 kg, masthead sloop with a 110% jib, a cast iron swing keel you can wind up, a kick-up rudder on the transom and a 6 hp outboard. |
 | **Catalina 30** | The classic 30 (1972–2008, over 6,000 built): 9.12 m, 4,627 kg, iron fin keel, spade rudder, wheel steering, masthead rig with a 135% genoa. |
 | **Beneteau Oceanis 38.1** | A modern production cruiser (Finot-Conq, 2016): plumb bow with an anchor sprit, hard chine aft, hull windows, twin wheels, a drop-down swim platform, in-mast furling main and a 103% genoa. |
@@ -30,7 +37,9 @@ It runs in any modern browser with WebGL, with no install and no build step.
 | **Slocum's Spray** | The rebuilt oyster sloop in which Joshua Slocum sailed alone round the world (1895–98): beamy, shallow and heavy, a gaff main, a jib on a long bowsprit, and the jigger (mizzen) he added in Patagonia, which made her a yawl. |
 | **Moitessier's Joshua** | Bernard Moitessier's red steel ketch (Knocker, 1962) of *La Longue Route*: a canoe stern with the rudder outboard for the wind-vane, telegraph-pole masts, a bowsprit and the little doghouse with round ports. No engine. |
 
-Each class has its own sailcloth: tanbark Dacron on the Blackwatch, a grey tri-radial laminate with draft stripes on the sportboat, white Dacron on the dinghy. The cloth shows its seams, batten pockets, reef points and corner patches, and the sun shines through it. Telltales on the luff and on the main's leech stream while the flow is attached and lift or curl when it luffs or stalls.
+The menu groups them (dinghies and skiffs, keelboats, multihulls, cruisers) under tabs, with a search box; the chosen boat's specifications and description show below the list.
+
+Each class has its own sailcloth: tanbark Dacron on the Blackwatch, a grey tri-radial laminate with draft stripes on the sportboat, white Dacron on the dinghy, the 470, the Star and the J/24, cream cruising Dacron on the Folkboat, charcoal laminate on the J/122, clear-grey film laminate on the 49er, and weathered tan cloth covered in sewn-on patches on the Mariner's trimaran. Classes carry their insignia (the Star's red star, the Folkboat's F, the class numbers). The cloth shows its seams, batten pockets, reef points and corner patches, and the sun shines through it. Telltales on the luff and on the main's leech stream while the flow is attached and lift or curl when it luffs or stalls.
 
 ## Where you can sail
 
@@ -186,6 +195,13 @@ Polars from `node test/vpp.mjs` in 12 kn of true wind (boat speed in knots, `g` 
 | Sportboat | 40°, 6.00, 4.60 (40°, 6.1, 4.7) | 8.12 g (8.6 g) | 8.57 g (10.2 g) | 6.59 g (7.0 g) | 5.80 at 165° (6.2) |
 | Dinghy | 40°, 4.92, 3.77 (36°, 4.4, 3.6) | 6.47 (6.2) | 5.79 (5.7) | 4.75 (4.7) | 4.34 at 180° (4.4) |
 | Beach cat | 48°, 8.04, 5.38 (55°, 9.6, 5.5) | 13.64 g (13.3 g) | 11.33 g (15.2 g) | 6.76 g (7.6 g) | 6.42 at 135° (7.7) |
+| Nordic Folkboat | 40°, 4.36, 3.34 | 5.58 | 5.46 | 4.37 | 4.10 at 180° |
+| J/24 | 44°, 5.63, 4.05 | 6.70 g | 6.37 g | 5.84 g | 5.32 at 165° |
+| Star | 36°, 5.60, 4.53 | 6.99 | 6.52 | 5.48 | 4.98 at 165° |
+| J/122 | 44°, 6.99, 5.03 | 8.93 g | 9.06 g | 7.65 g | 6.63 at 150° |
+| 470 | 40°, 5.92, 4.53 | 10.01 g | 8.47 g | 5.96 g | 5.32 at 165° |
+| 49er | 48°, 9.52, 6.37 | 14.71 | 13.41 g | 10.69 g | 10.15 at 135° |
+| Mariner's trimaran | 48°, 12.61, 8.44 | 20.95 | 16.44 | 9.35 | 8.28 at 135° |
 
 The production and famous boats (`js/classes/`, baked at 8, 12 and 16 kn with the crew's own trim):
 
@@ -222,6 +238,32 @@ Checked against their ratings, as the time to sail a mile of windward-leeward co
 
 The sportboat is J/70-sized, and the J/70's ORC certificate (2024) gives, in 12 kn: beat VMG 4.52 kn at 37.6°, 6.88 kn at 90°, 7.72 kn at 120°, 6.47 kn at 150° and a run VMG of 5.60 kn. The cloth sails are within 4% of it upwind, at 150° and downwind, and faster reaching (8.1 and 8.6 kn, +18% and +11%); the strip model's reaching speeds are 25–32% above the certificate. Downwind, the cloth rigs' drive agrees with ORC's sail coefficients to within about 10%, where the strip model's is 20–25% higher: most of the difference in the downwind columns. The cat's reaching and downwind numbers under spinnaker have no certificate to check against.
 
+The newer classes against published data, in 12 kn (cloth sails, baked polars; model / reference, difference):
+
+| Boat | Reference | Beat VMG | 90° | 120° | 150° | Run VMG |
+|---|---|---|---|---|---|---|
+| J/24 | ORC GER 907 | 4.05 / 4.18 (−3%) | 6.70 / 6.43 (+4%) | 6.37 / 6.43 (−1%) | 5.84 / 5.87 (−1%) | 5.32 / 5.27 (+1%) |
+| J/122 | ORC *J-Curve* | 5.03 / 5.33 (−6%) | 8.93 / 8.30 (+8%) | 9.06 / 8.43 (+7%) | 7.65 / 7.61 (+1%) | 6.63 / 6.59 (+1%) |
+| Nordic Folkboat | ORC NED 866 (non-spinnaker) | 3.34 / 3.49 (−4%) | 5.58 / 5.72 (−2%) | 5.46 / 5.53 (−1%) | 4.37 / 4.89 (−11%) | 4.10 / 4.46 (−8%) |
+
+- **J/24:** within 4% everywhere; it points 4° lower than the certificate (44° against 40°) at the same VMG.
+- **J/122:** 6% slow upwind (it too sails 44° where ORC has 39°) and 7–8% fast reaching under the asymmetric, as the sportboat is against the J/70's certificate; downwind within 1%.
+- **Folkboat:** within 4% upwind and reaching; 8–11% slow on a run, where ORC credits a jib poled out on a whisker pole, which the sim does not rig (see below).
+
+The classes without ORC certificates are checked against their Portsmouth numbers, as course speed (the harmonic mean of the best upwind and downwind VMG, which is what an elapsed-time handicap measures on a windward-leeward course) relative to the Laser's (the singlehander here) in 12 kn, against the ratio of the Portsmouth numbers (Laser/ILCA 7 1100; RYA 470 973, Star 917, 49er 697; US Sailing D-PN Folkboat 103.2 against the Laser's 91.1):
+
+| Boat | Model course speed / Laser | Portsmouth ratio | Difference |
+|---|---|---|---|
+| 470 | 1.21 | 1.13 | +7% |
+| Star | 1.17 | 1.20 | −3% |
+| Nordic Folkboat | 0.91 | 0.88 | +3% |
+| 49er | 1.94 | 1.58 | +23% |
+
+- **470:** 7% fast, most of it reaching and running under the spinnaker, where it planes (10 kn at 90°).
+- **Star:** within 3%; it points highest of all the boats (36°), as Stars do.
+- **49er:** 23% over its Portsmouth ratio. Portsmouth numbers average a club season's winds, and a skiff gains most on a Laser in the planing range: in 12 kn the 49er is upwind at 9.5 kn and downwind at 14 kn (VMG 10 kn at 135°). No published 49er polar was found to check that against, so this class is not validated to 10%.
+- **Mariner's trimaran:** no certificate or handicap exists. It reaches at 21 kn (1.75 x the wind) and does 12.6 kn upwind in 12 kn: ORMA 60 speeds cut by the heavier, salvaged build, as intended.
+
 In 20 kn the sportboat reaches at 13.5 kn and does 14.7 kn at 120° under gennaker, and the cat reaches at 18.8 kn. The Blackwatch sails upwind with 6° of leeway (a long keel) and cannot pass its 5.6 kn hull speed.
 
 Helm balance (`node test/helm.mjs`) is the rudder angle that holds a steady course. With the Munk moment included, the keelboats are neutral upwind in 12 kn and carry 1–2° of weather helm reaching.
@@ -242,6 +284,10 @@ These are the honest limits:
 - **Breaking waves are a jet, not a flow.** The breaking crest is a forward lean of the Gerstner surface and a jet force on the hull: its speed (0.9 of the crest's phase speed), thickness (0.3 of the local wave height) and slamming coefficient (C_s = 2.5, an average over the slam; real peak pressures are several times it and last milliseconds) are set so the beam-on knockdown thresholds come out at the model tests' order. The energy behind it is real (E = ρgH²/8, a 4 m breaker carries 20 kJ per m² and 120 kW per metre of crest at its group speed), but no water is conserved or thrown: the boat's roll past 90° is limited by the rig lying in still water, where a real breaker carries the water around the mast with it.
 - **Rogue groups are windowed.** A group is added to the sea's components inside a compact window a few wavelengths and periods across that moves with it; the sea outside it is untouched, so a group's energy is not taken from elsewhere. The twenty components alone make crests up to about 0.9–1 Hs and hardly any higher; the tail of the distribution is the groups'. The water draws the two groups nearest the boat; a third one close by is felt by the boat but not drawn.
 - **The sea is linear-plus-second-order.** No modulational instability, no wave–wave energy transfer; a sea changes by growing and decaying toward the wind's spectrum.
+- **Symmetric spinnakers.** The spinnakers on a pole (the J/24's, the 470's, the Flying Scot's, the Dragon's, the Etchells') fly from a pole: the cloth's tack is held at the pole end, which the crew squares to the apparent wind (at the forestay on a close reach, back toward the shrouds on a run) and gybes across through the forestay in about three seconds, and the pole-height control raises its outboard end. The sail swings across with the pole instead of being gybed end for end, which a symmetric sail cannot tell apart once it has settled. The headsail comes down while it flies, as on the asymmetric boats (a 470 crew leaves the jib up).
+- **No whisker pole.** Boats without a spinnaker (the Folkboat, the Star, the Blackwatch) do not goose-wing the jib on a run; ORC's non-spinnaker polars do, which is most of the Folkboat's 10% shortfall downwind.
+- **Self-tacking jibs** (the Blackwatch's staysail, the 49er's jib) are sailed on a club, the 49er's drawn without one (its clew runs on a track); the physics holds the clew on the same arc.
+- **A trimaran's floats** are copies of the main hull's lines, narrowed and lifted; they float, fly and bury by the same hydrostatics as the rest. The main hull carries the daggerboard and the only rudder.
 - **AI tactics are simple.** Crews use laylines, header tacks, the tide and starts, and sail by the racing rules, but they do not luff, cover, or fight for the inside at marks; big packs at the start and the windward mark still produce the odd incident.
 - **The umpire sees geometry.** It judges by predicted contact and the rules' definitions; it knows nothing of hails other than rule 20's, of damage (14's exoneration of a right-of-way boat without damage is assumed), or of rule 2 and Part 4 beyond turns, recalls and touching marks.
 
@@ -315,4 +361,7 @@ Development tools:
 - Tides: NOAA CO-OPS harmonic constants and datums (public domain); [TICON-4](https://doi.org/10.17882/109129), Hart-Davis, Dettmering & Seitz (2025), from the GESLA-4 records (CC BY 4.0).
 - 3D rendering uses [three.js](https://threejs.org) (MIT). Peer-to-peer networking uses [Trystero](https://github.com/dmotz/trystero) (MIT).
 - Blackwatch 19/24 specifications come from [sailboatdata.com](https://sailboatdata.com/sailboat/blackwatch-1924/), [sailboat.guide](https://sailboat.guide/blackwatch-19) and owner listings.
+- J/24, J/122 and Nordic Folkboat hull, rig, sail and stability data and the reference polars come from ORC certificates: J/24 GER 907 ([data.orc.org](https://data.orc.org/public/WPub.dll/CC/038500021DV.pdf)), J/122 *J-Curve* ([data.orc.org](https://data.orc.org/public/WPub.dll/CC/03410000WW5)), Nordic Folkboat NED 866 ([data.orc.org](https://data.orc.org/public/WPub.dll/CC/161245)); also [J/Boats](https://jboats.com/j122-tech-specs), [goodoldboat.com](https://goodoldboat.com/saildata/boat/j24/) and the [Nordic Folkboat class rules 2025–2028](https://www.folkboats.com/wp-content/uploads/2025/03/NORDIC-FOLKBOAT-CLASS-RULES-2025-2028-incl-spinnaker.pdf).
+- 49er, 470 and Star data from the class rules and Wikipedia ([49er](https://en.wikipedia.org/wiki/49er_(dinghy)), [470](https://en.wikipedia.org/wiki/470_(dinghy)), [Star](https://en.wikipedia.org/wiki/Star_(keelboat))), their sail plans (Wikimedia Commons) for the rig proportions, and Portsmouth numbers from the [RYA](https://britishsailingteam.rya.org.uk/media/5m4e1iyw/limited-data_pn_list_2025-1.pdf) and [US Sailing](https://www.ussailing.org/wp-content/uploads/2018/01/2017-Portsmouth-Precalculated-Classes.pdf).
+- The Waterworld trimaran's dimensions come from [VPLP](https://www.vplp.fr/en/maritime/waterworld/); its lines, weights and sail split are estimates for an ORMA 60 hull built heavier.
 - The code is under the MIT licence (see `LICENSE`).

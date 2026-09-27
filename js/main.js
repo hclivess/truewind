@@ -38,6 +38,11 @@ const $ = (s) => document.querySelector(s);
 const PHYS_DT = 1 / 120;
 const GRAB_PX = 30;
 const C_RIGHT = (b) => (b.cls.multihull ? 8 : 4); // grab radius on screen, also the size of the marker rings
+// chase-camera distance and windward-leeward course length for a class: by its size
+// the menu's class groups (a class's C.group)
+const CLASS_GROUPS = [['dinghy', 'Dinghies & skiffs'], ['keelboat', 'Keelboats'], ['multihull', 'Multihulls'], ['cruiser', 'Cruisers'], ['classic', 'Classics']];
+const camDist = (C) => (C.id === 'dinghy' ? 8 : C.loa < 5.5 && !C.multihull ? 10 : C.loa > 9 ? 17 : 12);
+const courseLen = (C) => (C.id === 'dinghy' ? 600 : C.loa > 9 ? 1200 : 800);
 // the touch pad's third line (in order of use), with the labels for its two buttons (d = -1, +1)
 const TOUCH_LINES = { stay: ['Stay', 'Trim', 'Ease', 'Staysail sheet'], trav: ['Trav', 'Up', 'Down', 'Traveler'], hike: ['Hike', 'In', 'Out', 'Crew weight'],
   vang: ['Vang', '−', '+', 'Vang'], tackLine: ['Tack', 'Down', 'Ease', 'Gennaker tack line'], backstay: ['Bstay', '−', '+', 'Backstay'], board: ['Board', 'Up', 'Down', 'Daggerboard'], pushBoom: ['Boom', 'Port', 'Stbd', 'Push the boom out'] };
@@ -99,11 +104,24 @@ class Game {
   // ------------------------------------------------------------ menu
   buildMenu() {
     const bl = $('#boat-list');
-    bl.innerHTML = CLASS_ORDER.map(id => {
-      const C = CLASSES[id];
-      return `<button class="card" data-cls="${id}"><span class="t">${C.name}</span><span class="s">${C.specs}</span><span class="d">${C.blurb}</span></button>`;
-    }).join('');
-    bl.querySelectorAll('.card').forEach(c => c.addEventListener('click', () => {
+    // compact at any number of classes: group tabs and a search box over a short scrolling list of names; the chosen
+    // class's specs and blurb in one card below
+    const groups = CLASS_GROUPS.filter(([g]) => CLASS_ORDER.some(id => (CLASSES[id].group || 'keelboat') === g));
+    const gName = (g) => (CLASS_GROUPS.find(x => x[0] === g) || [0, ''])[1];
+    // (in group order; a class of a group this menu does not know goes at the end, under 'All')
+    const grouped = groups.flatMap(([g]) => CLASS_ORDER.filter(id => (CLASSES[id].group || 'keelboat') === g));
+    const listed = [...grouped, ...CLASS_ORDER.filter(id => !grouped.includes(id))];
+    bl.innerHTML = `<div class="cls-tools"><div class="cls-tabs" role="tablist">${[['all', 'All'], ...groups].map(([g, label]) => `<button class="cls-tab${g === 'all' ? ' on' : ''}" role="tab" data-g="${g}" aria-selected="${g === 'all'}">${label}</button>`).join('')}</div>`
+      + `<input id="cls-search" class="cls-search" type="search" placeholder="Search boats" aria-label="Search boats" autocomplete="off"></div>`
+      + `<div class="cls-list" aria-label="Boats">${listed.map(id => { const C = CLASSES[id], g = C.group || 'keelboat'; return `<button class="card cls-row" data-cls="${id}" data-g="${g}"><span class="n">${C.name}</span><span class="g">${gName(g)}</span></button>`; }).join('')}</div>`
+      + `<div id="cls-detail" class="cls-detail" aria-live="polite"></div>`;
+    const filter = () => {
+      const tab = bl.querySelector('.cls-tab.on'), g = tab ? tab.dataset.g : 'all', q = ($('#cls-search').value || '').trim().toLowerCase();
+      bl.querySelectorAll('.cls-row').forEach(r => { const C = CLASSES[r.dataset.cls]; r.hidden = !((g === 'all' || r.dataset.g === g) && (!q || C.name.toLowerCase().includes(q) || C.specs.toLowerCase().includes(q) || C.blurb.toLowerCase().includes(q))); });
+    };
+    bl.querySelectorAll('.cls-tab').forEach(t => t.addEventListener('click', () => { bl.querySelectorAll('.cls-tab').forEach(x => { x.classList.toggle('on', x === t); x.setAttribute('aria-selected', String(x === t)); }); filter(); }));
+    $('#cls-search').addEventListener('input', filter);
+    bl.querySelectorAll('.card[data-cls]').forEach(c => c.addEventListener('click', () => {
       this.settings.cls = c.dataset.cls;
       // the Blackwatch lives in Progreso unless another venue was picked
       if (c.dataset.cls === 'blackwatch' && !this.venueTouched) this.pickVenue('progreso', false);
@@ -154,7 +172,8 @@ class Game {
   }
   setSlider(k, v) { const el = $('#' + k); el.value = v; el.dispatchEvent(new Event('input')); }
   refreshMenu() {
-    document.querySelectorAll('#boat-list .card').forEach(c => c.classList.toggle('on', c.dataset.cls === this.settings.cls));
+    document.querySelectorAll('#boat-list .card[data-cls]').forEach(c => { const on = c.dataset.cls === this.settings.cls; c.classList.toggle('on', on); c.setAttribute('aria-pressed', String(on)); });
+    { const C = CLASSES[this.settings.cls], dl = document.getElementById('cls-detail'); if (C && dl) dl.innerHTML = `<span class="t">${C.name}</span><span class="s">${C.specs}</span><span class="d">${C.blurb}</span>`; }
     document.querySelectorAll('#venue-list .card').forEach(c => c.classList.toggle('on', c.dataset.v === this.settings.venue));
     document.querySelectorAll('.seg-b[data-mode]').forEach(b => { const on = b.dataset.mode === this.settings.mode; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
     document.querySelectorAll('.seg-b[data-weather]').forEach(b => { const on = b.dataset.weather === this.settings.weather; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
@@ -358,7 +377,7 @@ class Game {
     c.mode = cams[k];
     if (k === '2' || k === '3' || k === '4') { c.yaw = Math.PI; c.pitch = 0.2; }
     else if (k === '7') { c.yaw = 200 * DEG; c.pitch = 0.45; c.dist = 6; }
-    else if (k === '1') { c.yaw = 200 * DEG; c.pitch = 14 * DEG; c.dist = this.player && this.player.cls.id === 'dinghy' ? 8 : 12; }
+    else if (k === '1') { c.yaw = 200 * DEG; c.pitch = 14 * DEG; c.dist = this.player ? camDist(this.player.cls) : 12; }
     else if (k === '5') { c.dist = clamp(c.dist, 5, 60); }
     else if (k === '6') { c.dist = Math.max(c.dist, 14); }
     this.hud.toast({ chase: 'Chase camera', helm: 'At the helm', bow: 'On the bow', mast: 'Masthead', top: 'Overhead, wind up', orbit: 'Orbit', deck: 'On deck — grab the lines' }[cams[k]], 1.2);
@@ -463,7 +482,7 @@ class Game {
       return [x, z];
     };
     if (S.mode === 'race' && !idle) {
-      const course = new Course(world, twd, { length: cls.id === 'dinghy' ? 600 : 800, laps: S.laps, lineLength: 60 + 14 * (S.fleet + 1) });
+      const course = new Course(world, twd, { length: courseLen(cls), laps: S.laps, lineLength: 60 + 14 * (S.fleet + 1) });
       this.course = course;
       const n = S.fleet;
       const spots = [];
@@ -512,7 +531,7 @@ class Game {
     document.body.classList.toggle('no-jib', !player.sailBy.jib);
     this.buildTouch(player);
     this.renderer.cam.mode = idle ? 'orbit' : 'chase';
-    this.renderer.cam.yaw = idle ? 0 : 200 * DEG; this.renderer.cam.pitch = 14 * DEG; this.renderer.cam.dist = idle ? 26 : cls.id === 'dinghy' ? 8 : 12;
+    this.renderer.cam.yaw = idle ? 0 : 200 * DEG; this.renderer.cam.pitch = 14 * DEG; this.renderer.cam.dist = idle ? 26 : camDist(cls);
     this.t = 0; this.acc = 0; this.timeWarp = 1;
     this.idle = idle;
     // (the first frames of a session are slow for reasons of their own, shaders compiling and textures loading:
@@ -655,7 +674,7 @@ class Game {
 
   // one race for the whole room: same course (deterministic from the real map and wind), same gun
   startSharedRace() {
-    const msg = { gun: Date.now() / 1000 + 120, laps: this.settings.laps, length: this.player.cls.id === 'dinghy' ? 600 : 800, twd: this.env.wind.twd, by: this.net.name, id: Math.random().toString(36).slice(2, 8) };
+    const msg = { gun: Date.now() / 1000 + 120, laps: this.settings.laps, length: courseLen(this.player.cls), twd: this.env.wind.twd, by: this.net.name, id: Math.random().toString(36).slice(2, 8) };
     this.onNetRace(msg, null);
     this.net.broadcastRace(msg);
   }
@@ -808,7 +827,8 @@ class Game {
   }
   toggleGen() {
     const b = this.player; if (!b.sailBy.gennaker) return;
-    b.ctrl.gen = !b.ctrl.gen; this.hud.toast(b.ctrl.gen ? 'Gennaker going up' : 'Dousing the gennaker');
+    const gn = (b.sailBy.gennaker && b.sailBy.gennaker.label || 'Gennaker');
+    b.ctrl.gen = !b.ctrl.gen; this.hud.toast(b.ctrl.gen ? `${gn} going up` : `Dousing the ${gn.toLowerCase()}`);
     this.syncTouch();
   }
   // the engine (B / the touch pad's Start): the crew lowers an outboard, puts the lever in neutral and starts it
@@ -1030,7 +1050,7 @@ class Game {
       const [ox, oy] = this.screenOf(o), [sx, sy] = this.screenOf(s);
       const ux = sx - ox, uy = sy - oy, ul = Math.hypot(ux, uy) || 1;
       const along = ((mx - drag.x) * ux + (my - drag.y) * uy) / ul;
-      c.helm = clamp(c.helm - along * 0.006, -1, 1);
+      c.helm = clamp(c.helm - (g.wheel ? -1 : 1) * along * 0.006, -1, 1);   // (a wheel turns the way the bow goes)
       this.tillerHeld = performance.now();
     }
   }
