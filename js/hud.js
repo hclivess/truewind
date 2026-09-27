@@ -362,8 +362,9 @@ export class HUD {
     document.getElementById('t-hike').classList.toggle('on', b.auto.hike);
     const r = deg(b.rudder);
     document.getElementById('o-helm').textContent = `${r > 0 ? 'S' : r < 0 ? 'P' : ''}${Math.abs(r)}°`;
-    const hm = Math.abs(d.helmMoment || 0);
-    document.getElementById('o-helm').textContent += ` · ${hm < 15 ? 'light' : hm < 60 ? 'firm' : hm < 150 ? 'heavy' : 'fighting'}`;
+    // the helm's feel: the hand force on the tiller or the wheel's rim from the rudder's stock torque (js/helm.js)
+    const hf = d.helmForce ?? 0;
+    document.getElementById('o-helm').textContent += ` · ${d.helmFeel || (Math.abs(hf) < 25 ? 'light' : 'firm')}`;
     const L = d.rig;
     const N = (v) => `${Math.round(v || 0)} N`;
     document.getElementById('loads').innerHTML =
@@ -371,8 +372,13 @@ export class HUD {
       (S.jib ? `<span>${b.genDeploy > 0.5 ? 'Genn. sheet' : 'Jib sheet'}</span><b>${N(L.jibLoad)}</b>` : '') +
       (S.stay ? `<span>${S.stay.label ?? 'Staysail'} sheet</span><b>${N(L.stayLoad)}</b>` : '') +
       (b.cls.hasBackstay ? `<span>Backstay</span><b>${N(L.backstayLoad)}</b>` : '') +
+      `<span>Helm load</span><b>${N(Math.abs(d.helmForce || 0))}</b>` +
       `<span>Mast bend</span><b>${Math.round(L.bendMM || 0)} mm</b>` +
       (S.jib ? `<span>Forestay sag</span><b>${Math.round(L.sagMM || 0)} mm</b>` : '') +
+      (L.shroudLoad ? `<span>Shroud</span><b>${N(L.shroudLoad)}</b>` : '') +
+      (L.forestayLoad ? `<span>Forestay</span><b>${N(L.forestayLoad)}</b>` : '') +
+      (L.mastComp ? `<span>Mast comp.</span><b>${N(L.mastComp)}</b>` : '') +
+      (b.cls.id === 'cat' || b.rigStruct?.spec.rotating ? `<span>Mast rotation</span><b>${Math.round(Math.abs(L.mastRot || 0) * 57.3)}°</b>` : '') +
       `<span>Heel moment</span><b>${Math.round(Math.abs(d.sailK || 0))} Nm</b>` +
       `<span>Righting</span><b>${Math.round(Math.abs(d.RM || 0))} Nm</b>`;
   }
@@ -385,7 +391,11 @@ export class HUD {
     for (const s of b.sails) { const st = d.strips[s.key]; if ((st.areaF ?? 0) > 0.05) h += kv(`· ${s.key} total`, `${fmt(st.F, 0)} N`); }
     h += kv('Friction (ITTC-57)', `${fmt(d.Rf, 0)} N`) + kv('Wave-making', `${fmt(d.Rr, 0)} N`) + kv('Added (waves)', `${fmt(d.Raw, 0)} N`);
     h += kv('Keel lift / drag', `${fmt(d.keelY, 0)} / ${fmt(d.keelX, 0)} N`) + kv('Keel stalled', d.keelStall ? 'yes' : 'no');
-    h += kv('Rudder force', `${fmt(d.rudderY, 0)} N`) + kv('Rudder ventilation', `${Math.round((1 - (d.rudderVent ?? 1)) * 100)}%`);
+    h += kv('Rudder force', `${fmt(d.rudderY, 0)} N`) + kv('Rudder ventilation', `${Math.round((d.rudderVentilated ?? 0) * 100)}%`);
+    h += kv('Rudder stock torque / helm', `${fmt(d.rudderTorque ?? 0, 1)} N·m / ${fmt(Math.abs(d.helmForce ?? 0), 0)} N`);
+    if (d.rudderCav > 0.01) h += kv('Rudder cavitating', `${Math.round(d.rudderCav * 100)}%`);
+    if (d.rudderKick > 0.01) h += kv('Rudder kicked up', `${Math.round(d.rudderKick * 75)}°`);
+    h += kv('Keel AR (eff.) / stall', `${fmt(d.keelARe ?? 0, 2)} / ${fmt((d.keelStallA ?? 0) / DEG, 1)}°`);
     h += kv('Froude number', fmt(d.fn, 3)) + kv('Reynolds (hull)', `${(Math.abs(b.u) * C.lwl / 1.19e-6 / 1e6).toFixed(1)}e6`);
     h += kv('Heel moment', `${fmt(d.sailK, 0)} Nm`) + kv('Righting moment', `${fmt(d.RM, 0)} Nm`);
     h += kv('Weight position', `${fmt(b.crewY, 2)} m / ${fmt(b.crewX, 2)}`);
@@ -396,6 +406,13 @@ export class HUD {
     const cur = this.g.env.current.at(b.x, b.z, {});
     h += kv('Current', `${fmt(Math.hypot(cur.x, cur.z) / KT)} kn → ${pad3(deg(Math.atan2(cur.x, -cur.z)))}°`);
     h += kv('Mast bend / fs. sag', `${Math.round(d.rig.bendMM || 0)} / ${Math.round(d.rig.sagMM || 0)} mm`);
+    const RL = b.rigLoads;
+    if (RL) {
+      const pair = (v) => Array.isArray(v) ? v.map((x) => Math.round(x)).join(' / ') : Math.round(v || 0);
+      for (const k of ['capShroud', 'lowerShroud', 'lowerFwd', 'lowerAft', 'diamond', 'forestay', 'innerForestay', 'backstay', 'bobstay', 'bridle'])
+        if (RL[k] !== undefined) h += kv(`${k} (N${Array.isArray(RL[k]) ? ', P / S' : ''})`, pair(RL[k]));
+      h += kv('Mast compression / P/Pcr', `${Math.round(RL.mastComp || 0)} N / ${fmt(RL.buckling || 0, 2)}`);
+    }
     for (const s of b.sails) {
       const sh = d.shape[s.key];
       if ((d.strips[s.key].areaF ?? 0) < 0.05) continue;
