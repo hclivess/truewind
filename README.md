@@ -28,7 +28,7 @@ It runs in any modern browser with WebGL, with no install and no build step.
 | **Etchells** | Skip Etchells's 1966 three-man keelboat: 9.3 m, narrow and low, a long lead fin, a skeg-hung rudder, a fractional rig with a big main and a spinnaker. |
 | **Melges 24** | The 1993 sportboat that made the type: 794 kg, a lead bulb on a lifting fin, a carbon mast, a retractable bowsprit and a 62 m² asymmetric. |
 | **Slocum's Spray** | The rebuilt oyster sloop in which Joshua Slocum sailed alone round the world (1895–98): beamy, shallow and heavy, a gaff main, a jib on a long bowsprit, and the jigger (mizzen) he added in Patagonia, which made her a yawl. |
-| **Moitessier's Joshua** | Bernard Moitessier's red steel ketch (Knocker, 1962) of *La Longue Route*: a canoe stern with the rudder outboard for the wind-vane, telegraph-pole masts, a bowsprit and the little doghouse with round ports. No engine. |
+| **Moitessier's Joshua** | Bernard Moitessier's red steel ketch (Knocker, 1962) of *La Longue Route*: a canoe stern with the rudder outboard for the wind-vane, wooden telegraph-pole masts with ratlines, a plank bowsprit, and the two glass domes on the doghouse from which he steered and kept watch. No engine. |
 
 Each class has its own sailcloth: tanbark Dacron on the Blackwatch, a grey tri-radial laminate with draft stripes on the sportboat, white Dacron on the dinghy. The cloth shows its seams, batten pockets, reef points and corner patches, and the sun shines through it. Telltales on the luff and on the main's leech stream while the flow is attached and lift or curl when it luffs or stalls.
 

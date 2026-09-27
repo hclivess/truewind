@@ -27,9 +27,9 @@ export default {
   gm: 1.3, bmForm: 1.0, Ixx: MP.Ixx, Izz: MP.Izz, amX: 0.08, amY: 0.95, amYaw: 0.65, amRoll: 0.33,
   rr: rrTable(LWL, M + 80, { prism: -0.04 }),
   // (a long keel is part of the lines: its skin friction is in the hull's, so the foil keeps only its form drag)
-  keel: { x: 0.2, z: -1.1, area: 4.6, ARe: 1.0, stall: 26 * DEG, cd0: 0.003, span: 0.88, chord: 5.4, long: true },
+  keel: { x: 0.2, z: -0.85, area: 6.9, ARe: 0.74, stall: 26 * DEG, cd0: 0.003, span: 1.6, chord: 4.3, long: true },   // (canoe body + deadwood as one wing, as the Westsail's)
   rudder: { x: -6.12, z: -0.7, area: 1.0, ARe: 2.0, stall: 22 * DEG, cd0: 0.014, max: 35 * DEG, span: 1.5, chord: 0.72, transom: true, loadRef: 2800 },
-  hullLat: { area: 4.0, cd: 0.9, z: -0.3 },
+  hullLat: { area: 1.5, cd: 0.9, z: -0.25 },
   windage: { area: 7.8, z: 2.9, cd: 1.0 },
   mastX: 1.55, mastHeight: 15.0, boomZ: 2.55, mastR: 0.11, keelBulb: false,
   targetHeel: 16 * DEG, canCapsize: false, hasBackstay: false, hasBoard: false, sheetPower: 2200, reefTime: 90,
