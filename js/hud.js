@@ -2,6 +2,25 @@
 // polar, physics readout, toasts.
 import { DEG, KT } from './env.js';
 import { polarSpeedAt, vmgTargets, clamp, wrap, REEF } from './physics.js';
+import { lineStatus, ropeLook, ropeKey, lineName, HANDLERS, specOf, lineSpecs } from './linehandlers.js';
+import { ropeCSS } from './linegear.js';
+
+// a small drawing of each kind of line handler for the panel (16 x 12, in the text colour)
+const ICONS = {
+  cam: '<circle cx="5" cy="6" r="3.2"/><circle cx="11" cy="6" r="3.2"/><path d="M1 11.3h14"/>',
+  clam: '<path d="M2 2l6 8 6-8M4.3 3.4l1.4 1.9M11.7 3.4l-1.4 1.9M6.4 2.6l1 1.4M9.6 2.6l-1 1.4"/>',
+  jam: '<path d="M1.5 2.5h3.2l3.3 6 3.3-6h3.2l-5.4 8.5h-2.2z" fill="currentColor" stroke="none"/>',
+  horn: '<path d="M1 5.2q7-4.4 14 0M5.2 4.4v5.8M10.8 4.4v5.8M3 10.8h10"/>',
+  clutch: '<rect x="1" y="5.5" width="14" height="5" rx="1.5"/><path d="M4 5.5l10-3.5"/>',
+  ratchet: '<circle cx="8" cy="6" r="4.4"/><circle cx="8" cy="6" r="1.6"/><path d="M8 .6v1.2M13.4 6h-1.2M2.6 6h1.2M8 11.4v-1.2M11.8 2.2l-.8.8M4.2 2.2l.8.8"/>',
+  ratchetCam: '<circle cx="5.6" cy="5.4" r="4.2"/><circle cx="5.6" cy="5.4" r="1.4"/><circle cx="12.6" cy="6.8" r="1.9"/><circle cx="12.6" cy="10.4" r="1.4"/>',
+  carCam: '<rect x="2" y="6.5" width="12" height="3.6" rx="1"/><path d="M0 11.4h16"/><circle cx="6" cy="3.6" r="2.1"/><circle cx="10" cy="3.6" r="2.1"/>',
+  pinStop: '<rect x="2" y="6.5" width="12" height="3.6" rx="1"/><path d="M0 11.4h16"/><rect x="6.4" y="1.6" width="3.2" height="4.4" rx=".8" fill="currentColor"/>',
+  selfTailer: '<path d="M4.2 11.2h7.6l-1-6.6H5.2z"/><path d="M3 3.6h10M5.5 1.4h5"/>',
+  winchCam: '<path d="M.8 11.2h6l-.8-6.2H1.6z"/><path d="M1 3.4h5.6"/><circle cx="11" cy="7" r="2"/><circle cx="14.2" cy="7" r="2"/>',
+  winchHorn: '<path d="M.8 11.2h6l-.8-6.2H1.6z"/><path d="M1 3.4h5.6M8.3 6.4q3.7-2.8 7.4 0M10.6 5.6v4.6M13.4 5.6v4.6"/>',
+};
+const icon = (k) => `<svg viewBox="0 0 16 12" width="16" height="12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">${ICONS[k] || ICONS.cam}</svg>`;
 
 const $ = (s) => document.querySelector(s);
 const fmt = (v, d = 1) => (isFinite(v) ? v.toFixed(d) : '–');
@@ -52,17 +71,18 @@ export class HUD {
     // read-only: every control is a real line on deck (or a key); this panel reports state
     const C = b.cls, S = b.sailBy;
     const tt = (key) => `<span class="tt" id="tt-${key}"><span class="st">·</span><span class="st">·</span><span class="st">·</span></span>`;
-    const bw = C.id === 'blackwatch';
-    const rows = [['main', 'Mainsheet', bw ? '#e3d6b8' : '#e8eef4']];
-    if (S.main.trav) rows.push(['trav', 'Traveler', '#ff7a1a']);
-    rows.push(['vang', 'Vang', '#333840'], ['cunn', 'Cunningham', bw ? '#cdb98e' : '#f2b33d'], ['outhaul', 'Outhaul', '#7fbf3f']);
-    if (C.hasBackstay) rows.push(['backstay', 'Backstay', '#9b5de5']);
-    if (S.stay) rows.push(['stay', 'Staysail sheet', bw ? '#d9c7a0' : '#2f6fd6']);
-    if (S.jib) rows.push(['jib', S.gennaker ? 'Jib / genn. sheet' : 'Jib sheet', bw ? '#d9c7a0' : '#2f6fd6'], ['lazy', 'Lazy jib sheet', bw ? '#d9c7a0' : '#2f6fd6'], ['jibLead', 'Jib car', '#9aa1a8'], ['jibHalyard', 'Jib halyard', '#2f6fd6']);
-    else rows.push(['pushBoom', 'Push boom out', '#9aa1a8']);
-    if (S.gennaker) rows.push(['tackLine', 'Tack line', '#ff7a1a']);
-    if (C.hasBoard) rows.push(['board', 'Daggerboard', '#f2f2ef']);
-    rows.push(['hike', 'Weight on rail', '#d33f49']);
+    // every line's swatch is its rope (colour and braid: find it on deck by its colour); the label is tinted to match
+    const rc = (k) => { const L = ropeLook(C, ropeKey(C, k)); return { css: ropeCSS(L), tint: L.swatch }; };
+    const rows = [['main', 'Mainsheet', rc('main')]];
+    if (S.main.trav) rows.push(['trav', 'Traveler', rc('trav')]);
+    rows.push(['vang', 'Vang', rc('vang')], ['cunn', 'Cunningham', rc('cunn')], ['outhaul', 'Outhaul', rc('outhaul')]);
+    if (C.hasBackstay) rows.push(['backstay', 'Backstay', rc('backstay')]);
+    if (S.stay) rows.push(['stay', 'Staysail sheet', rc('stay')]);
+    if (S.jib) rows.push(['jib', S.gennaker ? 'Jib / genn. sheet' : 'Jib sheet', rc('jib')], ['lazy', 'Lazy jib sheet', rc('lazy')], ['jibLead', 'Jib car', { css: '#9aa1a8' }], ['jibHalyard', 'Jib halyard', rc('jibHalyard')]);
+    else rows.push(['pushBoom', 'Push boom out', { css: '#9aa1a8' }]);
+    if (S.gennaker) rows.push(['tackLine', 'Tack line', rc('tackLine')]);
+    if (C.hasBoard) rows.push(['board', 'Daggerboard', { css: '#f2f2ef' }]);
+    rows.push(['hike', 'Weight on rail', { css: '#d33f49' }]);
     let h = `<div class="rg"><h3>Sails ${''}</h3>`;
     h += `<div class="sl2"><span>Main</span>${tt('main')}</div>`;
     if (S.stay) h += `<div class="sl2"><span>Staysail</span>${tt('stay')}</div>`;
@@ -73,12 +93,14 @@ export class HUD {
     const BTN = { main: ['Trim', 'Ease'], jib: ['Trim', 'Ease'], lazy: ['Haul', 'Ease'], pushBoom: ['Port', 'Stbd'], stay: ['Trim', 'Ease'], trav: ['Windward', 'Leeward'], vang: ['−', '+'], cunn: ['−', '+'],
       outhaul: ['−', '+'], backstay: ['−', '+'], jibHalyard: ['−', '+'], jibLead: ['Fwd', 'Aft'], tackLine: ['Down', 'Ease'], board: ['Up', 'Down'], hike: ['In', 'Out'] };
     const btns = (k) => `<span class="nb"><button class="nbtn" data-k="${k}" data-d="-1">${BTN[k][0]}</button><button class="nbtn" data-k="${k}" data-d="1">${BTN[k][1]}</button></span>`;
-    // lock: the line's cam cleat, clutch or self-tailer (released, a loaded line runs out by itself)
+    // what holds the line (its handler's icon and state: js/linehandlers.js): click to make fast / cast off
     const lockable = new Set(b.locks ? Object.keys(b.locks) : []);
-    const hasCleat = (k) => lockable.has(k) && !(k === 'lazy' && C.noWinches) && !(k === 'jibHalyard' && C.id === 'dinghy') && !(k === 'trav' && !S.main.trav);
-    const lk = (k) => hasCleat(k) ? `<button class="lk" data-lock="${k}" title="Cleat / release this line">⊓</button>` : `<span class="lk-sp"></span>`;
+    const hasCleat = (k) => lockable.has(k) && !(k === 'jibHalyard' && C.id === 'dinghy') && !(k === 'trav' && !S.main.trav);
+    const lk = (k) => hasCleat(k) ? `<button class="lk" data-lock="${k}"><span class="ic"></span><span class="lt">LOCK</span></button>` : `<span class="lk-sp"></span>`;
     const ADV = new Set(['vang', 'cunn', 'outhaul', 'backstay', 'lazy', 'jibLead', 'jibHalyard', 'tackLine']);
-    h += rows.map(([k, label, col]) => `<div class="ln${ADV.has(k) ? ' adv' : ''}" data-k="${k}"><i style="background:${col}"></i><span>${label}</span><b id="o-${k}"></b>${lk(k)}${btns(k)}</div>`).join('');
+    // (with its purchase: the tackle between the load and the hand)
+    const LS = lineSpecs(C), pr = (k) => (lockable.has(k) && LS[k] && LS[k].n > 1 ? ` <em class="pr">${LS[k].n}:1</em>` : '');
+    h += rows.map(([k, label, col]) => `<div class="ln${ADV.has(k) ? ' adv' : ''}" data-k="${k}"><i style="background:${col.css}"></i><span${col.tint ? ` class="rl" style="--rc:${col.tint}"` : ''}>${label}${pr(k)}</span><b id="o-${k}"></b>${lk(k)}${btns(k)}</div>`).join('');
     h += `<div class="ln"><i style="background:#8a5a2b"></i><span>Helm</span><b id="o-helm"></b><span class="lk-sp"></span><span class="nb"><button class="nbtn" data-k="helm" data-d="-1">Port</button><button class="nbtn" data-k="helm" data-d="1">Stbd</button></span></div>`;
     h += `</div><div class="toggles acts">`;
     if (S.main.reefs) h += `<span class="muted small">Reef</span>` + [0, 1, 2].slice(0, S.main.reefs + 1).map(r => `<button class="chip" data-reef="${r}">${['Full', '1st', '2nd'][r]}</button>`).join('') + `<b id="o-reef" class="small"></b>`;
@@ -164,8 +186,25 @@ export class HUD {
     if (!$('#physics').hidden) this.updatePhysics(b);
     this.drawPolar(b, twaDeg);
     this.updateRaceCard();
+    this.updateEngine(b);
     this.fitRig();
     if (!$('#results').hidden) this.fillResults();
+  }
+
+  // engine readout: only while it runs (or is being started)
+  updateEngine(b) {
+    const e = b.engine, el = $('#engine-card');
+    if (!el) return;
+    const on = !!(e && e.active);
+    if (el.hidden === on) el.hidden = !on;
+    if (e && this.g.syncEngineTouch) this.g.syncEngineTouch();
+    if (!on) return;
+    const shifting = e.running && (Math.abs(e.throttle) >= 0.1 ? Math.sign(e.throttle) : 0) !== e.gear;
+    $('#eng-rpm').textContent = e.starting ? '—' : Math.round(e.rpm / 10) * 10;
+    $('#eng-gear').textContent = e.starting ? (e.down < 0.98 ? 'LOWERING' : 'STARTING') : shifting ? 'SHIFTING' : e.gearName;
+    $('#eng-gear').className = e.gear > 0 ? 'ahead' : e.gear < 0 ? 'astern' : '';
+    $('#eng-thr').textContent = `${Math.round(Math.abs(e.throttle) * 100)}%`;
+    $('#eng-fuel').textContent = `${fmt(e.lh, 1)} L/h`;
   }
 
   // the rig panel lives between the race card and the bottom edge: never under the standings
@@ -182,7 +221,7 @@ export class HUD {
     const g = this.g; if (!g.race) return;
     const st = g.raceStandings(), me = g.race.racers[0];
     $('#res-sub').textContent = `${g.venue.name} · ${g.course.laps} lap${g.course.laps > 1 ? 's' : ''} · ${me.finished ? 'you finished ' + ordinal(me.place) : 'racing'}`;
-    const html = st.map((r, i) => `<li class="${r.me ? 'me' : ''}"><span>${r.finished ? i + 1 : ''}</span><span>${esc(r.name)}</span><span>${r.finished ? fmtT(r.time) : `<span class="muted">${legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span>`}</span></li>`).join('');
+    const html = st.map((r, i) => `<li class="${r.me ? 'me' : ''}"><span>${r.finished ? i + 1 : ''}</span><span>${esc(r.name)}</span><span>${r.finished ? fmtT(r.time) : r.retired ? 'RET' : `<span class="muted">${legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span>`}</span></li>`).join('');
     if (this._resHtml !== html) { this._resHtml = html; $('#res-list').innerHTML = html; }
   }
 
@@ -215,7 +254,22 @@ export class HUD {
     document.querySelectorAll('#rig-body [data-reef]').forEach(btn => btn.classList.toggle('on', +btn.dataset.reef === (b.ctrl.reef | 0)));
     const gen = document.getElementById('a-gen'); if (gen) { gen.textContent = b.ctrl.gen ? 'Douse gennaker' : 'Hoist gennaker'; gen.classList.toggle('on', !!b.ctrl.gen); }
     const right = document.getElementById('a-right'); if (right) right.classList.toggle('on', !!b.capsized);
-    document.querySelectorAll('#rig-body .lk').forEach(bt => { const free = b.locks && b.locks[bt.dataset.lock] === false; bt.classList.toggle('free', free); bt.textContent = free ? 'FREE' : 'LOCK'; });
+    // each line's handler: its icon, what it is doing (LOCK, MAKE 40%, OFF, FREE / EASE / HAND, SLIP) and a slip warning
+    this._slipT = this._slipT || {};
+    document.querySelectorAll('#rig-body .lk').forEach(bt => {
+      const k = bt.dataset.lock, st = lineStatus(b, k);
+      if (bt.dataset.icon !== st.icon) { bt.dataset.icon = st.icon; bt.querySelector('.ic').innerHTML = icon(st.icon); }
+      bt.querySelector('.lt').textContent = st.txt;
+      if (bt.dataset.cls !== st.cls) { bt.dataset.cls = st.cls; bt.className = 'lk ' + st.cls; }
+      bt.title = `${lineName(b, k)}: ${st.tip}`;
+      const s = b.lh && b.lh[k], now = performance.now();
+      if (s && s.slip && !(now - (this._slipT[k] || 0) < 5000)) {
+        this._slipT[k] = now;
+        const H = HANDLERS[specOf(b, k).handler];
+        this.toast(H.hand ? `${lineName(b, k)} is running through your hand — ${Math.round(s.T)} N` : `${lineName(b, k)} slipping in the ${H.name.toLowerCase()} — ${Math.round(s.T)} N on it`, 2.2);
+        if (this.g.audio && this.g.audio.click) this.g.audio.click();
+      }
+    });
     const reefEl = document.getElementById('o-reef');
     if (reefEl) reefEl.textContent = b.reefing ? `working ${Math.round(d.reefProgress * 100)}%` : '';
     const setTT = (key) => {
@@ -292,14 +346,14 @@ export class HUD {
       const me = g.race.racers[0];
       const leg = g.course.legs[me.leg];
       document.getElementById('rc-mode').textContent = online ? 'Online race' : 'Race';
-      let legTxt = me.finished ? `Finished · ${ordinal(me.place)}` : leg.type === 'start' ? (c < 0 ? 'Start sequence' : me.ocs ? 'OCS — return below the line' : 'Cross the line') : leg.name;
-      if (!me.finished && leg.type !== 'start') {
+      let legTxt = me.retired ? `Retired — ${me.retiredWhy || 'RET'}` : me.finished ? `Finished · ${ordinal(me.place)}` : leg.type === 'start' ? (c < 0 ? 'Start sequence' : me.ocs ? 'OCS — return below the line' : 'Cross the line') : leg.name;
+      if (!me.finished && !me.retired && leg.type !== 'start') {
         const tgt = g.course.target(leg, g.player);
         legTxt += ` · ${Math.round(Math.hypot(tgt.x - g.player.x, tgt.z - g.player.z))} m`;
       }
       document.getElementById('rc-leg').textContent = legTxt;
       const st = g.raceStandings();
-      document.getElementById('rc-standings').innerHTML = st.map((r, i) => `<li class="${r.me ? 'me' : ''}"><span>${i + 1}</span><span>${esc(r.name)}</span><span>${r.finished ? fmtT(r.time) : legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span></li>`).join('');
+      document.getElementById('rc-standings').innerHTML = st.map((r, i) => `<li class="${r.me ? 'me' : ''}"><span>${i + 1}</span><span>${esc(r.name)}</span><span>${r.finished ? fmtT(r.time) : r.retired ? 'RET' : legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span></li>`).join('');
       if (online && (me.finished || c > 1800)) actions = `<button class="chip" id="rc-newrace">Start another race</button>`;
     } else {
       document.getElementById('rc-mode').textContent = online ? 'Online' : 'Free sail';

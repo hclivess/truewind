@@ -8,6 +8,8 @@ import { DEG, KT } from './env.js';
 import { pref } from './hud.js';
 import { makeProjection } from './world.js';
 import { resolveMark, lightLabel, PAINT, colourName } from './seamarks.js';
+import { declination, decYear } from './magvar.js';
+import { mulberry32 } from './env.js';
 
 const $ = (s) => document.querySelector(s);
 const NM = 1852;
@@ -18,6 +20,16 @@ const LIGHT_CSS = { W: '#f5c400', R: '#e0302a', G: '#1f9a50', Y: '#f5c400', Bu: 
 const MAGENTA = '#c0268f';
 const dist = (m) => m >= 0.1 * NM ? `${(m / NM).toFixed(m >= 10 * NM ? 1 : 2)} nm` : `${Math.round(m)} m`;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+// a chart's variation note: 1°24'W 2026 (8'E/yr)
+const fmtVar = (v, r, yr) => { const a = Math.abs(v / DEG), d = Math.floor(a), m = Math.round((a - d) * 60), rr = Math.round(Math.abs(r / DEG) * 60); return `${d}°${String(m).padStart(2, '0')}'${v >= 0 ? 'E' : 'W'} ${Math.floor(yr)} (${rr}'${r >= 0 ? 'E' : 'W'}/yr)`; };
+// Compass deviation: the boat's own iron (engine, keel bolts, a steel hull) pulls the needle by a heading-dependent
+// amount, the classical five-coefficient curve d(H) = A + B sin H + C cos H + D sin 2H + E cos 2H (deg, + east).
+// A GRP boat with an inboard swings a degree or two; a glass dinghy barely at all; a steel hull many degrees.
+const DEV_DEFAULT = { A: 0.3, B: 1.2, C: -0.8, D: 0.4, E: 0.2 }, DEV_LIGHT = { A: 0, B: 0.3, C: 0.2, D: 0.1, E: 0 };
+export function deviation(cls, hdg) {
+  const k = cls.compassDev || (cls.engine ? DEV_DEFAULT : cls.keel && cls.keel.ballast ? DEV_DEFAULT : DEV_LIGHT);
+  return (k.A + k.B * Math.sin(hdg) + k.C * Math.cos(hdg) + k.D * Math.sin(2 * hdg) + k.E * Math.cos(2 * hdg)) * DEG;
+}
 
 export function fmtLat(lat) { const a = Math.abs(lat), d = Math.floor(a); return `${String(d).padStart(2, '0')}°${((a - d) * 60).toFixed(2).padStart(5, '0')}'${lat >= 0 ? 'N' : 'S'}`; }
 export function fmtLon(lon) { const a = Math.abs(lon), d = Math.floor(a); return `${String(d).padStart(3, '0')}°${((a - d) * 60).toFixed(2).padStart(5, '0')}'${lon >= 0 ? 'E' : 'W'}`; }
@@ -28,6 +40,7 @@ export class Nav {
     this.chartOpen = false;
     this.track = [];
     this.hazards = [];                                         // buoys and beacons near a boat: solid, like the race marks
+    this.overlays = [];                                        // { chart(ctx, P, nav), mini(ctx, lw) }: the MOB mark (js/gear.js)
     this.view = { cx: 0, cz: 0, s: 0.12, follow: true };      // s: chart pixels (css) per metre
     this.cv = $('#chart-cv'); this.ctx = this.cv.getContext('2d');
     this.tape = $('#compass-tape'); this.tctx = this.tape.getContext('2d');
@@ -52,7 +65,11 @@ export class Nav {
     this.base = null; this.track = []; this.origin = null; this.lastTgt = null; this.hazards = [];
     this.solid = this.marks.filter(m => !m.far && /^(buoy_|beacon_|light_float|light_vessel)/.test(m.t)).map(m => ({ x: m.x, z: m.z, kind: 'mark', seamark: true, name: m.n }));
     this.view.follow = true;
-    $('#chart-title').textContent = venue ? `${venue.name}${this.region ? ` · IALA ${this.region}` : ''}` : 'Chart';
+    // magnetic variation (WMM2025) at the venue on the session's date, and its yearly change
+    const [lat0, lon0] = this.proj.inv(0, 0), yr = decYear(this.g.clockBase ?? Date.now());
+    this.var = declination(lat0, lon0, yr) * DEG; this.varRate = (declination(lat0, lon0, yr + 1) - declination(lat0, lon0, yr)) * DEG;
+    this.gps = { ex: 0, ez: 0, ev: 0, rnd: mulberry32(0x6a5 + Math.round(lat0 * 1000)), acc: 0 };
+    $('#chart-title').textContent = venue ? `${venue.name}${this.region ? ` · IALA ${this.region}` : ''} · Var ${fmtVar(this.var, this.varRate, yr)}` : 'Chart';
   }
 
   toggleChart(on = !this.chartOpen) {
@@ -66,6 +83,19 @@ export class Nav {
   // ------------------------------------------------------------------ per frame
   update(dt) {
     const g = this.g, b = g.player; if (!b || !this.world) return;
+    // GPS error: a first-order Gauss-Markov wander of the fix (~2.5 m rms a side, correlation ~60 s: what a
+    // single-frequency receiver's residual ionosphere and multipath errors do), and Doppler velocity noise
+    // (~0.05 kn rms) in the SOG and COG, which is why COG swings about when a boat is nearly stopped
+    const G = this.gps; if (G) {
+      G.acc += dt;
+      while (G.acc > 0.2) {
+        G.acc -= 0.2;
+        const gn = () => { const u = Math.max(1e-9, G.rnd()), v = G.rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+        const a = Math.exp(-0.2 / 60), q = 2.5 * Math.sqrt(1 - a * a);
+        G.ex = a * G.ex + q * gn(); G.ez = a * G.ez + q * gn();
+        G.vx = 0.026 * gn(); G.vz = 0.026 * gn();
+      }
+    }
     const last = this.track[this.track.length - 1];
     const jump = last ? Math.hypot(last[0] - b.x, last[1] - b.z) : 0;
     if (jump > 400) this.track = [];                              // (a new start or a reset: a new track)
@@ -85,12 +115,16 @@ export class Nav {
   // what the nav instruments show (also used by the tape and the chart)
   state() {
     const g = this.g, b = g.player;
-    const sog = Math.hypot(b.vgx || 0, b.vgz || 0), cog = sog > 0.05 ? brgOf(b.vgx, b.vgz) : b.psi;
-    const [lat, lon] = this.proj.inv(b.x, b.z);
-    const s = { sog, cog, hdg: b.psi, lat, lon, depth: this.world.depthAt(b.x, b.z) };
+    const G = this.gps || { ex: 0, ez: 0 }, vx = (b.vgx || 0) + (G.vx || 0), vz = (b.vgz || 0) + (G.vz || 0);
+    const sog = Math.hypot(vx, vz), cog = sog > 0.02 ? brgOf(vx, vz) : this._cog ?? b.psi;
+    this._cog = cog;
+    const [lat, lon] = this.proj.inv(b.x + G.ex, b.z + G.ez);
+    // the steering compass: true heading less variation and the boat's deviation on this heading
+    const off = (this.var || 0) + deviation(b.cls, b.psi - (this.var || 0));
+    const s = { sog, cog, hdg: b.psi, hdgC: b.psi - off, off, lat, lon, depth: this.world.depthAt(b.x, b.z) };
     const tgt = g.navTarget();
     if (tgt) {
-      const dx = tgt.x - b.x, dz = tgt.z - b.z;
+      const dx = tgt.x - (b.x + G.ex), dz = tgt.z - (b.z + G.ez);
       s.tgt = tgt; s.brg = brgOf(dx, dz); s.dtw = Math.hypot(dx, dz);
       s.vmc = sog * Math.cos(cog - s.brg);
       s.ttg = s.vmc > 0.05 ? s.dtw / s.vmc : Infinity;
@@ -106,7 +140,7 @@ export class Nav {
   readout() {
     const s = this.state(), el = $('#nav-read'); if (!el) return;
     const set = (k, v, cls = '') => { const e = document.getElementById('nv-' + k); if (e) { e.textContent = v; e.className = cls; } };
-    set('cog', pad3(s.cog / DEG) + '°'); set('sog', (s.sog / KT).toFixed(1));
+    set('cog', pad3(s.cog / DEG) + '°T'); set('sog', (s.sog / KT).toFixed(1));
     const C = this.g.player.cls;
     set('dpt', s.depth > 99 ? '99+' : s.depth.toFixed(1), s.depth < C.draft + 1 ? 'bad' : s.depth < C.draft + 3 ? 'warn' : '');
     set('pos', `${fmtLat(s.lat)} ${fmtLon(s.lon)}`);
@@ -123,7 +157,7 @@ export class Nav {
     el.classList.toggle('has-wp', !!s.tgt);
     if (s.tgt) {
       set('tname', s.tname);
-      set('brg', pad3(s.brg / DEG) + '°'); set('dtw', dist(s.dtw));
+      set('brg', pad3(s.brg / DEG) + '°T'); set('dtw', dist(s.dtw));
       set('xte', s.xte === undefined ? '–' : `${dist(Math.abs(s.xte))} ${Math.abs(s.xte) < 1 ? '' : s.xte > 0 ? 'R' : 'L'}`, Math.abs(s.xte || 0) > 200 ? 'warn' : '');
       set('vmc', (s.vmc / KT).toFixed(1));
       if (isFinite(s.ttg) && s.ttg < 360000) {
@@ -137,7 +171,7 @@ export class Nav {
   // ------------------------------------------------------------------ steering compass tape
   drawTape() {
     const cv = this.tape, ctx = this.tctx; if (!cv || cv.offsetParent === null) return;
-    const W = cv.width, H = cv.height, s = this.state(), hdg = s.hdg / DEG;
+    const W = cv.width, H = cv.height, s = this.state(), off = s.off / DEG, hdg = s.hdgC / DEG;   // a compass card: everything in compass degrees
     const span = 90, px = W / span;                               // ±45° across the tape
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = 'rgba(11,22,31,.78)'; ctx.fillRect(0, 0, W, H);
@@ -158,15 +192,15 @@ export class Nav {
       ctx.closePath(); ctx.fill();
       if (off && label) { ctx.font = `600 ${Math.round(H * 0.26)}px "Barlow Condensed", sans-serif`; ctx.textAlign = X < W / 2 ? 'left' : 'right'; ctx.fillText(label, X < W / 2 ? X + 10 : X - 10, up ? H * 0.62 : H * 0.28); ctx.textAlign = 'center'; }
     };
-    mark(s.cog / DEG, '#ff7a1a', 'COG', true);
-    if (s.tgt) mark(s.brg / DEG, '#39d0ff', `BRG ${pad3(s.brg / DEG)}`, false);
+    mark(s.cog / DEG - off, '#ff7a1a', 'COG', true);
+    if (s.tgt) mark(s.brg / DEG - off, '#39d0ff', `BRG ${pad3(s.brg / DEG - off)}C`, false);
     const twd = this.g.env && this.g.env.wind ? this.g.env.wind.twd / DEG : null;
-    if (twd !== null) mark(twd, 'rgba(233,238,242,.8)', '', false);
+    if (twd !== null) mark(twd - off, 'rgba(233,238,242,.8)', '', false);
     // lubber line and heading
     ctx.fillStyle = '#ff7a1a'; ctx.fillRect(W / 2 - 1.5, 0, 3, H);
     const bw = H * 1.25;
     ctx.fillStyle = '#0e1a24'; ctx.fillRect(W / 2 - bw / 2, 0, bw, H * 0.42);
-    ctx.fillStyle = '#e9eef2'; ctx.font = `700 ${Math.round(H * 0.34)}px "Barlow Condensed", sans-serif`; ctx.fillText(pad3(hdg) + '°', W / 2, H * 0.34);
+    ctx.fillStyle = '#e9eef2'; ctx.font = `700 ${Math.round(H * 0.34)}px "Barlow Condensed", sans-serif`; ctx.fillText(pad3(hdg) + '°C', W / 2, H * 0.34);
     if (s.tgt) {
       const err = (((s.brg - s.hdg) / DEG + 540) % 360) - 180;
       ctx.font = `600 ${Math.round(H * 0.26)}px "Barlow Condensed", sans-serif`; ctx.fillStyle = '#39d0ff';
@@ -177,6 +211,7 @@ export class Nav {
 
   // ------------------------------------------------------------------ minimap overlay (called inside its transform)
   drawMini(ctx, lw) {
+    for (const o of this.overlays) if (o.mini) o.mini(ctx, lw);
     if (!this.marks) return;
     for (const m of this.marks) {
       if (m.far || /^(wreck|rock|obstruction|landmark)$/.test(m.t)) continue;
@@ -331,6 +366,7 @@ export class Nav {
     }
     // seamarks
     this.drawMarks(ctx, W, H);
+    for (const o of this.overlays) if (o.chart) o.chart(ctx, P, this);
     // other boats, then the player with the 6-minute COG/SOG vector
     for (const o of g.boats) {
       if (o === b) continue;
