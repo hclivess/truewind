@@ -204,9 +204,9 @@ The production and famous boats (`js/classes/`, baked at 8, 12 and 16 kn with th
 | Westsail 32 | 40°, 4.49, 3.44 (40°, 4.40, 3.37) | 5.64 (6.2) | 5.33 (5.6) | 4.43 (4.8) | 4.04 at 165° (4.11) |
 | Optimist | 44°, 3.21, 2.31 (40°, 3.14, 2.40) | 3.78 (4.0) | 3.83 (3.9) | 3.72 (3.7) | 3.62 at 180° (3.49) |
 | Sunfish | 44°, 4.78, 3.43 (40°, 4.73, 3.62) | 5.77 (6.1) | 5.27 (5.6) | 4.55 (4.7) | 4.33 at 180° (4.41) |
-| Flying Scot | 36°, 5.05, 4.08 (40°, 5.28, 4.05) | 5.79 (7.4g) | 6.20 g (7.7g) | 4.84 (6.1g) | 4.51 at 165° (5.32) |
-| Dragon | 40°, 4.91, 3.76 (40°, 4.79, 3.67) | 5.78 (6.2g) | 5.63 (6.4g) | 5.09 g (5.9g) | 4.74 at 165° (5.14) |
-| Etchells | 40°, 5.62, 4.30 (40°, 5.69, 4.36) | 6.85 (7.8g) | 6.82 g (8.2g) | 5.65 g (6.8g) | 5.56 at 180° (5.91) |
+| Flying Scot | 40°, 5.05, 3.87 (40°, 5.28, 4.05) | 5.85 g (7.4g) | 6.17 g (7.7g) | 4.91 g (6.1g) | 4.96 at 180° (5.32) |
+| Dragon | 40°, 4.91, 3.76 (40°, 4.79, 3.67) | 5.78 (6.2g) | 5.63 (6.4g) | 5.11 g (5.9g) | 4.76 at 165° (5.14) |
+| Etchells | 40°, 5.66, 4.34 (40°, 5.69, 4.36) | 6.89 (7.8g) | 6.54 g (8.2g) | 5.54 g (6.8g) | 5.64 at 180° (5.91) |
 | Melges 24 | 40°, 6.45, 4.94 (40°, 6.42, 4.92) | 8.33 g (8.8g) | 9.00 g (11.8g) | 7.45 g (8.0g) | 6.45 at 150° (7.40) |
 | Spray | 44°, 4.69, 3.38 (44°, 5.10, 3.67) | 5.96 (6.5) | 5.70 (6.1) | 4.96 (5.1) | 4.47 at 180° (4.56) |
 | Joshua | 40°, 4.98, 3.82 (44°, 5.42, 3.90) | 6.69 (7.0) | 6.18 (6.3) | 4.99 (5.3) | 4.56 at 165° (4.57) |
@@ -224,9 +224,9 @@ Checked against their ratings, as the time to sail a mile of windward-leeward co
   - **What is left** is mostly in her sails. Close-hauled, the yankee (the high-cut jib) works at a lift coefficient of 0.85–0.93 against the main's 1.3, and reaching the club-footed staysail cannot be eased past about 27°. A club vang on the staysail was tried and removed: it made her slower (implied PHRF 403).
 - **Optimist**: implied DPN 130.4 against the Portsmouth 136 (4% faster; RYA PN 1646, the slowest on the list).
 - **Sunfish**: implied DPN 96 against 100 (4% faster); on a reach in 16 kn it planes at 8.8 kn.
-- **Flying Scot**: implied DPN 86 against 90 (5% faster), with its hull drag scaled 1.3x the Laser-type table's for its beamy, hard-bilged shape.
+- **Flying Scot**: implied DPN 85 against 90 (6% faster), with its hull drag scaled 1.3x the Laser-type table's for its beamy, hard-bilged shape.
 - **Dragon**: no PHRF; RYA PN 986. 4.9 kn close-hauled at 40° and 5.8 kn at 90° in 12 kn, and 6.5 kn in 16 kn: her overhangs make her sailing length (and the lines give her dynamic waterline) longer than the 5.66 m static one.
-- **Etchells**: implied PHRF 157 against 138 (2.5% slower).
+- **Etchells**: implied PHRF 149 against 138 (1.5% slower).
 - **Melges 24**: implied PHRF 58 against 84 (4% faster); 9.0 kn at 120° under the asymmetric in 12 kn and 13 kn in 16 kn, where the class planes.
 - **Spray** and **Joshua**: no ratings. Spray does 4.7 kn close-hauled at 44°, 6.0 kn at 90° and 7.0 kn in 16 kn (her hull speed about 7.8 kn). Joshua sailed the 37,455 miles of the Long Way in 303 days (Plymouth, 22 August 1968, to Tahiti, 21 June 1969), 5.2 kn on average; here 6.7 kn at 90° in 12 kn and 7.6 kn in 16 kn.
 
