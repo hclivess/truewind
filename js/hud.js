@@ -3,6 +3,7 @@
 import { DEG, KT } from './env.js';
 import { polarSpeedAt, vmgTargets, clamp, wrap, REEF } from './physics.js';
 import { drawTrafficMap } from './traffic.js';
+import { RULE_SHORT } from './rules.js';
 import { lineStatus, ropeLook, ropeKey, lineName, HANDLERS, specOf, lineSpecs } from './linehandlers.js';
 import { ropeCSS } from './linegear.js';
 
@@ -158,6 +159,7 @@ export class HUD {
     if (!b) return;
     this.acc += dt; this.mapAcc += dt;
     if (this.mapAcc > 1 / 20) { this.mapAcc = 0; this.drawMap(); }
+    this.drawRules();
     if (this.acc < 0.1) return;
     this.acc = 0;
     const d = b.diag, C = b.cls;
@@ -220,14 +222,80 @@ export class HUD {
     if (this._rigMH !== mh) { this._rigMH = mh; rig.style.maxHeight = mh + 'px'; }
   }
 
+  // ------------------------------------------------------------ racing rules
+  // a ring on the water round each boat near you — green: you have right of way (she keeps clear), red: you keep
+  // clear of her, amber: you owe her room or mark-room — with the rule; and the three-length zone round your mark
+  relColour(pr, b) {
+    const R = this.g.rules, o = pr.a === b ? pr.b : pr.a, n = o.name || '', room = (r) => (r === '18.2' ? 'mark-room' : 'room');
+    if (pr.room && pr.room.giver === b) return ['#f2b33d', `Give ${n} ${room(pr.room.rule)} · ${pr.room.rule}`];
+    if (R.owes(pr, b)) return ['#e0413a', `Keep clear of ${n} · ${pr.rule} ${RULE_SHORT[pr.rule] || ''}`];
+    if (pr.room && pr.room.ent === b) return ['#27b36a', `${n} owes you ${room(pr.room.rule)} · ${pr.room.rule}`];
+    return ['#27b36a', `${n} keeps clear of you · ${pr.rule} ${RULE_SHORT[pr.rule] || ''}`];
+  }
+  drawRules() {
+    const g = this.g, R = g.rules, b = g.player, cv = this.rulesCv || (this.rulesCv = $('#rules-cv'));
+    const W = window.innerWidth, H = window.innerHeight, dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+    const ctx = cv.getContext('2d');
+    if (this._rulesDrawn) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height); this._rulesDrawn = false; }
+    if (!R || !b || !g.race || !g.project) return;
+    this._rulesDrawn = true;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const ring = (x, z, rad, col, width, dash) => {
+      const pts = [];
+      for (let k = 0; k <= 48; k++) { const a = k / 48 * Math.PI * 2, p = g.project(x + Math.cos(a) * rad, 0.15, z + Math.sin(a) * rad); if (!p[2]) return null; pts.push(p); }
+      ctx.beginPath(); pts.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+      ctx.setLineDash(dash || []); ctx.lineWidth = width; ctx.strokeStyle = col; ctx.stroke(); ctx.setLineDash([]);
+      return pts;
+    };
+    const tag = (x, y, txt, col) => {
+      ctx.font = '600 13px "Barlow Condensed", sans-serif';
+      const w = ctx.measureText(txt).width + 12;
+      ctx.fillStyle = 'rgba(11,22,31,.78)'; ctx.fillRect(x - w / 2, y - 10, w, 20);
+      ctx.fillStyle = col; ctx.fillRect(x - w / 2, y - 10, 3, 20);
+      ctx.fillStyle = '#e9eef2'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(txt, x + 1, y + 1);
+    };
+    const s = R.S(b);
+    if (s.marks) for (const m of s.marks) {
+      const z = s.zone.get(m);
+      if (Math.hypot(m.x - b.x, m.z - b.z) > 14 * b.cls.loa) continue;
+      const pts = ring(m.x, m.z, 3 * b.cls.loa, z && z.in ? 'rgba(242,179,61,.9)' : 'rgba(233,238,242,.55)', 2, [10, 7]);
+      if (pts) { const top = pts.reduce((a, p) => (p[1] < a[1] ? p : a)); tag(top[0], top[1] - 12, z && z.in ? 'In the zone · rule 18' : 'Zone · 3 lengths', '#f2b33d'); }
+    }
+    const rels = R.relsOf(b).filter(pr => pr.d < 45).sort((p, q) => p.d - q.d).slice(0, 5);
+    for (const pr of rels) {
+      const o = pr.a === b ? pr.b : pr.a, [col, txt] = this.relColour(pr, b);
+      const hot = pr.clr < 2.5 && pr.when <= 2;
+      const pts = ring(o.x, o.z, o.cls.loa * 0.8, hot && Math.sin(performance.now() / 110) > 0 ? '#ffffff' : col, hot ? 4 : 2.5);
+      if (!pts) continue;
+      const lp = g.project(o.x, (o.cls.mastHeight || 8) + 1.2, o.z);
+      if (lp[2]) tag(lp[0], lp[1] - 10, txt, col);
+    }
+    // the hail: who is to answer
+    const h = R.hailTo(b) || R.hailOf(b);
+    if (h) { const o = h.from === b ? h.to : h.from, lp = g.project(o.x, (o.cls.mastHeight || 8) + 3.6, o.z); if (lp[2]) tag(lp[0], lp[1] - 10, h.from === b ? 'Hailed: room to tack' : '“Room to tack!”', '#39d0ff'); }
+  }
+
   // ------------------------------------------------------------ race results
   showResults() { this.fillResults(); $('#results').hidden = false; $('#res-keep').focus(); }
   fillResults() {
     const g = this.g; if (!g.race) return;
     const st = g.raceStandings(), me = g.race.racers[0];
-    $('#res-sub').textContent = `${g.venue.name} · ${g.course.laps} lap${g.course.laps > 1 ? 's' : ''} · ${me.finished ? 'you finished ' + ordinal(me.place) : 'racing'}`;
-    const html = st.map((r, i) => `<li class="${r.me ? 'me' : ''}"><span>${r.finished ? i + 1 : ''}</span><span>${esc(r.name)}</span><span>${r.finished ? fmtT(r.time) : r.retired ? 'RET' : `<span class="muted">${legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span>`}</span></li>`).join('');
+    $('#res-sub').textContent = `${g.venue.name} · ${g.course.laps} lap${g.course.laps > 1 ? 's' : ''} · ${me.dsq ? 'you were disqualified' : me.finished ? 'you finished ' + ordinal(me.place) : 'racing'}`;
+    let n = 0;
+    const html = st.map((r) => `<li class="${r.me ? 'me' : ''}${r.code ? ' dsq' : ''}"><span>${r.finished && !r.code ? ++n : ''}</span><span>${esc(r.name)}</span><span>${r.code ? r.code : r.finished ? fmtT(r.time) : `<span class="muted">${legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span>`}</span></li>`).join('');
     if (this._resHtml !== html) { this._resHtml = html; $('#res-list').innerHTML = html; }
+    // the umpire's log: every incident with the rule, and what came of it
+    const R = g.rules, P = g.player;
+    const out = { penalty: (i) => `penalty, ${i.turns === 1 ? 'one turn' : 'two turns'}${R && R.penaltyOf(i.off) ? ' (to take)' : ''}`, taken: () => 'penalty taken', dsq: () => 'not taken: DSQ',
+      noprotest: () => 'no protest', exonerated: () => 'exonerated (43.1)', pending: () => 'protest time', ocs: (i) => { const r = g.race.racers.find(q => q.boat === i.off); return r && r.started ? 'returned and started' : 'did not return: OCS'; } };
+    const incs = R ? R.incidents.filter(i => out[i.status]) : [];
+    const ih = incs.map(i => {
+      const who = i.kind === 'mark' ? `${esc(i.off.name)} touched a mark` : i.kind === 'ocs' ? `${esc(i.off.name)} over the line at the gun` : i.kind === 'hail' ? `${esc(i.off.name)} (hail) vs ${esc(i.vic.name)}` : `${esc(i.off.name)} ${i.kind === 'contact' ? 'hit' : 'vs'} ${esc(i.vic.name)}`;
+      return `<li class="${i.off === P || i.vic === P ? 'me' : ''}"><span>${i.t < 0 ? '−' + fmtT(-i.t) : fmtT(i.t)}</span><span><b>Rule ${i.rule}</b> ${RULE_SHORT[i.rule] || ''} · ${who} — ${out[i.status](i)}${i.by ? ` (protest: ${esc(i.by.name)})` : ''}</span></li>`;
+    }).join('');
+    $('#res-rules').hidden = !incs.length;
+    if (this._incHtml !== ih) { this._incHtml = ih; $('#res-inc').innerHTML = ih; }
   }
 
   // short control reminder, adapted to keyboard or touch, fades after a while
@@ -358,8 +426,10 @@ export class HUD {
       }
       document.getElementById('rc-leg').textContent = legTxt;
       const st = g.raceStandings();
-      document.getElementById('rc-standings').innerHTML = st.map((r, i) => `<li class="${r.me ? 'me' : ''}"><span>${i + 1}</span><span>${esc(r.name)}</span><span>${r.finished ? fmtT(r.time) : r.retired ? 'RET' : legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span></li>`).join('');
+      document.getElementById('rc-standings').innerHTML = st.map((r, i) => `<li class="${r.me ? 'me' : ''}"><span>${i + 1}</span><span>${esc(r.name)}</span><span>${r.code ? r.code : r.pen ? 'penalty' : r.finished ? fmtT(r.time) : legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span></li>`).join('');
       if (online && (me.finished || c > 1800)) actions = `<button class="chip" id="rc-newrace">Start another race</button>`;
+      // (the protest and the hail for room to tack, for a touch screen with no B and U keys)
+      else if (g.rules && !me.finished) actions = `<button class="chip" id="rc-protest" title="Protest (Shift+B)">Protest</button><button class="chip" id="rc-hail" title="Room to tack! (Shift+U)">Room to tack</button>`;
     } else {
       document.getElementById('rc-mode').textContent = online ? 'Online' : 'Free sail';
       rc.classList.remove('pre');
@@ -379,6 +449,9 @@ export class HUD {
       box.dataset.html = actions; box.innerHTML = actions;
       const b = document.getElementById('rc-newrace');
       if (b) b.addEventListener('click', () => g.startSharedRace());
+      const pb = document.getElementById('rc-protest'), hb = document.getElementById('rc-hail');
+      if (pb) pb.addEventListener('click', () => g.protestKey());
+      if (hb) hb.addEventListener('click', () => g.hailKey());
     }
   }
 
@@ -478,13 +551,15 @@ export class HUD {
       }
     }
     drawTrafficMap(ctx, g.traffic, lw);
-    // boats
+    // boats (under the racing rules: red, you keep clear of her; green, she keeps clear of you; amber, you owe her room)
+    const relCol = new Map();
+    if (g.rules && g.race) for (const pr of g.rules.relsOf(b)) relCol.set(pr.a === b ? pr.b : pr.a, this.relColour(pr, b)[0]);
     for (const o2 of g.boats) {
       const me = o2 === b;
       ctx.save(); ctx.translate(o2.x, o2.z); ctx.rotate(o2.psi);
       // your own boat: a big notched arrow with a dark outline so it reads at any zoom
       const s = Math.max(o2.cls.loa, (me ? 40 : 10) * lw) / 2;
-      ctx.fillStyle = me ? '#ff7a1a' : 'rgba(233,238,242,.85)';
+      ctx.fillStyle = me ? '#ff7a1a' : relCol.get(o2) || 'rgba(233,238,242,.85)';
       ctx.beginPath();
       if (me) { ctx.moveTo(0, -s); ctx.lineTo(s * 0.7, s); ctx.lineTo(0, s * 0.45); ctx.lineTo(-s * 0.7, s); }
       else { ctx.moveTo(0, -s); ctx.lineTo(s * 0.45, s); ctx.lineTo(-s * 0.45, s); }
