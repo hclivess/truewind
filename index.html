@@ -16,6 +16,7 @@
 <canvas id="view"></canvas>
 
 <div id="hud" hidden>
+  <canvas id="rules-cv" aria-hidden="true"></canvas>
   <section id="race-card" class="panel">
     <div class="rc-top"><span id="rc-mode" class="eyebrow">Free sail</span><span id="rc-venue" class="muted"></span></div>
     <div id="rc-clock" class="big">--:--</div>
@@ -102,6 +103,7 @@
     <div class="eyebrow" id="res-sub">Race</div>
     <h2 id="res-title">Results</h2>
     <ol id="res-list"></ol>
+    <div id="res-rules" hidden><div class="eyebrow">Umpire · protests and penalties</div><ul id="res-inc"></ul></div>
     <div class="row">
       <button id="res-again" class="btn primary">Race again</button>
       <button id="res-keep" class="btn ghost">Keep sailing</button>
@@ -179,6 +181,7 @@
           <label><input type="checkbox" id="opt-hike" checked> Automatic weight placement (hiking)</label>
           <label><input type="checkbox" id="opt-tiller"> Tiller steering (push the tiller, bow goes the other way)</label>
           <label><input type="checkbox" id="opt-laylines" checked> Show laylines</label>
+          <label class="race-only"><input type="checkbox" id="opt-rules" checked> Racing rules, umpired (right of way, penalties)</label>
           <label><input type="checkbox" id="opt-sound" checked> Sound</label>
         </div>
       </section>
@@ -222,6 +225,8 @@
       <div><kbd>1</kbd>–<kbd>7</kbd><span>Chase · Helm · Bow · Masthead · Overhead · Orbit · On deck</span></div>
       <div>On deck<span>Point at a rope, car, winch or the tiller: pull ropes up/down, slide cars along their tracks, wind winch handles round either way (clockwise = fast gear, anticlockwise = slow powerful gear; the drum only turns one way — drag a sheet tail down to ease), push the tiller sideways, click the reef line or gennaker halyard.</span></div>
       <div><kbd>L</kbd> <kbd>K</kbd> <kbd>I</kbd><span>Laylines · force vectors · physics readout</span></div>
+      <div><kbd>Shift</kbd>+<kbd>B</kbd><span>Racing: “Protest!” — a boat that did not keep clear of you (the umpire rules at once; contact and mark touches it penalises by itself). A ring on each boat near you: green, you have right of way; red, keep clear of her; amber, she is owed room or mark-room</span></div>
+      <div><kbd>Shift</kbd>+<kbd>U</kbd><span>Racing: hail “Room to tack!” at an obstruction to the boat to windward (rule 20); hailed yourself, tack, or answer “You tack”. A penalty: turn the same way round, each turn a tack and a gybe, before the countdown ends</span></div>
       <div><kbd>Tab</kbd><span>Chart: seamarks and lights, depths, your track; click or tap to set a waypoint (a mark: steer for it)</span></div>
       <div><kbd>U</kbd> <kbd>9</kbd> <kbd>0</kbd><span>Anchor down / weigh (keelboats) · lines: make fast alongside a pier or to a mooring, cast off · MOB: mark the spot on the plotter</span></div>
       <div>Damage<span>Loads break gear: shrouds part, sails tear or blow out, collisions and groundings hole the hull and she takes water (pump, or she sinks), a rudder bends, a keel can go. The Boat section of the rig panel shows it all, with the crew's strength (hiking and grinding tire them) — and Damage: off.</span></div>
