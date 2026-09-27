@@ -356,15 +356,15 @@ export class HullWaves {
         float x1 = hd(ij + ivec2(1, 0), 0), x0 = hd(ij - ivec2(1, 0), 1), z1 = hd(ij + ivec2(0, 1), 2), z0 = hd(ij - ivec2(0, 1), 3);
         vec2 g = vec2(x1 - x0, z1 - z0) / (2.0 * uDx);
         float lap = (x1 + x0 + z1 + z0 - 4.0 * h0) / (uDx * uDx);
-        // breaking: a crest steeper than ~0.12 on this grid (which rounds off the sharp crests of the waves
+        // breaking: a crest steeper than ~0.1 on this grid (which rounds off the sharp crests of the waves
         // it resolves: a real crest there is about twice as steep; Stokes' limit 0.58) and curving down,
-        // outside the hulls: the divergent crests once the boat goes fast
+        // outside the hulls: the divergent crests once the boat goes fast; gentler crests only spill a lace
         float dry = 1.0 - smoothstep(0.005, 0.04, q);
-        float brk = smoothstep(0.12, 0.3, length(g)) * smoothstep(0.0, 0.03, h0) * smoothstep(0.1, -0.4, lap) * dry;
+        float sl = length(g), brk = max(smoothstep(0.1, 0.26, sl), 0.5 * smoothstep(0.05, 0.12, sl)) * smoothstep(0.0, 0.03, h0) * smoothstep(0.1, -0.4, lap) * dry;
         // and the bow wave: water standing up against the hull (the cell at the waterline, a hull cell next
         // to it) spills as white water past ~6 cm (an entry at Fn ~0.3)
         float edge = smoothstep(0.02, 0.08, max(max(qn[0], qn[1]), max(qn[2], qn[3]))) * dry;
-        brk = max(brk, edge * smoothstep(0.04, 0.16, h0));
+        brk = max(brk, edge * smoothstep(0.03, 0.12, h0));
         gl_FragColor = vec4(h0, g, brk);
       }`, { ...this.hu, uSrc: { value: null } });
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.prep); this.quad.frustumCulled = false;

@@ -308,19 +308,19 @@ export class Renderer {
           vec2 fl = uFlow, pr = vec2(-fl.y, fl.x);
           float wk = smoothstep(0.8, 6.0, lw) * sqrt(clamp(gw, 0.3, 2.0));
           // ---- hull waves: the short waves ride steeper on the wake's crests and flatter in its troughs
-          // (hydrodynamic modulation, a ~ 1 + M k h with M ~ 6), and the turbulent strip behind a hull damps
+          // (hydrodynamic modulation, a ~ 1 + M k h, M ~ 10 for the short gravity waves), and the turbulent strip behind a hull damps
           // them for a minute or more (the slick: the foam map's third channel). This is what draws a wake's
           // crest lines at a distance, and the long smooth lane down its middle
           float hwMod = 1.0;
           #ifdef HWSIM
-          hwMod = 1.0 + clamp(6.0 * uHWK * hwv.x, -0.7, 0.9);
+          hwMod = 1.0 + clamp(10.0 * uHWK * hwv.x, -0.8, 1.5);
           #endif
           #ifdef HWKELVIN
-          hwMod = 1.0 + clamp(6.0 * 6.2832 / uKS[0].x * kwv.x, -0.7, 0.9);
+          hwMod = 1.0 + clamp(10.0 * 6.2832 / uKS[0].x * kwv.x, -0.8, 1.5);
           #endif
           #ifndef LOWQ
           { vec2 suv = (x0 - uFoamC) / uFoamS + 0.5;
-            hwMod *= 1.0 - 0.65 * uFoamOn * textureLod(uFoam, suv, 1.0).b * (1.0 - smoothstep(0.4, 0.49, max(abs(suv.x - 0.5), abs(suv.y - 0.5)))); }
+            hwMod *= 1.0 - 0.8 * uFoamOn * textureLod(uFoam, suv, 1.0).b * (1.0 - smoothstep(0.4, 0.49, max(abs(suv.x - 0.5), abs(suv.y - 0.5)))); }
           #endif
           wk *= hwMod;
           float Cd = 0.0, sd2 = 0.0, sdR = 0.0, sdT = 0.0, wl = uLmin;
@@ -373,6 +373,18 @@ export class Renderer {
           // Cox-Munk mean square slope (0.003 + 0.00512 U) — blur the reflection and widen the sun's path
           float mssSub = max(0.0015, 0.003 + 0.00512 * lw - uJSig * uJSig - sd2) * 0.7 * hwMod * hwMod;
           float a2 = clamp(lost + mssSub, 2e-4, 0.5);
+          // ---- hull waves: the reflectance their roughness change makes. A rough patch shows the eye facets
+          // tilted both ways, and Fresnel is convex, so on average it reflects more sky at a low angle than a
+          // smooth one: the wake's crest lines and its slick read as bright and dark bands (the difference
+          // from the same water without the wake, so the sea elsewhere is untouched)
+          #if defined(HWSIM) || defined(HWKELVIN)
+          {
+            float a20 = clamp(lost + mssSub / max(hwMod * hwMod, 1e-3), 2e-4, 0.5), sn = sqrt(max(1.0 - NdV * NdV, 0.0));
+            #define FAV(s) (0.02 + 0.49 * (pow(1.0 - clamp(NdV - (s) * sn, 1e-3, 1.0), 5.0) + pow(1.0 - clamp(NdV + (s) * sn, 1e-3, 1.0), 5.0)))
+            F = clamp(F + FAV(sqrt(a2)) - FAV(sqrt(a20)), 0.0, 1.0);
+            #undef FAV
+          }
+          #endif
           float sig = sqrt(a2);
           float gloss = clamp(log2(1.0 + sig * 45.0), 0.0, 6.0);
           vec3 refl = texture(uEnv, R, gloss).rgb;
@@ -599,7 +611,7 @@ export class Renderer {
             vec2 ab = w.zw - w.xy, ap = p - w.xy;
             float d = length(ap - ab * clamp(dot(ap, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0));
             wake += ww.y * smoothstep(ww.x, ww.x * 0.3, d) * (0.6 + 0.8 * f1) * 5.0 * uDt;
-            slk += min(ww.y, 1.0) * smoothstep(ww.x * 1.5, ww.x * 0.5, d) * 3.0 * uDt;
+            slk += min(ww.y, 1.0) * smoothstep(ww.x * 2.0, ww.x * 0.6, d) * 3.0 * uDt;
           }
           // ---- hull waves (hullwaves.js): white water where the boats' own waves break (the bow wave, and
           // the divergent crests once the boat goes fast), laid down with the wake's foam
@@ -652,7 +664,7 @@ export class Renderer {
         if (!pv || jump || Math.hypot(x0 - pv[0], z0 - pv[1]) >= 10) continue;
         const sp = Math.hypot(b.u || 0, b.v || 0), pw = clamp(b.propWash || 0, 0, 1);
         F.uWake.value[n].set(pv[0], pv[1], x0, z0);
-        F.uWakeW.value[n].set((C.hullBeam ?? C.beam) * (0.3 + 0.04 * sp + 0.15 * pw), clamp((sp - 0.4) / 1.6, 0, 1) + pw, 0, 0);
+        F.uWakeW.value[n].set(Math.max((C.hullBeam ?? C.beam) * (0.3 + 0.04 * sp + 0.15 * pw), 0.3 + 0.02 * sp), clamp((sp - 0.4) / 1.6, 0, 1) + pw, 0, 0);   // (at least a foam texel: a cat's slender hulls)
         n++;
       }
       this._sternPrev.set(b, cur);
