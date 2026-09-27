@@ -101,14 +101,14 @@ export const RIG_DATA = {
     prebend: 0.01, lineMax: 1800,
   },
   // Laser / ILCA 7: unstayed two-piece aluminium mast in a deck tube. Class: bottom section 2865 mm x 63.5 mm, top
-  // section 3600 mm x 50.8 mm (wall 1.8 / 1.55 mm est. from the sections' weights), heel 355 mm below the deck; the top
+  // section 3600 mm x 50.8 mm (walls est. 2.3 / 1.9 mm: ~4.5 and ~3 kg), heel 355 mm below the deck; the top
   // section slides ~0.27 m into the bottom one at the sleeve. The sail's luff sleeve wraps the mast.
   dinghy: {
     step: { type: 'tube', z: 0.05, collar: 0.41 },
-    spans: [{ z0: 0.05, z1: 2.645, dia: 0.0635, t: 0.0018, mat: 'alu6061' },
-      { z0: 2.645, z1: 2.915, dia: 0.0635, t: 0.0018, mat: 'alu6061', plus: { dia: 0.0508, t: 0.00155 } },
-      { z0: 2.915, z1: 6.24, dia: 0.0508, t: 0.00155, mat: 'alu6061' }],
-    spreaders: [], wires: [], prebend: 0, lineMax: 2500,
+    spans: [{ z0: 0.05, z1: 2.645, dia: 0.0635, t: 0.0023, mat: 'alu6061' },
+      { z0: 2.645, z1: 2.915, dia: 0.0635, t: 0.0023, mat: 'alu6061', plus: { dia: 0.0508, t: 0.0019 } },
+      { z0: 2.915, z1: 6.24, dia: 0.0508, t: 0.0019, mat: 'alu6061' }],
+    spreaders: [], wires: [], prebend: 0, lineMax: 2500, noHalyard: true,
   },
   // Hobie 16: rotating aluminium wing mast (8.07 m) on a ball on the front beam, side stays to the hulls, forestay to
   // the bridle from the bows, diamond wires over a pair of diamond spreaders, trapezes from the hounds; the mast
@@ -243,9 +243,14 @@ export class RigStructure {
     this.axisX = C.mastX + 0.03;
     // the most a line on the boom carries (its purchase times what the crew can pull): the vang and the sheet
     this.lineMax = R.lineMax ?? 2 * (C.sheetPower || 700);
+    this.sheetMax = R.sheetMax ?? 2 * (C.sheetPower || 700);
     this.track = R.rotating ? R.rotating.track : 0.05;         // luff track aft of the mast's axis
     this.rot = 0; this.rotTarget = 0;
     this.stays = {};
+    // lines that pull on the mast with a set tension (a leech toward its clew, a halyard's hauling part down the mast, a
+    // trapeze toward its crew): their pull turns with the mast as it bends, so they carry their geometric stiffness (a
+    // halyard inside the mast cannot buckle it; a leech pulling the head toward the clew holds it as a stay would)
+    this.pulls = [];
     this.buildGeometry();
     this.u = new Float64Array(this.n); this.du = new Float64Array(this.n);
     this.K = new Float64Array(this.n * this.n); this.R = new Float64Array(this.n); this.F = new Float64Array(this.n);
@@ -394,7 +399,7 @@ export class RigStructure {
     this.sprit = sprit; this.apex = apex;
     // supports
     const st = R.step;
-    this.supports = [{ i: 0, dofs: [0, 2, 4] }];
+    this.supports = [{ i: 0, dofs: st.type === 'fixed' ? [0, 1, 2, 3, 4] : [0, 2, 4] }];
     if (st.type === 'tube' && st.collar) this.supports.push({ i: node(st.collar), dofs: [0, 2] });
     if (st.type === 'keel' && st.partners) this.supports.push({ i: node(st.partners), dofs: [0, 2] });
     // where the loads go
@@ -520,6 +525,15 @@ export class RigStructure {
         for (let rr = 0; rr < 3; rr++) { fb[rr] = 0; for (let c = 0; c < 3; c++) fb[rr] -= Kd[3 * rr + c] * d0[c]; }
         this.addPair(root, tip, Kd, fb);
       }
+      // pulls: a line at a set tension T from a to b: force T e on a, its geometric stiffness T/L (I - e e^T)
+      for (const pl of this.pulls) {
+        this.pos(pl.a, u, pa); this.pos(pl.b, u, pb);
+        let ex = pb[0] - pa[0], ey = pb[1] - pa[1], ez = pb[2] - pa[2]; const L = hyp3(ex, ey, ez) || 1; ex /= L; ey /= L; ez /= L;
+        const E = [ex, ey, ez], g = pl.T / L;
+        for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) Kd[3 * r + c] = g * ((r === c ? 1 : 0) - E[r] * E[c]);
+        fb[0] = -pl.T * ex; fb[1] = -pl.T * ey; fb[2] = -pl.T * ez;
+        this.addPair(pl.a, pl.b, Kd, fb);
+      }
       // bowsprit: a cantilever from the stem
       if (this.spritStrut) {
         const s = this.spritStrut, k0 = s.node, ex = k0.p[0] - s.root[0], ez = k0.p[2] - s.root[2], l = Math.hypot(ex, ez), e = [ex / l, 0, ez / l], nv = [-e[2], 0, e[0]];
@@ -596,6 +610,7 @@ export class RigStructure {
     const zl0 = C.boomZ, zl1 = Math.min(this.zTop, C.boomZ + M.luff), zm = 0.5 * (zl0 + zl1);
     const off = this.mastDisp(zm, [0, 0, 0])[0] - 0.5 * (this.mastDisp(zl0, [0, 0, 0])[0] + this.mastDisp(zl1, [0, 0, 0])[0]);
     this.us = us; this.u.set(u0); for (const w of this.wires) w.Lrest = w.Lrest0;
+    this.pulls.length = 0; this.F.fill(0);
     for (const e of this.el) { e.N = e.EA / e.L * (this.u[5 * e.j + 4] - this.u[5 * e.i + 4]); e.Ng = e.N; }
     return Math.max(0.35 * 0.018 * M.luff, 0.9 * off);
   }
@@ -619,6 +634,7 @@ export class RigStructure {
     const C = this.C, F = this.F, d = b.diag;
     F.fill(0);
     for (const st of Object.values(this.stays)) { st.P.length = 0; }
+    this.pulls.length = 0;
     const cphi = Math.cos(b.phi), sphi = Math.sin(b.phi);
     // frame accelerations (rig axes) from the last solve's rates
     const fr = this._fr || (this._fr = { u: b.u, v: b.v, p: b.p, pv: b.pitchV, hv: b.heaveV, t: b.t });
@@ -660,8 +676,7 @@ export class RigStructure {
       const out = clamp((Math.abs(b.crewY) - C.hullSpacing / 2) / Math.max(0.1, C.crewMaxOut - C.hullSpacing / 2), 0, 1);
       if (out > 0) {
         const T = 0.9 * C.crewN * C.crewEach * G * out, zz = C.freeboard + 0.9;
-        const dx = C.mastX - 0.3 - this.axisX, dy = b.crewY, dz = zz - (this.houndsZ - 0.05), l = hyp3(dx, dy, dz);
-        this.loadMast(this.houndsZ - 0.05, T * dx / l, T * dy / l, T * dz / l);
+        this.pull({ kind: 'mast', i: this.node(this.houndsZ - 0.05), ox: 0, oy: 0 }, { kind: 'fixed', p: [C.mastX - 0.3, b.crewY, zz] }, T);
         L.trapeze = T;
       } else L.trapeze = 0;
     }
@@ -773,8 +788,9 @@ export class RigStructure {
   headLoad(st, Fx, Fy, Fz) {
     // the head on its halyard at the stay's top: its pull, and the hauling part down the mast
     const a = st.b; this.loadAt(a, Fx, Fy, Fz);
-    this.loadMast(this.z[a.i], 0, 0, Math.min(0, Fz) * 0.8);
+    if (Fz < 0) this.pull(a, { kind: 'mast', i: 0, ox: 0, oy: 0 }, -0.8 * Fz);
   }
+  pull(a, b, T) { if (T > 0) this.pulls.push({ a, b, T }); }
 
   // A sail's load on the rig by membrane statics, row by row up the sail: each row's air load (the cloth's own, node by
   // node, or the strip model's strips) splits between luff and leech, half its normal part to each end; the luff is also
@@ -813,21 +829,31 @@ export class RigStructure {
       if (s.key === 'main') { const w = Math.abs(An); this._entry += w * (ang + Math.sign(An) * Math.atan(4 * dep)); this._entryW += w; }
     }
     // the leech tension: the sheet's load (a cloth sail's, as the cloth's sheet reports it), no more than the purchase
-    const lead = Math.min(this.lineMax, b.diag.rig[s.key + 'Load'] || (s.kind !== 'boom' ? b.diag.rig.jibLoad : 0) || 0);
-    const Th = 0.9 * lead;
+    const lead = Math.min(this.sheetMax, b.diag.rig[s.key + 'Load'] || (s.kind !== 'boom' ? b.diag.rig.jibLoad : 0) || 0);
+    let Th = 0.9 * lead;
     if (s.key === 'main') {
-      const zH = Math.min(this.zTop, C.boomZ + s.luff * (b.reefPos ? 1 - 0.16 * b.reefPos : 1)), L = Math.hypot(s.foot, zH - C.boomZ);
-      // the head pulled toward the clew, and the halyard's hauling part down the mast
-      this.loadMast(zH, -Th * s.foot / L, 0, -Th * (zH - C.boomZ) / L - Th);
       // the vang: the boom's compression pushes the gooseneck forward, the vang pulls its foot on the mast aft; the
       // sheet pulls the boom (and so the gooseneck) down
-      const V = Math.min(this.lineMax, clamp(b.ctrl.vang, 0, 1) * (0.8 * lead + 0.15 * (b.diag.qMid || 0) * s.area) * (C.id === 'dinghy' ? 1.6 : 1));
+      // (its tension is what the crew hauled it to through its purchase: ~ the most it takes, times the setting squared)
+      const V = this.lineMax * clamp(b.ctrl.vang, 0, 1) ** 2;
       const zv = this.zVang, hz = C.boomZ - zv, bl = 0.22 * s.foot, l = Math.hypot(hz, bl);
+      // the leech carries the sheet's pull and the vang's, levered down the boom (the vang is on at a fifth of it)
+      Th = 0.9 * lead + 0.22 * V * hz / l;
+      const zH = Math.min(this.zTop, C.boomZ + s.luff * (b.reefPos ? 1 - 0.16 * b.reefPos : 1));
+      // the head pulled toward the clew (where the boom has it), and the halyard's hauling part down the mast (a sleeved
+      // luff has no halyard)
+      const ba = (b.booms && b.booms.main && b.booms.main.a) || 0, head = { kind: 'mast', i: this.node(zH), ox: -this.track, oy: 0 };
+      this.pull(head, { kind: 'fixed', p: [this.axisX - this.track - s.foot * Math.cos(ba), s.foot * Math.sin(ba), C.boomZ] }, Th);
+      if (!this.spec.noHalyard) this.pull(head, { kind: 'mast', i: 0, ox: 0, oy: 0 }, Th);
       this.loadMast(C.boomZ, V * bl / l, 0, -V * hz / l - lead);
       this.loadMast(zv, -V * bl / l, 0, V * hz / l);
       this.loads.vang = V; this.loads.gooseneck = Math.hypot(V * bl / l, V * hz / l + lead);
     } else if (stay) {
-      this.headLoad(stay, 0, 0, -0.6 * Th);
+      // the leech toward the clew (the sheet's side), the halyard down the mast
+      const cl = (s.kind === 'loose' ? Math.sign(b.side.jib || 1) : 1) * (s.min || 0.2);
+      const cx = s.tackX - s.foot * Math.cos(cl), cy = s.foot * Math.sin(cl);
+      this.pull(stay.b, { kind: 'fixed', p: [cx, cy, s.tackZ + (s.footRise || 0)] }, Th);
+      this.pull(stay.b, { kind: 'mast', i: 0, ox: 0, oy: 0 }, 0.6 * Th);
     } else if (s.kind === 'spin') {
       // a free-flying gennaker: its halyard at the masthead (the luff's tension ~ its sheet's), its tack on the sprit
       const zH = Math.min(this.zTop, s.tackZ + s.luff);
@@ -887,21 +913,43 @@ export class RigStructure {
       st.A2s = (st.A2s ?? st.A2) + (st.A2 - (st.A2s ?? st.A2)) * k; st.A2 = st.A2s;
     }
     const uGood = this.uGood || (this.uGood = Float64Array.from(this.u));
+    const isBad = () => {
+      if (this.buckled) return true;
+      const lim = 0.06 * (this.zTop - this.zStep);
+      for (let i = 0; i < this.nm; i++) if (!(Math.abs(this.u[5 * i]) < lim && Math.abs(this.u[5 * i + 2]) < lim)) return true;
+      for (const w of this.wires) if (!(w.T < 2 * w.brk)) return true;
+      return false;
+    };
     this.solve(this.ready ? 5 : 10);
     if (RigStructure.debug) RigStructure.debug(this, b);
-    // a column that has lost its stiffness, or a shape no rig takes: keep the last good one, and say so
-    let bad = !!this.buckled;
-    for (let i = 0; i < this.nm && !bad; i++) if (!(Math.abs(this.u[5 * i]) < 0.6 && Math.abs(this.u[5 * i + 2]) < 0.6)) bad = true;
-    for (const w of this.wires) if (!(w.T < 2 * w.brk)) bad = true;
+    // a column past its critical load, or loads beyond anything the rig could stand (a spar bent past 6% of its length,
+    // a wire at twice its breaking load): the rig has failed at this load. Report it (the damage model decides what
+    // breaks), and draw the shape at the largest fraction of the load the rig still stands
+    let bad = isBad(), frac = 1;
+    this.overload = false;
     if (bad) {
-      this.u.set(uGood);
-      for (const e of this.el) { e.N = e.EA / e.L * (this.u[5 * e.j + 4] - this.u[5 * e.i + 4]); e.Ng = e.N; }
+      this.overload = true;
+      const F0 = Float64Array.from(this.F);
+      for (let k = 0; k < 4 && bad; k++) {
+        frac *= 0.6; this.u.set(uGood);
+        for (const e of this.el) { e.N = e.EA / e.L * (this.u[5 * e.j + 4] - this.u[5 * e.i + 4]); e.Ng = e.N; }
+        for (let i = 0; i < F0.length; i++) this.F[i] = F0[i] * frac;
+        this.solve(8); bad = isBad();
+      }
+      if (bad) {
+        // nothing stands: back toward the rig at rest
+        this.u.set(this.u0dock || uGood);
+        for (const e of this.el) { e.N = e.EA / e.L * (this.u[5 * e.j + 4] - this.u[5 * e.i + 4]); e.Ng = e.N; }
+      }
+      this.F.set(F0);
     } else if (this.converged) uGood.set(this.u);
-    this.failed = bad;
+    this.failed = bad; this.loadFrac = frac;
+    // (while the cloth is set aside, the strip model sailing at L2, its luff stays where it was: it flies on from there)
+    const frozen = b.sailSys && !b.sailSys.active(b);
     // the shape the sails' luffs follow: eased toward the solution (~0.3 s, at most ~0.3 m/s). A cloth whose pinned luff
     // is jerked answers with a jerk in its pins' loads: moved at once, the luff and the rig would feed each other.
     const us = this.us || (this.us = Float64Array.from(this.u)), ku = clamp(dt * every / 0.3, 0, 1), cap = 0.3 * dt * every;
-    for (let i = 0; i < us.length; i++) us[i] += clamp((this.u[i] - us[i]) * ku, -cap, cap);
+    if (!frozen) for (let i = 0; i < us.length; i++) us[i] += clamp((this.u[i] - us[i]) * ku, -cap, cap);
     for (const st of Object.values(this.stays)) st.Ts = st.Ts === undefined ? st.T : st.Ts + (st.T - st.Ts) * ku;
     this.ready = true;
     this.outputs(b);
@@ -1016,7 +1064,7 @@ export class RigStructure {
       const [fx, fy, fz] = L.spritTack, ext = C.bowsprit * (b.genDeploy ?? 1);
       L.bowsprit = { comp: Math.max(0, -fx), moment: Math.hypot(fy, fz) * ext };
     }
-    L.rotation = this.rot;
+    L.rotation = this.rot; L.overload = !!this.overload; L.loadFrac = this.loadFrac ?? 1;
     b.rigLoads = L;
     spec.mastYieldMoment = this._yM || (this._yM = Math.min(...this.el.map((e) => e.Zx * e.sy)));
     spec.mastMass = this.massMast;

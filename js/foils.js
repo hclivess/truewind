@@ -172,7 +172,7 @@ export function foilCoef(S, st, alpha, V, g, dt, out) {
   // stall with hysteresis: separation begins past ast; separated, reattaches below 0.8 ast
   if (!st.stalled && a > ast) st.stalled = true;
   else if (st.stalled && a < 0.8 * ast) st.stalled = false;
-  const sepT = st.stalled ? sstep(0.8 * ast, ast + 4 * DEG, a) : sstep(ast, ast + 8 * DEG, a);
+  const sepT = st.stalled ? sstep(0.8 * ast, 0.88 * ast, a) : sstep(ast, ast + 6 * DEG, a);
   const k = clamp(dt * Va / (3 * S.chord), 0, 1);
   st.sep += (sepT - st.sep) * k;
   // attached branch (the lift rounds off toward CLmax over the last few degrees)

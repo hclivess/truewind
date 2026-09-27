@@ -33,6 +33,7 @@ import { Engine } from './engine.js';
 import { RigStructure } from './rig-structure.js';
 import { foilSpec, foilState, foilGeom, foilCoef as foilCoefR, bulbDrag, kickUpdate } from './foils.js';
 import { helmSpec, stockTorque, helmForce, helmFeel, rudderStep } from './helm.js';
+import { massProps } from './massprops.js';
 // (Math.hypot allocates when V8 does not inline it: these do not)
 const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
@@ -301,7 +302,12 @@ export class Boat {
     this.mass = C.massHull + C.crewN * C.crewEach + (this.engine ? this.engine.addedMass : 0);
     this.crewMass = C.crewN * C.crewEach;
     this.m11 = this.mass * (1 + C.amX); this.m22 = this.mass * (1 + C.amY);
-    this.Izz = C.Izz * (1 + C.amYaw); this.Ixx = C.Ixx * (1 + C.amRoll);
+    // the standing rig as a structure (js/rig-structure.js); the inertias from the boat's parts, crew included
+    // (js/massprops.js: the hull shell over its real surface, keel and bulb, mast, rig, engine, crew on the rails)
+    this.rigStruct = opts.rigStructure === false || RigStructure.off ? null : new RigStructure(this);
+    this.massProps = massProps(C, this.rigStruct);
+    const MP = C.useClassInertia ? { Ixx: C.Ixx, Izz: C.Izz, Iyy: this.mass * (0.27 * C.loa) ** 2 } : this.massProps;
+    this.Izz = MP.Izz * (1 + C.amYaw); this.Ixx = MP.Ixx * (1 + C.amRoll);
     // hydrostatics from the drawn hull (shared geometry with the renderer)
     this.hydro = new HullHydro(C);
     const h0 = this.hydro.immerse(0.02, 0, 0, () => 0, () => 0, {});
@@ -309,7 +315,7 @@ export class Boat {
     this.Awp = Math.max(0.2, (h1.V - h0.V) / 0.04);                  // waterplane area
     this.xG = this.hydro.immerse(0, 0, 0, () => 0, () => 0, {}).Mx / this.hydro.restV; // LCG over the LCB at rest
     this.m33 = this.mass * 1.8;                                       // heave incl. added mass
-    this.Iyy = this.mass * (0.27 * C.loa) ** 2 * 1.7;                  // pitch incl. added inertia
+    this.Iyy = MP.Iyy * (1 + (C.amPitch ?? 0.7));                     // pitch incl. added inertia
     this.kRoll = RHO_W * G * this.Awp * (C.beam * C.beam / 12);
     this.cRoll = 2 * 0.07 * Math.sqrt(Math.max(1, this.mass * G * 0.6) * this.Ixx);
     this._hy = {}; this._ws7 = []; for (let i = 0; i < 7; i++) this._ws7.push({});
@@ -335,7 +341,6 @@ export class Boat {
     this.keelS = foilSpec(C, 'keel'); this.rudS = foilSpec(C, 'rudder'); this.helmS = helmSpec(C);
     this.keelSt = foilState(); this.rudSt = [foilState(), foilState()];
     this._kg = {}; this._rg2 = [{}, {}]; this._rc = {};
-    this.rigStruct = opts.rigStructure === false ? null : new RigStructure(this);
     this.sailModel = opts.sailModel ?? sailHooks.defaultModel ?? 'strip';
     this.lod = opts.lod ?? (this.sailModel === 'strip' ? 2 : 0);
     this.sailSys = null;
