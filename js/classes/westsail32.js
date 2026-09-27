@@ -50,7 +50,7 @@ export default {
       cd0: 0.07, ARe: 3.8, min: 2 * DEG, max: 80 * DEG, trav: [-4 * DEG, 11 * DEG], Iboom: 220, boomMass: 30, reefs: 2,
       vangBend: 0.04, sheetBend: 0.03, color: 0xf0ebdf, pockets: [[0.25, 0.14], [0.5, 0.16], [0.75, 0.14]] },
     { key: 'stay', kind: 'boom', selfTacking: true, area: 12.5, tackX: 3.4, tackZ: 1.62, luff: 10.0, foot: 2.5, head: 0.05,
-      depth: [0.12, 0.13, 0.11], twistMax: 14 * DEG, cd0: 0.05, ARe: 3.5, min: 5 * DEG, max: 55 * DEG, Iboom: 30, boomMass: 10, color: 0xf0ebdf },
+      depth: [0.12, 0.13, 0.11], twistMax: 14 * DEG, cd0: 0.05, ARe: 3.5, min: 5 * DEG, max: 55 * DEG, Iboom: 30, boomMass: 10, color: 0xf0ebdf, clubVang: true },
     { key: 'jib', kind: 'loose', area: 20.0, tackX: 6.15, tackZ: 1.75, luff: 12.1, foot: 4.4, head: 0.05, footRise: 1.1,
       depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 3.8, min: 12 * DEG, max: 55 * DEG, sagK: 1.5, color: 0xf0ebdf, window: false },
   ],
