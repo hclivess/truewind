@@ -100,6 +100,19 @@ export function coastalInput(world, geo, waves, opts = {}) {
   const rock = opts.byId ? (geo?.coast || []).filter(c => c.id && /^(causeway|terminal)$/.test(opts.byId.get(c.id)?.type || '')) : [];
   for (const c of rock) seg(c.pts, cs, (k, d) => { if (d < cs && blocked[k]) bcls[k] = 1; });
   for (let k = 0; k < N; k++) if (blocked[k] && !bcls[k] && quay[k]) bcls[k] = 2;
+  // land no more than ~70 m across with water beyond it on either hand is built, not natural: a mole or a
+  // breakwater mapped as coastline (Marseille's Digue du Large): rock armour
+  for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) {
+    const k = j * M + i; if (!blocked[k] || bcls[k] || osdf[k] < -40) continue;
+    const x = -R + (i + 0.5) * cs, z = -R + (j + 0.5) * cs;
+    let inland = false, across = false;
+    for (let a = 0; a < 6 && !inland; a++) {
+      const ux = Math.cos(a * Math.PI / 6), uz = Math.sin(a * Math.PI / 6);
+      if (world.sdfAt(x + ux * 45, z + uz * 45) < -35 || world.sdfAt(x - ux * 45, z - uz * 45) < -35) inland = true;
+      if (world.sdfAt(x + ux * 70, z + uz * 70) > 0 && world.sdfAt(x - ux * 70, z - uz * 70) > 0) across = true;
+    }
+    if (!inland && across) bcls[k] = 1;
+  }
   const comps = waves.comps.map(c => ({ w: c.omega, dx: c.dx, dz: c.dz, sea: c.kind === 'sea', fa: c.fa, fb: c.fb }));
   return { M, R, depth, osdf, blocked, bcls, comps, U: opts.U ?? waves.U0, Fref: waves.F, Fedge: opts.Fedge ?? 25000, peN: opts.peN, rayDiv: opts.rayDiv };
 }
