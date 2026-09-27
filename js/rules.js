@@ -642,7 +642,7 @@ export function aiRules(ai, sim, desired, mode, t, up) {
   const V = Math.max(b.u, 1.2), cx = (b.vgx ?? 0) - b.u * Math.sin(b.psi), cz = (b.vgz ?? 0) + b.u * Math.cos(b.psi);
   const me = { cls: b.cls, sailBy: b.sailBy, genDeploy: b.genDeploy };
   const mine = [];
-  const clearFor = (h, list, HH = H, stop = -1e9) => {
+  const clearFor = (h, list, HH = H, stop = -1e9, vf = 1) => {
     // she comes round at ~25°/s (a keelboat less) toward h, then holds it
     // (slow, the rudder has little grip: about 7°/s per m/s of speed)
     const rate = clamp(b.u * 7, 4, b.cls.loa > 6 ? 18 : 28) * DEG;
@@ -650,7 +650,7 @@ export function aiRules(ai, sim, desired, mode, t, up) {
     for (let tt = 0; tt <= HH + 1e-6; tt += dt) {
       mine.push(x, z, p);
       p += clamp(wrap(h - p), -rate * dt, rate * dt);
-      x += (Math.sin(p) * V + cx) * dt; z += (-Math.cos(p) * V + cz) * dt;
+      x += (Math.sin(p) * V * vf + cx) * dt; z += (-Math.cos(p) * V * vf + cz) * dt;
     }
     let worst = 1e9;
     for (const [o] of list) { const x = extra.get(o) || 0, c = trackClear(me, mine, o, tracks.get(o), dt, stop + x) - x; worst = Math.min(worst, c); if (worst < stop) return worst; }
@@ -670,10 +670,15 @@ export function aiRules(ai, sim, desired, mode, t, up) {
     // turn away from the nearest threat first; the smallest change of course that is clear
     let near = null, nd = 1e9;
     for (const [o, pr] of list) if (pr.d < nd) { nd = pr.d; near = o; }
-    const s0 = near ? -(Math.sign(wrap(Math.atan2(near.x - b.x, -(near.z - b.z)) - b.psi)) || 1) : 1;
+    // (the side she chose last time while she is still at it: switching sides every plan she goes neither way)
+    const s0 = ai.kcSide && t - ai.kcSideT < 1.5 ? ai.kcSide : near ? -(Math.sign(wrap(Math.atan2(near.x - b.x, -(near.z - b.z)) - b.psi)) || 1) : 1;
     let best = null, bc = -1e9;
-    for (let k = 1; k <= 16; k++) for (const s of [s0, -s0]) {
-      const hh = desired + s * k * 7 * DEG;
+    // (the other side costs another 35°, so she does not swap sides for a few degrees)
+    const cands = [];
+    for (let k = 1; k <= 16; k++) for (const s of [s0, -s0]) cands.push([k * 7 + (s === s0 ? 0 : 35), s * k * 7 * DEG]);
+    cands.sort((p, q) => p[0] - q[0]);
+    for (const [, dh] of cands) {
+      const hh = desired + dh;
       if (!sailable(hh)) continue;
       let c = clearFor(hh, list, HH, need);
       if (c >= need && list === give && row.length) c = Math.min(c, clearFor(hh, row, HH, 0.5) + need - 0.5);
@@ -697,11 +702,19 @@ export function aiRules(ai, sim, desired, mode, t, up) {
   if (cD < margin) {
     let [hh, ok] = search(give, margin, H);
     // a port tacker would rather tack than duck far below her course, if the tack itself is clean
-    if (mode === 'beat' && (ok < 0 || Math.abs(wrap(hh - desired)) > 35 * DEG) && t - ai.lastTack > 8) {
+    const beating = Math.abs(wrap(twd - b.psi)) < up + 20 * DEG;
+    if ((mode === 'beat' || beating) && (ok < 0 || Math.abs(wrap(hh - desired)) > 35 * DEG) && t - ai.lastTack > 8) {
       const other = twd + (Math.sign(wrap(twd - b.psi)) || 1) * up;
       if (R.canTurn(b, other)) { hh = other; ok = 1; ai.lastTack = t; }
     }
+    // still nothing clear: would stopping where she is (sheets out, the other boat crossing ahead) do better?
+    let stop = false;
+    if (ok < 0 && !give.some(([o, pr]) => pr.overlap && pr.sameTack)) {
+      const cs = clearFor(b.psi, give, H, -1e9, 0.25), cb = hh !== null ? clearFor(hh, give) : -1e9;
+      if (cs > cb) { hh = b.psi; stop = true; }
+    }
     if (hh !== null) h = hh;
+    if (stop) plan.ease = true;
     // no clear heading (boxed in, or clear astern with nowhere to go): slow down as well
     // (not beside a mark: stopped, she drifts down onto it; nor once slow: she would lose steerage and stall)
     if (b.u > 1.2 && (ok < 0 || give.some(([o, pr]) => pr.rule === '12' && pr.astern === b && pr.d < 2 * b.cls.loa && o.u < b.u)) && !marks.some(m => Math.hypot(m.x - b.x, m.z - b.z) < 3 * b.cls.loa)) plan.ease = true;
@@ -718,6 +731,7 @@ export function aiRules(ai, sim, desired, mode, t, up) {
     else if (close && !rounding) h = b.psi + clamp(wrap(desired - b.psi), -(mode === 'prestart' ? 10 : 6) * DEG, (mode === 'prestart' ? 10 : 6) * DEG);
   }
   plan.h = h === desired ? null : h;
+  if (plan.h !== null) { ai.kcSide = Math.sign(wrap(h - desired)) || ai.kcSide; ai.kcSideT = t; }
   ai.ease = plan.ease;
   return h;
 }
