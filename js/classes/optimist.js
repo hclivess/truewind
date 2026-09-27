@@ -29,13 +29,17 @@ export default {
   lines: { main: { handler: 'ratchet', n: 3, at: 'sole' }, vang: { handler: 'cam', n: 2, size: 'micro', at: 'deck' },
     cunn: { handler: 'cam', n: 1, size: 'micro', at: 'deck' }, outhaul: { handler: 'cam', n: 1, size: 'micro', at: 'deck' } },
   sails: [
-    { key: 'main', kind: 'boom', rig: 'sprit', area: 3.3, luff: 1.75, foot: 2.05, head: 1.1, headRise: 0.55, snotterZ: 0.42, roach: 0,
+    { key: 'main', kind: 'boom', rig: 'sprit', area: 3.3, luff: 1.8, foot: 2.05, head: 1.03, headRise: 0.84, snotterZ: 0.55, roach: 0,
       depth: [0.12, 0.13, 0.12], twistMax: 24 * DEG, cd0: 0.07, ARe: 2.6, min: 3 * DEG, max: 88 * DEG, trav: null, Iboom: 3, boomMass: 2, reefs: 0,
-      vangBend: 0.2, sheetBend: 0.15, color: 0xf6f5f0, pockets: [], battens: { EI: 0, rows: [] }, boomMat: 'alu', spritR: 0.016, boomR: 0.022, window: true },
+      vangBend: 0.2, sheetBend: 0.15, color: 0xf6f5f0, pockets: [[0.45, 0.2], [0.72, 0.2]], battens: { EI: 0, rows: [] }, boomMat: 'alu', spritR: 0.016, boomR: 0.022, window: true },
   ],
   hull: { color: 0xf6f6f2, stripe: 0xd8352a, deck: 0xf0efe8, boot: 0xf6f6f2, bare: true, levels: [-9, -9, 0.05, 0.02] },
   sailcloth: { cloth: 0xf6f5f0, kind: 'dacron', num: '#1d2a44', logo: '#1d4e89', trans: 0.36, rough: 0.6 },
-  insignia: 'OPTI',
+  // the class emblem (IODA): a ring with a short tail through its lower right, like a Q
+  insignia: (g, cx, cy) => {
+    g.strokeStyle = '#111316'; g.lineWidth = 10; g.beginPath(); g.arc(cx, cy - 4, 30, 0, 2 * Math.PI); g.stroke();
+    g.beginPath(); g.moveTo(cx + 4, cy + 2); g.lineTo(cx + 26, cy + 42); g.stroke();
+  },
   offsets: {
     sheer: [[0, 0.38], [0.5, 0.39], [1, 0.44]],
     deck: [[0, 0.8], [0.15, 0.92], [0.45, 1.0], [0.75, 0.94], [1, 0.62]],

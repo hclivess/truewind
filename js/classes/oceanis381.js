@@ -57,7 +57,8 @@ export default {
   model: {
     cockpit: { t0: 0.02, t1: 0.33, w: 0.7, sole: 0.9, seat: 0.4, seatW: 0.46, coaming: 0.22, table: 0.22, seatMat: 'teak' },
     deck: 'nonskid', deckTint: '#e2e2dc', toerail: 'alu',
-    hullWindows: [{ t0: 0.52, t1: 0.74, z0: 0.72, z1: 0.84 }, { t0: 0.2, t1: 0.3, z0: 0.74, z1: 0.83 }],
+    hullWindows: [{ t0: 0.5, t1: 0.6, z0: 0.74, z1: 0.84, rect: true }, { t0: 0.63, t1: 0.72, z0: 0.75, z1: 0.85, rect: true }, { t0: 0.22, t1: 0.3, z0: 0.76, z1: 0.84, rect: true }],
+    bands: [{ t0: 0.0, t1: 0.62, z0: 0.18, z1: 0.3, color: 0x3b4450 }],
     cabins: [{ t0: 0.335, t1: 0.74, h: [[0.33, 0.52], [0.6, 0.5], [0.74, 0.28]], w: [[0.33, 1.3], [0.55, 1.28], [0.68, 1.1], [0.74, 0.85]],
       slope: 0.12, camber: 0.05, frontRake: 0.9, aftRake: 0.08, color: 0xf3f3f0, roof: 'nonskid', roofTint: '#e2e2dc',
       windows: [{ kind: 'rect', t0: 0.4, t1: 0.66, zf: 0.62, hf: 0.38, round: 6, skew: -0.08 }, { kind: 'front', n: 3, w: 0.75 }],
@@ -69,7 +70,7 @@ export default {
     bowsprit: { len: 0.4, kind: 'plank', w: 0.18, mat: 'steel', bobstay: false, anchor: true, inboard: 0.4 },
     masts: { main: { mat: 'alu', r: 0.1, spreaders: [{ f: 0.38, len: 1.3, sweep: 18 * DEG }, { f: 0.7, len: 0.85, sweep: 18 * DEG }], round: false } },
     backstay: { split: false, x: -5.4 },
-    extras: ['swimPlatform'],
+    extras: ['swimPlatform', 'arch'],
   },
   hw: { trav: [-0.1, 0.1, 2.35], boomS: 0.55, winch: [-3.7, 1.55], jibTrack: [0.4, -0.55, 1.2], cabinWinch: [-0.1, 0.72], clutchX: 0.2, winchR: 0.085, helm: 'Wheel' },
 };

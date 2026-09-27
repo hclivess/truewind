@@ -35,6 +35,16 @@ const spar = (kind) => kind === 'wood' ? mat('spar-wood', () => new THREE.MeshSt
 
 // a curve given as a number, a function or [[t, v]] rows
 const fnOf = (v) => (typeof v === 'function' ? v : curveOf(v));
+// varnished mahogany planking: plank seams along the hull, the grain running with them, a warm orange-brown
+const mahoganyTex = (tone = '#a4501f') => canvasTex('mahogany' + tone, 512, 256, (g, w, h) => {
+  const r = rnd(9), P = 8, ph = h / P;
+  for (let p = 0; p < P; p++) {
+    const c = new THREE.Color(tone).offsetHSL(0, 0, (r() - 0.5) * 0.06);
+    g.fillStyle = '#' + c.getHexString(); g.fillRect(0, p * ph, w, ph);
+    for (let i = 0; i < 70; i++) { g.strokeStyle = `rgba(60,20,5,${0.05 + r() * 0.1})`; g.lineWidth = 1 + r(); g.beginPath(); const y = p * ph + r() * ph; g.moveTo(0, y); g.bezierCurveTo(w * 0.3, y + r() * 6 - 3, w * 0.7, y + r() * 6 - 3, w, y + r() * 4 - 2); g.stroke(); }
+    g.fillStyle = 'rgba(30,10,0,0.35)'; g.fillRect(0, p * ph, w, 1.5);
+  }
+}, 1);
 
 // ================================================================== assemble
 function buildDetailed(boat, opts = {}) {
@@ -51,7 +61,16 @@ function buildDetailed(boat, opts = {}) {
   for (const off of hullOffsets(C)) {
     const r = hullGeometry(Chull, Lx, off);
     stations = r.stations;
-    hull = new THREE.Mesh(r.geom, M.hull(C)); hull.castShadow = true; hull.receiveShadow = true; inner.add(hull);
+    let hm = M.hull(C);
+    if (C.hull.wood) {
+      // a varnished wooden hull (a Dragon's mahogany): planks along the hull, the grain under the varnish; the
+      // antifouling, boot top and cove line are still drawn by the hull shader over it
+      const p = r.geom.attributes.position, uv = new Float32Array(p.count * 2);
+      for (let i = 0; i < p.count; i++) { uv[2 * i] = -p.getZ(i) * 0.3; uv[2 * i + 1] = p.getY(i) * 1.9; }
+      r.geom.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      if (!hm.map) { hm.map = mahoganyTex(C.hull.wood); hm.roughness = 0.18; hm.needsUpdate = true; }
+    }
+    hull = new THREE.Mesh(r.geom, hm); hull.castShadow = true; hull.receiveShadow = true; inner.add(hull);
   }
   // ---- deck, cockpit well
   const ckD = D.cockpit || { t0: 0.1, t1: 0.35, w: 0.55, sole: C.freeboard * 0.5 };
@@ -90,7 +109,8 @@ function buildDetailed(boat, opts = {}) {
   for (const w of D.hullWindows || []) for (const side of [-1, 1]) {
     const N = 10, pos = [], idx = [];
     for (let i = 0; i <= N; i++) {
-      const t = lerp(w.t0, w.t1, i / N), x = bx(t), k = Math.sin(Math.PI * i / N) ** 0.35;
+      // (rect: square-cornered, a modern cruiser's; else a rounded slot)
+      const t = lerp(w.t0, w.t1, i / N), x = bx(t), k = w.rect ? Math.min(1, 0.55 + 3 * Math.sin(Math.PI * i / N)) : Math.sin(Math.PI * i / N) ** 0.35;
       const zm = (w.z0 + w.z1) / 2, hh = (w.z1 - w.z0) / 2 * k;
       for (const z of [zm - hh, zm + hh]) { const y = hullHalfBreadth(Lx, t, z) + 0.006; pos.push(side * y, z, -x); }
     }
@@ -123,6 +143,22 @@ function buildDetailed(boat, opts = {}) {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(len, len / 4), new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.4 }));
       m.position.copy(V(x, side * y, N.z)); m.rotation.y = side > 0 ? Math.PI / 2 : -Math.PI / 2; inner.add(m);
     }
+  }
+  // ---- portlights in the topsides (bronze, in a classic's bulwark band)
+  for (const hp of D.hullPorts || []) for (let k = 0; k < hp.n; k++) {
+    const t = lerp(hp.t0, hp.t1, hp.n > 1 ? k / (hp.n - 1) : 0.5), x = bx(t), r = hp.r ?? 0.06;
+    for (const s of [-1, 1]) {
+      const y = hullHalfBreadth(Lx, t, hp.z) + 0.004;
+      const ring = new THREE.TorusGeometry(r, r * 0.22, 8, 18); ring.rotateY(Math.PI / 2); ring.translate(s * y, hp.z, -x); kit.add(hp.mat === 'steel' ? M.steel() : M.bronze(), ring);
+      const gl = new THREE.CircleGeometry(r * 0.9, 16); gl.rotateY(s * Math.PI / 2); gl.translate(s * (y + 0.002), hp.z, -x); kit.add(M.glass(), gl);
+    }
+  }
+  // ---- a band along the hull at a height (a modern hull's chine line, a painted sheer strake)
+  for (const cb of D.bands || []) for (const side of [-1, 1]) {
+    const N = 24, A = [], Bb = [];
+    for (let i = 0; i <= N; i++) { const t = lerp(cb.t0, cb.t1, i / N), x = bx(t), e = Math.min(1, 4 * Math.sin(Math.PI * i / N)) * (cb.taper === false ? 1 : 1);
+      A.push([x, side * (hullHalfBreadth(Lx, t, cb.z0) + 0.004), cb.z0]); Bb.push([x, side * (hullHalfBreadth(Lx, t, cb.z0 + (cb.z1 - cb.z0) * e) + 0.004), cb.z0 + (cb.z1 - cb.z0) * e]); }
+    kit.add(paint(cb.color, cb.rough ?? 0.4), side > 0 ? ribbon(A, Bb) : ribbon(Bb, A));
   }
   // ---- cockpit
   if (D.cockpit) buildCockpit(kit, C, D, Lx, ck, ckD, deckH0, bx);
@@ -653,7 +689,7 @@ function buildLifelines(kit, C, Lx, L, deckH, bx) {
     for (let i = 0; i <= n; i++) {
       const t = lerp(tA, tB, i / n), x = bx(t), y = s * Lx.bDeck(t) * 0.93, z = deckH(x, y);
       const top = V(x, y * 1.02, z + H);
-      kit.rod(M.steel(), V(x, y, z), top, 0.012);
+      kit.rod(L.mat === 'black' ? M.black() : M.steel(), V(x, y, z), top, 0.012);
       kit.box(M.steel(), 0.05, 0.012, 0.06, V(x, y, z + 0.006));
       pts.push(top);
     }
@@ -704,6 +740,36 @@ function addLabel(root, C, label) {
 
 // ================================================================== each boat's own pieces
 export const EXTRAS = {
+  // the Oceanis' mainsheet arch over the cockpit's forward end (the German-style mainsheet runs from its top)
+  arch({ C, Lx, kit, bx, deckH0, ck }) {
+    const x = bx(ck.t1) - 0.25, y = Lx.bDeck(ck.t1) * 0.78, z0 = deckH0(x, y), top = z0 + 1.35;
+    const pts = [V(x + 0.05, -y, z0), V(x - 0.05, -y * 0.92, top - 0.35), V(x - 0.12, -y * 0.6, top), V(x - 0.12, y * 0.6, top), V(x - 0.05, y * 0.92, top - 0.35), V(x + 0.05, y, z0)];
+    kit.add(paint(0xf2f3f1, 0.3), new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.1), 40, 0.05, 10));
+    kit.box(M.black(), 0.2, 0.06, 0.14, V(x - 0.12, 0, top - 0.06));                                // the mainsheet block's track
+  },
+  // the Sunfish's deck: yellow and black stripes across the foredeck and the stern
+  sunfishDeck({ C, Lx, kit, bx, deckH0 }) {
+    for (const [t, c, w] of [[0.8, 0xf0c419, 0.07], [0.785, 0x1b1c1f, 0.04], [0.77, 0xf0c419, 0.07], [0.12, 0xf0c419, 0.06], [0.105, 0x1b1c1f, 0.035]]) {
+      const x = bx(t), b = Lx.bDeck(t) * 0.97;
+      kit.box(paint(c, 0.4), b * 2, 0.004, w, V(x, 0, deckH0(x, 0) + 0.005), 0.35);
+    }
+  },
+  // Spray's deck, after C. D. Mower's plan in Slocum's book: the shortened Cape Ann dory bottom-up between the
+  // houses, the water casks either side of it, the pump, the stovepipe from the forward house
+  sprayDory({ C, Lx, kit, bx, deckH0 }) {
+    const x0 = bx(0.37), x1 = bx(0.5), xm = (x0 + x1) / 2, L = x1 - x0, z = deckH0(xm, 0);
+    const pos = [], idx = [], N = 10;
+    for (let i = 0; i <= N; i++) {                                                // a flat-bottomed dory, bottom up
+      const f = i / N, x = x0 + L * f, b = 0.55 * Math.sin(Math.PI * (0.12 + 0.76 * f)) ** 0.6 * (f > 0.7 ? 1 - (f - 0.7) * 1.8 : 1);
+      pos.push(-b, z + 0.02, -x, -b * 0.75, z + 0.42, -x, b * 0.75, z + 0.42, -x, b, z + 0.02, -x);
+    }
+    for (let i = 0; i < N; i++) for (let k = 0; k < 3; k++) { const a = i * 4 + k, c = a + 4; idx.push(a, c, a + 1, a + 1, c, c + 1); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+    kit.add(paint(0x6d8f6a, 0.6), g);
+    for (const s of [-1, 1]) { const y = s * 1.05, x = xm; kit.add(wood(0x9a7a4c), lathe([[0.22, 0], [0.27, 0.3], [0.22, 0.6], [0, 0.6]], 14), new THREE.Matrix4().makeTranslation(y, deckH0(x, y), -x)); }
+    kit.box(M.bronze(), 0.12, 0.35, 0.12, V(xm, 0.6, z + 0.17));                               // pump
+    const fx = bx(0.56); kit.rod(M.black(), V(fx, 0.45, deckH0(fx, 0) + 0.5), V(fx, 0.45, deckH0(fx, 0) + 1.1), 0.05, 10);   // stovepipe
+  },
   // a transom that folds down into a bathing platform (a modern cruiser's), with the swim ladder
   swimPlatform({ C, Lx, kit }) {
     const x = C.sternX, z = 0.28, w = Lx.bDeck(0) * 1.6;
@@ -729,14 +795,24 @@ export const EXTRAS = {
     const wx = C.bowX - 1.0, wz = deckH0(wx, 0);
     kit.rod(wood(0x8a6a44), V(wx, -0.45, wz + 0.25), V(wx, 0.45, wz + 0.25), 0.1, 12);          // windlass barrel
     for (const s of [-1, 1]) kit.box(wood(0x8a6a44), 0.1, 0.4, 0.3, V(wx, s * 0.5, wz + 0.2));
-    for (const s of [-1, 1]) { const x = bx(0.6), y = s * Lx.bDeck(0.6) * 0.7; kit.add(wood(0x9a7a4c), lathe([[0.18, 0], [0.22, 0.25], [0.18, 0.5], [0, 0.5]], 14), new THREE.Matrix4().makeTranslation(y, deckH0(x, y), -x)); }
     const mx = C.sails.find(s => s.key === 'mizzen');
     if (mx) { const pts = []; for (let i = 0; i <= 10; i++) { const a = Math.PI * i / 10; pts.push(V(mx.tackX + 0.02 - 0.35 * Math.sin(a), 0.6 * Math.cos(a), Lx.sheer(0.02) + 0.35)); } kit.add(M.steel(), new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 20, 0.02, 6)); }
     kit.box(wood(0x8a6a44), 0.9, 0.06, 0.08, V(C.mastX - 0.2, 0, deckH0(C.mastX, 0) + 0.7));   // pin rail
     for (let i = 0; i < 6; i++) kit.rod(wood(0x6a5030), V(C.mastX - 0.2, -0.38 + i * 0.15, deckH0(C.mastX, 0) + 0.62), V(C.mastX - 0.2, -0.38 + i * 0.15, deckH0(C.mastX, 0) + 0.85), 0.012);
   },
-  // Joshua: the wind-vane self-steering gear on its frame over the canoe stern
-  joshuaDetails({ C, Lx, kit, deckH0 }) {
+  // Joshua: the wind-vane self-steering gear on its frame over the canoe stern, the two small observation domes
+  // (clear, black-framed) she steers from under, the black hawse eyes in the bows
+  joshuaDetails({ C, Lx, kit, deckH0, bx }) {
+    for (const t of [0.36, 0.44]) {
+      const x = bx(t), z = deckH0(x, 0) + 0.42;
+      const d = new THREE.SphereGeometry(0.3, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2); d.translate(0, z, -x); kit.add(glassT(), d);
+      kit.add(M.black(), new THREE.CylinderGeometry(0.33, 0.35, 0.1, 18), new THREE.Matrix4().makeTranslation(0, z - 0.03, -x));
+    }
+    for (const s of [-1, 1]) {
+      const t = 0.86, x = bx(t), zz = Lx.sheer(t) - 0.28, y = s * (hullHalfBreadth(Lx, t, zz) + 0.004);
+      const el = new THREE.CircleGeometry(0.13, 20); el.scale(1, 0.72, 1); el.rotateY(s * Math.PI / 2); el.translate(y, zz, -x); kit.add(M.black(), el);
+      const eye = new THREE.CircleGeometry(0.045, 12); eye.rotateY(s * Math.PI / 2); eye.translate(y + s * 0.002, zz + 0.01, -(x - 0.05)); kit.add(paint(0xf2f0ea, 0.4), eye);
+    }
     const x = C.sternX, z = Lx.sheer(0) + 0.05;
     kit.rod(M.steel(), V(x + 0.35, 0.35, z), V(x - 0.45, 0, z + 0.25), 0.02); kit.rod(M.steel(), V(x + 0.35, -0.35, z), V(x - 0.45, 0, z + 0.25), 0.02);
     kit.rod(M.steel(), V(x - 0.45, 0, z + 0.25), V(x - 0.45, 0, z + 1.0), 0.025);

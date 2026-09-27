@@ -274,7 +274,11 @@ export class BoomSailRig extends ClothRig {
     this.sheet = cloth.addRope(this.E, this.tb, this.Gp, this.car, 1, 3e5);
     this.tv = 0.22; this.dv = onMast ? Math.min(0.55, Math.max(0.3, gz - C.freeboard + 0.1)) : 0.15;
     this.vangBase = [gx, 0, this.pz - this.dv];
-    this.vang = onMast ? cloth.addRope(this.E, this.tv, this.Gp, this.vangBase, 1, 6e5) : null;
+    // (a staysail club with its sheet led to a deck traveller right under it (s.clubVang) is held down as a vang would:
+    // without it the club lifts as it is eased and the staysail twists off into the yankee's lee)
+    this.clubVang = !onMast && !!s0.clubVang;
+    if (this.clubVang) { this.dv = Math.max(0.3, gz - C.freeboard - 0.05); this.vangBase[2] = this.pz - this.dv; }
+    this.vang = onMast || this.clubVang ? cloth.addRope(this.E, this.tv, this.Gp, this.vangBase, 1, 6e5) : null;
     this.mastHead = [gx, 0, lateen ? (s.mastTop ?? this.pz + 0.6 * s.luff) : this.pz + s.luff + 0.3];
     this.topping = cloth.addRope(this.E, 1, this.Gp, this.mastHead, 1, 1e5);
     const peak = cloth.node(nu - 1, nv - 1), pk = 3 * (nv * nu - 1);
@@ -361,7 +365,7 @@ export class BoomSailRig extends ClothRig {
     if (this.vang) {
       const L0 = hyp(this.tv * this.Lb, this.dv);
       // hard on, the vang pulls the boom a little below level: that stretch is the leech tension
-      const vg = clamp(ctrl.vang, 0, 1);
+      const vg = this.clubVang ? 0.8 : clamp(ctrl.vang, 0, 1);
       this.vang.len = L0 - 0.012 * vg + 0.05 * (1 - vg) ** 1.3;
     }
     this.topping.len = hyp(this.Lb, this.mastHead[2] - this.pz + 0.15 * this.Lb);

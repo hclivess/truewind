@@ -41,9 +41,13 @@ export default {
     { key: 'gennaker', kind: 'spin', pole: 2.44, area: 37, tackX: 4.12, tackZ: 1.0, luff: 8.4, rake: 2.07, fixedRake: true, foot: 5.0, head: 0.45,
       depth: [0.2, 0.22, 0.2], cd0: 0.1, ARe: 1.8, min: 18 * DEG, max: 100 * DEG, color: 0xe8e8e2 },
   ],
-  hull: { color: 0xf4f5f3, stripe: 0x9a1f2a, deck: 0xe8e8e2, boot: 0x9a1f2a, bootTop: 0x9a1f2a, levels: [0.03, 0.06, 0.04, 0.025] },
+  hull: { color: 0xf1f0ea, stripe: 0xf1f0ea, deck: 0xe8e8e2, boot: 0xe9e8e0, bootTop: 0xe9e8e0, levels: [0.03, 0.05, 0.04, 0.025] },
   sailcloth: { cloth: 0xeef0ee, kind: 'laminate', num: '#16233a', logo: '#9a1f2a', trans: 0.18, rough: 0.42 },
-  insignia: 'E',
+  // the class insignia: a blue E leaning forward, over a mirror of itself
+  insignia: (g, cx, cy) => {
+    g.font = 'italic 900 64px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = '#1d3f8a'; g.fillText('E', cx, cy + 4);
+    g.save(); g.scale(-1, 1); g.fillText('E', -cx - 14, cy + 50); g.restore();
+  },
   offsets: {
     sheer: [[0, 0.62], [0.3, 0.62], [0.6, 0.66], [0.85, 0.74], [1, 0.84]],
     deck: [[0, 0.42], [0.12, 0.65], [0.35, 0.95], [0.52, 1.0], [0.7, 0.9], [0.86, 0.58], [0.96, 0.2], [1, 0.02]],
@@ -54,10 +58,9 @@ export default {
   model: {
     cockpit: { t0: 0.2, t1: 0.6, w: 0.66, sole: 0.3, seats: false, coaming: 0.06 },
     deck: 'nonskid', deckTint: '#e8e8e2', toerail: 'alu', navLights: false,
-    cabins: [{ t0: 0.6, t1: 0.7, h: [[0.6, 0.12], [0.7, 0.04]], w: [[0.6, 0.56], [0.7, 0.45]], slope: 0.04, camber: 0.04, frontRake: 0.3, aftRake: 0.02, color: 0xe8e8e2, roof: 'same' }],
     steering: { kind: 'tiller', len: 1.2, rise: 0.08, mat: 'alu', extension: 1.1 },
-    rudder: { kind: 'skeg', color: 0x9a1f2a, thick: 0.1, skegChord: 0.3 },
-    keel: { kind: 'fin', chord: 1.95, taper: 0.7, sweep: 0.55, thick: 0.12, color: 0x9a1f2a },
+    rudder: { kind: 'skeg', color: 0xe9e8e0, thick: 0.1, skegChord: 0.3 },
+    keel: { kind: 'fin', chord: 1.95, taper: 0.7, sweep: 0.55, thick: 0.12, color: 0xe9e8e0 },
     masts: { main: { mat: 'alu', r: 0.055, spreaders: [{ f: 0.42, len: 0.6, sweep: 18 * DEG }], hounds: 9.35 } },
     backstay: { split: false, x: -4.8, z: 0.84 },
   },

@@ -43,12 +43,15 @@ export default {
     { key: 'jib', kind: 'loose', area: 10.5, tackX: 3.26, tackZ: 0.98, luff: 7.6, foot: 2.95, head: 0.05, footRise: 0.45,
       depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 3.6, min: 12 * DEG, max: 50 * DEG, sagK: 1.4, color: 0xf3f1ea },
   ],
-  hull: { color: 0xf4f3ee, stripe: 0x1d4f8c, deck: 0xefece2, boot: 0x1d4f8c, bootTop: 0x1d4f8c, levels: [0.02, 0.07, 0.16, 0.1] },
+  hull: { color: 0xf4f3ee, stripe: 0x6b4a2b, rubrail: 0x1d4f8c, deck: 0xefece2, boot: 0x1d4f8c, bootTop: 0x1d4f8c, levels: [0.02, 0.07, 0.16, 0.1] },
   sailcloth: { cloth: 0xf3f1ea, kind: 'dacron', num: '#1d3f7a', logo: '#1d3f7a', trans: 0.32, rough: 0.6 },
   // the class insignia: Catalina's bold open 'C' round the class number
-  insignia: (g, cx, cy, cl) => {
-    g.strokeStyle = cl.logo; g.lineWidth = 13; g.beginPath(); g.arc(cx - 34, cy + 2, 34, 0.35 * Math.PI, 1.65 * Math.PI); g.stroke();
-    g.font = 'bold 58px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = cl.logo; g.textAlign = 'left'; g.fillText('22', cx + 6, cy + 22); g.textAlign = 'center';
+  // the Catalina insignia (as on the class's mains): a red diamond with a white sail in it, the class number below
+  insignia: (g, cx, cy) => {
+    g.fillStyle = '#c8282e'; g.beginPath(); g.moveTo(cx, cy - 46); g.lineTo(cx + 30, cy - 4); g.lineTo(cx, cy + 38); g.lineTo(cx - 30, cy - 4); g.fill();
+    g.fillStyle = '#ffffff'; g.beginPath(); g.moveTo(cx - 4, cy - 30); g.lineTo(cx - 4, cy + 14); g.lineTo(cx + 16, cy + 14); g.fill();
+    g.beginPath(); g.moveTo(cx - 8, cy - 22); g.lineTo(cx - 8, cy + 14); g.lineTo(cx - 20, cy + 14); g.fill();
+    g.font = 'bold 30px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = '#c8282e'; g.fillText('22', cx + 56, cy + 12);
   },
   offsets: {
     sheer: [[0, 0.7], [0.25, 0.71], [0.55, 0.76], [0.8, 0.86], [1, 0.97]],
@@ -59,11 +62,12 @@ export default {
     crown: 0.07, transomRake: 0.12,
   },
   model: {
+    bands: [{ t0: 0.02, t1: 0.99, z0: 0.54, z1: 0.565, color: 0x1d4f8c }],
     cockpit: { t0: 0.03, t1: 0.36, w: 0.64, sole: 0.42, seat: 0.36, seatW: 0.34, coaming: 0.12 },
     deck: 'nonskid', deckTint: '#ecebe3', toerail: 'alu',
     cabins: [{ t0: 0.365, t1: 0.74, h: [[0.36, 0.42], [0.6, 0.42], [0.74, 0.34]], w: [[0.36, 0.84], [0.55, 0.82], [0.66, 0.72], [0.74, 0.55]],
       slope: 0.07, camber: 0.05, frontRake: 0.45, aftRake: 0.05, color: 0xf4f3ee, roof: 'nonskid', roofTint: '#ecebe3',
-      windows: [{ kind: 'rect', t0: 0.43, t1: 0.66, zf: 0.58, hf: 0.42, round: 4 }], companion: { w: 0.55 },
+      windows: [{ kind: 'rect', t0: 0.42, t1: 0.55, zf: 0.58, hf: 0.44, round: 5 }, { kind: 'rect', t0: 0.575, t1: 0.66, zf: 0.6, hf: 0.38, round: 5, skew: -0.08 }], companion: { w: 0.55 },
       hatches: [{ t: 0.43, w: 0.62, l: 0.62, kind: 'slide' }, { t: 0.7, w: 0.42, l: 0.42 }], handrails: true }],
     lifelines: { t0: 0.07, t1: 0.84, h: 0.55, spacing: 1.2, wires: 1 },
     steering: { kind: 'tiller', len: 1.05, rise: 0.12, mat: 'wood' },

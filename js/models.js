@@ -316,7 +316,8 @@ const SAILCLOTH = {
   // Hobie 16: crosscut Dacron in the classic rainbow bands (foot to head)
   cat: { cloth: 0xf2f1ec, kind: 'dacron', bands: ['#1f4fa3', '#1f8a4c', '#f2c318', '#f07c1a', '#d4262c'], num: '#111317', logo: '#111317', trans: 0.3, rough: 0.58 },
 };
-const clothOf = (C, s) => s.kind === 'spin' ? { cloth: s.color, kind: 'nylon', num: '#ffffff', logo: '#ffffff', trans: 0.45, rough: 0.5 } : (SAILCLOTH[C.id] || C.sailcloth || SAILCLOTH.dinghy);
+// (a class may give one sail its own cloth: s.sailcloth, e.g. a black laminate main over a white jib)
+const clothOf = (C, s) => s.kind === 'spin' ? { cloth: s.color, kind: 'nylon', num: '#ffffff', logo: '#ffffff', trans: 0.45, rough: 0.5 } : (s.sailcloth || SAILCLOTH[C.id] || C.sailcloth || SAILCLOTH.dinghy);
 // One cloth texture per class and sail, shared by both faces and every boat of the class. The sail
 // number and insignia are a small decal atlas per number (DECAL), drawn by the sail shader into fixed
 // rectangles of the cloth, mirrored on the face that needs it (starboard number higher, as class
@@ -336,6 +337,11 @@ function sailTexture(C, s) {
     };
     const panelPx = h * 0.9 / s.luff;
     // coloured panels (a Sunfish's rainbow stripes): bands of cloth across the sail, each its own colour
+    // (bands: [b0, b1, colour] in v (0 head .. 1 foot), tilted by bandTilt toward the luff: v = b + tilt (1 - x / w))
+    if (cl.bands && s.kind !== 'spin') cl.bands.forEach(([b0, b1, c]) => {
+      const tl = cl.bandTilt || 0, yy = (b, x) => h * (b + tl * (1 - x / w));
+      g.fillStyle = c; g.beginPath(); g.moveTo(0, yy(b0, 0)); g.lineTo(w, yy(b0, w)); g.lineTo(w, yy(b1, w)); g.lineTo(0, yy(b1, 0)); g.fill();
+    });
     if (cl.stripes && s.kind !== 'spin') cl.stripes.forEach(([f0, f1, c]) => { g.fillStyle = c; g.beginPath(); g.moveTo(0, h * (1 - f1)); g.lineTo(w, h * (1 - f1) + slope(h * (1 - f1))); g.lineTo(w, h * (1 - f0) + slope(h * (1 - f0))); g.lineTo(0, h * (1 - f0)); g.fill(); });
     if (cl.kind === 'laminate') {
       // tri-radial: fans of panels from the head, clew and tack, crosscut through the middle band
@@ -544,7 +550,7 @@ function sailMesh(C, s, number) {
 function transomDecal(C, name, port) {
   return canvasTex(`transom-${C.id}-${name}`, 512, 128, (g, w, h) => {
     g.clearRect(0, 0, w, h);
-    g.fillStyle = C.id === 'blackwatch' ? '#c9a24a' : '#1d2a44';
+    g.fillStyle = C.nameColor ?? (C.id === 'blackwatch' ? '#c9a24a' : '#1d2a44');
     g.textAlign = 'center';
     let fs = C.id === 'blackwatch' ? 64 : 52;
     g.font = `italic 700 ${fs}px Georgia, "Times New Roman", serif`;
