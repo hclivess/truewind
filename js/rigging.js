@@ -49,6 +49,11 @@ class Rope {
   set(path, tension, gravity, flutter = 0, t = 0) {
     const n = path.length;
     if (n < 2) { this.mesh.visible = false; return; }
+    // (a load not yet computed on the first frames reads NaN: treat it as slack; a point not yet placed hides the rope)
+    if (Array.isArray(tension) ? tension.some(x => !Number.isFinite(x)) : !Number.isFinite(tension)) {
+      tension = Array.isArray(tension) ? tension.map(x => Number.isFinite(x) ? x : 2) : 2;
+    }
+    if (path.some(q => !Number.isFinite(q.x + q.y + q.z))) { this.mesh.visible = false; this.outline.visible = false; return; }
     this.mesh.visible = true;
     // a loaded line is straight: only slack lines and free tails need the point-mass simulation
     const tMin = Array.isArray(tension) ? Math.min(...tension) : tension;
@@ -163,6 +168,9 @@ class Rope {
   }
 
   buildTube() {
+    // a non-finite point (seen under very long startup frames; the source is not pinned down) must never reach
+    // the GPU: the rope is laid out afresh next frame and hidden for this one
+    for (let i = 0; i < this.maxPts; i++) { const q = this.pts[i]; if (!Number.isFinite(q.x + q.y + q.z)) { this._P = null; this._stale = true; this.mesh.visible = false; this.outline.visible = false; return; } }
     // tube frames
     const R = this.radius, rad = this.radial;
     let ref = new THREE.Vector3(0, 1, 0);
