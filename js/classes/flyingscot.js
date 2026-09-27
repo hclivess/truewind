@@ -43,9 +43,10 @@ export default {
   hull: { color: 0xf6f6f2, stripe: 0x1d4f8c, deck: 0xf0efe8, boot: 0x9fc6e0, bare: false, levels: [0.02, 0.06, 0.06, 0.035] },
   sailcloth: { cloth: 0xf6f5f0, kind: 'dacron', num: '#1d2a44', logo: '#1d2a44', trans: 0.34, rough: 0.58 },
   // the class insignia: a St Andrew's cross (saltire) on a shield
+  // the class badge (FSSA): a bold black F and S
   insignia: (g, cx, cy) => {
-    g.fillStyle = '#1d4f8c'; g.beginPath(); g.moveTo(cx - 34, cy - 38); g.lineTo(cx + 34, cy - 38); g.lineTo(cx + 34, cy + 6); g.quadraticCurveTo(cx + 30, cy + 34, cx, cy + 44); g.quadraticCurveTo(cx - 30, cy + 34, cx - 34, cy + 6); g.fill();
-    g.strokeStyle = '#ffffff'; g.lineWidth = 9; g.beginPath(); g.moveTo(cx - 28, cy - 32); g.lineTo(cx + 26, cy + 30); g.moveTo(cx + 28, cy - 32); g.lineTo(cx - 26, cy + 30); g.stroke();
+    g.font = 'italic 900 76px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = '#16171a'; g.fillText('FS', cx, cy + 26);
+    g.fillRect(cx - 40, cy + 34, 80, 6);
   },
   offsets: {
     sheer: [[0, 0.56], [0.4, 0.58], [0.75, 0.66], [1, 0.8]],

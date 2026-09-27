@@ -16,7 +16,7 @@ import { clamp, lerp, sstep, shapeCoef, STRIP_F, STRIP_W, reefAt, sailHooks } fr
 import { DEG } from '../env.js';
 import { SailLattice } from './vlm.js';
 import { latticeSize } from './specs.js';
-import { BoomSailRig, JibRig, SpinRig, chordAt } from './rigsim.js';
+import { BoomSailRig, JibRig, SpinRig, PoleSpinRig, chordAt } from './rigsim.js';
 import './surrogate.js';
 // (Math.hypot allocates when V8 does not inline it: these do not)
 const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
@@ -66,7 +66,7 @@ export class SailSystem {
     const NS = this.L.NS, N = this.L.N;
     this.sails.forEach((x, i) => { x.part = this.L.parts[i]; });
     // cloth sails (the rest keep the rig-set shapes)
-    for (const x of this.sails) x.rig = model !== 'cloth' ? null : x.s.kind === 'boom' ? new BoomSailRig(boat, x.s, lod) : x.s.kind === 'loose' ? new JibRig(boat, x.s, lod) : new SpinRig(boat, x.s, lod);
+    for (const x of this.sails) x.rig = model !== 'cloth' ? null : x.s.kind === 'boom' ? new BoomSailRig(boat, x.s, lod) : x.s.kind === 'loose' ? new JibRig(boat, x.s, lod) : x.s.pole ? new PoleSpinRig(boat, x.s, lod) : new SpinRig(boat, x.s, lod);
     this.fr = { u: 0, v: 0, r: 0, p: 0, ud: 0, vd: 0, rd: 0, pd: 0, hd: 0, cphi: 1, sphi: 0, hv: 0, first: true };
     // per strip: polar inputs and outputs
     this.pd = new Float64Array(NS); this.pf = new Float64Array(NS);

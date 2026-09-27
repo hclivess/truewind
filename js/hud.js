@@ -79,19 +79,21 @@ export class HUD {
     if (S.main.trav) rows.push(['trav', 'Traveler', rc('trav')]);
     rows.push(['vang', 'Vang', rc('vang')], ['cunn', 'Cunningham', rc('cunn')], ['outhaul', 'Outhaul', rc('outhaul')]);
     if (C.hasBackstay) rows.push(['backstay', 'Backstay', rc('backstay')]);
-    if (S.stay) rows.push(['stay', 'Staysail sheet', rc('stay')]);
+    // (a class can name its sails and board: the 49er's self-tacking jib is a 'stay' here, a spinnaker is the 'gennaker')
+    const stayName = S.stay ? S.stay.label ?? 'Staysail' : '', genName = S.gennaker ? S.gennaker.label ?? 'Gennaker' : '';
+    if (S.stay) rows.push(['stay', `${stayName} sheet`, rc('stay')]);
     if (S.mizzen) rows.push(['mizzen', 'Mizzen sheet', rc('mizzen')]);
     if (S.jib) rows.push(['jib', S.gennaker ? 'Jib / genn. sheet' : 'Jib sheet', rc('jib')], ['lazy', 'Lazy jib sheet', rc('lazy')], ['jibLead', 'Jib car', { css: '#9aa1a8' }], ['jibHalyard', 'Jib halyard', rc('jibHalyard')]);
     else rows.push(['pushBoom', 'Push boom out', { css: '#9aa1a8' }]);
-    if (S.gennaker) rows.push(['tackLine', 'Tack line', rc('tackLine')]);
-    if (C.hasBoard) rows.push(['board', 'Daggerboard', { css: '#f2f2ef' }]);
+    if (S.gennaker) rows.push(['tackLine', S.gennaker.pole ? 'Pole height' : 'Tack line', rc('tackLine')]);
+    if (C.hasBoard) rows.push(['board', C.keel.pivot ? 'Centreboard' : 'Daggerboard', { css: '#f2f2ef' }]);
     rows.push(['hike', 'Weight on rail', { css: '#d33f49' }]);
     let h = `<div class="rg"><h3>Sails ${''}</h3>`;
     h += `<div class="sl2"><span>Main</span>${tt('main')}</div>`;
-    if (S.stay) h += `<div class="sl2"><span>Staysail</span>${tt('stay')}</div>`;
+    if (S.stay) h += `<div class="sl2"><span>${stayName}</span>${tt('stay')}</div>`;
     if (S.mizzen) h += `<div class="sl2"><span>Mizzen</span>${tt('mizzen')}</div>`;
-    if (S.jib) h += `<div class="sl2"><span id="hs-name">Jib</span>${tt('jib')}</div>`;
-    if (S.gennaker) h += `<div class="sl2"><span>Gennaker</span>${tt('gennaker')}</div>`;
+    if (S.jib) h += `<div class="sl2"><span id="hs-name">${S.jib.label ?? 'Jib'}</span>${tt('jib')}</div>`;
+    if (S.gennaker) h += `<div class="sl2"><span>${genName}</span>${tt('gennaker')}</div>`;
     h += `</div><div class="rg"><h3>Lines <span class="muted" style="font-weight:500;letter-spacing:.02em;text-transform:none">or grab them on deck (7)</span></h3><div class="lines">`;
     // every control is here as press-and-hold buttons, and on deck as the real line / car / winch
     const BTN = { main: ['Trim', 'Ease'], jib: ['Trim', 'Ease'], lazy: ['Haul', 'Ease'], pushBoom: ['Port', 'Stbd'], stay: ['Trim', 'Ease'], mizzen: ['Trim', 'Ease'], trav: ['Windward', 'Leeward'], vang: ['−', '+'], cunn: ['−', '+'],
@@ -109,7 +111,7 @@ export class HUD {
     h += `</div><div class="toggles acts">`;
     if (S.main.reefs) h += `<span class="muted small">Reef</span>` + [0, 1, 2].slice(0, S.main.reefs + 1).map(r => `<button class="chip" data-reef="${r}">${['Full', '1st', '2nd'][r]}</button>`).join('') + `<b id="o-reef" class="small"></b>`;
     h += `</div><div class="toggles acts">`;
-    if (S.gennaker) h += `<button class="chip" id="a-gen">Hoist gennaker</button>`;
+    if (S.gennaker) h += `<button class="chip" id="a-gen">Hoist ${genName.toLowerCase()}</button>`;
     if (S.jib) h += `<button class="chip" id="a-fly">Let jib sheet fly</button>`;
     if (C.canCapsize) h += `<button class="chip" id="a-right">Right the boat</button>`;
     h += `<button class="chip" id="a-center">Centre helm</button>`;
@@ -323,7 +325,7 @@ export class HUD {
       if (bar) bar.style.setProperty('--v', `${Math.round(clamp(frac, 0, 1) * 100)}%`);
     }
     document.querySelectorAll('#rig-body [data-reef]').forEach(btn => btn.classList.toggle('on', +btn.dataset.reef === (b.ctrl.reef | 0)));
-    const gen = document.getElementById('a-gen'); if (gen) { gen.textContent = b.ctrl.gen ? 'Douse gennaker' : 'Hoist gennaker'; gen.classList.toggle('on', !!b.ctrl.gen); }
+    const gen = document.getElementById('a-gen'); if (gen) { const gn = (S.gennaker.label ?? 'Gennaker').toLowerCase(); gen.textContent = b.ctrl.gen ? `Douse ${gn}` : `Hoist ${gn}`; gen.classList.toggle('on', !!b.ctrl.gen); }
     const right = document.getElementById('a-right'); if (right) right.classList.toggle('on', !!b.capsized);
     // each line's handler: its icon, what it is doing (LOCK, MAKE 40%, OFF, FREE / EASE / HAND, SLIP) and a slip warning
     this._slipT = this._slipT || {};
@@ -367,7 +369,7 @@ export class HUD {
     document.getElementById('loads').innerHTML =
       `<span>Mainsheet</span><b>${N(L.mainLoad)}</b>` +
       (S.jib ? `<span>${b.genDeploy > 0.5 ? 'Genn. sheet' : 'Jib sheet'}</span><b>${N(L.jibLoad)}</b>` : '') +
-      (S.stay ? `<span>Staysail sheet</span><b>${N(L.stayLoad)}</b>` : '') +
+      (S.stay ? `<span>${S.stay.label ?? 'Staysail'} sheet</span><b>${N(L.stayLoad)}</b>` : '') +
       (b.cls.hasBackstay ? `<span>Backstay</span><b>${N(L.backstayLoad)}</b>` : '') +
       `<span>Mast bend</span><b>${Math.round(L.bendMM || 0)} mm</b>` +
       (S.jib ? `<span>Forestay sag</span><b>${Math.round(L.sagMM || 0)} mm</b>` : '') +

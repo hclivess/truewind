@@ -647,7 +647,7 @@ export class Damage {
   }
   materialOf(s) {
     const C = this.C;
-    const k = s.kind === 'spin' ? 'nylon' : C.id === 'blackwatch' ? 'dacronCruise' : C.id === 'dinghy' ? 'dacronDinghy' : C.sailcloth || (C.massHull > 600 ? 'dacronCruise' : 'laminate');
+    const k = s.kind === 'spin' ? 'nylon' : C.id === 'blackwatch' ? 'dacronCruise' : C.id === 'dinghy' ? 'dacronDinghy' : C.cloth || (C.massHull > 600 ? 'dacronCruise' : 'laminate');
     return { key: k, ...(CLOTH_STRENGTH[s.cloth || k] || CLOTH_STRENGTH.dacronCruise) };
   }
   sailName(s) { return { main: 'Mainsail', jib: 'Jib', stay: 'Staysail', gennaker: this.C.id === 'cat' ? 'Spinnaker' : 'Gennaker' }[s.key] || s.key; }

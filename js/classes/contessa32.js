@@ -43,9 +43,15 @@ export default {
     { key: 'jib', kind: 'loose', area: 33.3, tackX: 4.66, tackZ: 1.1, luff: 11.55, foot: 5.4, head: 0.06, footRise: 0.25,
       depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 3.8, min: 10 * DEG, max: 50 * DEG, sagK: 1.3, color: 0xf2efe6, window: false },
   ],
-  hull: { color: 0xf3f1ea, stripe: 0x14305a, deck: 0xe6e0cf, boot: 0x14305a, bootTop: 0x14305a, levels: [0.03, 0.08, 0.1, 0.05] },
+  hull: { color: 0xf3f1ea, stripe: 0xc8a24a, deck: 0xe6e0cf, boot: 0x14305a, bootTop: 0x14305a, levels: [0.03, 0.1, 0.09, 0.08] },
+  nameColor: '#c9a24a',
   sailcloth: { cloth: 0xf2efe6, kind: 'dacron', num: '#14305a', logo: '#14305a', trans: 0.3, rough: 0.62 },
-  insignia: 'C32',
+  // the class badge: C and O run together, like a figure of eight on its side
+  insignia: (g, cx, cy) => {
+    g.strokeStyle = '#111316'; g.lineWidth = 9;
+    g.beginPath(); g.arc(cx - 22, cy, 22, 0.25 * Math.PI, 1.75 * Math.PI); g.stroke();
+    g.beginPath(); g.arc(cx + 22, cy, 22, 0, 2 * Math.PI); g.stroke();
+  },
   offsets: {
     sheer: [[0, 0.92], [0.25, 0.86], [0.5, 0.86], [0.75, 0.94], [1, 1.1]],
     deck: [[0, 0.5], [0.08, 0.7], [0.3, 0.95], [0.5, 1.0], [0.7, 0.9], [0.86, 0.6], [0.96, 0.25], [1, 0.02]],
@@ -56,8 +62,9 @@ export default {
   },
   model: {
     cockpit: { t0: 0.1, t1: 0.36, w: 0.58, sole: 0.52, seat: 0.36, seatW: 0.38, coaming: 0.2, coamingMat: 'teak', thwart: 0.345, thwartH: 0.35 },
-    deck: 'nonskid', deckTint: '#e6e0cf', toerail: 'teak',
-    cabins: [{ t0: 0.365, t1: 0.7, h: [[0.36, 0.44], [0.6, 0.42], [0.7, 0.3]], w: [[0.36, 0.95], [0.55, 0.92], [0.65, 0.8], [0.7, 0.62]],
+    deck: 'teak', toerail: 'teak',
+    bands: [{ t0: 0.08, t1: 0.9, z0: 0.14, z1: 0.155, color: 0x14305a }, { t0: 0.08, t1: 0.9, z0: 0.18, z1: 0.195, color: 0x14305a }],
+    cabins: [{ t0: 0.365, t1: 0.7, h: [[0.36, 0.3], [0.6, 0.28], [0.7, 0.2]], w: [[0.36, 0.95], [0.55, 0.92], [0.65, 0.8], [0.7, 0.62]],
       slope: 0.08, camber: 0.06, frontRake: 0.35, aftRake: 0.04, color: 0xf3f1ea, roof: 'nonskid', roofTint: '#e6e0cf', eyebrow: 'teak',
       windows: [{ kind: 'rect', t0: 0.42, t1: 0.5, zf: 0.55, hf: 0.44, round: 8 }, { kind: 'rect', t0: 0.53, t1: 0.62, zf: 0.55, hf: 0.44, round: 8 }],
       companion: { w: 0.55, mat: 'teak' }, hatches: [{ t: 0.42, w: 0.62, l: 0.62, kind: 'slide' }, { t: 0.66, w: 0.45, l: 0.45 }], handrails: true,

@@ -125,6 +125,22 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 .card .t { font: 700 20px/1 var(--display); letter-spacing: .02em; text-transform: uppercase; }
 .card .s { font: 500 12px var(--cond); color: var(--muted); letter-spacing: .03em; }
 .card .d { font-size: 13px; color: #c5d1da; }
+/* class picker: group tabs and a search over a short scrolling list, then the chosen class's card */
+#boat-list { gap: 8px; }
+.cls-tools { display: grid; gap: 6px; }
+.cls-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.cls-tab { background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; color: var(--muted); font: 600 12px var(--cond); letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+.cls-tab.on { color: var(--text); border-color: var(--accent); }
+.cls-search { background: var(--ink-2); border: 1px solid var(--line); border-radius: 4px; padding: 6px 9px; color: var(--text); font: 500 14px var(--cond); min-width: 0; }
+.cls-list { display: grid; gap: 4px; max-height: 232px; overflow: auto; padding-right: 2px; }
+.card.cls-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 6px 10px; }
+.card.cls-row[hidden] { display: none; }
+.cls-row .n { font: 700 16px/1.1 var(--display); letter-spacing: .03em; text-transform: uppercase; }
+.cls-row .g { font: 500 11px var(--cond); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+.cls-detail { display: grid; gap: 3px; background: var(--glass); border: 1px solid var(--accent); border-radius: 6px; padding: 10px 12px; box-shadow: inset 3px 0 0 var(--accent); }
+.cls-detail .t { font: 700 20px/1 var(--display); letter-spacing: .02em; text-transform: uppercase; }
+.cls-detail .s { font: 500 12px var(--cond); color: var(--muted); letter-spacing: .03em; }
+.cls-detail .d { font-size: 13px; color: #c5d1da; }
 .venues { grid-template-columns: 1fr 1fr; max-height: 440px; overflow: auto; padding-right: 2px; }
 .venues .card .t { font-size: 17px; }
 .custom-loc { margin-top: 12px; }
@@ -208,6 +224,13 @@ body.online .online-only { display: block; }
 .ln .bar::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: var(--v, 0%); background: var(--muted); }
 .rg p.hint { margin: 2px 0 4px; font: 500 12px/1.35 var(--cond); color: var(--muted); }
 .sl2 { display: flex; justify-content: space-between; align-items: center; font: 500 12px var(--cond); color: var(--muted); padding: 1px 0; }
+.tide-row { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.tide-row .tseg2 { grid-template-columns: 1fr 1fr; flex: 0 0 auto; }
+.tide-row .tseg2 .seg-b { font-size: 12px; padding: 5px 9px; }
+.tide-row input[type=date] { flex: 1; min-width: 0; background: var(--ink-2); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; color: var(--text); font: 500 13px var(--cond); color-scheme: dark; }
+.tide-row input[type=range] { flex: 1; min-width: 0; }
+.tide-f.steady input[type=date], .tide-f:not(.steady) input[type=range] { display: none; }
+.tide-f.notide .tseg2 { display: none; }
 .wseg { margin-top: 10px; }
 .wseg .seg-b { font-size: 13px; padding: 7px; }
 .trseg { grid-template-columns: repeat(4, 1fr); margin-top: 6px; }
@@ -313,6 +336,7 @@ body.menu-open #hud { visibility: hidden; }
 #nav-read .tn em { font-style: normal; color: #39d0ff; overflow: hidden; text-overflow: ellipsis; }
 #nav-read .eta { grid-column: 2 / 4; }
 #nav-read:not(.has-wp) .wp { display: none; }
+#nav-read:not(.has-td) .td, #nav-read:not(.has-ht) .ht { display: none; }
 #nav-read:not(.has-wp) .tn em { color: var(--muted); }
 #compass-tape { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(146px + env(safe-area-inset-bottom, 0px)); width: 360px; height: 32px; border-radius: 4px; border: 1px solid var(--line); pointer-events: none; }
 #chart { position: absolute; inset: calc(12px + env(safe-area-inset-top, 0px)) 264px calc(10px + env(safe-area-inset-bottom, 0px)) 12px; display: flex; flex-direction: column; z-index: 8; background: rgba(11,22,31,.92); }

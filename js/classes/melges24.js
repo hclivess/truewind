@@ -39,14 +39,15 @@ export default {
   sails: [
     { key: 'main', kind: 'boom', area: 179.9 * SQFT, luff: 28.9 * FT, foot: 12.45 * FT, head: 0.5, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
       cd0: 0.06, ARe: 4.8, min: 1.5 * DEG, max: 78 * DEG, trav: [-6 * DEG, 12 * DEG], Iboom: 40, boomMass: 12, reefs: 0,
-      vangBend: 0.18, sheetBend: 0.12, color: 0x3b3e44 },
+      vangBend: 0.18, sheetBend: 0.12, color: 0x3b3e44, pockets: [[0.2, 0.25], [0.42, 0.3], [0.64, 0.35], [0.86, 0.5]] },
     { key: 'jib', kind: 'loose', area: 110.7 * SQFT, tackX: 3.62, tackZ: 0.72, luff: 8.25, foot: 2.55, head: 0.08, footRise: 0.4,
-      depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 4.3, min: 8.5 * DEG, max: 42 * DEG, sagK: 1.0, color: 0x3b3e44 },
+      depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 4.3, min: 8.5 * DEG, max: 42 * DEG, sagK: 1.0, color: 0xefeee6,
+      sailcloth: { cloth: 0xefeee6, kind: 'laminate', num: '#1d2a44', logo: '#1d2a44', trans: 0.22, rough: 0.42 } },
     { key: 'gennaker', kind: 'spin', replaces: 'jib', area: 670 * SQFT, tackX: 5.3, tackZ: 0.78, luff: 9.5, foot: 5.4, head: 0.55, rake: 0.6,
       depth: [0.19, 0.21, 0.19], cd0: 0.09, ARe: 2.2, min: 16 * DEG, max: 100 * DEG, color: 0xe03a2a },
   ],
   hull: { color: 0xf5f6f4, stripe: 0x14305a, deck: 0xdfe1e1, boot: 0x14305a, bootTop: 0x14305a, levels: [0.03, 0.06, 0.06, 0.035] },
-  sailcloth: { cloth: 0x3b3e44, kind: 'laminate', num: '#f2f2ee', logo: '#f2f2ee', trans: 0.1, rough: 0.4 },
+  sailcloth: { cloth: 0x202226, kind: 'laminate', num: '#f2f2ee', logo: '#f2f2ee', trans: 0.1, rough: 0.4 },
   insignia: '24',
   offsets: {
     sheer: [[0, 0.58], [0.4, 0.6], [0.75, 0.66], [1, 0.76]],
@@ -58,7 +59,6 @@ export default {
   model: {
     cockpit: { t0: 0.0, t1: 0.52, w: 0.72, sole: 0.24, seats: false, coaming: 0 },
     deck: 'nonskid', deckTint: '#dfe1e1', toerail: 'alu', navLights: false,
-    cabins: [{ t0: 0.52, t1: 0.72, h: [[0.52, 0.14], [0.72, 0.04]], w: [[0.52, 0.66], [0.72, 0.55]], slope: 0.05, camber: 0.04, frontRake: 0.4, aftRake: 0.03, color: 0xdfe1e1, roof: 'same', hatches: [{ t: 0.56, w: 0.45, l: 0.45 }] }],
     steering: { kind: 'tiller', len: 1.15, rise: 0.08, mat: 'black', extension: 1.2 },
     rudder: { kind: 'transom', top: 0.55, bottom: -1.05, chordTop: 0.22, heel: 0.3, color: 0xf2f2ee, thick: 0.035 },
     keel: { kind: 'fin', chord: 0.45, taper: 0.9, sweep: 0.05, thick: 0.1, mat: 'lead', bulb: { len: 1.35, r: 0.14, fwd: 0.35, flat: 1.3 } },
