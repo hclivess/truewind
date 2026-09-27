@@ -137,11 +137,18 @@ function buildDetailed(boat, opts = {}) {
       const wd = g.measureText(bname).width; if (wd > w * 0.94) g.font = font.replace(/(\d+)px/, (m, px) => `${Math.floor(px * w * 0.94 / wd)}px`);
       g.fillText(bname, w / 2, 92);
     });
-    const x = bx(N.t), len = N.len ?? 1.2;
+    // (painted on: a strip that follows the topsides, which curve in toward a bow or a canoe stern within the name's
+    // length — a flat board there sank its forward letters into the hull)
+    const x0 = bx(N.t), len = N.len ?? 1.2, hh = len / 8, S = 16, mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.4 });
     for (const side of [-1, 1]) {
-      const y = hullHalfBreadth(Lx, N.t, N.z) + 0.01;
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(len, len / 4), new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.4 }));
-      m.position.copy(V(x, side * y, N.z)); m.rotation.y = side > 0 ? Math.PI / 2 : -Math.PI / 2; inner.add(m);
+      const pos = [], uv = [], idx = [];
+      for (let i = 0; i <= S; i++) {
+        const f = i / S, x = x0 + (f - 0.5) * len, t = tAt(x);
+        for (const [j, z] of [[0, N.z - hh], [1, N.z + hh]]) { pos.push(side * (hullHalfBreadth(Lx, t, z) + 0.01), z, -x); uv.push(side > 0 ? f : 1 - f, j); }
+      }
+      for (let i = 0; i < S; i++) { const a = 2 * i; side > 0 ? idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3) : idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.setIndex(idx); g.computeVertexNormals(); inner.add(new THREE.Mesh(g, mat));
     }
   }
   // ---- portlights in the topsides (bronze, in a classic's bulwark band)
@@ -809,9 +816,9 @@ export const EXTRAS = {
       kit.add(M.black(), new THREE.CylinderGeometry(0.33, 0.35, 0.1, 18), new THREE.Matrix4().makeTranslation(0, z - 0.03, -x));
     }
     for (const s of [-1, 1]) {
-      const t = 0.86, x = bx(t), zz = Lx.sheer(t) - 0.28, y = s * (hullHalfBreadth(Lx, t, zz) + 0.004);
-      const el = new THREE.CircleGeometry(0.13, 20); el.scale(1, 0.72, 1); el.rotateY(s * Math.PI / 2); el.translate(y, zz, -x); kit.add(M.black(), el);
-      const eye = new THREE.CircleGeometry(0.045, 12); eye.rotateY(s * Math.PI / 2); eye.translate(y + s * 0.002, zz + 0.01, -(x - 0.05)); kit.add(paint(0xf2f0ea, 0.4), eye);
+      const t = 0.9, x = bx(t), zz = Lx.sheer(t) - 0.28, y = s * (hullHalfBreadth(Lx, t, zz) + 0.004);
+      const el = new THREE.CircleGeometry(0.18, 20); el.scale(1, 0.72, 1); el.rotateY(s * Math.PI / 2); el.translate(y, zz, -x); kit.add(M.black(), el);
+      const eye = new THREE.CircleGeometry(0.06, 12); eye.rotateY(s * Math.PI / 2); eye.translate(y + s * 0.002, zz + 0.01, -(x - 0.05)); kit.add(paint(0xf2f0ea, 0.4), eye);
     }
     const x = C.sternX, z = Lx.sheer(0) + 0.05;
     kit.rod(M.steel(), V(x + 0.35, 0.35, z), V(x - 0.45, 0, z + 0.25), 0.02); kit.rod(M.steel(), V(x + 0.35, -0.35, z), V(x - 0.45, 0, z + 0.25), 0.02);
