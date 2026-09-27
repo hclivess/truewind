@@ -698,7 +698,6 @@ export function aiRules(ai, sim, desired, mode, t, up) {
     if (danger) { const [hh] = search(row, 0.3, 3); if (hh !== null) h = hh; }
     else if (close && !rounding && mode !== 'prestart') h = b.psi + clamp(wrap(desired - b.psi), -6 * DEG, 6 * DEG);
   }
-  if (globalThis.DBGAI && globalThis.DBGAI(b)) console.log(`  AI ${b.id} t ${t.toFixed(1)} psi ${(b.psi / DEG).toFixed(0)} want ${(desired / DEG).toFixed(0)} -> ${(h / DEG).toFixed(0)} give [${give.map(([o, pr]) => o.id + ":" + pr.rule + ":" + pr.d.toFixed(0)).join(" ")}] row [${row.map(([o, pr]) => o.id + ":" + pr.rule).join(" ")}] cD ${cD.toFixed(1)} ease ${plan.ease}`);   // TEMPDBG
   plan.h = h === desired ? null : h;
   ai.ease = plan.ease;
   return h;

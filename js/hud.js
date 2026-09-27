@@ -369,6 +369,8 @@ export class HUD {
       const st = g.raceStandings();
       document.getElementById('rc-standings').innerHTML = st.map((r, i) => `<li class="${r.me ? 'me' : ''}"><span>${i + 1}</span><span>${esc(r.name)}</span><span>${r.code ? r.code : r.pen ? 'penalty' : r.finished ? fmtT(r.time) : legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span></li>`).join('');
       if (online && (me.finished || c > 1800)) actions = `<button class="chip" id="rc-newrace">Start another race</button>`;
+      // (the protest and the hail for room to tack, for a touch screen with no B and U keys)
+      else if (g.rules && !me.finished) actions = `<button class="chip" id="rc-protest" title="Protest (B)">Protest</button><button class="chip" id="rc-hail" title="Room to tack! (U)">Room to tack</button>`;
     } else {
       document.getElementById('rc-mode').textContent = online ? 'Online' : 'Free sail';
       rc.classList.remove('pre');
@@ -388,6 +390,9 @@ export class HUD {
       box.dataset.html = actions; box.innerHTML = actions;
       const b = document.getElementById('rc-newrace');
       if (b) b.addEventListener('click', () => g.startSharedRace());
+      const pb = document.getElementById('rc-protest'), hb = document.getElementById('rc-hail');
+      if (pb) pb.addEventListener('click', () => g.protestKey());
+      if (hb) hb.addEventListener('click', () => g.hailKey());
     }
   }
 
