@@ -476,7 +476,8 @@ export class Renderer {
             float zA = invTail(0.4 * Wc);                                      // active breaking crests
             // (the crests a pixel cannot resolve still break: their variance zv.y widens the threshold, so a
             // far crest carries its share of the whitecaps and the flat far sea the mean of them all)
-            float act = ssV(zA + 0.125, 0.275, zc + (f1 - 0.5) * 1.1, zv.y + 1.21 * v1) * (0.5 + 0.5 * lace);
+            // (a crest far past the threshold, a rogue's, is still torn foam and not paint: its excess is capped)
+            float act = ssV(zA + 0.125, 0.275, min(zc, zA + 0.55) + (f1 - 0.5) * 1.1, zv.y + 1.21 * v1) * (0.5 + 0.5 * lace);
             // residual foam: thinning lace around the crests, and (beyond the foam pass) patches of old foam
             float vb, big = sfbmV(sw * vec2(0.02, 0.05) + vec2(0.0, 3.3), fpQ(vec2(0.02, 0.05), eRf, eT, fl, pr), vb);
             float thrB = 0.5 + 0.12 * invTail(clamp(0.6 * Wc, 1e-4, 0.5));
@@ -522,8 +523,8 @@ export class Renderer {
             float st2 = st * 0.7 + 0.3 * qn(vec2(acr * 0.4 + 3.1, ph * 4.0 - uTime * 1.3));
             float cas = smoothstep(-0.3, 0.3, ph) * (1.0 - smoothstep(0.85, 1.25, ph)) * ssV(0.55 + 0.12 * (1.0 - smoothstep(0.0, 1.1, ph)), 0.08, st2, vs);
             float bk = smoothstep(1.7, 1.9, ph) * (1.0 - smoothstep(1.9, 2.5, ph)) * lace * 0.35;   // torn foam left behind
-            float rt = ssV(0.35, 0.2, st2 * 0.6 + f1 * 0.4, vs + 0.36 * v1);                  // the roller torn into clots
-            foam = max(foam, lb.w * lb.w * min(1.0, max(rol * (0.45 + 0.55 * rt), max(cas * 0.9, bk))));
+            float rt = ssV(0.42, 0.14, st2 * 0.6 + f1 * 0.4, vs + 0.36 * v1);                 // the roller torn into clots
+            foam = max(foam, lb.w * lb.w * min(1.0, max(rol * (0.12 + 0.88 * rt), max(cas * 0.9, bk))));
           }
           // at a grazing angle the waves no pixel draws hide their own troughs (Smith masking, from the slope
           // variance lostF + mssSub) but not the crests that carry the foam: a sight line skims 1/G1 = 1 + L
