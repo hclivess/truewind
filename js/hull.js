@@ -31,6 +31,7 @@ const HULL_PARAMS = {
 
 // Lines of one hull. depthScale lets the hydrostatic calibration match the real displacement.
 export function linesFor(C, depthScale = C._depthScale ?? 1) {
+  if (C.offsets) return offsetLines(C, depthScale);
   const H = HULL_PARAMS[C.id] || HULL_PARAMS.sportboat;
   const B = (C.hullBeam ?? C.beam) / 2, F = C.freeboard, D = C.canoeDraft * depthScale;
   const bDeck = (t) => B * (t < H.tm ? lerp(H.tr, 1, Math.sin(t / H.tm * Math.PI / 2) ** 0.85) : Math.pow(Math.max(0, Math.cos(Math.min(1, (t - H.tm) / (1 - H.tm)) * Math.PI / 2)), H.be));
@@ -47,8 +48,88 @@ export function linesFor(C, depthScale = C._depthScale ?? 1) {
   return { H, bDeck, sheer, keelZ, flareAt, flatAt, longKeel };
 }
 
+// A smooth curve through [t, value] rows (monotone cubic, Fritsch-Carlson: no overshoot between offsets), held
+// flat past its ends
+export function curveOf(tab) {
+  if (typeof tab === 'number') return () => tab;
+  const n = tab.length, xs = tab.map(r => r[0]), ys = tab.map(r => r[1]);
+  if (n === 1) return () => ys[0];
+  const d = [], m = [];
+  for (let i = 0; i < n - 1; i++) d.push((ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]));
+  m.push(d[0]); for (let i = 1; i < n - 1; i++) m.push(d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2); m.push(d[n - 2]);
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / d[i], b = m[i + 1] / d[i], h = a * a + b * b;
+    if (h > 9) { const k = 3 / Math.sqrt(h); m[i] = k * a * d[i]; m[i + 1] = k * b * d[i]; }
+  }
+  return (x) => {
+    if (x <= xs[0]) return ys[0];
+    if (x >= xs[n - 1]) return ys[n - 1];
+    let i = 0; while (x > xs[i + 1]) i++;
+    const h = xs[i + 1] - xs[i], s = (x - xs[i]) / h, s2 = s * s, s3 = s2 * s;
+    return (2 * s3 - 3 * s2 + 1) * ys[i] + (s3 - 2 * s2 + s) * h * m[i] + (-2 * s3 + 3 * s2) * ys[i + 1] + (s3 - s2) * h * m[i + 1];
+  };
+}
+
+// Lines from a table of offsets (classes that carry C.offsets, taken off the published lines and profile drawings).
+// Each is a list of [t, value] rows along the hull (t: 0 at sternX .. 1 at bowX):
+//   sheer  height of the sheer above the DWL (m)            deck   deck half-breadth / (beam / 2)
+//   wl     half-breadth at the turn of the bilge / deck half-breadth
+//   keel   the canoe body's bottom on the centreline (the rabbet line), m; above the DWL (+) in the overhangs,
+//          where the section is all topsides and the bottom meets at the keel line
+//   bilge  superellipse exponent of the bottom (2 round bilge, 3-5 firm or hard, 1.3 slack), dead: deadrise
+//          (0 the bottom sweeps flat into the keel .. 1 a straight V), flare: topsides exponent (< 1 they stand up
+//          from the bilge and round out to the sheer, 1 straight)
+//   fin    bottom of a long keel / deadwood where it is deeper than the rabbet (m), finW its half thickness
+//   tumble tumblehome at the sheer (fraction of the half-breadth), crown deck camber, transomRake (m, the top of
+//          the transom aft of its foot), stemX (m, a clipper stem's head forward of its foot)
+// The section has the same number of points at every station (fin points collapse onto the keel where there is
+// no fin), so the renderer can loft it and the hydrostatics can clip it.
+function offsetLines(C, ds) {
+  const L = C.offsets, B = (C.hullBeam ?? C.beam) / 2;
+  const sheer = curveOf(L.sheer), deck = curveOf(L.deck), wl = curveOf(L.wl ?? 0.9), keel = curveOf(L.keel);
+  const bilge = curveOf(L.bilge ?? 2.2), dead = curveOf(L.dead ?? 0.3), flare = curveOf(L.flare ?? 0.7), tumble = curveOf(L.tumble ?? 0);
+  const fin = L.fin ? curveOf(L.fin) : null, finW = curveOf(L.finW ?? 0.12), finT = L.fin ? [L.fin[0][0], L.fin[L.fin.length - 1][0]] : null;
+  const H = { crown: L.crown ?? 0.06, stemRake: 0, transomRake: L.transomRake ?? 0, tm: 0.5 };
+  const bDeck = (t) => B * Math.max(0, deck(t));
+  const keelZ = (t) => { const z = keel(t); return z < 0 ? z * ds : z; };
+  const finZ = (t) => (fin && t >= finT[0] && t <= finT[1] ? fin(t) : null);
+  const NT = 4, NB = 8;
+  const section = (t) => {
+    const sh = sheer(t), b = bDeck(t), zk = keelZ(t), k = C._fullness ?? 1;
+    // the turn of the bilge: at the DWL where the canoe body is under water, rising into the topsides where the
+    // keel line comes up out of it (the overhangs), so that the section closes smoothly at the keel line
+    const zb = lerp(zk + 0.3 * Math.max(0, sh - zk), 0, sstep(0, 0.12, -zk));
+    const bw = b * clamp(wl(t), 0, 1.2) * sstep(0, 0.1, zb - zk + 0.02), fe = flare(t), tb = tumble(t);
+    const pts = [];
+    for (let i = 0; i < NT; i++) {                                  // topsides: sheer -> bilge
+      const s = i / NT, h = 1 - s;                                   // h: 1 at the sheer .. 0 at the bilge
+      const y = bw + (b - bw) * Math.pow(h, fe) - tb * b * Math.pow(h, 6);
+      pts.push([y, sh + (zb - sh) * s]);
+    }
+    const p = Math.max(1.05, bilge(t)), dr = clamp(dead(t), 0, 1);
+    let zf = finZ(t); if (zf !== null && zf > zk - 0.005) zf = null;
+    const fw = zf === null ? 0 : finW(t) * sstep(0, 0.1, zk - zf);
+    for (let i = 0; i <= NB; i++) {                                  // bottom: bilge -> keel (superellipse + deadrise)
+      const th = i / NB * Math.PI / 2, c = Math.cos(th), s = Math.sin(th);
+      let y = bw * Math.pow(c, 2 / p), z = zb + (zk - zb) * Math.pow(s, 2 / p);
+      z = lerp(z, zk + (zb - zk) * (y / Math.max(bw, 1e-6)), dr * (1 - Math.pow(c, 4)));
+      if (i === NB) y = fw;
+      if (z < 0) y *= k + (1 - k) * Math.max(0, 1 + z / 0.02);
+      pts.push([Math.max(fw * (i / NB) ** 8, y), z]);
+    }
+    // the fin (long keel / deadwood) under the garboard
+    const zf2 = zf ?? zk;
+    for (const [fy, fz] of [[0.85, 0.35], [0.6, 0.75], [0.32, 0.97], [0, 1]]) pts.push([fw * fy, zk + (zf2 - zk) * fz]);
+    return pts;
+  };
+  const xShift = (t, zn) => -H.transomRake * sstep(0.05, 0, t) * zn + (L.stemX ?? 0) * sstep(0.9, 1, t) * zn * zn;
+  return { H, bDeck, sheer, keelZ, flareAt: () => 0, flatAt: () => 0.5, longKeel: null, section, xShift, finZ };
+}
+
 // Half section at station t (0 stern .. 1 bow): [[y, z], ...] from the sheer down to the keel line.
 export function hullSection(C, Lx, t) {
+  if (Lx.section) return Lx.section(t);
   const b = Lx.bDeck(t), sh = Lx.sheer(t), zk = Lx.keelZ(t), fl = Lx.flareAt(t), flat = Lx.flatAt(t);
   const bW = b * (0.93 - 0.3 * fl);
   const pts = [[b, sh], [b * (1 - 0.1 * fl) - 0.01, sh * 0.55], [bW, Math.max(0.02, zk * 0.05 + 0.02)]];

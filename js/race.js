@@ -2,6 +2,7 @@
 // waypoints, and AI crews that sail the same physics with a helm + tactician model.
 import { DEG, KT, mulberry32 } from './env.js';
 import { autoTrim, wrap, clamp, lerp } from './physics.js';
+import { aiRules } from './rules.js';
 
 export const LEGS = ['Start', 'Windward mark', 'Leeward gate', 'Windward mark', 'Finish'];
 
@@ -82,6 +83,7 @@ export class Race {
     this.gun = this.startIn;
     this.events = [];
     this.signals = new Set();
+    this.xFlag = false;   // rule 29.1: individual recall, flown while a boat over at the gun has not come back
   }
   get clock() { return this.t - this.gun; } // negative before the start
 
@@ -106,7 +108,7 @@ export class Race {
         if (clock < 0) { r.ocs = false; }
         else {
           if (Math.abs(clock) < 1e-6 || (clock > 0 && clock - dt <= 0)) {
-            if (lineA > 0.5) { r.ocs = true; this.events.push({ type: 'ocs', boat: b }); }
+            if (lineA > 0.5) { r.ocs = true; r.ocsAtGun = true; this.xFlag = true; this.events.push({ type: 'ocs', boat: b }); }
           }
           if (r.ocs && lineA < -1) { r.ocs = false; r.cleared = true; this.events.push({ type: 'cleared', boat: b }); }
           if (!r.ocs && segCross(r.prev, cur, C.pin, C.committee) >= 0) {
@@ -142,6 +144,8 @@ export class Race {
       }
       r.prev = cur;
     }
+    // X comes down when every boat over at the gun has returned, or four minutes after the start
+    if (this.xFlag && (clock > 240 || !this.racers.some(r => r.ocs))) { this.xFlag = false; this.events.push({ type: 'xflag', up: false }); }
   }
 
   // one way out of a race for every reason (RRS 42 motoring, damage): RET in the standings, why in the race card
@@ -156,6 +160,7 @@ export class Race {
   standings() {
     const C = this.course;
     const score = (r) => {
+      if (r.dsq) return -2e9 + (r.finished ? 1e6 - r.finishTime : r.leg * 1e3);     // disqualified: at the bottom
       if (r.finished) return 1e9 - r.finishTime;
       if (r.retired) return -1e9;                   // (RET: RRS 42, or dismasted, sinking, keel or rudder gone: js/gear.js)
       const tgt = C.target(C.legs[r.leg], r.boat);
@@ -193,6 +198,13 @@ export class AIHelm {
     // capsized: ease everything and stand on the board / hang on the righting line
     if (b.capsized) { this.capT = (this.capT || 0) + dt; b.ctrl.main = 1; b.ctrl.jib = 1; if (this.capT > 5) b.righting = true; return; }
     this.capT = 0;
+    const R = sim.rules;
+    // a penalty flagged by the umpire: two turns (one for a mark) at once, each a tack and a gybe, same way round
+    // (22.2: she keeps clear while turning, so first she sails clear of the boats around her and out of the mark's
+    // zone, 45 s at most)
+    const pen = R && racer && !racer.finished && !racer.retired ? R.penaltyOf(b) : null;
+    if (pen) return this.penaltyTurns(dt, pen, sim, t);
+    this.penD = 0;
     this.twdMean = this.twdMean === null ? twd : this.twdMean + wrap(twd - this.twdMean) * dt / 90;
     const up = (targets?.up ?? 42) * DEG, dn = (targets?.dn ?? 145) * DEG;
     this.upAngle = up;
@@ -200,7 +212,7 @@ export class AIHelm {
     let dest = null;
     const leg = racer ? course.legs[racer.leg] : null;
     const clock = sim.race ? sim.race.clock : 0;
-    if (racer && racer.finished) { // sail away gently
+    if (racer && (racer.finished || racer.retired)) { // sail away gently (finished, or out of the race)
       dest = { x: b.x + Math.sin(twd + Math.PI / 2) * 200, z: b.z - Math.cos(twd + Math.PI / 2) * 200 };
       b.ctrl.gen = false;
     } else if (leg && leg.type === 'start' && clock < 0) {
@@ -252,6 +264,12 @@ export class AIHelm {
       // the tide across the course: where the next couple of hundred metres on the other tack carry the
       // boat into water flowing more toward the mark (less against it), that tack pays
       if (want === tack && Math.abs(rel) < up - 10 * DEG && t - this.lastTack > 40 && this.tideGain(sim, -tack, up, dest) - this.tideGain(sim, tack, up, dest) > 0.12) want = -tack;
+      // under the rules: no tacking into anyone's way (13, 15); hailed for room to tack (20) she tacks at once, and
+      // so does the boat that hailed once answered
+      if (R && R.on !== false) {
+        if (want !== tack && !R.canTurn(b, twd - want * up)) want = tack;
+        if (R.hailTo(b) || (R.hailOf(b) && R.hailOf(b).answered && R.S(b).tackT < R.hailOf(b).answered)) { want = -tack; this.lastTack = -100; }
+      }
       if (want !== tack && t - this.lastTack > 12) { this.lastTack = t; }
       else want = tack;
       desired = twd - want * (up + (this.skill < 1 ? (1 - this.skill) * 6 * DEG : 0));
@@ -261,6 +279,7 @@ export class AIHelm {
       const dnRel = Math.PI - Math.abs(rel);
       if (tack > 0 && rel < -(dn - 2 * DEG)) want = -1;
       if (tack < 0 && rel > (dn - 2 * DEG)) want = 1;
+      if (want !== tack && R && !R.canTurn(b, twd - want * dn, 8)) want = tack;       // gybe only where it is clear
       if (want !== tack && t - this.lastTack > 15) this.lastTack = t; else want = tack;
       desired = twd - want * dn;
     } else {
@@ -272,8 +291,9 @@ export class AIHelm {
     }
     // keep off the rocks and banks
     if (sim.world && !sim.world.open) desired = this.avoidShoals(sim, desired, mode, tack, up, twd, t);
-    // simple traffic avoidance
-    for (const o of sim.boats) {
+    // traffic: under the racing rules (js/rules.js) when the race has them, else a simple swerve
+    if (R) desired = aiRules(this, sim, this.gateTurn(R, desired, twd, up), mode, t, up);
+    else for (const o of sim.boats) {
       if (o === b) continue;
       const dx = o.x - b.x, dz = o.z - b.z, r = Math.hypot(dx, dz);
       if (r > 18) continue;
@@ -291,8 +311,56 @@ export class AIHelm {
       b.ctrl.reef = tws > 24 ? 2 : tws > 17 ? 1 : 0;
     }
     autoTrim(b, dt, this.bias);          // trim first: steering may override it (backing the jib in irons)
+    if (this.ease) this.slow();
     this.steer(dt, desired);
     this.mode = mode;
+  }
+  // no tack or gybe where it would put her in someone's way (13, 15): the same angle to the wind on this tack
+  // (once begun, a tack or gybe is finished: turning back half way leaves her head to wind, stopped, in the way)
+  gateTurn(R, desired, twd, up) {
+    const b = this.b, cur = Math.sign(wrap(twd - b.psi)) || 1, rel = wrap(twd - desired);
+    if ((Math.sign(rel) || 1) === cur) return desired;
+    if (R.t < (this.turnGo || 0) || Math.abs(wrap(twd - b.psi)) < up * 0.8) { this.turnGo = Math.max(this.turnGo || 0, R.t + 2); return desired; }
+    // (a refusal stands for two seconds before she asks again)
+    if (R.t > (this.turnNo || 0)) { if (R.canTurn(b, desired, 8)) { this.turnGo = R.t + 8; return desired; } this.turnNo = R.t + 2; }
+    // held on this tack: the heading on it nearest the one wanted (close-hauled, or running by the lee's edge)
+    return twd - cur * (Math.abs(rel) < (210 * DEG - up) / 2 ? up : 150 * DEG);
+  }
+  // keeping clear of a boat ahead with nowhere to go: ease the sheets and slow down
+  slow() { const c = this.b.ctrl; c.main = Math.max(c.main, 0.8); if (this.b.sailBy.jib) c.jib = Math.max(c.jib, 0.8); if (this.b.sailBy.gennaker) c.gen = false; }
+
+  // penalty turns (44.2): bear away first (the gybe keeps her speed for the tack), then round and round the same
+  // way at a steady helm until the umpire's count says done; she keeps clear of everyone meanwhile (22.2)
+  penaltyTurns(dt, pen, sim, t) {
+    const b = this.b, twd = b.diag.twd ?? 0, twa = wrap(twd - b.psi), tack = Math.sign(twa) || 1;
+    if (!this.penD) this.penD = pen.dir || -tack;
+    autoTrim(b, dt, this.bias);
+    if (b.sailBy.gennaker) b.ctrl.gen = false;
+    this.mode = 'penalty';
+    const R = sim.rules, L = b.cls.loa, up = this.upAngle ?? 40 * DEG;
+    // first out of the traffic (22.2: she keeps clear of everyone meanwhile): a reach away from the boats around
+    // her and out of the mark's zone; again whenever a boat comes near while she turns (the turn is lost)
+    const crowd = R.relsOf(b).filter(pr => pr.d < 4 * L + 6);
+    const C = sim.course, inZone = C && [...C.marks(), C.committee].some(m => Math.hypot(m.x - b.x, m.z - b.z) < 5 * L + 4);
+    const near = R.relsOf(b).some(pr => pr.clr < 2 && pr.when <= 2) || (C && [...C.marks(), C.committee].some(m => Math.hypot(m.x - b.x, m.z - b.z) < 2 * L + 3));
+    if (((crowd.length || inZone) && !pen.dir && R.t - pen.t0 < 45) || near) {
+      if (!this.awayT || t > this.awayT) {       // (the side with fewer boats, decided every few seconds)
+        let lft = 0, rgt = 0;
+        for (const pr of R.relsOf(b)) { const o = pr.a === b ? pr.b : pr.a, s = wrap(Math.atan2(o.x - b.x, -(o.z - b.z)) - twd); if (s > 0) rgt += 1 / pr.d; else lft += 1 / pr.d; }
+        this.awayS = rgt > lft ? -1 : 1; this.awayT = t + 4;
+      }
+      this.steer(dt, aiRules(this, sim, twd + this.awayS * 100 * DEG, 'reach', t, up));
+      if (this.ease) this.slow();
+      return;
+    }
+    // too slow to come through the wind: first a reach to build speed (a stalled turn ends in irons)
+    const vT = Math.max(1, Math.min(this.targetsUpBsp ?? 2, 0.45 * (b.diag.tws ?? 5)));
+    if (!pen.dir && b.u < 0.7 * vT) { this.steer(dt, twd - tack * 100 * DEG); return; }
+    // coming up toward the tack too slow to carry through it: hold a reach until she has way on (a stall head to
+    // wind falls back and the turn is lost)
+    const upward = (this.penD > 0) === (twa > 0), a = Math.abs(twa);
+    if (upward && a > 60 * DEG && a < 115 * DEG && b.u < 0.8 * vT) { this.steer(dt, b.psi + this.penD * 2 * DEG, true); return; }
+    this.steer(dt, b.psi + this.penD * 70 * DEG, true);
   }
 
   preStart(dt, t, sim, racer, course, up) {
@@ -327,8 +395,13 @@ export class AIHelm {
       else if (Math.abs(rs) < up) desired = twd + cur * up;
       if (distToLine < 8 && -clock > 4) luff = true;
     }
+    if (sim.rules) desired = aiRules(this, sim, this.gateTurn(sim.rules, desired, twd, up), 'prestart', t, up);
     autoTrim(b, dt, this.bias);
+    if (this.ease) this.slow();
     this.steer(dt, desired);
+    // (not while keeping clear of someone close: stopped, she only drifts down onto her)
+    const R = sim.rules;
+    if (luff && R && ((this.kc && this.kc.h !== null) || R.relsOf(b).some(pr => pr.d < 2 * b.cls.loa && R.owes(pr, b)))) luff = false;
     if (luff) { b.ctrl.main = 1; b.ctrl.jib = 1; b.ctrl.stay = 1; }
     if (b.sailBy.gennaker) b.ctrl.gen = false;
     this.mode = 'prestart';
@@ -373,8 +446,16 @@ export class AIHelm {
   avoidShoals(sim, desired, mode, tack, up, twd, t) {
     if (this.clearance(sim, desired) > 0) return desired;
     if (mode === 'beat' && t - this.lastTack > 6) {
-      const other = twd + tack * up;
-      if (this.clearance(sim, other) > 0) { this.lastTack = t; return other; }
+      const other = twd + tack * up, R = sim.rules;
+      // a boat on the same tack to windward in the way: hail her for room to tack (20) when the shallows are close
+      // (not before: the hail is only for when she will soon have to turn hard), and hold on meanwhile
+      let blocked = false;
+      if (R && this.clearance(sim, other) > 0 && !R.canTurn(b, other)) {
+        let hl = R.hailOf(b);
+        if (!hl && R.obstructionAhead(b, b.psi, Math.max(8 * b.cls.loa, 12 * Math.max(b.u, 1.5))) < 1e9) hl = R.hail(b);
+        if (!hl || !hl.answered) { if (this.clearance(sim, desired) > -1.5) return desired; blocked = true; }   // (then bear away below)
+      }
+      if (!blocked && this.clearance(sim, other) > 0) { this.lastTack = t; return other; }
     }
     let best = desired, bestC = -1e9;
     for (let k = 1; k <= 14; k++) for (const s of [1, -1]) {
@@ -385,7 +466,8 @@ export class AIHelm {
     return best;
   }
 
-  steer(dt, desired) {
+  // (free: a penalty turn — no holding out of the no-go zone, no building speed before the tack)
+  steer(dt, desired, free = false) {
     const b = this.b, d = b.diag;
     const twd = d.twd ?? 0;
     // close-hauled, but footing off to build speed when slow (a heavy boat that has stalled at the target
@@ -396,7 +478,7 @@ export class AIHelm {
     const up = (this.upAngle ?? 40 * DEG) * 0.95 + 40 * DEG * slow * slow;   // stopped: bear off to a close reach
     // never aim into the no-go zone: pinch at most to close-hauled on the nearer tack
     let rel = wrap(twd - desired);
-    if (Math.abs(rel) < up) desired = twd - (Math.sign(wrap(twd - b.psi)) || 1) * up;
+    if (Math.abs(rel) < up && !free) desired = twd - (Math.sign(wrap(twd - b.psi)) || 1) * up;
     // no tacking from a standstill: bear away on the present tack and build speed first — but not for ever:
     // in a light patch with the tide under it the speed may never come, and holding on sailed the boat away
     // from the mark and onto the shore. After 25 s of that it goes round the other way, gybing (a slow boat
@@ -404,7 +486,7 @@ export class AIHelm {
     const tackNow = Math.sign(wrap(twd - b.psi)) || 1;
     if (this.buildTack !== tackNow) { this.buildTack = tackNow; this.buildT = 0; }
     const wantsOther = (Math.sign(wrap(twd - desired)) || 1) !== tackNow;
-    if (wantsOther && b.u < 0.5 * vT && Math.abs(wrap(twd - b.psi)) > 25 * DEG) {
+    if (wantsOther && !free && b.u < 0.5 * vT && Math.abs(wrap(twd - b.psi)) > 25 * DEG) {
       this.buildT += dt;
       desired = this.buildT < 25 ? twd - tackNow * (up + 30 * DEG) : twd + tackNow * 150 * DEG; // (the other gybe)
     }
@@ -469,7 +551,8 @@ export function applyWindShadow(boats) {
 }
 
 // Hull-hull and hull-obstacle contact: boats as capsules, marks as circles, piers as thick segments.
-export function resolveCollisions(boats, marks, piers, onEvent) {
+// onTouch(boat, other): every contact, however light (the racing rules' umpire watches for them)
+export function resolveCollisions(boats, marks, piers, onEvent, onTouch) {
   const seg = (b) => {
     const fx = Math.sin(b.psi), fz = -Math.cos(b.psi);
     const C = b.cls;
@@ -493,6 +576,7 @@ export function resolveCollisions(boats, marks, piers, onEvent) {
   };
   const S = boats.map(seg);
   for (let i = 0; i < boats.length; i++) for (let j = i + 1; j < boats.length; j++) {
+    if (Math.abs(boats[i].x - boats[j].x) > 30 || Math.abs(boats[i].z - boats[j].z) > 30) continue;   // (no hull is 30 m long)
     const a = S[i], c = S[j];
     // approximate capsule-capsule by sampling
     let best = null;
@@ -506,6 +590,7 @@ export function resolveCollisions(boats, marks, piers, onEvent) {
     if (best.d < rr) {
       let nx = best.px - best.qx, nz = best.pz - best.qz; const L = Math.hypot(nx, nz) || 1; nx /= L; nz /= L;
       const pen = (rr - best.d) / 2;
+      if (onTouch) onTouch(boats[i], boats[j]);
       push(boats[i], nx, nz, pen, boats[j]); push(boats[j], -nx, -nz, pen, boats[i]);
     }
   }
@@ -514,10 +599,14 @@ export function resolveCollisions(boats, marks, piers, onEvent) {
     for (const m of marks) {
       const [qx, qz] = closest(s, m.x, m.z);
       const dd = Math.hypot(qx - m.x, qz - m.z), rr = s.r + (m.kind === 'committee' ? 2.2 : 0.8);
-      if (dd < rr) { const nx = (qx - m.x) / (dd || 1), nz = (qz - m.z) / (dd || 1); push(boats[i], nx, nz, rr - dd, m); }
+      if (dd < rr) { const nx = (qx - m.x) / (dd || 1), nz = (qz - m.z) / (dd || 1); if (onTouch) onTouch(boats[i], m); push(boats[i], nx, nz, rr - dd, m); }
     }
     for (const p of piers) {
       const pts = p.pts;
+      // (a pier's bounding box, once: a fleet near none of them skips the segment walk)
+      const bb = p._bb || (p._bb = (() => { let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (let k = 0; k + 1 < pts.length; k += 2) { x0 = Math.min(x0, pts[k]); x1 = Math.max(x1, pts[k]); z0 = Math.min(z0, pts[k + 1]); z1 = Math.max(z1, pts[k + 1]); } return [x0, x1, z0, z1]; })());
+      const pad = 12 + (p.w || 0);
+      if (boats[i].x < bb[0] - pad || boats[i].x > bb[1] + pad || boats[i].z < bb[2] - pad || boats[i].z > bb[3] + pad) continue;
       for (let k = 0; k + 3 < pts.length; k += 2) {
         const ax = pts[k], az = pts[k + 1], bx = pts[k + 2], bz = pts[k + 3];
         if (Math.abs(ax - boats[i].x) > 400 && Math.abs(bx - boats[i].x) > 400) continue;
