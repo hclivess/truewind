@@ -468,6 +468,7 @@ export class Nav {
     const { pts, ex } = this._tc;
     const pw = 250, ph = 118, x0 = W - pw - 10, y0 = H - ph - 10, gx = x0 + 26, gy = y0 + 20, gw = pw - 36, gh = ph - 46;
     let lo = Math.min(0, ...pts), hi = Math.max(...pts); if (hi - lo < 0.4) { hi += 0.2; lo -= 0.2; }
+    hi += (hi - lo) * 0.14; lo -= (hi - lo) * 0.1;                     // (room for the labels)
     const X = (t) => gx + (t - day0) / 86400e3 * gw, Y = (h) => gy + gh - (h - lo) / (hi - lo) * gh;
     ctx.save();
     ctx.fillStyle = 'rgba(255,255,255,.86)'; ctx.strokeStyle = 'rgba(30,40,50,.35)'; ctx.lineWidth = 1;
@@ -489,7 +490,7 @@ export class Nav {
     // high and low waters
     ctx.font = '600 10px "Barlow Condensed", sans-serif'; ctx.fillStyle = '#1d2530'; ctx.textAlign = 'center';
     const hm = (t) => { const h = loc(t); return `${String(Math.floor(h)).padStart(2, '0')}${String(Math.floor(h % 1 * 60)).padStart(2, '0')}`; };
-    for (const e of ex) { const x = X(e.t), y = Y(e.h + st.z0); ctx.beginPath(); ctx.arc(x, y, 2, 0, 6.3); ctx.fill(); ctx.fillText(`${hm(e.t)} ${(e.h + st.z0).toFixed(1)}`, Math.max(gx + 14, Math.min(gx + gw - 14, x)), e.hw ? y - 4 : y + 11); }
+    for (const e of ex) { const x = X(e.t), y = Y(e.h + st.z0); ctx.beginPath(); ctx.arc(x, y, 2, 0, 6.3); ctx.fill(); ctx.fillText(`${hm(e.t)} ${(e.h + st.z0).toFixed(1)}`, Math.max(gx + 18, Math.min(gx + gw - 18, x)), e.hw ? Math.max(gy + 9, y - 4) : Math.min(gy + gh - 2, y + 11)); }
     // now
     const xn = X(now), hn = st.level(now) + st.z0;
     ctx.strokeStyle = '#c0268f'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(xn, gy); ctx.lineTo(xn, gy + gh); ctx.stroke();

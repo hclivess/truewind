@@ -358,6 +358,7 @@ class Game {
     this.world = world;
     // the real bottom under the real tide (a steady current from the menu keeps the water at mean sea level)
     const tide = geo && geo.tideJ && !v.lake ? new Tide(geo.tideJ) : null;
+    if (tide && v.residual) tide.residual = v.residual;              // a steady non-tidal drift (Progreso's coastal current)
     const realTide = !!tide && (idle || S.tide !== 'steady');
     if (tide) tide.still = !realTide;
     world.setBathy(geo && geo.bathy, tide);
@@ -394,11 +395,13 @@ class Game {
     this.player = player;
     this.boats.push(player);
     const P = makeProjection(v.lat, v.lon);
+    // (with a real tide: deep enough at the lowest tide, below chart datum)
+    const dep = (x, z) => world.bed && world.tide && !world.tide.still ? Math.min(world.depthAt(x, z), world.chartDepthAt(x, z)) : world.depthAt(x, z);
     const safe = (x, z, need) => { // nearest water deep enough for this keel
-      if (world.depthAt(x, z) > need) return [x, z];
+      if (dep(x, z) > need) return [x, z];
       for (let r = 20; r < 3000; r += 20) for (let a = 0; a < 6.28; a += 0.3) {
         const px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
-        if (world.depthAt(px, pz) > need && world.sdfAt(px, pz) > 25) return [px, pz];
+        if (dep(px, pz) > need && world.sdfAt(px, pz) > 25) return [px, pz];
       }
       return [x, z];
     };

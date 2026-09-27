@@ -32,18 +32,20 @@ const DAYS = opt('--days', 15.5), SPIN = opt('--spin', 1.2), CALN = opt('--cal',
 // model domains (lat/lon box), grid (fine cell size over the fine box, growth outward, largest cell), Manning n,
 // and open boundaries: per side the anchor gauges and where along the side it is open (lat or lon range).
 // cal: anchor -> the gauge whose tide calibrates it.
+// (one anchor set for every open side, so the forced level is smooth round the corners: a step there drives a jet)
+const SOLENT_BC = ['Bournemouth', 'Swanage', 'Sandown', 'Portsmouth'];
 export const MODELS = {
   solent: { box: [-1.626, 50.555, -0.944, 50.989], dx: 200, n: 0.024, date: '2026-06-01',
     cal: { Bournemouth: 'Lymington', Swanage: 'Lymington', Sandown: 'Portsmouth', Portsmouth: 'Portsmouth' },
-    sides: { W: { a: ['Bournemouth', 'Swanage'] }, E: { a: ['Sandown', 'Portsmouth'] }, S: { a: ['Bournemouth', 'Swanage', 'Sandown'] } },
+    sides: { W: { a: SOLENT_BC }, E: { a: SOLENT_BC }, S: { a: SOLENT_BC } },
     check: [['Hurst Narrows', 50.7055, -1.5465], ['Needles Channel', 50.672, -1.575], ['Yarmouth Roads', 50.712, -1.49], ['Cowes (Egypt Pt)', 50.772, -1.31], ['Bramble Bank', 50.79, -1.29], ['Calshot', 50.815, -1.305], ['Spithead', 50.76, -1.10], ['Portsmouth entrance', 50.793, -1.108]] },
   sfbay: { box: [-122.80, 37.43, -121.95, 38.15], fine: [-122.515, 37.765, -122.335, 37.88], dx: 150, grow: 1.08, dmax: 700, n: 0.022, date: '2026-06-01',
     cal: { 'Point Reyes': 'San Francisco (Presidio)', 'Pillar Point Harbor': 'San Francisco (Presidio)' },
-    sides: { W: { a: ['Point Reyes', 'Pillar Point Harbor'] }, N: { a: ['Point Reyes'], lon: [-123, -122.62] }, S: { a: ['Pillar Point Harbor'], lon: [-123, -122.52] }, E: { a: ['Port Chicago'], lat: [37.99, 38.13] } },
+    sides: { W: { a: ['Point Reyes', 'Pillar Point Harbor'] }, N: { a: ['Point Reyes', 'Pillar Point Harbor'], lon: [-123, -122.62] }, S: { a: ['Point Reyes', 'Pillar Point Harbor'], lon: [-123, -122.52] }, E: { a: ['Port Chicago'], lat: [37.99, 38.13] } },
     check: [['Golden Gate Bridge', 37.8125, -122.4775], ['Point Bonita', 37.815, -122.53], ['Alcatraz N', 37.83, -122.42], ['Raccoon Strait', 37.868, -122.445], ['Blossom Rock', 37.818, -122.40], ['Anita Rock (City Front)', 37.807, -122.44]] },
   newport: { box: [-71.52, 41.33, -71.10, 41.84], fine: [-71.44, 41.42, -71.28, 41.54], dx: 120, grow: 1.08, dmax: 500, n: 0.024, date: '2026-06-01',
     cal: { 'Point Judith': 'Newport', Sakonnet: 'Newport' },
-    sides: { S: { a: ['Point Judith', 'Sakonnet'] }, W: { a: ['Point Judith'], lat: [41.30, 41.38] }, E: { a: ['Sakonnet'], lat: [41.30, 41.46] } },
+    sides: { S: { a: ['Point Judith', 'Sakonnet'] }, W: { a: ['Point Judith', 'Sakonnet'], lat: [41.30, 41.38] }, E: { a: ['Point Judith', 'Sakonnet'], lat: [41.30, 41.46] } },
     check: [['East Passage (Rose I.)', 41.495, -71.345], ['Newport Harbor ent.', 41.487, -71.33], ['West Passage (Dutch I.)', 41.50, -71.40], ['Castle Hill', 41.462, -71.36]] },
   sydney: { box: [151.00, -33.93, 151.36, -33.74], fine: [151.17, -33.875, 151.30, -33.80], dx: 80, grow: 1.08, dmax: 500, n: 0.025, date: '2026-06-01',
     cal: { 'Fort Denison': 'Fort Denison' },
@@ -177,7 +179,7 @@ class Model {
       const re = new Float64Array(this.fcons.length), im = new Float64Array(this.fcons.length);
       let ws = 0;
       for (const a of b.anchors) {
-        const g = byName[a], d2 = (b.x - g.x) ** 2 + (b.z - g.z) ** 2 + 4e6, w = 1 / d2; ws += w;
+        const g = byName[a], d2 = (b.x - g.x) ** 2 + (b.z - g.z) ** 2 + 4e6, w = 1 / (d2 * d2); ws += w;
         const cf = cal[a] || {};
         this.fcons.forEach((n, ci) => {
           const c = g.cons.find(c => constituentName(c[0]) === n); if (!c) return;
@@ -280,7 +282,7 @@ class Model {
         if (e < -h[k]) e = -h[k];
         eta[k] = e;
       }
-      const a = args(ms), ramp = Math.min(1, t / 43200);
+      const a = args(ms), ramp = Math.min(1, (t + (this.t0 || 0)) / 43200);
       for (const c of keep) { const [ff, Vu] = a[this.fcons[c]]; fv[2 * c] = ff * Math.cos(Vu * D2R); fv[2 * c + 1] = ff * Math.sin(Vu * D2R); }
       for (const b of bc) {
         const k = b.k;

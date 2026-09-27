@@ -41,12 +41,14 @@ for (const id of ['sfbay', 'newport']) {
   let dtMax = 0;
   for (const t of LW) { const T = utc(t), ex = st.extremes(T - 3 * 3600e3, T + 3 * 3600e3).filter(e => !e.hw); const e = ex.reduce((a, b) => (!a || Math.abs(b.t - T) < Math.abs(a.t - T) ? b : a), null); dtMax = Math.max(dtMax, Math.abs(e.t - T) / 60e3); }
   check(dtMax < 15, `Portsmouth: UKHO low waters, times within ${dtMax.toFixed(1)} min`);
-  // the Solent's double high water / young flood stand: between two lows the rise stalls then resumes
-  const T0 = utc('2026-09-26 04:04'), lev = []; for (let m = 0; m < 12.4 * 60; m += 6) lev.push(st.level(T0 + m * 60e3));
-  let stand = 0; for (let i = 1; i < lev.length - 1; i++) if (lev[i] > 0 && Math.abs(lev[i + 1] - lev[i - 1]) < 0.02) stand++;
+  // the Solent's young flood stand and long high water (M4, M6 on M2): at Southampton the rise stalls mid-flood,
+  // then the water stays near its top for hours
   const sw = tideFile('solent').gauges.find(x => x.name === 'Southampton'), ss = new TideStation({ cons: sw.cons });
-  const hws = ss.extremes(utc('2026-09-26 06:00'), utc('2026-09-26 15:00')).filter(e => e.hw);
-  check(stand >= 8 || hws.length >= 2, `Solent high water stand: ${stand * 6} min of near-level water at Portsmouth, ${hws.length} high waters at Southampton on one flood`);
+  const e = ss.extremes(utc('2026-09-26 03:00'), utc('2026-09-26 17:00')), lw = e.find(x => !x.hw), hw = e.find(x => x.hw && x.t > lw.t);
+  const rates = []; for (let t = lw.t; t < hw.t; t += 600e3) rates.push((ss.level(t + 600e3) - ss.level(t)) * 6);
+  const mid = rates.slice(Math.floor(rates.length * 0.2), Math.floor(rates.length * 0.6)), rmax = Math.max(...rates), rmin = Math.min(...mid);
+  let stand = 0; for (let t = hw.t - 5 * 3600e3; t < hw.t + 5 * 3600e3; t += 600e3) if (ss.level(t) > hw.h - 0.3) stand += 10;
+  check(rmin < 0.35 * rmax && stand >= 170, `Southampton: the young flood stand (rise slows to ${rmin.toFixed(2)} m/h against ${rmax.toFixed(2)}), high water within 30 cm for ${(stand / 60).toFixed(1)} h (a pure semidiurnal tide: 2.2 h)`);
 }
 // tideless and microtidal venues
 {
@@ -109,7 +111,7 @@ const maxOver = (tide, lat, lon, v, t0, t1, dir) => {
 {
   // a 24 × 10 km inlet: open sea at the west edge (1 m M2 + 0.3 m S2), a 1.2 km narrows, a basin with a tidal flat
   const v = { id: 'synthetic', lat: 50, lon: 0 };
-  const P = makeProjection(50, 0), [, la0] = [0, 50 - 5000 / 110540], la1 = 50 + 5000 / 110540, lo0 = -12000 / (111320 * Math.cos(50 * Math.PI / 180)), lo1 = -lo0;
+  const la0 = 50 - 5000 / 110540, la1 = 50 + 5000 / 110540, lo0 = -12000 / (111320 * Math.cos(50 * Math.PI / 180)), lo1 = -lo0;
   const M = { box: [lo0, la0, lo1, la1], dx: 250, n: 0.025, sides: { W: { a: ['Sea'] } } };
   const gauges = [{ name: 'Sea', role: 'bc', x: -12000, z: 0, cons: [['M2', 1.0, 0], ['S2', 0.3, 30]] }];
   const m = new Model(v, M, gauges);
@@ -127,7 +129,7 @@ const maxOver = (tide, lat, lon, v, t0, t1, dir) => {
   let maxN = 0, maxW = 0, fMin = 9, fMax = -9, ok = true;
   try {
     for (let c = 0; c < 36; c++) {                                            // 1.5 days in 1-hour runs
-      m.run(ms0 + c * 3600e3, 1 / 24, 1 / 48, ['M2'], { M2: [] }, false);
+      m.t0 = c * 3600; m.run(ms0 + c * 3600e3, 1 / 24, 1 / 48, ['M2'], { M2: [] }, false);
       const sp = (k) => Math.hypot(0.5 * (m.U[k - 1] + m.U[k]), 0.5 * (m.V[k - m.nx] + m.V[k]));
       if (c > 12) { maxN = Math.max(maxN, sp(kN)); maxW = Math.max(maxW, sp(kW)); const d = m.eta[kF] + m.h[kF]; fMin = Math.min(fMin, d); fMax = Math.max(fMax, d); }
     }
