@@ -1221,7 +1221,14 @@ export class Boat {
 
     // ---- crew: hiking (athwartships) and fore-aft ----
     let crewTarget;
-    const windSide = -Math.sign(awaMid) || 1;
+    // (the side the wind is on, as the crew takes it: on a run the apparent wind swings across the stern with every
+    // roll (the masthead's own motion), and a crew that changed sides with it drove the roll: it changes side only
+    // when the wind is clearly over the other quarter, or has been for a second)
+    const ws0 = -Math.sign(awaMid) || 1;
+    if (this._ws === undefined || Math.abs(awaMid) < 160 * DEG) { this._ws = ws0; this._wsT = 0; }
+    else if (ws0 !== this._ws) { this._wsT = (this._wsT || 0) + dt; if (this._wsT > 1.5) { this._ws = ws0; this._wsT = 0; } }
+    else this._wsT = 0;
+    const windSide = this._ws;
     const lim = C.crewMaxOut * (this.hikeLimit ?? 1);   // (tired legs: js/fatigue.js)
     if (this.auto.hike) {
       const upwindness = 1 - sstep(80 * DEG, 150 * DEG, Math.abs(awaMid));
@@ -1233,8 +1240,14 @@ export class Boat {
       // PD gains from the roll inertia the crew's weight has to steer: a ~2.5 rad/s, well-damped loop.
       // Fixed gains made the light boats' loop faster than a sailor can cross the boat (hikeRate): the crew
       // lagged the heel, the lag turned into a self-excited ±50° roll that pumped the rig downwind.
-      const wn = 2.5, kp = this.Ixx * wn * wn / Mc, kd = 2 * 0.9 * wn * this.Ixx / Mc;
-      const cmd = clamp(err * kp + this.p * kd + this._hikeI + ff, -1, 1);
+      // Off the wind the crew does not chase the roll: the sail's heeling moment is small, a rolling boat's is mostly
+      // its own, and weight thrown across at a crew's pace lags it by a quarter period and feeds it. They sit still,
+      // leaning against the heel only as it builds over a second or two (loop gains to a fifth, rate term off).
+      const calm = lerp(0.2, 1, upwindness);
+      this._phiF = lerp(this._phiF ?? this.phi, this.phi, clamp(dt * lerp(0.7, 20, upwindness), 0, 1));
+      const errC = lerp(this._phiF - tgt, err, upwindness);
+      const wn = 2.5, kp = this.Ixx * wn * wn / Mc * calm, kd = 2 * 0.9 * wn * this.Ixx / Mc * upwindness;
+      const cmd = clamp(errC * kp + this.p * kd + (this._hikeI + ff) * upwindness, -1, 1);
       crewTarget = -cmd * lim;
       ctrl.hike = clamp(-crewTarget * windSide / lim, -1, 1);
       ctrl.crewAft = lerp(-0.6, 0.8, sstep(0.3, 0.55, Fn));
@@ -1309,7 +1322,10 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
   const tws = (d.tws ?? 5) / KT;
   // overpowered: heeled past the target, or the bow being driven under (a multihull flying a hull has all its pitch
   // stiffness on one bow: the drive trims it down until it trips over the bow; a crew eases before the bow buries)
-  const over = clamp(Math.max((Math.abs(boat.phi) - C.targetHeel) / (10 * DEG), (-(boat.pitch || 0) - 6 * DEG) / (6 * DEG)), 0, 1.5);
+  // (the heel that overpowers is to leeward, the sails' doing: rolling to windward on a run, the death roll, easing
+  // the main (and hauling it again as the boat rolls back) pumps the roll; running, the crew holds the sheets steady)
+  const lee = -Math.sign(d.awaMid ?? 0) || 1, heelLee = boat.phi * lee * (1 - sstep(140 * DEG, 170 * DEG, awa));
+  const over = clamp(Math.max((heelLee - C.targetHeel) / (10 * DEG), (-(boat.pitch || 0) - 6 * DEG) / (6 * DEG)), 0, 1.5);
   const k = clamp(dt * 1.5, 0, 1);
   const upwind = 1 - sstep(55 * DEG, 95 * DEG, awa);
   const power = clamp((tws - 7) / 11, 0, 1);            // 0 = light: full shape, 1 = heavy: flat
@@ -1370,7 +1386,10 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
   if (boat.locks) for (const k in boat.locks) boat.locks[k] = true;   // automatic mode keeps every line cleated
   const sh = d.shape;
   const tt = boat._tt || (boat._tt = { over: 0 });
-  tt.over = lerp(tt.over, over, clamp(dt * 2, 0, 1));
+  // (running, a crew trims to the wind's mean, not to the swings a rolling boat puts into the apparent wind and the
+  // heel: a trim that followed them within a roll period, ~4 s, pumped the roll: heel and telltales over ~3 s there)
+  const runT = lerp(0.5, 3, sstep(120 * DEG, 160 * DEG, awa));
+  tt.over = lerp(tt.over, over, clamp(dt / runT, 0, 1));
   for (const s of C.sails) {
     if (s.kind === 'spin' && boat.genDeploy < 0.5) continue;
     if (s.kind === 'loose' && boat.genDeploy >= 0.5) continue;
@@ -1407,6 +1426,7 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
       // hauled in harder); running, by the lee, the side the sail is on)
       const sd = (awa < 150 * DEG ? -Math.sign(d.awaMid) : 0) || st.side || Math.sign(st.baseAngle || (s.kind === 'boom' ? boat.booms[s.key].a : boat.side.jib)) || 1;
       let a = 0; for (let i = 0; i < 3; i++) a += clamp((st[i].alpha || 0) * sd, -0.3, 0.6) * STRIP_W[i];
+      const ak = 'a_' + key; tt[ak] = lerp(tt[ak] ?? a, a, clamp(dt / (runT - 0.4), 0, 1)); a = tt[ak];
       if (s.key === 'main' && s.trav) {
         const sheetEase = clamp(0.06 + 0.25 * flat * upwind + (1 - upwind) * 0.3, 0, 1);
         c.trav = lerp(c.trav, clamp((want - sheetEase * (s.max - s.trav[1]) - s.trav[0]) / (s.trav[1] - s.trav[0]), 0, 1), k * 2);
