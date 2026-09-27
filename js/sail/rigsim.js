@@ -405,6 +405,7 @@ export class JibRig extends ClothRig {
       [ctrl.jib, ctrl.lazy] = [ctrl.lazy, ctrl.jib];
       [b.lines.jib, b.lines.lazy] = [b.lines.lazy, b.lines.jib];
       if (b.locks) [b.locks.jib, b.locks.lazy] = [b.locks.lazy, b.locks.jib];
+      if (b.lh) [b.lh.jib, b.lh.lazy] = [b.lh.lazy, b.lh.jib];
       this.side = -this.side;
       b.backedByLazy = byLazy && -Math.sign(b.diag.awaMid) !== this.side;
     }
