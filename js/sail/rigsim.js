@@ -139,6 +139,9 @@ class ClothRig {
         oc.sample(oc.v, u, v, p); c.v[n] = p[0]; c.v[n + 1] = p[1]; c.v[n + 2] = p[2];
       }
       for (const k of ['a', 'rate', 'elev', 'side', 'sideSmooth', 'windT', 'sincePose']) if (o[k] !== undefined) this[k] = o[k];
+      // (resampled onto another grid, the cloth is a little off its new rest metric and springs back into shape over a
+      // tenth of a second: numerical, not a motion of the sail, so the hull is not handed its inertia meanwhile)
+      this.settleT = 0.15;
     }
     if (still) { c.v.fill(0); this.rate = 0; }
     c.v0.set(c.v); c.f.fill(0);
@@ -172,6 +175,7 @@ class ClothRig {
     this.fr = fr;
     const acc = this._acc || (this._acc = (i, x, v, o) => this.fict(x[3 * i], x[3 * i + 1], x[3 * i + 2], o));
     this.sincePose = (this.sincePose || 0) + dt;
+    if (this.settleT > 0) this.settleT -= dt;
     c.step(dt, nsub, acc);
   }
   // the frame's fictitious acceleration at rig point (x, y, z) -> o (rig axes): minus the acceleration of a
@@ -189,7 +193,8 @@ class ClothRig {
   // relative to the hull (a boom snatched by its sheet hands its momentum over), plus the reaction of the
   // air the cloth carries when the hull accelerates it. Rig frame force, applied at the particle.
   loads(dt, cb) {
-    const c = this.cloth, x = c.x, v = c.v, v0 = c.v0, f = c.f, m = c.m, ma = this.ma, o = this._q, idt = 1 / dt;
+    const c = this.cloth, x = c.x, v = c.v, v0 = c.v0, f = c.f, m = c.m, ma = this.ma, o = this._q;
+    const idt = this.settleT > 0 ? (1 - this.settleT / 0.15) / dt : 1 / dt;
     for (let i = 0; i < c.n; i++) {
       const i3 = 3 * i;
       let Fx = f[i3] - m[i] * (v[i3] - v0[i3]) * idt, Fy = f[i3 + 1] - m[i] * (v[i3 + 1] - v0[i3 + 1]) * idt, Fz = f[i3 + 2] - m[i] * (v[i3 + 2] - v0[i3 + 2]) * idt;
@@ -407,9 +412,12 @@ export class BoomSailRig extends ClothRig {
         c.v[E3] -= dv * tx; c.v[E3 + 1] -= dv * ty;
       }
       // the boom as a beam: the sheet's and the vang's downward pulls, held up by the leech at its end
+      // (the cloth's lines are stiff springs held a few millimetres short, and their tension there stands for the leech's;
+      // the boom carries what the crew can actually put on them: the vang's rated pull, twice the crew's sheet power)
       const T = this.track, sh = this.sheet, dzS = (this.Gp[2] - T.z) / Math.max(0.1, sh.len);
-      const Fv = this.vang && !this.noVang ? this.vang.force * this.dv / hyp(this.tv * this.Lb, this.dv) : 0;
-      boomBend(this.Lb, s0.boomEI || 1e5, this.tv * this.Lb, Fv, this.tb * this.Lb, sh.force * clamp(dzS, 0, 1), this.bend);
+      const Fv = this.vang && !this.noVang ? Math.min(this.vang.force, s0.vangMax || 0) * this.dv / hyp(this.tv * this.Lb, this.dv) : 0;
+      const Fs = Math.min(sh.force, 2 * b.cls.sheetPower) * clamp(dzS, 0, 1);
+      boomBend(this.Lb, s0.boomEI || 1e5, this.tv * this.Lb, Fv, Math.min(this.tb, 0.97) * this.Lb, Fs, this.bend);
       this.bend.ratio = this.bend.M / (s0.boomMmax || 1e9);
       b.boomBent(this.bend);
       if (this.prev && this.prevOn) b.preventerLoad(this.prev.force, s0.preventer);
@@ -502,6 +510,7 @@ export class JibRig extends ClothRig {
       [ctrl.jib, ctrl.lazy] = [ctrl.lazy, ctrl.jib];
       [b.lines.jib, b.lines.lazy] = [b.lines.lazy, b.lines.jib];
       if (b.locks) [b.locks.jib, b.locks.lazy] = [b.locks.lazy, b.locks.jib];
+      if (b.lh) [b.lh.jib, b.lh.lazy] = [b.lh.lazy, b.lh.jib];
       this.side = -this.side;
       b.backedByLazy = byLazy && -Math.sign(b.diag.awaMid) !== this.side;
     }

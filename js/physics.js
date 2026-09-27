@@ -31,10 +31,15 @@ import { G, DEG, KT } from './env.js';
 import { HullHydro } from './hull.js';
 import { mastXAt, boomContactAngle, goose, sheetLen, boomAngleForSheet, easeForBoomAngle, sheetDir, boomBend, boomDip, boomLen } from './boom.js';
 export { mastXAt, rigWires } from './boom.js';
+import { LOCKABLE, initLines, stepLines, swapJib } from './linehandlers.js';
+export { LOCKABLE };
+import { Engine } from './engine.js';
 // (Math.hypot allocates when V8 does not inline it: these do not)
 const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
 export const RHO_A = 1.225, RHO_W = 1025, NU_W = 1.19e-6;
+const BRK_CS = 2.5;                      // slamming coefficient of a breaking crest's jet on the hull (see step)
+const D0 = Object.freeze({ x: 0, z: 0 });
 
 export const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 export const lerp = (a, b, t) => a + (b - a) * t;
@@ -78,6 +83,21 @@ export const CLASSES = {
     // (a masthead rig: the backstay pulls against the forestay at the same masthead, so it tightens the forestay and
     // bends the stout mast little; a fractional rig's backstay bends the mast above its hounds, 0.75 by default)
     backstayBend: 0.35,
+    // line handlers (js/linehandlers.js): a traditional small cutter. Bronze winches with horn cleats for the jib
+    // sheets and (at the mast foot) the jib halyard, a V-jammer for the staysail sheet, cam on the mainsheet fiddle,
+    // push-button traveller car, cunningham on a mast horn cleat, outhaul in a clam on the boom; classic cream ropes
+    lines: { main: { handler: 'cam', n: 4, at: 'car' }, trav: { handler: 'pinStop', at: 'car' }, jib: { handler: 'winchHorn', at: 'winch' },
+      stay: { handler: 'jam', n: 2, at: 'cabin' }, vang: { handler: 'cam', n: 6, at: 'deck' }, cunn: { handler: 'horn', n: 2, at: 'mast' },
+      outhaul: { handler: 'clam', n: 4, at: 'boom' }, backstay: { handler: 'cam', n: 6, at: 'deck' }, jibHalyard: { handler: 'winchHorn', winch: 'cabin', at: 'mast' } },
+    ropeStyle: 'classic',
+    // auxiliary (js/engine.js): a long-shaft outboard on a transom bracket to port of the barn-door rudder — what the
+    // boats carry (Blue Water Boatworks fitted no inboard; owners' listings: Tohatsu 4 hp long shaft, Mercury 5,
+    // British Seagull 5). Tohatsu MFS4: 4 hp at 5000 rpm, 123 cc single, 2.15:1, 7.8 x 6 in three-blade, 26 kg (not in
+    // the designer's 1,021 kg). Steered by the rudder. A lifting bracket on the transom (x from the hull's stern station,
+    // js/engine.js transomX): 20 in shaft, clamp 0.35 m up with the prop 0.28 m down; slid up 0.42 m clear when stopped.
+    engine: { type: 'outboard', model: 'Tohatsu MFS4 long shaft', kW: 2.94, rpmMax: 5000, rpmIdle: 1100, cyl: 1, fuel: 'petrol', gear: 2.15,
+      prop: { D: 0.198, P: 0.152, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-3.14, -0.45, -0.28], mount: [-3.0, -0.45, 0.35], lift: 0.42,
+      mass: 26, inMass: false, tilts: true, steers: false, exhaust: [-3.14, -0.45, 0.12] },
     sails: [
       { key: 'main', kind: 'boom', area: 10.4, luff: 6.5, foot: 3.0, head: 0.15, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
         cd0: 0.07, ARe: 3.2, min: 2 * DEG, max: 80 * DEG, trav: [-4 * DEG, 12 * DEG], Iboom: 42, boomMass: 18, reefs: 2,
@@ -116,6 +136,21 @@ export const CLASSES = {
     // masthead, gooseneck 1.7 m above the waterline; the mast rakes about 0.6 m aft at the masthead
     mastX: 1.03, mastHeight: 10.0, boomZ: 1.7, keelBulb: true, mastRake: 0.6,
     targetHeel: 17 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 1400,
+    // J/70 (Harken layout, J/70 building spec): 6:1 mainsheet (a 2:1 fine tune on top) to a switchable Carbo ratchet on a 144 swivel base
+    // with a 150 cam; 2:1 jib sheets on B8 / SnubbAir winches with cam cleats; gennaker sheets hand-held through
+    // 2x-grip Ratchamatics on the quarters; 2:1 traveller and the backstay cascade on cams; tack line on a cabin-top cam;
+    // halyard and control leads through a clutch bank to the cabin-top winch
+    lines: { main: { handler: 'ratchetCam', n: 6, at: 'sole' }, trav: { handler: 'cam', n: 2, at: 'deck' }, jib: { handler: 'winchCam', n: 2, at: 'winch' },
+      gen: { handler: 'ratchet', hold: 20, at: 'quarter' }, vang: { handler: 'clutch', n: 16, winch: 'cabin', at: 'cabin' }, cunn: { handler: 'clutch', n: 4, winch: 'cabin', at: 'cabin' },
+      outhaul: { handler: 'clutch', n: 4, winch: 'cabin', at: 'cabin' }, backstay: { handler: 'cam', n: 16, at: 'deck' },
+      jibHalyard: { handler: 'clutch', n: 4, winch: 'cabin', at: 'cabin' }, tackLine: { handler: 'cam', at: 'cabin' } },
+    // auxiliary: J/70 class rule C.5.3 — one functioning outboard of at least 12 kg aboard, NOT FOR USE while racing
+    // (stowed below, secured at the mast step: it is inside the class weight). A 3.5 hp four-stroke short shaft
+    // (Tohatsu MFS3.5: 85 cc single, 5500 rpm, 2.08:1, 7.2 x 5 in three-blade, 17.4 kg) on the transom bracket for
+    // getting to and from the course (15 in shaft; the clamp's x from the transom); slid up clear when stopped.
+    engine: { type: 'outboard', model: '3.5 hp four-stroke short shaft', kW: 2.57, rpmMax: 5500, rpmIdle: 1150, cyl: 1, fuel: 'petrol', gear: 2.08,
+      prop: { D: 0.183, P: 0.127, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-3.62, -0.42, -0.27], mount: [-3.48, -0.42, 0.23], lift: 0.38,
+      mass: 17.4, inMass: true, stow: [0.55, 0, -0.12], tilts: true, steers: false, exhaust: [-3.62, -0.42, 0.1] },
     sails: [
       { key: 'main', kind: 'boom', area: 16.7, luff: 7.97, foot: 2.88, head: 0.45, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
         cd0: 0.06, ARe: 4.8, min: 1.5 * DEG, max: 78 * DEG, trav: [-6 * DEG, 12 * DEG], Iboom: 38, boomMass: 14, reefs: 0,
@@ -147,13 +182,18 @@ export const CLASSES = {
     // the deck tube: the gooseneck is ~0.6 m above the deck, the masthead ~6.2 m above the waterline
     mastX: 1.15, mastHeight: 6.24, boomZ: 1.0, keelBulb: false,
     targetHeel: 6 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 420,
+    // Laser / ILCA: the mainsheet is hand-held through the ratchet block on the cockpit floor (no cleat); vang
+    // (15:1 cascade), cunningham and outhaul led to Harken cam cleats on the deck
+    lines: { main: { handler: 'ratchet', n: 3, at: 'sole' }, vang: { handler: 'cam', n: 15, size: 'micro', at: 'deck' },
+      cunn: { handler: 'cam', n: 8, size: 'micro', at: 'deck' }, outhaul: { handler: 'cam', n: 8, size: 'micro', at: 'deck' } },
+    engine: null,                       // a dinghy is paddled, not motored
     sails: [
       { key: 'main', kind: 'boom', area: 7.06, luff: 5.1, foot: 2.75, head: 0.25, depth: [0.12, 0.14, 0.12], twistMax: 24 * DEG,
         cd0: 0.06, ARe: 3.9, min: 3 * DEG, max: 88 * DEG, trav: null, Iboom: 12, boomMass: 6, reefs: 0,
         vangBend: 0.6, sheetBend: 0.45, color: 0xf4f3ee,
         // Laser: the sheet's block rides a rope horse across the transom; a thin aluminium tube (63.5 x 1.6 mm, EI ~11 kN
-        // m^2, ~1 kN m) that bows visibly under the vang, which is the Laser's strongest control
-        track: { x: -1.78, z: 0.45, half: 0.45, s: 2.67, horse: true }, boomEI: 1.1e4, boomMmax: 1000, vang: 'rope', vangMax: 2200,
+        // m^2, yields ~1.2 kN m in 6061-T6) that bows visibly under the vang (8:1 on a ~200 N pull), the Laser's strongest control
+        track: { x: -1.78, z: 0.45, half: 0.45, s: 2.67, horse: true }, boomEI: 1.1e4, boomMmax: 1200, vang: 'rope', vangMax: 1600,
         // (luff round cut into the sail, fraction of the full mast bend: the Laser's is cut for the bend of its
         // two-part unstayed mast under the vang and the sheet it sails with, more than a stayed mast's)
         luffRoundK: 0.6 },
@@ -184,6 +224,13 @@ export const CLASSES = {
     // 8.07 m (26' 6") rotating mast stepped on the front beam
     mastX: 0.6, mastHeight: 8.6, boomZ: 1.25, keelBulb: false,
     targetHeel: 7 * DEG, canCapsize: true, hasBackstay: false, hasBoard: false, sheetPower: 700,
+    // Hobie 16: 6:1 mainsheet, lower block a triple Ratchamatic with a 150 cam on the traveller car; the traveller
+    // line cleats in a cam on the car; 2:1 jib sheets in swivel cam cleats; spinnaker sheets hand-held through
+    // ratchet blocks; downhaul cam at the mast, outhaul in a clam on the boom
+    lines: { main: { handler: 'ratchetCam', n: 6, at: 'car' }, trav: { handler: 'carCam', n: 2, at: 'car' }, jib: { handler: 'cam', n: 2, at: 'deck' },
+      gen: { handler: 'ratchet', hold: 20, at: 'quarter' }, cunn: { handler: 'cam', n: 6, at: 'mast' }, outhaul: { handler: 'clam', n: 4, at: 'boom' }, jibHalyard: { handler: 'cam', n: 6, at: 'mast' },
+      tackLine: { handler: 'cam', at: 'deck' } },
+    engine: null,
     sails: [
       // (a fully battened main cut full, 13% at mid height: its battens, tensioned in their pockets, hold the depth
       // the sheet's pull on the leech would stretch out of a soft sail)
@@ -217,9 +264,6 @@ for (const C of Object.values(CLASSES)) {
   M.max = boomContactAngle(C, by);
   if (M.trav && M.track) { const h = Math.atan2(M.track.half, goose(C).x - M.track.x); M.trav = [-h, h]; }
 }
-// lines that are held by a cleat, clutch or self-tailer (and which way they run when released)
-export const LOCKABLE = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibHalyard', 'tackLine'];
-const RUNS_UP = new Set(['main', 'jib', 'lazy', 'stay', 'trav', 'tackLine']);
 export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat'];
 
 export const STRIP_F = [0.17, 0.5, 0.82];
@@ -322,7 +366,8 @@ export class Boat {
   constructor(cls, opts = {}) {
     this.cls = typeof cls === 'string' ? CLASSES[cls] : cls;
     const C = this.cls;
-    this.mass = C.massHull + C.crewN * C.crewEach;
+    this.engine = C.engine ? new Engine(this, C.engine) : null;          // auxiliary engine (js/engine.js)
+    this.mass = C.massHull + C.crewN * C.crewEach + (this.engine ? this.engine.addedMass : 0);
     this.crewMass = C.crewN * C.crewEach;
     this.m11 = this.mass * (1 + C.amX); this.m22 = this.mass * (1 + C.amY);
     this.Izz = C.Izz * (1 + C.amYaw); this.Ixx = C.Ixx * (1 + C.amRoll);
@@ -372,10 +417,9 @@ export class Boat {
     this.rudder = 0; this.crewY = 0; this.crewX = 0;
     this.lines = { main: this.ctrl.main, jib: this.ctrl.jib, stay: this.ctrl.stay, lazy: this.ctrl.lazy };
     this.backedByLazy = false;
-    // every line is held by something: a cam cleat, a clutch or a winch self-tailer. Released, a loaded line
-    // runs out by itself until it is cleated again (or held: the game marks lines the player is hauling)
-    this.locks = Object.fromEntries(LOCKABLE.map(k => [k, true]));
-    this.held = {};
+    // every line is held by something (js/linehandlers.js: cam, clam, jammer, horn, clutch, ratchet, winch...).
+    // Released, a loaded line runs out by itself until it is made fast again (or held: the player is hauling it)
+    initLines(this);
     this.heave = 0; this.heaveV = 0; this.pitch = 0; this.pitchV = 0;
     this.capsized = false; this.capsizeT = 0; this.righting = false;
     this.aground = 0;
@@ -383,6 +427,7 @@ export class Boat {
     this.log = 0; this.t = 0; this.slam = 0;
     this._clHead = 0; this._clMain = 0;
     if (this.sailSys) this.sailSys.reset(this);
+    if (this.engine) this.engine.reset();
   }
 
   GZ(phi) {
@@ -470,13 +515,14 @@ export class Boat {
     return wet;
   }
 
-  // the main boom's bending this step (js/boom.js boomBend: M, dv, ds, ratio = M / the section's strength); a boom
-  // bent past its strength is handed to boatHooks.boomOverload(boat, ratio) (the damage model, where there is one)
+  // the main boom's bending this step (js/boom.js boomBend: M, dv, ds, ratio = M / the section's strength), handed to
+  // sailHooks.boomOverload(boat, ratio) (js/damage.js)
   boomBent(bd) {
     const r = this.diag.rig;
     r.boomM = bd.M; r.boomBendMM = 1000 * Math.max(bd.dv, bd.ds); r.boomRatio = bd.ratio;
-    if (bd.ratio > 1 && !this._boomOver && boatHooks.boomOverload) boatHooks.boomOverload(this, bd.ratio);
-    this._boomOver = bd.ratio > 1;
+    // (js/damage.js takes it every step: fatigue past three quarters of the strength, a break past it)
+    const hook = sailHooks.boomOverload || boatHooks.boomOverload;
+    if (hook) hook(this, bd.ratio);
   }
   // the preventer's load (N) against its breaking strength: it parts, and the boom is free to gybe
   preventerLoad(F, strength) {
@@ -527,7 +573,7 @@ export class Boat {
       b.a = sg * limit;
       if (b.rate * sg > 0) {
         const J = s.Iboom * b.rate * 1.2;
-        if (key === 'main') { this.slam = Math.max(this.slam, Math.abs(b.rate)); if (Math.abs(b.rate) > 1.2) this.slamEvents++; }
+        if (key === 'main') { this.slam = Math.max(this.slam, Math.abs(b.rate)); if (Math.abs(b.rate) > 1.2) this.slamEvents++; this.slamJ = Math.max(this.slamJ || 0, Math.abs(J)); }
         this.r -= J / this.Izz * 0.6;
         b.rate *= -0.2;
       }
@@ -571,6 +617,8 @@ export class Boat {
       flogging = 1 - sstep(0.5, 0.95, Math.abs(this.side.gennaker));
       fill = this.genFill;
     }
+    if (this.sailHealth) areaF *= this.sailHealth[key] ?? 1;   // torn, blown out or the rig down (js/damage.js)
+    if (this.furl) areaF *= 1 - this.furl;                       // lowered at anchor or alongside (js/gear.js)
     o.areaF = areaF; o.baseAngle = baseAngle; o.pivotX = pivotX; o.pivotZ = pivotZ; o.side = side;
     o.flogging = flogging; o.fill = fill; o.luff = luff;
     return o;
@@ -685,6 +733,7 @@ export class Boat {
     const fx = sps, fz = -cps, sx = cps, sz = sps;
     const cphi = Math.cos(this.phi), sphi = Math.sin(this.phi);
     const disp = this.mass;
+    const SP = C.sheetPower * (this.crewPower ?? 1);   // the crew's pulling power, less when tired (js/fatigue.js)
 
     // ---- environment at the boat ----
     const cur = env.current.at(this.x, this.z, this._c);
@@ -698,7 +747,14 @@ export class Boat {
       waveH = wv.h;
       slopeAlong = wv.sx * fx + wv.sz * fz;
       slopeLat = wv.sx * sx + wv.sz * sz;
-      orbU = wv.vx * fx + wv.vz * fz; orbV = wv.vx * sx + wv.vz * sz;
+      // the water the hull moves through: the orbital velocity averaged over its length (a hull does not feel
+      // waves shorter than itself as a current) at its mid-body depth, u ~ e^{kz} with k the velocity
+      // spectrum's mean (WaveField.kv), and the Stokes drift of the surface layer, sum w k a^2 e^{2kz}
+      const Wv = env.waves, dr = Wv.drift || D0, e1 = Math.exp((Wv.kv || 0) * -0.5 * C.canoeDraft), e2 = Math.exp(2 * (Wv.kd || 0) * -0.5 * C.canoeDraft);
+      let ox = 0, oz = 0;
+      for (let i = 0; i < 7; i++) { const wt = i === 0 || i === 6 ? 1 / 12 : 1 / 6; ox += W7[i].vx * wt; oz += W7[i].vz * wt; }
+      ox = ox * e1 + dr.x * e2; oz = oz * e1 + dr.z * e2;
+      orbU = ox * fx + oz * fz; orbV = ox * sx + oz * sz;
     } else for (let i = 0; i < 7; i++) { W7[i].h = 0; W7[i].sx = 0; W7[i].sz = 0; W7[i].vy = 0; }
 
     const vgx = this.u * fx + this.v * sx + cur.x, vgz = this.u * fz + this.v * sz + cur.z;
@@ -732,21 +788,12 @@ export class Boat {
     const qMid = 0.5 * rhoA * (axm * axm + aym * aym);
     d.awaMid = awaMid; d.qMid = qMid;
 
-    // ---- released lines run out under their load (sheets ease, controls lose tension, the car slides) ----
-    for (const k of LOCKABLE) {
-      if (this.held[k] > 0) { this.held[k] -= dt; continue; }
-      if (this.locks[k] !== false || ctrl[k] === undefined) continue;
-      const ld = k === 'main' || k === 'jib' || k === 'stay' ? (d.rig[k + 'Load'] || 0) / C.sheetPower : k === 'lazy' ? (d.rig.lazyLoad || 0) / C.sheetPower : k === 'trav' ? (d.rig.mainLoad || 0) / C.sheetPower : 0.35 * (ctrl[k] || 0) + 0.1;
-      if (ld < 0.01) continue;
-      const rate = Math.min(2.5, 0.25 + 1.6 * ld) * dt;
-      if (RUNS_UP.has(k)) ctrl[k] = Math.min(1, ctrl[k] + rate);        // sheets and tack line ease, the car goes to leeward
-      else ctrl[k] = Math.max(0, ctrl[k] - rate);                        // vang, cunningham, outhaul, backstay, halyard go slack
-      if (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy') this.lines[k] = Math.max(this.lines[k], Math.min(ctrl[k], this.lines[k] + rate * 1.5));
-    }
+    // ---- lines: handlers take their time, slip when overloaded; released lines run out under their load ----
+    stepLines(this, dt);
     // ---- running rigging: lines move at crew/winch speed, slower under load ----
     for (const k of ['main', 'jib', 'stay', 'lazy']) {
       const target = ctrl[k] ?? (k === 'lazy' ? 1 : 0.3);
-      const load = (d.rig[(k === 'lazy' ? 'lazy' : k) + 'Load'] || 0) / C.sheetPower;
+      const load = (d.rig[(k === 'lazy' ? 'lazy' : k) + 'Load'] || 0) / SP;
       const rate = target > this.lines[k] ? 0.7 : 0.45 / (1 + load * load);
       this.lines[k] = clamp(this.lines[k] + clamp(target - this.lines[k], -rate * dt, rate * dt), 0, 1);
     }
@@ -786,6 +833,7 @@ export class Boat {
         const byLazy = this.lines.lazy < this.lines.jib;
         [ctrl.jib, ctrl.lazy] = [ctrl.lazy, ctrl.jib];
         [this.lines.jib, this.lines.lazy] = [this.lines.lazy, this.lines.jib];
+        swapJib(this);
         this.backedByLazy = byLazy && -Math.sign(awaMid) !== Math.sign(this.side.jib);
       }
     }
@@ -814,7 +862,8 @@ export class Boat {
     ax.Wbx = Wbx; ax.Wby = Wby; ax.ug = ug; ax.vg = vg; ax.rhoA = rhoA; ax.awaMid = awaMid; ax.qMid = qMid;
     ax.bend = bend; ax.sag = sag; ax.aeroOn = aeroOn;
     ax.X = 0; ax.Y = 0; ax.K = 0; ax.N = 0; ax.sailX = 0; ax.sailY = 0; ax.sailK = 0;
-    if (this.sailSys && this.sailSys.active(this)) this.sailSys.step(this, ax);
+    if (this.rigDown) { /* dismasted: no sails (the wreck's drag comes in through ext, js/damage.js) */ }
+    else if (this.sailSys && this.sailSys.active(this)) this.sailSys.step(this, ax);
     else this.sailsStrip(ax);
     X += ax.X; Y += ax.Y; K += ax.K; N += ax.N;
     sailX = ax.sailX; sailY = ax.sailY; sailK = ax.sailK;
@@ -832,14 +881,24 @@ export class Boat {
     }
 
     // ---- hydrodynamics ----
-    const uw = this.u - 0.6 * orbU, vw = this.v - 0.6 * orbV;
+    const uw = this.u - orbU, vw = this.v - orbV;
     // immersion of the real hull in the local sea (heave, pitch and heel included)
     const hy = this.hydro;
     const interp7 = (arr, key, x) => { const f = clamp((x - C.sternX) / (C.bowX - C.sternX) * 6, 0, 5.999), i = Math.floor(f), w = f - i; return arr[i][key] * (1 - w) + arr[i + 1][key] * w; };
     const etaAt = (x) => interp7(W7, 'h', x);
     const slLat = (x) => (interp7(W7, 'sx', x) * sx + interp7(W7, 'sz', x) * sz);
     const slAl = (x) => (interp7(W7, 'sx', x) * fx + interp7(W7, 'sz', x) * fz);
-    const imm = hy.immerse(this.heave, this.pitch, this.phi, etaAt, slLat, this._hy, slAl);
+    // the orbital acceleration along the hull (body axes): the diffraction (added-mass) wave loads
+    const accAt = wv ? (x, o) => { const ax = interp7(W7, 'ax', x), az = interp7(W7, 'az', x); o.a = ax * fx + az * fz; o.l = ax * sx + az * sz; o.v = interp7(W7, 'ay', x); } : null;
+    const imm = hy.immerse(this.heave, this.pitch, this.phi, etaAt, slLat, this._hy, slAl, accAt, wv ? env.waves.ka || 0 : 0);
+    // the water at a foil (body station xb, depth zb < 0): the local orbital velocity there and the drift
+    const wo = this._wo || (this._wo = { u: 0, v: 0 });
+    const waterAt = (xb, zb) => {
+      if (!wv) { wo.u = 0; wo.v = 0; return wo; }
+      const Wv = env.waves, dr = Wv.drift || D0, e1 = Math.exp((Wv.kv || 0) * Math.min(0, zb)), e2 = Math.exp(2 * (Wv.kd || 0) * Math.min(0, zb));
+      const vx = interp7(W7, 'vx', xb) * e1 + dr.x * e2, vz = interp7(W7, 'vz', xb) * e1 + dr.z * e2;
+      wo.u = vx * fx + vz * fz; wo.v = vx * sx + vz * sz; return wo;
+    };
     if (C.multihull) {
       const vh = imm.Vh || [imm.V / 2, imm.V / 2];
       this.flyIn = clamp(Math.min(vh[0], vh[1]) / Math.max(1e-6, Math.max(vh[0], vh[1])), 0, 1);
@@ -857,12 +916,13 @@ export class Boat {
       const F = C.keel;
       let board = F.board ? clamp(ctrl.board, 0.05, 1) : 1;
       if (F.twin) board *= 0.5 + 0.5 * this.flyIn;           // the windward board lifts out with its hull
-      const area = F.area * board, ARe = F.ARe * Math.max(0.3, board), zk = F.z * (0.4 + 0.6 * board);
-      const ul = this.u - 0.3 * orbU;
+      const area = F.area * board * (this.keelEff ?? 1), ARe = F.ARe * Math.max(0.3, board), zk = F.z * (0.4 + 0.6 * board);
       // (a foil's lift acts at its quarter chord: keel.x is a fin's, but a long keel's is the centre of its drawn
       // profile, and its lift, like any low-aspect-ratio wing's, is carried at the forefoot, a quarter chord ahead)
       const xk = keelLiftX(C);
-      const vl = (this.v - 0.3 * orbV + this.r * xk + this.p * zk) * cphi;
+      const ww = waterAt(xk, zk * cphi);
+      const ul = this.u - ww.u;
+      const vl = (this.v - ww.v + this.r * xk + this.p * zk) * cphi;
       const V2 = ul * ul + vl * vl, V = Math.sqrt(V2) + 1e-9;
       foilCoef(Math.atan2(vl, ul), F, ARe, fc);
       keelCl = fc.cl;
@@ -873,10 +933,15 @@ export class Boat {
       d.keelX = kx; d.keelY = kn * cphi; d.keelStall = fc.stalled; d.leeway = Math.atan2(this.v, Math.max(0.05, this.u));
       d.keelARe = ARe;
     }
+    // ---- auxiliary engine: propeller thrust, prop walk, a stopped prop's drag, the outboard's leg and weight, propwash
+    if (this.engine) { const e = this.engine.step(this, dt, uw, vw, cphi, sphi); X += e.X; Y += e.Y; K += e.K; N += e.N; }
     {
       const F = C.rudder;
-      const ul = this.u - 0.5 * orbU;
-      const vl = (this.v - 0.5 * orbV + this.r * F.x + this.p * F.z) * cphi;
+      // (the local water at the stern: surfing on a crest, the water there runs with the boat and the rudder
+      // loses its grip — how a broach starts)
+      const ww = waterAt(F.x, F.z * cphi);
+      const ul = this.u - ww.u + (this.engine ? this.engine.washU : 0);   // (+ the propwash over the blade)
+      const vl = (this.v - ww.v + this.r * F.x + this.p * F.z) * cphi;
       const V2 = ul * ul + vl * vl, V = Math.sqrt(V2) + 1e-9;
       // keel downwash at the rudder; a rudder hung on the keel's trailing edge acts more like a flap
       // keel downwash at the rudder: lifting line, CL/(pi ARe) at the keel growing to twice that far behind it,
@@ -886,7 +951,7 @@ export class Boat {
       const eps = fk * keelCl / (Math.PI * d.keelARe) * (ul > 0 ? 1 : 0) * (F.transom ? 0.35 : 1);
       foilCoef(wrap(Math.atan2(vl, ul) - eps + this.rudder), F, F.ARe, fc);
       const vent = (1 - sstep(38 * DEG, 70 * DEG, Math.abs(this.phi))) * (F.twin ? 0.5 + 0.5 * this.flyIn : 1);
-      const q = 0.5 * RHO_W * V2 * F.area * vent;
+      const q = 0.5 * RHO_W * V2 * F.area * vent * (this.rudderEff ?? 1);   // (a bent blade: js/damage.js)
       const rx = q * (fc.cl * vl / V - fc.cd * ul / V), rn = q * (-fc.cl * ul / V - fc.cd * vl / V);
       X += rx; Y += rn * cphi; K += rn * F.z; N += F.x * rn * cphi;
       d.Nrud = F.x * rn * cphi; d.rudAlpha = wrap(Math.atan2(vl, ul) - eps + this.rudder); d.eps = eps;
@@ -907,11 +972,20 @@ export class Boat {
       const Rr = disp * G * interp(C.rr, Fn) * (C.multihull ? 1 + 0.3 * (1 - this.flyIn) : 1 + 0.5 * this.phi * this.phi) * trimPen;
       let Raw = 0;
       if (wv) {
-        const enc = Math.max(0, -(fx * env.waves.comps[0].dx + fz * env.waves.comps[0].dz));
+        // added resistance in waves comes from the waves about the boat's own length (it rides the long ones
+        // up and down and meets no more resistance): each component's energy through a response peaked at
+        // lambda ~ 1.3 L (Gerritsma & Beukelman's peak), falling to nothing for waves several times longer
+        // (a 5 m hull in a 300 m ocean wave). (Hs/2)^2 = 2 sum A^2 where every wave counts.
+        let z2 = 0, en = 0;
+        for (const c of env.waves.comps) {
+          const lq = Math.log(2 * Math.PI / (c.kRef ?? c.k) / (1.3 * C.lwl)), a = c.A * (c.curAmp ?? 1), a2 = a * a * Math.exp(-lq * lq / 0.5);
+          z2 += a2; en += a2 * Math.max(0, -(fx * c.dx + fz * c.dz));
+        }
+        const enc = z2 > 0 ? en / z2 : 0;                                 // head seas cost the most
         // (the waves reflect off the hulls' waterline beam: a multihull's two slender hulls, not its overall beam,
         // which made a beach cat in a 20 kn sea drag a kilonewton, a third of its weight)
         const Bw = C.multihull ? 2 * C.hullBeam : C.beam;
-        Raw = 0.12 * RHO_W * G * (env.waves.Hs / 2) ** 2 * Bw * (0.3 + enc) * clamp(Math.abs(uw) / 2, 0, 1);
+        Raw = 0.12 * RHO_W * G * 2 * z2 * Bw * (0.3 + enc) * clamp(Math.abs(uw) / 2, 0, 1);
       }
       // going astern the flat transom leads: separated flow, several times the forward drag
       const astern = uw < 0 ? 1 + 3.5 + 0.5 * RHO_W * uw * uw * C.beam * C.freeboard * 0.5 / Math.max(1, Rf + Rr) : 1;
@@ -960,7 +1034,7 @@ export class Boat {
     // hull + ballast weight at its real height, crew weight where the crew is
     const Fb = RHO_W * G * imm.V;
     K -= RHO_W * G * imm.My;
-    K += C.massHull * G * C.zG * sphi;
+    K += (this.mHull ?? C.massHull) * G * (this.zG ?? C.zG) * sphi;          // (less, and higher, with the keel gone)
     K -= this.cRoll * this.p;
     if (this.righting) {
       if (C.multihull) K -= (Math.sign(this.phi) || 1) * this.crewMass * G * (C.hullSpacing * 0.75) * Math.abs(cphi) ** 0.3; // hanging off the righting line
@@ -968,13 +1042,59 @@ export class Boat {
     } else K += this.crewMass * G * (this.crewY * cphi + C.crewZ * sphi);
     // Froude-Krylov wave forces on the immersed volume (surfing, wave roll/yaw)
     d.fkX = wv ? RHO_W * G * imm.FKx : 0;
-    if (wv) { X += RHO_W * G * imm.FKx; Y += RHO_W * G * imm.FKy * cphi; N += RHO_W * G * imm.FKn * cphi; }
+    d.diffX = 0; d.diffY = 0; d.brkF = 0;
+    if (wv) {
+      X += RHO_W * G * imm.FKx; Y += RHO_W * G * imm.FKy * cphi; N += RHO_W * G * imm.FKn * cphi;
+      // diffraction: a body in accelerating water feels (rho V + m_a) a (G. I. Taylor 1928); Froude-Krylov
+      // above is the rho V a (at the surface -grad p / rho = g grad eta), this is the added mass's m_a a,
+      // section by section with its depth decay, at the class's added-mass coefficients (sway, surge); the
+      // heave part goes to the heave equation below. Big waves heave, surge and roll the boat by the
+      // inertia of their water, not only by where their surface is.
+      const Dx = C.amX * RHO_W * imm.FAx, Dy = C.amY * RHO_W * imm.FAy;
+      X += Dx; Y += Dy * cphi; N += C.amY * RHO_W * imm.FAn * cphi; K += C.amY * RHO_W * imm.FAk;
+      d.diffX = Dx; d.diffY = Dy;
+      // ---- a breaking crest (WaveField.sample: brk on the upper front quarter of a steep crest). Its top is a
+      // jet of water moving at about the crest's phase speed c = g / w (the lip of a plunger, the roller of a
+      // spilling breaker), a sheet ~0.3 of the local wave height thick. Where it meets the hull's exposed
+      // side it stops against it: impact pressure 1/2 rho C_s v^2 on the area it strikes (v relative to the
+      // hull, C_s = BRK_CS averaged over the slam; peaks are several times it), above the waterline, while the
+      // keel holds the bottom of the boat in the slower water beneath: the trip that knocks a boat down or
+      // rolls it past 90 deg (a transom struck from astern: surge and bow-down pitch, the start of a
+      // pitchpole). The energy behind it: E = rho g H^2 / 8 per m^2 of sea (a 4 m breaker 20 kJ/m^2),
+      // carried at the group speed (~6 m/s: 120 kW per metre of crest); the jet's momentum flux rho c^2 t
+      // (c = 11 m/s, t = 0.5 m) is ~60 kN per metre of crest, so beam-on a small yacht takes far more
+      // than its own weight in thrust for a fraction of a second. How much of that it takes is capped
+      // below by what stops the relative flow within the step (implicit: the boat is carried at most up to
+      // the jet's speed). Model tests after the 1979 Fastnet (Wolfson Unit, SNAME/USYRU 1985): beam-on,
+      // a breaker ~30 % of LOA high knocks a yacht down, ~55 % rolls most of them over; here (C_s set to
+      // that order) 30 % rolls it ~55 deg, 50 % lays it flat past 90 deg (test/knockdown.mjs).
+      let Fy = 0, Fx = 0, Kb = 0, Nb = 0, Mb = 0, Dl = 0, Dr = 0, Da = 0;
+      const dxs = (C.bowX - C.sternX) / 6;
+      for (let i = 0; i < 7; i++) {
+        const s = W7[i]; if (!(s.brk > 0.02)) continue;
+        const xb = xs7[i], L = (i === 0 || i === 6 ? 0.5 : 1) * dxs;
+        // struck height (the topsides, and the deck as the boat lies over), its centre above the waterline
+        const he = Math.min(0.6 * s.Ea, C.freeboard + 0.3 + 0.5 * C.beam * Math.abs(sphi)), zi = 0.5 * he;
+        const jx = 0.9 * s.cbx, jz = 0.9 * s.cbz;                               // the jet, in the water's frame
+        const rl = jx * sx + jz * sz - this.v - this.r * xb - this.p * zi, ra = jx * fx + jz * fz - this.u;
+        const q = 0.5 * RHO_W * BRK_CS * s.brk;
+        const Dy = q * Math.abs(rl) * L * he;
+        Fy += Dy * rl; Kb += Dy * rl * zi * cphi; Nb += Dy * rl * xb; Dl += Dy; Dr += Dy * zi * zi;
+        // the transom from astern, the bow from ahead
+        if ((i === 0 && ra > 0) || (i === 6 && ra < 0)) { const Dxx = q * Math.abs(ra) * C.beam * 0.7 * he; Fx += Dxx * ra; Mb -= Dxx * ra * zi; Da += Dxx; }
+      }
+      if (Dl > 0 || Da > 0) {
+        const sl = Math.min(1, 0.5 * this.m22 / Math.max(1e-9, Dl * dt), 0.5 * this.Ixx / Math.max(1e-9, Dr * dt)), sa = Math.min(1, 0.5 * this.m11 / Math.max(1e-9, Da * dt));
+        Y += Fy * sl; K += Kb * sl; N += Nb * sl; X += Fx * sa; this._brkMy = Mb * sa;
+        d.brkF = Math.hypot(Fx * sa, Fy * sl);
+      } else this._brkMy = 0;
+    } else this._brkMy = 0;
     d.Fb = Fb;
 
     // ---- mast in the water: a sealed spar floats, which is what holds a capsized boat on its side ----
     {
       const r0 = C.id === 'dinghy' ? 0.032 : C.id === 'sportboat' ? 0.05 : 0.055;
-      const base = C.boomZ - 0.8, L = C.mastHeight - base, nSeg = 6;
+      const base = C.boomZ - 0.8, L = (this.mastTop ?? C.mastHeight) - base, nSeg = 6;   // (a broken mast: its stump)
       for (let k = 0; k < nSeg; k++) {
         const zseg = base + (k + 0.5) * L / nSeg;
         const hW = zseg * cphi + heaveH - waveH;
@@ -988,6 +1108,9 @@ export class Boat {
     this.capsized = !!(C.canCapsize && Math.abs(this.phi) > 75 * DEG);
     if (this.righting && Math.abs(this.phi) < 20 * DEG) this.righting = false;
 
+    // external loads: anchor rode, mooring lines, fenders, a wreck over the side, water aboard (js/anchor.js, mooring.js, damage.js)
+    const E = this.ext;
+    if (E) { X += E.X; Y += E.Y; N += E.N; K += E.K; }
     // ---- integrate rigid body ----
     const m11 = this.m11, m22 = this.m22;
     let du = (X + m22 * this.v * this.r) / m11;
@@ -1017,14 +1140,14 @@ export class Boat {
     if (this.phi > Math.PI) this.phi -= 2 * Math.PI; if (this.phi < -Math.PI) this.phi += 2 * Math.PI;
 
     // ---- rudder: slew rate limited by hydrodynamic load on the blade ----
-    const target = clamp(ctrl.helm, -1, 1) * C.rudder.max;
+    const target = clamp(ctrl.helm, -1, 1) * C.rudder.max * (this.rudderLim ?? 1) + (this.rudderBias || 0);   // (a bent stock)
     const slew = 1.5 / (1 + (d.rudderLoad || 0) / C.rudder.loadRef);
     this.rudder += clamp(target - this.rudder, -slew * dt, slew * dt);
 
     // ---- crew: hiking (athwartships) and fore-aft ----
     let crewTarget;
     const windSide = -Math.sign(awaMid) || 1;
-    const lim = C.crewMaxOut;
+    const lim = C.crewMaxOut * (this.hikeLimit ?? 1);   // (tired legs: js/fatigue.js)
     if (this.auto.hike) {
       const upwindness = 1 - sstep(80 * DEG, 150 * DEG, Math.abs(awaMid));
       const tgt = windSide * C.targetHeel * 0.6 * upwindness;
@@ -1059,13 +1182,17 @@ export class Boat {
       const cz = 2 * 0.35 * Math.sqrt(kz * this.m33) * Math.min(1, imf);
       // relative to the water surface moving under the hull (wave vertical velocity)
       const wz = wv ? (wv.vy || 0) : 0;
-      this.heaveV += (Fz - cz * (this.heaveV - wz)) / mEff * dt;
+      // (and the added mass the water's vertical acceleration carries: the relative-motion form, m_a (a_w - a))
+      const Fd = wv ? 0.8 * RHO_W * (imm.FAz || 0) : 0;
+      this.heaveV += (Fz + Fd - cz * (this.heaveV - wz)) / mEff * dt;
       this.heave += this.heaveV * dt;
       const crewXm = this.crewX * 0.8 + (C.crewX0 ?? 0);
       let My = RHO_W * G * imm.Mx - W * this.xG - this.crewMass * G * crewXm;
       // bow driven under: green water on the foredeck pushes it down (moment = x * Fz)
       if (imm.deckSub > 0 && uw > 0) { const Fz = -0.5 * RHO_W * uw * uw * C.beam * 0.4 * imm.deckSub; My += C.bowX * 0.6 * Fz; X -= 0.5 * RHO_W * uw * uw * C.beam * 0.15 * imm.deckSub; }
       My -= sailX * (C.boomZ + 2.3);                                            // drive high, drag low: bow down
+      if (this.engine) My += this.engine.My;                                     // thrust low (bow up), the engine's weight
+      if (wv) My += 0.8 * RHO_W * (imm.FAm || 0) + (this._brkMy || 0);         // the water's vertical inertia; a breaker's jet
       My += (this.u > 0 ? 1 : 0) * 0.5 * RHO_W * uw * uw * C.beam * C.lwl * 0.004 * sstep(0.35, 0.6, Fn); // bow lift near planing
       const kp = RHO_W * G * this.Awp * C.lwl * C.lwl / 16;
       const cp2 = 2 * 0.3 * Math.sqrt(kp * this.Iyy) * Math.min(1, imf);
@@ -1079,7 +1206,7 @@ export class Boat {
     // ---- diagnostics / instruments ----
     d.X = X; d.Y = Y; d.K = K; d.N = N;
     d.sailX = sailX; d.sailY = sailY; d.sailK = sailK;
-    d.RM = RHO_W * G * imm.My - C.massHull * G * C.zG * sphi - this.crewMass * G * (this.crewY * cphi + C.crewZ * sphi);
+    d.RM = RHO_W * G * imm.My - (this.mHull ?? C.massHull) * G * (this.zG ?? C.zG) * sphi - this.crewMass * G * (this.crewY * cphi + C.crewZ * sphi);
     d.rig.backstayLoad = (C.hasBackstay ? 350 + 5200 * ctrl.backstay ** 1.5 : 0) + 0.35 * (d.rig.mainLoad || 0);
     d.rig.bendMM = bend * M0.luff * 18;
     d.rig.sagMM = sag * (this.sailBy.jib ? this.sailBy.jib.luff * 12 * (this.sailBy.jib.sagK ?? 1) : 0);
@@ -1275,14 +1402,15 @@ export function makeSteadyEnv(twsMS) {
   };
 }
 
-// The VPP's boat at the start of a run: slowly under way with its sails set. In a breeze (from 16 kn) it is already
-// moving with its sheets eased, as a crew bears away onto the course and trims in: from a standing start with the
+// The VPP's boat at the start of a run: slowly under way with its sails set. In a breeze (from 16 kn), reaching and
+// running, it is already moving with its sheets eased, as a crew bears away onto the course and trims in: from a standing start with the
 // sheets in, a light multihull in 25 kn is driven at half a g and its bows are pressed under before any crew could
 // ease, it trips over them, and the polar showed nothing there. (In light air the old start is kept: an eased start
 // leaves some rigs in a slower trim, e.g. the Blackwatch's strip main luffing at 44 degrees in 6 kn.)
 export function vppStart(b, twsMS, twaDeg, gen) {
   b.reset(0, 0, twaDeg * DEG);
-  const breeze = twsMS > 16 * KT;
+  // (close-hauled the old start stands: a boat started with its sheets eased head to wind in a breeze just stops)
+  const breeze = twsMS > 16 * KT && twaDeg >= 70;
   b.u = breeze ? Math.min(0.4 * twsMS, 5) : 1.5; for (const k in b.booms) b.booms[k].a = 0.3; b.side.jib = 1; b.side.gennaker = 1;
   if (breeze) for (const k of ['main', 'jib', 'stay']) { b.ctrl[k] = 1; b.lines[k] = 1; }
   b.ctrl.gen = gen; b.genDeploy = gen ? 1 : 0; b.genFill = gen ? 1 : 0;
