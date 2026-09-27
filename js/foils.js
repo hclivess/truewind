@@ -15,8 +15,9 @@
 //    chord lengths of travel (a little dynamic stall). Past the stall: a flat plate with no suction (Viterna-Corrigan).
 //  * Ventilation: air drawn down the suction side from the surface. A blade whose root is at or near the surface
 //    ventilates when its angle passes the inception angle (about 11-20 deg for a surface-piercing blade, falling with
-//    chord Froude number; much higher with the root a chord or more deep) and stays ventilated until the angle falls
-//    below 40% of it (washout: the strong hysteresis of ventilated struts, Harwood et al. 2016). Ventilated, the
+//    chord Froude number, hardly at all below Fn_c ~ 1; much higher with the root a chord or more deep) and stays
+//    ventilated until the angle falls below 40% of it (washout: the strong hysteresis of ventilated struts, Harwood et
+//    al. 2016). Ventilated, the
 //    suction side is at atmospheric pressure: the lift of a Kirchhoff free-streamline plate, 2 pi sin a / (4 + pi sin a).
 //  * Cavitation: the suction peak -Cp_min ~ 0.41 (t/c / 0.12) + 1.3 |cl| + 2.9 cl^2 sqrt(0.12 / t/c) (fitted to NACA
 //    0012 pressure data) against the cavitation number sigma = (p_atm + rho g h - p_v) / (q); past it the lift
@@ -189,7 +190,8 @@ export function foilCoef(S, st, alpha, V, g, dt, out) {
   let vT = 0;
   if (!S.hullProxy && g.imm > 0) {
     const h = g.dRoot / S.chord;                          // root depth in chords (< 0: the blade pierces the surface)
-    const aVi = (h <= 0 ? lerp(20, 11, sstep(1, 4, g.Fnc)) : lerp(20, 11, sstep(1, 4, g.Fnc)) * (1 + 2.5 * Math.min(2, h))) * DEG;
+    // (slow, gravity holds the surface down: below a chord Froude number of ~1 a blade hardly ventilates at all)
+    const aVi = lerp(20, 11, sstep(1, 4, g.Fnc)) * (h <= 0 ? 1 : 1 + 2.5 * Math.min(2, h)) * (1 + 3 * (1 - sstep(0.8, 1.6, g.Fnc))) * DEG;
     // (a root under a hull is sealed by it: air has no path down while the hull bottom is in the water)
     const sealed = S.root === 'hull' && g.dRoot > 0.03;
     if (!sealed && Va > 1) {
