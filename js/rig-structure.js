@@ -597,7 +597,7 @@ export class RigStructure {
 
   // The luff round a sailmaker cuts into the main: the mast's bend (mid-luff, against the luff's chord) sailing upwind
   // in its design breeze (~12 kn true, 50 Pa apparent), backstay and vang half on: the sail sets at its moulded depth there, and
-  // flattens as the mast bends more. Never less than the 0.6% of the luff the cloth was cut with before.
+  // flattens as the mast bends more.
   designLuffRound() {
     const C = this.C, M = C.sails.find((s) => s.key === 'main');
     if (!M) return 0;
@@ -615,7 +615,9 @@ export class RigStructure {
     this.us = us; this.u.set(u0); for (const w of this.wires) w.Lrest = w.Lrest0;
     this.pulls.length = 0; this.F.fill(0);
     for (const e of this.el) { e.N = e.EA / e.L * (this.u[5 * e.j + 4] - this.u[5 * e.i + 4]); e.Ng = e.N; }
-    return Math.max(0.35 * 0.018 * M.luff, 0.9 * off);
+    // (between the 0.6% of the luff the cloth was cut with before and the ~1.5% sailmakers give the bendiest dinghy
+    // spars: a linear column is least trustworthy at the Laser's top-section bends)
+    return clamp(0.9 * off, 0.35 * 0.018 * M.luff, 0.015 * M.luff);
   }
 
   // ---------------------------------------------------------------- loads
