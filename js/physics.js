@@ -1360,7 +1360,7 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
           // while the sail meets the wind at more than it wants and when overpowered, in while less, never past the
           // centreline to windward (a car there drags a vangless boom across)
           c.trav = clamp(c.trav + (dA + 0.3 * clamp(tt.over, 0, 1)) * k * 1.5, 0.5, 1);
-          c.main = clamp(c.main + (clamp(2 * e, -0.3, 0.3) * 0.4 - 0.02) * k, 0, 1);
+          c.main = clamp(c.main + (clamp(2 * e, -0.3, 0.3) * 0.15 - 0.008) * k + (tt[key] - ease0), 0, 1);
           continue;
         }
         // where the sheet pulls nearly straight down on the leech (a Laser sheeted to its horse off the transom, any

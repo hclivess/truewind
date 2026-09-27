@@ -23,12 +23,13 @@ function settle(cls, set = null, secs = 14, twa0 = null) {
     if (set && i > 120 * 6) for (const k in set) b.ctrl[k] = set[k];
     b.step(dt, env, i * dt); b.r = 0; b.psi = twa * DEG; b.rudder = 0;
   }
-  // average the shape over half a second (the cloth breathes)
+  // average the shape over three seconds (the cloth breathes: a fully battened main sheeted hard, its leech held by the
+  // sheet alone, the Hobie's, opens and closes over a couple of seconds)
   const acc = {};
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 360; i++) {
     autoTrim(b, dt); if (set) for (const k in set) b.ctrl[k] = set[k];
     b.step(dt, env, (120 * secs + i) * dt); b.r = 0; b.psi = twa * DEG; b.rudder = 0;
-    for (const key in b.diag.shape) { const a = acc[key] || (acc[key] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]); b.diag.shape[key].forEach((o, k) => { a[k][0] += o.d / 60; a[k][1] += o.f / 60; a[k][2] += o.tw / 60; }); }
+    for (const key in b.diag.shape) { const a = acc[key] || (acc[key] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]); b.diag.shape[key].forEach((o, k) => { a[k][0] += o.d / 360; a[k][1] += o.f / 360; a[k][2] += o.tw / 360; }); }
   }
   return { b, sh: acc };
 }
