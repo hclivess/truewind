@@ -12,17 +12,19 @@ const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (
 const classes = process.argv[2] ? [process.argv[2]] : CLASS_ORDER;
 
 // settle a boat close-hauled (heading and helm held), auto crew, then hold a set of controls and settle again
-function settle(cls, set = null, secs = 14) {
+function settle(cls, set = null, secs = null) {
+  // (a heavy boat takes longer to come up to speed and settle: ~14 s for the light ones, up to 40 s for a 15 t boat)
+  const Cc = CLASSES[cls]; secs = secs ?? Math.round(Math.max(14, Math.min(40, 6 + (Cc.massHull + Cc.crewN * Cc.crewEach) / 400)));
   // (in 12 kn, or in the wind where the class is still at full power: a skiff or a big multihull is twisting off to
   // depower in 12 kn, as its crew would)
-  const env = makeSteadyEnv(Math.min(12, CLASSES[cls].fullPowerTws ?? 12) * KT), b = new Boat(cls);
+  const env = makeSteadyEnv(Math.min(12, Cc.fullPowerTws ?? 12) * KT), b = new Boat(cls);
   attachSails(b, 'cloth', 0);
   const twa = CLASSES[cls].multihull || CLASSES[cls].amas ? 50 : 45;
   b.reset(0, 0, twa * DEG); b.u = 2.5; for (const k in b.booms) b.booms[k].a = 0.15;
   const dt = 1 / 120;
   for (let i = 0; i < 120 * secs; i++) {
     autoTrim(b, dt);
-    if (set && i > 120 * 6) for (const k in set) b.ctrl[k] = set[k];
+    if (set && i > 120 * secs * 0.43) for (const k in set) b.ctrl[k] = set[k];
     b.step(dt, env, i * dt); b.r = 0; b.psi = twa * DEG; b.rudder = 0;
   }
   // average the shape over half a second (the cloth breathes)

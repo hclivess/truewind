@@ -495,7 +495,7 @@ export class SailSystem {
         if (wet > 0.99) { o.state = 0; o.cl = 0; o.flog = 0; }
         if (i === 1) {
           if (key === 'main') clMainMid = o.cl;
-          else clHeadSum = Math.max(clHeadSum, o.cl * rg.areaF);
+          else if (!s.mast) clHeadSum = Math.max(clHeadSum, o.cl * rg.areaF);
           if (s.kind === 'spin') {
             const target = Math.abs(o.alpha) > o.alf * 0.75 * (1 - 0.3 * b.ctrl.tackLine) && Math.abs(b.side.gennaker) > 0.8 ? 1 : 0;
             b.genFill = clamp(b.genFill + (target ? 1.4 : -2.6) * dt, 0, 1);

@@ -2,6 +2,7 @@
 // polar, physics readout, toasts.
 import { DEG, KT } from './env.js';
 import { polarSpeedAt, vmgTargets, clamp, wrap, REEF } from './physics.js';
+import { drawTrafficMap } from './traffic.js';
 import { lineStatus, ropeLook, ropeKey, lineName, HANDLERS, specOf, lineSpecs } from './linehandlers.js';
 import { ropeCSS } from './linegear.js';
 
@@ -80,6 +81,7 @@ export class HUD {
     // (a class can name its sails and board: the 49er's self-tacking jib is a 'stay' here, a spinnaker is the 'gennaker')
     const stayName = S.stay ? S.stay.label ?? 'Staysail' : '', genName = S.gennaker ? S.gennaker.label ?? 'Gennaker' : '';
     if (S.stay) rows.push(['stay', `${stayName} sheet`, rc('stay')]);
+    if (S.mizzen) rows.push(['mizzen', 'Mizzen sheet', rc('mizzen')]);
     if (S.jib) rows.push(['jib', S.gennaker ? 'Jib / genn. sheet' : 'Jib sheet', rc('jib')], ['lazy', 'Lazy jib sheet', rc('lazy')], ['jibLead', 'Jib car', { css: '#9aa1a8' }], ['jibHalyard', 'Jib halyard', rc('jibHalyard')]);
     else rows.push(['pushBoom', 'Push boom out', { css: '#9aa1a8' }]);
     if (S.gennaker) rows.push(['tackLine', S.gennaker.pole ? 'Pole height' : 'Tack line', rc('tackLine')]);
@@ -88,11 +90,12 @@ export class HUD {
     let h = `<div class="rg"><h3>Sails ${''}</h3>`;
     h += `<div class="sl2"><span>Main</span>${tt('main')}</div>`;
     if (S.stay) h += `<div class="sl2"><span>${stayName}</span>${tt('stay')}</div>`;
+    if (S.mizzen) h += `<div class="sl2"><span>Mizzen</span>${tt('mizzen')}</div>`;
     if (S.jib) h += `<div class="sl2"><span id="hs-name">${S.jib.label ?? 'Jib'}</span>${tt('jib')}</div>`;
     if (S.gennaker) h += `<div class="sl2"><span>${genName}</span>${tt('gennaker')}</div>`;
     h += `</div><div class="rg"><h3>Lines <span class="muted" style="font-weight:500;letter-spacing:.02em;text-transform:none">or grab them on deck (7)</span></h3><div class="lines">`;
     // every control is here as press-and-hold buttons, and on deck as the real line / car / winch
-    const BTN = { main: ['Trim', 'Ease'], jib: ['Trim', 'Ease'], lazy: ['Haul', 'Ease'], pushBoom: ['Port', 'Stbd'], stay: ['Trim', 'Ease'], trav: ['Windward', 'Leeward'], vang: ['−', '+'], cunn: ['−', '+'],
+    const BTN = { main: ['Trim', 'Ease'], jib: ['Trim', 'Ease'], lazy: ['Haul', 'Ease'], pushBoom: ['Port', 'Stbd'], stay: ['Trim', 'Ease'], mizzen: ['Trim', 'Ease'], trav: ['Windward', 'Leeward'], vang: ['−', '+'], cunn: ['−', '+'],
       outhaul: ['−', '+'], backstay: ['−', '+'], jibHalyard: ['−', '+'], jibLead: ['Fwd', 'Aft'], tackLine: ['Down', 'Ease'], board: ['Up', 'Down'], hike: ['In', 'Out'] };
     const btns = (k) => `<span class="nb"><button class="nbtn" data-k="${k}" data-d="-1">${BTN[k][0]}</button><button class="nbtn" data-k="${k}" data-d="1">${BTN[k][1]}</button></span>`;
     // what holds the line (its handler's icon and state: js/linehandlers.js): click to make fast / cast off
@@ -241,7 +244,7 @@ export class HUD {
       const v = b.ctrl[k];
       let txt, frac = v;
       if (k === 'main') { txt = `${Math.abs(deg(b.booms.main.a))}° · ${Math.round(d.rig.mainLoad || 0)} N`; frac = 1 - v; }
-      else if (k === 'stay') { txt = `${Math.abs(deg(b.booms.stay.a))}° · ${Math.round(d.rig.stayLoad || 0)} N`; frac = 1 - v; }
+      else if (k === 'stay' || k === 'mizzen') { txt = `${Math.abs(deg(b.booms[k].a))}° · ${Math.round(d.rig[k + 'Load'] || 0)} N`; frac = 1 - v; }
       else if (k === 'trav') txt = `${deg(S.main.trav[0] + (S.main.trav[1] - S.main.trav[0]) * v)}°`;
       else if (k === 'jib') { const s2 = b.genDeploy > 0.5 ? S.gennaker : S.jib; txt = `${deg(s2.min + (s2.max - s2.min) * b.lines.jib)}° · ${Math.round(d.rig.jibLoad || 0)} N`; frac = 1 - v; }
       else if (k === 'hike') { txt = `${fmt(Math.abs(b.crewY), 1)} m ${b.auto.hike ? 'auto' : ''}`; frac = Math.abs(b.crewY) / b.cls.crewMaxOut; }
@@ -286,7 +289,7 @@ export class HUD {
         c.title = ['Foot', 'Mid', 'Head'][i] + (on ? ` · α ${fmt(Math.abs(s.alpha) / DEG, 0)}°, CL ${fmt(s.cl, 2)}` : '');
       });
     };
-    setTT('main'); if (S.stay) setTT('stay'); if (S.jib) setTT('jib'); if (S.gennaker) setTT('gennaker');
+    setTT('main'); if (S.stay) setTT('stay'); if (S.mizzen) setTT('mizzen'); if (S.jib) setTT('jib'); if (S.gennaker) setTT('gennaker');
     document.getElementById('t-trim').classList.toggle('on', b.auto.trim);
     document.getElementById('t-hike').classList.toggle('on', b.auto.hike);
     const r = deg(b.rudder);
@@ -474,6 +477,7 @@ export class HUD {
         ctx.beginPath(); ctx.moveTo(tgt.x, tgt.z); ctx.lineTo(tgt.x + Math.sin(d2) * L, tgt.z - Math.cos(d2) * L); ctx.stroke();
       }
     }
+    drawTrafficMap(ctx, g.traffic, lw);
     // boats
     for (const o2 of g.boats) {
       const me = o2 === b;
