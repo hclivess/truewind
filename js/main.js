@@ -685,7 +685,7 @@ class Game {
     const e = this.player.engine;
     if (!e) { this.hud.toast(`The ${this.player.cls.name} has no engine`, 1.5); return; }
     const r = e.toggle();
-    this.hud.toast(r === 'stowed' ? 'The outboard is stowed below for racing' : r === 'starting' ? (e.spec.tilts ? 'Lowering the outboard — starting' : 'Starting the engine') : r === 'stopped' ? 'Engine stopped' + (e.spec.tilts ? ' — outboard tilted up' : '') : '', 1.8);
+    this.hud.toast(r === 'stowed' ? 'The outboard is stowed below for racing' : r === 'starting' ? (e.spec.tilts ? 'Lowering the outboard — starting' : 'Starting the engine') : r === 'stopped' ? 'Engine stopped' + (e.spec.tilts ? ' — outboard raised on its bracket' : '') : '', 1.8);
     if (r === 'starting' && this.race && this.race.clock >= -240) this.hud.toast('Engine on after the preparatory signal: you retire (RRS 42)', 3);
     this.syncEngineTouch();
   }
