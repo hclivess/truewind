@@ -148,7 +148,8 @@ export function foilGeom(S, boardDown, kick, zw, cphi, sphi, y, V, out) {
   else ep = 1 - sstep(1, 3, Fnc);
   if (S.root === 'hull' && dRoot <= -0.02) ep = Math.min(ep, S.endPlate);
   const ARe = S.fixedARe ? S.fixedARe * Math.max(0.05, imm) : Math.max(0.05, ARg * (1 + ep + S.tipPlate)) * sweepCos;
-  out.imm = imm; out.span = spanW; out.area = S.chord * spanW; out.ARe = ARe; out.ARg = ARg;
+  // (the class's area: a tapered or long keel is not chord x span)
+  out.imm = imm; out.span = spanW; out.area = S.area * spanW / S.span; out.ARe = ARe; out.ARg = ARg;
   out.x = x; out.dRoot = dRoot; out.dTip = dTip; out.Fnc = Fnc; out.sweepCos = sweepCos;
   // centre of lift: a little below mid-immersed-span (elliptic loading with the image at the root)
   const zTop = imm < 1 ? zTip + spanW : zRoot;
