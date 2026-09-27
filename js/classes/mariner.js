@@ -18,7 +18,9 @@ export default {
   blurb: "The film's salvaged 60 ft racing trimaran: a slender main hull on two floats 15 m apart, a 27 m hinged mast raised by a geared winch, a fully battened patched main and a jib, rust and scrap everywhere. Flies a float from 10 kn and reaches at twice the wind speed.",
   specs: 'LOA 18.28 m · Beam 15.0 m · Draft 1.54 / 2.88 m · ~6,000 kg · Air draft 27.5 m · Main 205 m² · Jib 95 m²',
   lwl: 17.4, loa: 18.28, beam: 15.0, hullBeam: 2.5, bowX: 8.95, sternX: -8.85, freeboard: 1.3, canoeDraft: 0.72, wetted: 22, draft: 2.88,
-  amas: { y: 6.7, sy: 0.5, sz: 0.9, szTop: 0.62, dz: 0.38, tumble: 0.62, t0: 0.08, t1: 0.99, beams: [2.9, -3.6], netZ: 1.3 },
+  // (the floats: the film boat's are big blunt tubes, about 1.4 m across, their domed ends clear of the water, their axis
+  // 0.72 m up so they just kiss the sea at rest and bury as she heels)
+  amas: { y: 6.7, tube: { r: 0.7, z: 0.72 }, sy: 1, sz: 1, szTop: 1, dz: 0, t0: 0.1, t1: 0.93, beams: [2.9, -3.6], netZ: 1.45 },
   wheel: { x: -5.4, r: 0.6, h: 0.8 }, runners: true, mastR: 0.16, wingMast: true, reefTime: 90, reefWind: [20, 28],
   engine: { type: 'inboard', model: 'small diesel on a shaft (assumed)', kW: 22, rpmMax: 3000, rpmIdle: 850, cyl: 3, fuel: 'diesel', gear: 2.0,
     prop: { D: 0.4, P: 0.3, Z: 2, BAR: 0.5, folding: true, rh: 1 }, pos: [-5.2, 0, -0.95], shaftAngle: 0.14, mount: [-3.8, 0, -0.1],
@@ -59,8 +61,8 @@ export default {
   },
   insignia: '',
   // the sails' look (js/models.js): cloth colour and kind, number and insignia colours, translucency, gloss
-  sailcloth: { cloth: 0xcdbd98, kind: 'dacron', mottle: true, num: '#2a2520', logo: '#2a2520', trans: 0.3, rough: 0.75 },
-  hull: { color: 0x736b5f, stripe: 0x7a3b1e, deck: 0x6b6152, boot: 0x3b2f27, bootTop: 0x5a4a3c, sectionN: 2.2, transom: 0.55, bowRake: 0.15, sheer: 0.05,
+  sailcloth: { cloth: 0xc4b89c, kind: 'dacron', mottle: true, num: '#2a2520', logo: '#2a2520', trans: 0.3, rough: 0.75 },
+  hull: { color: 0xd8c8ae, stripe: 0xd8c8ae, deck: 0x6b6152, boot: 0x3b2f27, bootTop: 0x5a4a3c, sectionN: 2.2, transom: 0.55, bowRake: 0.15, sheer: 0.05,
     weathered: true, patchedSails: true, noNumber: true, lifelines: false, deckTint: '#7d7263', extension: false,
     cockpit: { t0: 0.12, t1: 0.36, w: 0.6, sole: 0.85 }, cabin: { t0: 0.37, t1: 0.56, h: 0.55, w: 0.95 } },
   // deck hardware (js/rigging.js): traveller [x, half length, z], primary winches [x, y], jib tracks [aft.. fwd, y]
