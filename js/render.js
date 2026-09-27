@@ -904,11 +904,11 @@ export class Renderer {
         if (!pv || jump || Math.hypot(x0 - pv[0], z0 - pv[1]) >= 10) continue;
         const sp = Math.hypot(b.u || 0, b.v || 0), pw = clamp(b.propWash ?? (b.engine && b.engine.active ? Math.abs(b.engine.T || 0) / (0.06 * (b.mass || 1000) * 9.81) : 0), 0, 1);
         // half the transom's width at the waterline (at least ~a foam texel: a cat's slender hulls); aeration
-        // 1 at ~6 kn, weaker slower, and a planing hull (Fn past ~0.5) churns up to 3x as much, which takes
+        // full from ~4.5 kn, weaker slower, and a planing hull (Fn past ~0.5) churns up to 3x as much, which takes
         // its extra few seconds to rise out: white for longer
         const Fn = sp / Math.sqrt(9.81 * C.lwl), tw = 0.4 * (C.hullBeam ?? C.beam) * (C.hull && C.hull.transom || 0.7);
         F.uWake.value[n].set(pv[0], pv[1], x0, z0);
-        F.uWakeW.value[n].set(Math.max(tw * (1 + 0.3 * pw), 0.25), clamp((sp - 0.5) / 2.5, 0, 1) * (1 + 2 * clamp((Fn - 0.45) / 0.55, 0, 1)) + 0.8 * pw, 0, 0);
+        F.uWakeW.value[n].set(Math.max(tw * (1 + 0.3 * pw), 0.25), clamp((sp - 0.3) / 2.0, 0, 1) * (1 + 2 * clamp((Fn - 0.45) / 0.55, 0, 1)) + 0.8 * pw, 0, 0);
         n++;
       }
       this._sternPrev.set(b, cur);
