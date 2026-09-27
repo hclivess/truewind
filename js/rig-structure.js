@@ -1074,6 +1074,8 @@ export class RigStructure {
     // (the strip model's bend and sag over ~1 s: its sails' shape, the heel and the crew's hiking otherwise chase each
     // other through the rig)
     this._kS = clamp(dt * every / 1.0, 0, 1);
+    const kSag = clamp(dt * every / 3.0, 0, 1);
+    for (const st of Object.values(this.stays)) if (st.M) { const m = this._sagNow(st); st.sagSlow = st.sagSlow === undefined ? m : st.sagSlow + (m - st.sagSlow) * kSag; }
     for (let i = 0; i < us.length; i++) us[i] += clamp((this.u[i] - us[i]) * ku, -cap, cap);
     for (const st of Object.values(this.stays)) st.Ts = st.Ts === undefined ? st.T : st.Ts + (st.T - st.Ts) * ku;
     // the shapes the sails and the drawing follow are the rig's deflection from its dock tune: the sails were cut for
@@ -1126,8 +1128,15 @@ export class RigStructure {
   }
 
   // a stay's largest sag (m), eased: what its sail's luff takes
+  // (what the sails' luffs take is the stay's sag over ~3 s, not its sag of the moment: a quasi-static stay whose sag
+  // follows the roll a few tenths of a second late (the loads' and the shape's easing, the solve's update interval) feeds
+  // the headsail's force back in phase with the roll rate, and pumped a Dragon running in 20 kn to ±48°; a real stay,
+  // light and taut, follows its load without lag, and a constant sag of the same size leaves the boat steady)
   staySag(key) {
     const st = this.stays[key]; if (!st || !st.M) return 0;
+    return st.sagSlow ?? this._sagNow(st);
+  }
+  _sagNow(st) {
     let mx = 0; const T = Math.max(50, st.Ts ?? st.T);
     for (let k = 0; k <= 16; k++) mx = Math.max(mx, hyp3(st.M[3 * k], st.M[3 * k + 1], st.M[3 * k + 2]) / T);
     return mx;
@@ -1163,8 +1172,8 @@ export class RigStructure {
       let mx = 0; const T = Math.max(50, st.T);
       for (let k = 0; k <= 16; k++) mx = Math.max(mx, hyp3(st.M[3 * k], st.M[3 * k + 1], st.M[3 * k + 2]) / T);
       this.sagMM = mx * 1000;
-      const sN = clamp(mx / (0.012 * J.luff * (J.sagK ?? 1)), 0, 1.5);
-      this.sagN = this.sagN === undefined || !this._kS ? sN : this.sagN + (sN - this.sagN) * this._kS;
+      const sN = clamp((st.sagSlow ?? mx) / (0.012 * J.luff * (J.sagK ?? 1)), 0, 1.5);
+      this.sagN = sN;
     } else { this.sagMM = 0; this.sagN = 0; }
     // wire loads, the mast's compression and bending, the step and chainplates
     const W = {}, spec = {};
