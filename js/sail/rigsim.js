@@ -280,7 +280,15 @@ export class BoomSailRig extends ClothRig {
     // (a staysail club with its sheet led to a deck traveller right under it (s.clubVang) is held down as a vang would:
     // without it the club lifts as it is eased and the staysail twists off into the yankee's lee)
     this.clubVang = !onMast && !!s0.clubVang;
-    if (this.clubVang) { this.dv = Math.max(0.3, gz - C.freeboard - 0.05); this.vangBase[2] = this.pz - this.dv; }
+    // The club turns about the stay it is set on, not about the vertical: the vang's foot is on the stay's line below the
+    // tack, so the club keeps its angle to the stay as it swings (rising a little as it goes out on a raked stay) and
+    // the sheet can ease it to ~35-40°. Anchored straight under the tack it fought the raked luff and held the club
+    // at ~27° with the sail stalled.
+    if (this.clubVang) {
+      this.dv = Math.max(0.3, gz - C.freeboard - 0.05);
+      const L = Math.hypot(this.rake, s.luff);
+      this.vangBase[0] = gx + this.dv * this.rake / L; this.vangBase[2] = this.pz - this.dv * s.luff / L;
+    }
     this.vang = onMast || this.clubVang ? cloth.addRope(this.E, this.tv, this.Gp, this.vangBase, 1, 6e5 * rk) : null;
     this.mastHead = [gx, 0, lateen ? (s.mastTop ?? this.pz + 0.6 * s.luff) : this.pz + s.luff + 0.3];
     this.topping = cloth.addRope(this.E, 1, this.Gp, this.mastHead, 1, 1e5);
@@ -371,7 +379,8 @@ export class BoomSailRig extends ClothRig {
     const chord = 2 * R * Math.sin(Math.max(0, lim - travA) / 2);
     this.sheet.len = Math.sqrt(chord * chord + this.hz * this.hz) - 0.035 * (1 - sstep(0, 0.25, ease));
     if (this.vang) {
-      const L0 = hyp(this.tv * this.Lb, this.dv);
+      // (the vang's length with the boom level; a club's foot sits forward of its pivot, on the stay's line)
+      const L0 = this.clubVang ? hyp(this.tv * this.Lb + this.vangBase[0] - this.Gp[0], this.pz - this.vangBase[2]) : hyp(this.tv * this.Lb, this.dv);
       // hard on, the vang pulls the boom a little below level: that stretch is the leech tension
       const vg = this.clubVang ? 0.8 : clamp(ctrl.vang, 0, 1);
       // (s.vangTravel: a longer boom needs the vang to pull further down for the same leech tension)
@@ -415,7 +424,7 @@ export class JibRig extends ClothRig {
     // is left out: on a rig whose jib head is at the mast it runs down the mast's front, and caught on the
     // capsule it would pin the clew)
     const nodes = Array.from({ length: nu * nv }, (_, k) => cloth.off + k).filter((k) => { const i = (k - cloth.off) % nu; return i > 0 && i < nu - 2; });
-    cloth.addCapsule([C.mastX + 0.03, 0, 0], [C.mastX + 0.03, 0, C.mastHeight], 0.06, nodes);
+    cloth.addCapsule([C.mastX - 0.03, 0, 0], [C.mastX - 0.03, 0, C.mastHeight], 0.06, nodes);
     const st = boat.sailBy.stay;
     if (st && st !== s) cloth.addCapsule([st.tackX, 0, st.tackZ], [st.tackX - (st.rake || 0), 0, st.tackZ + st.luff], 0.03, nodes);
     this.a = 0.3; this.sideSmooth = 1;

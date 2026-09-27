@@ -3,11 +3,15 @@
 // times round the world, 37,455 miles, 'La Longue Route'. Now at the Musée Maritime de La Rochelle, a monument
 // historique.
 // Sources: Wikipédia "Joshua (ketch)" (hull 12.07 m, 14 m over the bowsprit, beam 3.68 m, draft 1.60 m,
-// displacement 14 t, sail area 100 m², Bermudan ketch, masts 15 m and 7 m, steel); Musée Maritime de La Rochelle;
+// displacement 14 t, sail area 100 m², Bermudan ketch, steel); the photographs of her at La Rochelle (Wikimedia
+// Commons, 'Le ketch Joshua', 'Joshua (1)') scaled on the 12.07 m hull: main 15 m above the deck 4.2 m abaft the stem,
+// mizzen ~12 m (not the 7 m Wikipédia gives) 9.7 m abaft it with a ~10 m luff, the plank bowsprit's end 2.2-2.5 m
+// beyond the stem with its pulpit, bobstay and whiskers, the name on a board lashed to the rail aft, the black eye
+// on the bow; Musée Maritime de La Rochelle;
 // B. Moitessier, "La Longue Route" (1971) (Knocker's brief: good windward ability, shallow draft, a Norwegian stern,
 // a Bermudan ketch, an outboard rudder to take a self-steering gear; solid 'telegraph pole' masts; the small steel
 // doghouse with its round ports at the companionway; no engine aboard on the Long Way). The sail split (main ~30,
-// mizzen ~12, staysail ~17, jib ~28 m²) and ballast (~4.5 t internal), LWL (~10.5 m) are estimates from photographs and the total.
+// mizzen ~18, staysail ~17, jib ~28 m²) and ballast (~4.5 t internal), LWL (~10.5 m) are estimates from photographs and the total.
 // Lines shaped to the dimensions and photographs: a raked stem with the bowsprit, moderate sheer, a canoe stern with
 // the rudder hung outboard on the sternpost, a long keel.
 // Line handling on the real boat: sheets and halyards to bronze winches on the deck and the masts, belayed to
@@ -20,9 +24,9 @@ const MP = massProps([{ m: M - BAL - 550, z: 0.35, ry: 1.25, rx: 2.9 }, { m: BAL
 export default {
   id: 'joshua', name: "Moitessier's Joshua", group: 'classic',
   blurb: "Bernard Moitessier's red steel ketch: 12 m, 14 tonnes, a canoe stern with the rudder outboard for the wind-vane, telegraph-pole masts, a bowsprit, and the little doghouse with its round ports. In 1968-69 she sailed one and a half times round the world — and he kept going rather than finish the race.",
-  specs: 'Hull 12.07 m (14 m with bowsprit) · Beam 3.68 m · Draft 1.60 m · 14 t · Ketch ~87 m² working sails (100 m² quoted)',
+  specs: 'Hull 12.07 m (14 m with bowsprit) · Beam 3.68 m · Draft 1.60 m · 14 t · Ketch ~93 m² working sails (100 m² quoted)',
   lwl: LWL, loa: 12.07, beam: 3.68, bowX: 6.05, sternX: -6.02, freeboard: 1.1, canoeDraft: 0.72, wetted: 40, draft: 1.6,
-  bowsprit: 2.4, cabin: true, longKeel: true,
+  bowsprit: 2.55, cabin: true, longKeel: true,
   massHull: M, zG: MP.zG, crewN: 1, crewEach: 80, crewZ: 1.2, crewMaxOut: 1.3, crewLee: -0.9, hikeRate: 0.4,
   gm: 1.3, bmForm: 1.0, Ixx: MP.Ixx, Izz: MP.Izz, amX: 0.08, amY: 0.95, amYaw: 0.65, amRoll: 0.33,
   rr: rrTable(LWL, M + 80, { prism: -0.04 }),
@@ -31,7 +35,7 @@ export default {
   rudder: { x: -6.12, z: -0.7, area: 1.0, ARe: 2.0, stall: 22 * DEG, cd0: 0.014, max: 35 * DEG, span: 1.5, chord: 0.72, transom: true, loadRef: 2800 },
   hullLat: { area: 1.5, cd: 0.9, z: -0.25 },
   windage: { area: 7.8, z: 2.9, cd: 1.0 },
-  mastX: 1.55, mastHeight: 15.0, boomZ: 2.55, mastR: 0.11, keelBulb: false,
+  mastX: 1.85, mastHeight: 15.0, boomZ: 2.55, mastR: 0.11, keelBulb: false,
   targetHeel: 16 * DEG, canCapsize: false, hasBackstay: false, hasBoard: false, sheetPower: 2200, reefTime: 90,
   engine: null,                     // (sailed without an engine on the Long Way, 1968-69)
   lines: { main: { handler: 'horn', n: 4, at: 'deck' }, trav: { handler: 'horn', n: 1, at: 'deck' }, jib: { handler: 'winchHorn', at: 'winch' },
@@ -41,17 +45,17 @@ export default {
   sails: [
     { key: 'main', kind: 'boom', area: 30, luff: 11.3, foot: 4.6, head: 0.14, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG, roach: 0.04,
       cd0: 0.07, ARe: 4.0, min: 2 * DEG, max: 80 * DEG, trav: [-3 * DEG, 9 * DEG], Iboom: 300, boomMass: 40, reefs: 2,
-      vangBend: 0.02, sheetBend: 0.02, color: 0xf1ede2, boomMat: 'white', pockets: [[0.3, 0.12], [0.55, 0.14], [0.8, 0.12]] },
+      vangBend: 0.02, sheetBend: 0.02, color: 0xeee4cf, boomMat: 'white', pockets: [[0.3, 0.12], [0.55, 0.14], [0.8, 0.12]] },
     { key: 'stay', kind: 'boom', selfTacking: true, area: 17, tackX: 4.55, tackZ: 1.95, luff: 10.3, foot: 3.25, head: 0.05,
-      depth: [0.12, 0.13, 0.11], twistMax: 14 * DEG, cd0: 0.05, ARe: 3.4, min: 5 * DEG, max: 55 * DEG, Iboom: 40, boomMass: 14, color: 0xf1ede2, boomMat: 'white', clubVang: true },
-    { key: 'jib', kind: 'loose', area: 28, tackX: 7.9, tackZ: 2.2, luff: 12.3, foot: 5.1, head: 0.05, footRise: 0.9,
-      depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 3.7, min: 12 * DEG, max: 55 * DEG, sagK: 1.6, color: 0xf1ede2, window: false },
-    { key: 'mizzen', kind: 'boom', mast: { h: 9.4, r: 0.08 }, area: 12, tackX: -3.45, tackZ: 2.45, luff: 6.4, foot: 3.6, head: 0.1, rake: 0,
+      depth: [0.12, 0.13, 0.11], twistMax: 14 * DEG, cd0: 0.05, ARe: 3.4, min: 5 * DEG, max: 55 * DEG, Iboom: 40, boomMass: 14, color: 0xeee4cf, boomMat: 'white', clubVang: true },
+    { key: 'jib', kind: 'loose', area: 28, tackX: 8.45, tackZ: 2.2, luff: 12.3, foot: 5.1, head: 0.05, footRise: 0.9,
+      depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 3.7, min: 12 * DEG, max: 55 * DEG, sagK: 1.6, color: 0xeee4cf, window: false },
+    { key: 'mizzen', kind: 'boom', mast: { h: 12.0, r: 0.09 }, area: 18, tackX: -3.6, tackZ: 2.45, luff: 9.2, foot: 3.8, head: 0.1, rake: 0,
       depth: [0.12, 0.14, 0.13], twistMax: 18 * DEG, cd0: 0.07, ARe: 3.2, min: 3 * DEG, max: 80 * DEG, trav: null, Iboom: 60, boomMass: 18,
-      color: 0xf1ede2, boomMat: 'white', pockets: [[0.35, 0.12], [0.65, 0.12]] },
+      color: 0xeee4cf, boomMat: 'white', pockets: [[0.35, 0.12], [0.65, 0.12]] },
   ],
   hull: { color: 0xc0261d, stripe: 0x1e1f22, deck: 0xe6e2d6, boot: 0x1e1f22, bootTop: 0x1e1f22, levels: [0.04, 0.07, 0.06, 0.0], rough: 0.45 },
-  sailcloth: { cloth: 0xf1ede2, kind: 'dacron', num: '#1e1f22', logo: '#b3241c', trans: 0.28, rough: 0.66 },
+  sailcloth: { cloth: 0xeee4cf, kind: 'dacron', num: '#1e1f22', logo: '#b3241c', trans: 0.28, rough: 0.66 },
   insignia: '',
   offsets: {
     sheer: [[0, 1.3], [0.25, 1.1], [0.55, 1.05], [0.8, 1.2], [1, 1.5]],
@@ -64,7 +68,7 @@ export default {
   },
   model: {
     cockpit: { t0: 0.06, t1: 0.19, w: 0.5, sole: 0.8, seats: true, seat: 0.36, seatW: 0.34, coaming: 0.2, color: 0xe6e2d6 },
-    deck: 'paint', deckColor: 0xdcd6c6, toerail: { bulwark: 0.12, cap: 'paint', capColor: 0x1e1f22, color: 0xc0261d },
+    deck: 'paint', deckColor: 0xdcd6c6, toerail: { bulwark: 0.2, cap: 'paint', capColor: 0x1e1f22, color: 0xc0261d },
     lifelines: { t0: 0.1, t1: 0.9, h: 0.62, mat: 'black', pushpit: false, pulpit: false },
     cabins: [
       { t0: 0.29, t1: 0.66, h: [[0.29, 0.42], [0.66, 0.36]], w: [[0.29, 1.12], [0.55, 1.1], [0.66, 0.9]], slope: 0.05, camber: 0.08, frontRake: 0.1, aftRake: 0.03,
@@ -74,12 +78,12 @@ export default {
     steering: { kind: 'tiller', len: 1.5, rise: 0.12, mat: 'wood', r: 0.035 },
     rudder: { kind: 'transom', x: -6.1, top: 1.35, bottom: -1.55, chordTop: 0.35, heel: 0.3, lean: 0.12, mat: 'hull', thick: 0.05, pintles: [-1.2, -0.4, 0.4, 1.1] },
     keel: { kind: 'full' },
-    bowsprit: { len: 2.4, kind: 'plank', w: 0.42, mat: 'wood', pulpit: true, anchor: true, inboard: 0.9, bobZ: 0.1 },
+    bowsprit: { len: 2.55, kind: 'plank', w: 0.5, mat: 'wood', pulpit: true, anchor: true, inboard: 0.9, bobZ: 0.1 },
     masts: {
       main: { mat: 'wood', r: 0.11, rTop: 0.07, round: true, spreaders: [{ f: 0.55, len: 0.95, sweep: 0 }], ratlines: true, chainIn: 1.0 },
-      mizzen: { mat: 'wood', r: 0.08, rTop: 0.055, round: true, spreaders: [{ f: 0.55, len: 0.6, sweep: 0 }], stayTo: -6.25, stayToZ: 1.5, triatic: 13.8 },
+      mizzen: { mat: 'wood', r: 0.09, rTop: 0.06, round: true, spreaders: [{ f: 0.55, len: 0.7, sweep: 0 }], ratlines: true, stayTo: -6.25, stayToZ: 1.5, triatic: 13.8 },
     },
-    backstay: false, windex: false, noNumber: true, hullName: { text: 'JOSHUA', t: 0.3, z: 0.9, len: 1.3, color: '#f2efe6', font: '700 80px "Barlow Condensed", "Arial Narrow", sans-serif' },
+    backstay: false, windex: false, noNumber: true, hullName: { text: 'JOSHUA', t: 0.27, board: true, dz: 0.34, len: 1.7, color: '#16171a', bg: '#f3f1ea', font: '700 84px "Barlow Condensed", "Arial Narrow", sans-serif' },
     extras: ['joshuaDetails'],
   },
   hw: { trav: [-1.4, 0.7], boomS: 0.6, winch: [-4.2, 1.2], jibTrack: [1.4, 0.2, 1.6], helm: 'Tiller', winchR: 0.07, bronze: true },

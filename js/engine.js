@@ -293,7 +293,11 @@ export class Engine {
         // the prop on its own: folded, locked, or windmilling against the seal and gearbox drag
         if (locked || this.open < 0.05 || kv < 0.01) this.n *= Math.exp(-h * 3);
         else {
-          const Qf = 0.03 * this.Trated * g;
+          // (the seal and a gearbox in neutral: ~1% of the rated torque at the shaft, a newton-metre or so on a 20-30 hp
+          // diesel. At 3% the prop hardly turned below 5 kn and dragged as if locked; at 1% it freewheels from ~3 kn at
+          // 0.35-0.5 of its locked drag, the ~half Gerr's Propeller Handbook gives. Locked: CD ~1.05 on the developed
+          // blade area, inside the 0.9-1.2 published)
+          const Qf = 0.01 * this.Trated * g;
           const fn = (n) => -propQ(n) - Qf * Math.tanh(n * 4);
           const f0 = fn(this.n), dfn = (fn(this.n + 0.05) - f0) / 0.05;
           this.n += h * f0 / (TAU * this.Ip - h * Math.min(0, dfn));
