@@ -26,6 +26,8 @@ export default {
   mastX: 0.72, mastHeight: 2.36, boomZ: 0.55, mastR: 0.022, keelBulb: false, vangSheeting: true,
   targetHeel: 5 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 250,
   engine: null,
+  lines: { main: { handler: 'ratchet', n: 3, at: 'sole' }, vang: { handler: 'cam', n: 2, size: 'micro', at: 'deck' },
+    cunn: { handler: 'cam', n: 1, size: 'micro', at: 'deck' }, outhaul: { handler: 'cam', n: 1, size: 'micro', at: 'deck' } },
   sails: [
     { key: 'main', kind: 'boom', rig: 'sprit', area: 3.3, luff: 1.75, foot: 2.05, head: 1.1, headRise: 0.55, snotterZ: 0.42, roach: 0,
       depth: [0.12, 0.13, 0.12], twistMax: 24 * DEG, cd0: 0.07, ARe: 2.6, min: 3 * DEG, max: 88 * DEG, trav: null, Iboom: 3, boomMass: 2, reefs: 0,
@@ -34,7 +36,7 @@ export default {
   hull: { color: 0xf6f6f2, stripe: 0xd8352a, deck: 0xf0efe8, boot: 0xf6f6f2, bare: true, levels: [-9, -9, 0.05, 0.02] },
   sailcloth: { cloth: 0xf6f5f0, kind: 'dacron', num: '#1d2a44', logo: '#1d4e89', trans: 0.36, rough: 0.6 },
   insignia: 'OPTI',
-  lines: {
+  offsets: {
     sheer: [[0, 0.38], [0.5, 0.39], [1, 0.44]],
     deck: [[0, 0.8], [0.15, 0.92], [0.45, 1.0], [0.75, 0.94], [1, 0.62]],
     wl: [[0, 0.82], [0.4, 0.9], [0.8, 0.86], [1, 0.7]],

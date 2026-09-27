@@ -30,7 +30,12 @@ export default {
   mastX: 1.06, mastHeight: 13.85, boomZ: 2.78, mastR: 0.07, keelBulb: false,
   targetHeel: 18 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 2200, reefTime: 60,
   // inboard: Universal M25XP (3-cyl diesel, 23 hp at 3,000 rpm, 2:1 Hurth box), 2-blade fixed 13 x 9 in prop
-  engine: { type: 'inboard', kW: 23 * HP, rpmMax: 3000, gear: 2.0, prop: { D: 0.33, P: 0.23, Z: 2, folding: false, rh: true }, pos: [-2.75, 0, -0.6], shaftAngle: 11 * DEG, tiltable: false },
+  engine: { type: 'inboard', model: 'Universal M25XP', kW: 23 * HP, rpmMax: 3000, rpmIdle: 850, cyl: 3, fuel: 'diesel', gear: 2.0,
+    prop: { D: 0.33, P: 0.23, Z: 2, BAR: 0.35, folding: false, rh: 1 }, pos: [-2.75, 0, -0.62], mount: [-1.9, 0, -0.05], mass: 125, inMass: true,
+    shaftAngle: 11 * DEG, exhaust: [-4.4, 0.6, 0.35] },
+  lines: { main: { handler: 'cam', n: 6, at: 'car' }, trav: { handler: 'cam', n: 3, at: 'deck' }, jib: { handler: 'selfTailer', at: 'winch' },
+    vang: { handler: 'cam', n: 4, at: 'deck' }, cunn: { handler: 'clutch', n: 2, winch: 'cabin', at: 'cabin' }, outhaul: { handler: 'clutch', n: 2, winch: 'cabin', at: 'cabin' },
+    backstay: { handler: 'cam', n: 4, at: 'deck' }, jibHalyard: { handler: 'clutch', winch: 'cabin', at: 'cabin' } },
   sails: [
     { key: 'main', kind: 'boom', area: 201.3 * SQFT * 1.04, luff: 35 * FT, foot: 11.5 * FT, head: 0.15, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
       cd0: 0.07, ARe: 4.2, min: 2 * DEG, max: 80 * DEG, trav: [-6 * DEG, 12 * DEG], Iboom: 150, boomMass: 22, reefs: 2,
@@ -45,7 +50,7 @@ export default {
     g.strokeStyle = cl.logo; g.lineWidth = 13; g.beginPath(); g.arc(cx - 34, cy + 2, 34, 0.35 * Math.PI, 1.65 * Math.PI); g.stroke();
     g.font = 'bold 58px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = cl.logo; g.textAlign = 'left'; g.fillText('30', cx + 6, cy + 22); g.textAlign = 'center';
   },
-  lines: {
+  offsets: {
     sheer: [[0, 1.02], [0.25, 1.02], [0.55, 1.08], [0.8, 1.2], [1, 1.33]],
     deck: [[0, 0.82], [0.12, 0.9], [0.4, 1.0], [0.62, 0.96], [0.82, 0.72], [0.94, 0.38], [1, 0.03]],
     wl: [[0, 0.62], [0.35, 0.86], [0.7, 0.84], [0.88, 0.58], [1, 0.3]],

@@ -28,6 +28,9 @@ export default {
   mastX: 1.05, mastHeight: 8.55, boomZ: 1.18, mastR: 0.04, keelBulb: false,
   targetHeel: 10 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 520,
   engine: null,
+  lines: { main: { handler: 'ratchetCam', n: 4, at: 'sole' }, jib: { handler: 'cam', n: 1, at: 'deck' }, gen: { handler: 'ratchet', n: 1, at: 'quarter' },
+    vang: { handler: 'cam', n: 6, size: 'micro', at: 'deck' }, cunn: { handler: 'cam', n: 2, size: 'micro', at: 'deck' }, outhaul: { handler: 'cam', n: 2, size: 'micro', at: 'deck' },
+    jibHalyard: { handler: 'cam', n: 2, at: 'mast' }, tackLine: { handler: 'cam', at: 'deck' } },
   sails: [
     { key: 'main', kind: 'boom', area: 138 * SQFT, luff: 7.15, foot: 3.25, head: 0.14, depth: [0.12, 0.14, 0.12], twistMax: 22 * DEG,
       cd0: 0.06, ARe: 4.0, min: 2 * DEG, max: 85 * DEG, trav: null, Iboom: 16, boomMass: 6, reefs: 0,
@@ -44,7 +47,7 @@ export default {
     g.fillStyle = '#1d4f8c'; g.beginPath(); g.moveTo(cx - 34, cy - 38); g.lineTo(cx + 34, cy - 38); g.lineTo(cx + 34, cy + 6); g.quadraticCurveTo(cx + 30, cy + 34, cx, cy + 44); g.quadraticCurveTo(cx - 30, cy + 34, cx - 34, cy + 6); g.fill();
     g.strokeStyle = '#ffffff'; g.lineWidth = 9; g.beginPath(); g.moveTo(cx - 28, cy - 32); g.lineTo(cx + 26, cy + 30); g.moveTo(cx + 28, cy - 32); g.lineTo(cx - 26, cy + 30); g.stroke();
   },
-  lines: {
+  offsets: {
     sheer: [[0, 0.56], [0.4, 0.58], [0.75, 0.66], [1, 0.8]],
     deck: [[0, 0.8], [0.2, 0.93], [0.5, 1.0], [0.75, 0.86], [0.92, 0.46], [1, 0.03]],
     wl: [[0, 0.72], [0.45, 0.82], [0.8, 0.72], [1, 0.2]],

@@ -30,7 +30,12 @@ export default {
   mastX: 1.02, mastHeight: 13.1, boomZ: 1.72, mastR: 0.065, keelBulb: false,
   targetHeel: 20 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 2000, reefTime: 60,
   // inboard: Yanmar 2GM20 (18 hp at 3,400 rpm, KM2P 2.2:1) under the cockpit, 2-blade 14 x 9 in prop in the skeg's lee
-  engine: { type: 'inboard', kW: 18 * HP, rpmMax: 3400, gear: 2.21, prop: { D: 0.36, P: 0.23, Z: 2, folding: false, rh: true }, pos: [-2.9, 0, -0.55], shaftAngle: 9 * DEG, tiltable: false },
+  engine: { type: 'inboard', model: 'Yanmar 2GM20 (Beta 20 on refitted boats)', kW: 18 * HP, rpmMax: 3400, rpmIdle: 850, cyl: 2, fuel: 'diesel', gear: 2.21,
+    prop: { D: 0.36, P: 0.23, Z: 2, BAR: 0.35, folding: false, rh: 1 }, pos: [-2.95, 0, -0.62], mount: [-2.1, 0, -0.1], mass: 115, inMass: true,
+    shaftAngle: 9 * DEG, exhaust: [-4.7, 0.5, 0.3] },
+  lines: { main: { handler: 'cam', n: 4, at: 'car' }, trav: { handler: 'cam', n: 2, at: 'deck' }, jib: { handler: 'winchHorn', at: 'winch' },
+    vang: { handler: 'cam', n: 4, at: 'deck' }, cunn: { handler: 'horn', n: 2, at: 'mast' }, outhaul: { handler: 'clam', n: 2, at: 'boom' },
+    backstay: { handler: 'cam', n: 4, at: 'deck' }, jibHalyard: { handler: 'winchHorn', winch: 'cabin', at: 'mast' } },
   sails: [
     { key: 'main', kind: 'boom', area: 0.5 * 30.5 * 11.0 * SQFT, luff: 30.5 * FT, foot: 11.0 * FT, head: 0.12, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
       cd0: 0.07, ARe: 4.2, min: 2 * DEG, max: 80 * DEG, trav: [-5 * DEG, 11 * DEG], Iboom: 110, boomMass: 18, reefs: 2,
@@ -41,7 +46,7 @@ export default {
   hull: { color: 0xf3f1ea, stripe: 0x14305a, deck: 0xe6e0cf, boot: 0x14305a, bootTop: 0x14305a, levels: [0.03, 0.08, 0.1, 0.05] },
   sailcloth: { cloth: 0xf2efe6, kind: 'dacron', num: '#14305a', logo: '#14305a', trans: 0.3, rough: 0.62 },
   insignia: 'C32',
-  lines: {
+  offsets: {
     sheer: [[0, 0.92], [0.25, 0.86], [0.5, 0.86], [0.75, 0.94], [1, 1.1]],
     deck: [[0, 0.5], [0.08, 0.7], [0.3, 0.95], [0.5, 1.0], [0.7, 0.9], [0.86, 0.6], [0.96, 0.25], [1, 0.02]],
     wl: [[0, 0.3], [0.2, 0.7], [0.5, 0.86], [0.75, 0.74], [0.9, 0.45], [1, 0.2]],

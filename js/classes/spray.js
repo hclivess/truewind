@@ -35,6 +35,10 @@ export default {
   targetHeel: 12 * DEG, canCapsize: false, hasBackstay: false, hasBoard: false, sheetPower: 1800, reefTime: 110,
   cloth: 'canvas',
   engine: null,                     // (none: Slocum sailed her everywhere, and sculled her in calms)
+  lines: { main: { handler: 'horn', n: 3, at: 'deck' }, trav: { handler: 'horn', n: 1, at: 'deck' }, jib: { handler: 'horn', n: 2, at: 'deck' },
+    mizzen: { handler: 'horn', n: 2, at: 'deck' }, vang: { handler: 'horn', n: 2, at: 'deck' }, cunn: { handler: 'horn', n: 1, at: 'mast' },
+    outhaul: { handler: 'horn', n: 2, at: 'boom' }, jibHalyard: { handler: 'horn', n: 2, at: 'mast' } },
+  ropeStyle: 'classic',
   sails: [
     { key: 'main', kind: 'boom', rig: 'gaff', area: 58, luff: 6.4, foot: 8.2, head: 5.0, headRise: 3.4, roach: 0,
       depth: [0.13, 0.14, 0.13], twistMax: 26 * DEG, cd0: 0.08, ARe: 2.2, min: 3 * DEG, max: 80 * DEG, trav: [-3 * DEG, 8 * DEG], Iboom: 900, boomMass: 90, reefs: 2,
@@ -48,7 +52,7 @@ export default {
   hull: { color: 0xf1ede2, stripe: 0x2a2a2a, deck: 0xc9a878, boot: 0x7a2a1c, bootTop: 0x2a2a2a, levels: [0.12, 0.2, 0.06, 0.0], rough: 0.5 },
   sailcloth: { cloth: 0xe8dcc0, kind: 'dacron', mottle: false, num: '#3a2a1a', logo: '#3a2a1a', trans: 0.3, rough: 0.78 },
   insignia: '',
-  lines: {
+  offsets: {
     sheer: [[0, 1.45], [0.25, 1.2], [0.55, 1.12], [0.8, 1.3], [1, 1.75]],
     deck: [[0, 0.72], [0.12, 0.86], [0.4, 1.0], [0.65, 0.97], [0.85, 0.72], [0.96, 0.3], [1, 0.03]],
     wl: [[0, 0.62], [0.15, 0.8], [0.45, 0.95], [0.75, 0.86], [0.92, 0.5], [1, 0.2]],

@@ -29,6 +29,8 @@ export default {
   mastX: 0.85, mastHeight: 3.05, boomZ: 0.55, mastR: 0.028, keelBulb: false, vangSheeting: true,
   targetHeel: 6 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 380,
   engine: null,
+  lines: { main: { handler: 'ratchet', n: 2, at: 'sole' }, vang: { handler: 'cam', n: 2, size: 'micro', at: 'deck' },
+    cunn: { handler: 'cam', n: 1, size: 'micro', at: 'deck' }, outhaul: { handler: 'cam', n: 1, size: 'micro', at: 'deck' } },
   sails: [
     { key: 'main', kind: 'boom', rig: 'lateen', area: 7.0, luff: 3.51, rake: 2.77, fixedRake: true, tackFwd: 0.56, foot: 3.99, head: 0.05, roach: 0, mastTop: 3.05,
       depth: [0.12, 0.13, 0.12], twistMax: 24 * DEG, cd0: 0.07, ARe: 3.0, min: 3 * DEG, max: 88 * DEG, trav: null, Iboom: 14, boomMass: 5, reefs: 0,
@@ -45,7 +47,7 @@ export default {
     g.lineTo(cx - 62, cy + 32); g.lineTo(cx - 38, cy + 8); g.bezierCurveTo(cx - 20, cy + 44, cx + 30, cy + 40, cx + 46, cy); g.closePath(); g.fill(); g.stroke();
     g.fillStyle = '#1d2a44'; g.beginPath(); g.arc(cx + 26, cy - 8, 5, 0, 7); g.fill();
   },
-  lines: {
+  offsets: {
     sheer: [[0, 0.24], [0.5, 0.25], [0.85, 0.3], [1, 0.34]],
     deck: [[0, 0.72], [0.2, 0.9], [0.5, 1.0], [0.75, 0.82], [0.92, 0.42], [1, 0.03]],
     wl: [[0, 0.78], [0.5, 0.92], [0.85, 0.62], [1, 0.2]],

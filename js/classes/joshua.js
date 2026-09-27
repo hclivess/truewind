@@ -34,6 +34,10 @@ export default {
   mastX: 1.55, mastHeight: 15.0, boomZ: 2.55, mastR: 0.11, keelBulb: false,
   targetHeel: 16 * DEG, canCapsize: false, hasBackstay: false, hasBoard: false, sheetPower: 2200, reefTime: 90,
   engine: null,                     // (sailed without an engine on the Long Way, 1968-69)
+  lines: { main: { handler: 'horn', n: 4, at: 'deck' }, trav: { handler: 'horn', n: 1, at: 'deck' }, jib: { handler: 'winchHorn', at: 'winch' },
+    stay: { handler: 'horn', n: 2, at: 'cabin' }, mizzen: { handler: 'horn', n: 3, at: 'deck' }, vang: { handler: 'horn', n: 3, at: 'deck' },
+    cunn: { handler: 'horn', n: 1, at: 'mast' }, outhaul: { handler: 'horn', n: 2, at: 'boom' }, jibHalyard: { handler: 'winchHorn', winch: 'cabin', at: 'mast' } },
+  ropeStyle: 'classic',
   sails: [
     { key: 'main', kind: 'boom', area: 30, luff: 11.3, foot: 4.6, head: 0.14, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG, roach: 0.04,
       cd0: 0.07, ARe: 4.0, min: 2 * DEG, max: 80 * DEG, trav: [-3 * DEG, 9 * DEG], Iboom: 300, boomMass: 40, reefs: 2,
@@ -49,7 +53,7 @@ export default {
   hull: { color: 0xb3241c, stripe: 0xf2efe6, deck: 0xe6e2d6, boot: 0x1e1f22, bootTop: 0xf2efe6, levels: [0.1, 0.17, 0.05, 0.0], rough: 0.45 },
   sailcloth: { cloth: 0xf1ede2, kind: 'dacron', num: '#1e1f22', logo: '#b3241c', trans: 0.28, rough: 0.66 },
   insignia: '',
-  lines: {
+  offsets: {
     sheer: [[0, 1.3], [0.25, 1.1], [0.55, 1.05], [0.8, 1.2], [1, 1.5]],
     deck: [[0, 0.02], [0.05, 0.32], [0.2, 0.78], [0.45, 1.0], [0.65, 0.95], [0.85, 0.66], [0.96, 0.26], [1, 0.03]],
     wl: [[0, 0.4], [0.1, 0.6], [0.45, 0.9], [0.8, 0.74], [1, 0.3]],

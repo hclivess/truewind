@@ -29,6 +29,9 @@ export default {
   mastX: 2.05, mastHeight: 11.55, boomZ: 1.4, mastR: 0.055, keelBulb: false,
   targetHeel: 22 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 1000,
   engine: null,
+  lines: { main: { handler: 'ratchetCam', n: 6, at: 'sole' }, trav: { handler: 'cam', n: 2, at: 'deck' }, jib: { handler: 'cam', n: 2, at: 'deck' },
+    gen: { handler: 'ratchet', n: 1, at: 'quarter' }, vang: { handler: 'cam', n: 12, at: 'deck' }, cunn: { handler: 'cam', n: 4, size: 'micro', at: 'deck' },
+    outhaul: { handler: 'cam', n: 4, size: 'micro', at: 'deck' }, backstay: { handler: 'cam', n: 16, at: 'deck' }, jibHalyard: { handler: 'cam', n: 4, at: 'deck' }, tackLine: { handler: 'cam', at: 'deck' } },
   sails: [
     { key: 'main', kind: 'boom', area: 186.9 * SQFT, luff: 32.5 * FT, foot: 11.5 * FT, head: 0.18, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
       cd0: 0.06, ARe: 5.0, min: 1.5 * DEG, max: 80 * DEG, trav: [-4 * DEG, 11 * DEG], Iboom: 40, boomMass: 10, reefs: 0,
@@ -41,7 +44,7 @@ export default {
   hull: { color: 0xf4f5f3, stripe: 0x9a1f2a, deck: 0xe8e8e2, boot: 0x9a1f2a, bootTop: 0x9a1f2a, levels: [0.03, 0.06, 0.04, 0.025] },
   sailcloth: { cloth: 0xeef0ee, kind: 'laminate', num: '#16233a', logo: '#9a1f2a', trans: 0.18, rough: 0.42 },
   insignia: 'E',
-  lines: {
+  offsets: {
     sheer: [[0, 0.62], [0.3, 0.62], [0.6, 0.66], [0.85, 0.74], [1, 0.84]],
     deck: [[0, 0.42], [0.12, 0.65], [0.35, 0.95], [0.52, 1.0], [0.7, 0.9], [0.86, 0.58], [0.96, 0.2], [1, 0.02]],
     wl: [[0, 0.3], [0.2, 0.6], [0.5, 0.85], [0.8, 0.62], [1, 0.2]],

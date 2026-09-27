@@ -1,6 +1,6 @@
 // Production and famous boats: one file per class, registered into CLASSES by physics.js (in this order in the menu).
 // Each carries `group` ('dinghy' | 'keelboat' | 'multihull' | 'cruiser' | 'classic') for the class picker, `engine`
-// (inert until js/engine.js reads it), `lines` (the hull's offsets, js/hull.js) and `model` (js/boats/detailed.js).
+// (inert until js/engine.js reads it), `offsets` (the hull's lines, js/hull.js), `lines` (line handlers, js/linehandlers.js) and `model` (js/boats/detailed.js).
 import catalina22 from './catalina22.js';
 import catalina30 from './catalina30.js';
 import oceanis381 from './oceanis381.js';

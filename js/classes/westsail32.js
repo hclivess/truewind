@@ -33,7 +33,13 @@ export default {
   targetHeel: 18 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 2400, reefTime: 75,
   // inboard: Volvo Penta MD2B (2-cyl diesel, 25 hp at 2,500 rpm, 2:1 reverse gear), 3-blade 16 x 11 in prop in the
   // aperture between the keel and the rudder
-  engine: { type: 'inboard', kW: 25 * HP, rpmMax: 2500, gear: 2.0, prop: { D: 0.41, P: 0.28, Z: 3, folding: false, rh: true }, pos: [-4.35, 0, -0.75], shaftAngle: 7 * DEG, tiltable: false },
+  engine: { type: 'inboard', model: 'Volvo Penta MD2B', kW: 25 * HP, rpmMax: 2500, rpmIdle: 750, cyl: 2, fuel: 'diesel', gear: 2.0,
+    prop: { D: 0.41, P: 0.28, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-4.4, 0, -0.8], mount: [-2.8, 0, -0.2], mass: 180, inMass: true,
+    shaftAngle: 7 * DEG, exhaust: [-4.6, 0.7, 0.4] },
+  lines: { main: { handler: 'cam', n: 4, at: 'car' }, trav: { handler: 'horn', n: 1, at: 'deck' }, jib: { handler: 'winchHorn', at: 'winch' },
+    stay: { handler: 'horn', n: 2, at: 'cabin' }, vang: { handler: 'horn', n: 4, at: 'deck' }, cunn: { handler: 'horn', n: 2, at: 'mast' },
+    outhaul: { handler: 'horn', n: 2, at: 'boom' }, backstay: { handler: 'horn', n: 1, at: 'deck' }, jibHalyard: { handler: 'winchHorn', winch: 'cabin', at: 'mast' } },
+  ropeStyle: 'classic',
   sails: [
     { key: 'main', kind: 'boom', area: 23.3, luff: 10.1, foot: 4.4, head: 0.14, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
       cd0: 0.07, ARe: 3.8, min: 2 * DEG, max: 80 * DEG, trav: [-4 * DEG, 11 * DEG], Iboom: 220, boomMass: 30, reefs: 2,
@@ -46,7 +52,7 @@ export default {
   hull: { color: 0xf2efe6, stripe: 0x1b3d2f, deck: 0xd8cfb8, boot: 0x1b3d2f, bootTop: 0x1b3d2f, levels: [0.05, 0.1, 0.14, 0.09] },
   sailcloth: { cloth: 0xf0ebdf, kind: 'dacron', num: '#1b3d2f', logo: '#1b3d2f', trans: 0.28, rough: 0.64 },
   insignia: 'W32',
-  lines: {
+  offsets: {
     sheer: [[0, 1.3], [0.2, 1.14], [0.5, 1.1], [0.8, 1.22], [1, 1.42]],
     deck: [[0, 0.02], [0.06, 0.26], [0.14, 0.5], [0.26, 0.8], [0.45, 1.0], [0.65, 0.95], [0.85, 0.66], [0.96, 0.28], [1, 0.03]],
     wl: [[0, 0.5], [0.1, 0.6], [0.45, 0.88], [0.8, 0.72], [1, 0.3]],

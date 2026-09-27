@@ -30,7 +30,12 @@ export default {
   mastX: 0.84, mastHeight: 9.0, boomZ: 2.28, mastR: 0.045, keelBulb: false,
   targetHeel: 18 * DEG, canCapsize: false, hasBackstay: false, hasBoard: true, sheetPower: 800, reefTime: 50,
   // outboard: a 6 hp long-shaft four-stroke on a transom bracket (the class's usual fit: Tohatsu/Honda/Yamaha 6)
-  engine: { type: 'outboard', kW: 6 * HP, rpmMax: 5500, gear: 2.33, prop: { D: 0.197, P: 0.165, Z: 3, folding: false, rh: true }, pos: [-3.42, -0.35, -0.45], shaftAngle: 0, tiltable: true },
+  engine: { type: 'outboard', model: '6 hp four-stroke long shaft', kW: 6 * HP, rpmMax: 5500, rpmIdle: 1100, cyl: 1, fuel: 'petrol', gear: 2.33,
+    prop: { D: 0.197, P: 0.165, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-3.42, -0.42, -0.45], mount: [-3.3, -0.42, 0.45], mass: 26, inMass: false,
+    tilts: true, steers: false, shaftAngle: 0, exhaust: [-3.42, -0.42, 0.1] },
+  lines: { main: { handler: 'cam', n: 4, at: 'car' }, trav: { handler: 'cam', n: 2, at: 'deck' }, jib: { handler: 'winchHorn', at: 'winch' },
+    vang: { handler: 'cam', n: 4, at: 'deck' }, cunn: { handler: 'horn', n: 1, at: 'mast' }, outhaul: { handler: 'cam', n: 2, at: 'boom' },
+    jibHalyard: { handler: 'horn', at: 'mast' } },
   sails: [
     { key: 'main', kind: 'boom', area: 101.4 * SQFT, luff: 21.0 * FT, foot: 9.66 * FT, head: 0.12, depth: [0.11, 0.125, 0.12], twistMax: 20 * DEG,
       cd0: 0.07, ARe: 3.4, min: 2 * DEG, max: 80 * DEG, trav: [-3 * DEG, 10 * DEG], Iboom: 26, boomMass: 9, reefs: 1,
@@ -45,7 +50,7 @@ export default {
     g.strokeStyle = cl.logo; g.lineWidth = 13; g.beginPath(); g.arc(cx - 34, cy + 2, 34, 0.35 * Math.PI, 1.65 * Math.PI); g.stroke();
     g.font = 'bold 58px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = cl.logo; g.textAlign = 'left'; g.fillText('22', cx + 6, cy + 22); g.textAlign = 'center';
   },
-  lines: {
+  offsets: {
     sheer: [[0, 0.7], [0.25, 0.71], [0.55, 0.76], [0.8, 0.86], [1, 0.97]],
     deck: [[0, 0.78], [0.12, 0.88], [0.4, 1.0], [0.62, 0.95], [0.82, 0.7], [0.94, 0.36], [1, 0.03]],
     wl: [[0, 0.72], [0.4, 0.9], [0.75, 0.86], [0.92, 0.6], [1, 0.3]],
@@ -64,7 +69,6 @@ export default {
     steering: { kind: 'tiller', len: 1.05, rise: 0.12, mat: 'wood' },
     rudder: { kind: 'transom', top: 0.72, bottom: -0.8, chordTop: 0.2, heel: 0.3, mat: 'white', color: 0xf4f3ee },
     keel: { kind: 'swing', len: 1.05, width: 0.62, thick: 0.035, pivotX: 0.62, upAngle: -1.45 },
-    outboard: { y: -0.38, color: 0x2a2c30 },
     masts: { main: { mat: 'alu', r: 0.045, spreaders: [{ f: 0.5, len: 0.62, sweep: 0 }] } },
     backstay: { split: false },
   },

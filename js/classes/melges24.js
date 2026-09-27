@@ -30,7 +30,12 @@ export default {
   mastX: 1.2, mastHeight: 10.55, boomZ: 1.45, mastR: 0.05, keelBulb: true,
   targetHeel: 16 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 1300,
   // outboard: carried aboard by class rule (a 2-4 hp four-stroke, e.g. Tohatsu MFS3.5), shipped on a stern bracket
-  engine: { type: 'outboard', kW: 3.5 * HP, rpmMax: 5500, gear: 2.15, prop: { D: 0.185, P: 0.12, Z: 3, folding: false, rh: true }, pos: [-3.7, -0.45, -0.35], shaftAngle: 0, tiltable: true },
+  engine: { type: 'outboard', model: '3.5 hp four-stroke short shaft', kW: 3.5 * HP, rpmMax: 5500, rpmIdle: 1150, cyl: 1, fuel: 'petrol', gear: 2.15,
+    prop: { D: 0.185, P: 0.12, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-3.7, -0.45, -0.3], mount: [-3.6, -0.45, 0.25], mass: 17.4, inMass: true,
+    stow: [0.6, 0, -0.1], tilts: true, steers: false, shaftAngle: 0, exhaust: [-3.7, -0.45, 0.1] },
+  lines: { main: { handler: 'ratchetCam', n: 6, at: 'sole' }, trav: { handler: 'cam', n: 2, at: 'deck' }, jib: { handler: 'ratchetCam', n: 1, at: 'deck' },
+    gen: { handler: 'ratchet', hold: 20, at: 'quarter' }, vang: { handler: 'cam', n: 12, at: 'deck' }, cunn: { handler: 'cam', n: 4, size: 'micro', at: 'deck' },
+    outhaul: { handler: 'cam', n: 4, size: 'micro', at: 'deck' }, backstay: { handler: 'cam', n: 16, at: 'deck' }, jibHalyard: { handler: 'cam', n: 2, at: 'deck' }, tackLine: { handler: 'cam', at: 'deck' } },
   sails: [
     { key: 'main', kind: 'boom', area: 179.9 * SQFT, luff: 28.9 * FT, foot: 12.45 * FT, head: 0.5, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
       cd0: 0.06, ARe: 4.8, min: 1.5 * DEG, max: 78 * DEG, trav: [-6 * DEG, 12 * DEG], Iboom: 40, boomMass: 12, reefs: 0,
@@ -43,7 +48,7 @@ export default {
   hull: { color: 0xf5f6f4, stripe: 0x14305a, deck: 0xdfe1e1, boot: 0x14305a, bootTop: 0x14305a, levels: [0.03, 0.06, 0.06, 0.035] },
   sailcloth: { cloth: 0x3b3e44, kind: 'laminate', num: '#f2f2ee', logo: '#f2f2ee', trans: 0.1, rough: 0.4 },
   insignia: '24',
-  lines: {
+  offsets: {
     sheer: [[0, 0.58], [0.4, 0.6], [0.75, 0.66], [1, 0.76]],
     deck: [[0, 0.86], [0.15, 0.93], [0.45, 1.0], [0.7, 0.88], [0.88, 0.55], [0.97, 0.18], [1, 0.03]],
     wl: [[0, 0.72], [0.4, 0.86], [0.75, 0.74], [0.93, 0.42], [1, 0.2]],

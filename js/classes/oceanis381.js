@@ -29,7 +29,12 @@ export default {
   mastX: 1.55, mastHeight: 16.6, boomZ: 2.55, mastR: 0.1, keelBulb: false,
   targetHeel: 17 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 3200, reefTime: 30,
   // saildrive: Yanmar 3JH5E (29.4 kW at 3,000 rpm) on an SD60 leg (2.49:1), 3-blade folding 17 x 12 in prop
-  engine: { type: 'saildrive', kW: 40 * HP, rpmMax: 3000, gear: 2.49, prop: { D: 0.43, P: 0.3, Z: 3, folding: true, rh: true }, pos: [-2.6, 0, -0.95], shaftAngle: 0, tiltable: false },
+  engine: { type: 'saildrive', model: 'Yanmar 3JH5E on an SD60', kW: 40 * HP, rpmMax: 3000, rpmIdle: 850, cyl: 3, fuel: 'diesel', gear: 2.49,
+    prop: { D: 0.43, P: 0.3, Z: 3, BAR: 0.45, folding: true, rh: 1 }, pos: [-2.6, 0, -0.95], mount: [-2.35, 0, 0.05], mass: 190, inMass: true,
+    shaftAngle: 0, exhaust: [-5.45, 0.9, 0.35] },
+  lines: { main: { handler: 'clutch', n: 4, winch: 'cabin', at: 'cabin' }, jib: { handler: 'selfTailer', at: 'winch' },
+    vang: { handler: 'clutch', n: 6, winch: 'cabin', at: 'cabin' }, cunn: { handler: 'clutch', n: 2, winch: 'cabin', at: 'cabin' }, outhaul: { handler: 'clutch', n: 1, winch: 'cabin', at: 'cabin' },
+    backstay: { handler: 'cam', n: 4, at: 'deck' }, jibHalyard: { handler: 'clutch', winch: 'cabin', at: 'cabin' } },
   sails: [
     // in-mast furling: no battens, a hollow leech; it reefs by rolling into the mast
     { key: 'main', kind: 'boom', area: 30.0, luff: 13.7, foot: 4.75, head: 0.2, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG, roach: -0.02,
@@ -41,7 +46,7 @@ export default {
   hull: { color: 0xf5f6f4, stripe: 0x3b4450, deck: 0xdcdcd6, boot: 0x2c3036, bootTop: 0x3b4450, levels: [0.05, 0.12, 0.1, 0.06] },
   sailcloth: { cloth: 0xf1f1ec, kind: 'dacron', num: '#1d2a44', logo: '#1d2a44', trans: 0.28, rough: 0.55 },
   insignia: '38.1',
-  lines: {
+  offsets: {
     sheer: [[0, 1.2], [0.3, 1.26], [0.6, 1.34], [0.85, 1.42], [1, 1.47]],
     deck: [[0, 0.9], [0.1, 0.95], [0.4, 1.0], [0.65, 0.95], [0.85, 0.72], [0.96, 0.4], [1, 0.12]],
     wl: [[0, 0.78], [0.35, 0.88], [0.65, 0.84], [0.88, 0.62], [1, 0.25]],

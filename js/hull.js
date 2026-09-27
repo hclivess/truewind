@@ -31,7 +31,7 @@ const HULL_PARAMS = {
 
 // Lines of one hull. depthScale lets the hydrostatic calibration match the real displacement.
 export function linesFor(C, depthScale = C._depthScale ?? 1) {
-  if (C.lines) return offsetLines(C, depthScale);
+  if (C.offsets) return offsetLines(C, depthScale);
   const H = HULL_PARAMS[C.id] || HULL_PARAMS.sportboat;
   const B = (C.hullBeam ?? C.beam) / 2, F = C.freeboard, D = C.canoeDraft * depthScale;
   const bDeck = (t) => B * (t < H.tm ? lerp(H.tr, 1, Math.sin(t / H.tm * Math.PI / 2) ** 0.85) : Math.pow(Math.max(0, Math.cos(Math.min(1, (t - H.tm) / (1 - H.tm)) * Math.PI / 2)), H.be));
@@ -71,7 +71,7 @@ export function curveOf(tab) {
   };
 }
 
-// Lines from a table of offsets (classes that carry C.lines, taken off the published lines and profile drawings).
+// Lines from a table of offsets (classes that carry C.offsets, taken off the published lines and profile drawings).
 // Each is a list of [t, value] rows along the hull (t: 0 at sternX .. 1 at bowX):
 //   sheer  height of the sheer above the DWL (m)            deck   deck half-breadth / (beam / 2)
 //   wl     half-breadth at the turn of the bilge / deck half-breadth
@@ -86,7 +86,7 @@ export function curveOf(tab) {
 // The section has the same number of points at every station (fin points collapse onto the keel where there is
 // no fin), so the renderer can loft it and the hydrostatics can clip it.
 function offsetLines(C, ds) {
-  const L = C.lines, B = (C.hullBeam ?? C.beam) / 2;
+  const L = C.offsets, B = (C.hullBeam ?? C.beam) / 2;
   const sheer = curveOf(L.sheer), deck = curveOf(L.deck), wl = curveOf(L.wl ?? 0.9), keel = curveOf(L.keel);
   const bilge = curveOf(L.bilge ?? 2.2), dead = curveOf(L.dead ?? 0.3), flare = curveOf(L.flare ?? 0.7), tumble = curveOf(L.tumble ?? 0);
   const fin = L.fin ? curveOf(L.fin) : null, finW = curveOf(L.finW ?? 0.12), finT = L.fin ? [L.fin[0][0], L.fin[L.fin.length - 1][0]] : null;
@@ -178,10 +178,15 @@ function buildStations(C, nStations) {
 //   heave: boat origin height (m, + up); pitch: bow-up (rad); phi: heel (+ starboard down)
 //   etaAt(x): water height at body station x; slopeLatAt(x): d(eta)/d(starboard); slopeAlongAt(x): d(eta)/d(forward)
 // Returns immersed volume and its moments, Froude-Krylov wave forces, wetted girth-length and
-// the dynamic waterline length.
-function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt) {
-  const cp = Math.cos(phi), sp = Math.sin(phi);
+// the dynamic waterline length. Strip theory for the wave loads: each section's immersed volume times the
+// water's pressure gradient there, -grad p / rho = g grad eta at the surface (Froude-Krylov), and times the
+// orbital acceleration (accAt(x, o): o.a along, o.l to starboard, o.v up) for the diffraction (added-mass)
+// part, both decaying as e^{k z} to the section's centroid depth (k = ka, the acceleration spectrum's mean).
+// (FA*: sum vol a; FAn, FAm: its moments about x = 0 (yaw, pitch); FAk: the lateral part's roll moment arm.)
+function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt, accAt, ka = 0) {
+  const cp = Math.cos(phi), sp = Math.sin(phi), ac = ACC;
   let V = 0, My = 0, Mx = 0, girthLen = 0, xmin = 1e9, xmax = -1e9, FKx = 0, FKy = 0, FKn = 0;
+  let FAx = 0, FAy = 0, FAn = 0, FAz = 0, FAm = 0, FAk = 0;
   const Vh = out.Vh || (out.Vh = [0, 0]); Vh[0] = 0; Vh[1] = 0;
   let deckSub = 0;
   for (const st of stations) {
@@ -202,13 +207,20 @@ function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, sl
     Mx += vol * st.x;
     girthLen += girth * st.dx;
     xmin = Math.min(xmin, st.x - st.dx / 2); xmax = Math.max(xmax, st.x + st.dx / 2);
-    if (slopeAlongAt) { const sa = slopeAlongAt(st.x); FKx -= vol * sa; FKy -= vol * sl; FKn -= vol * sl * st.x; }
+    const dec = ka > 0 ? Math.exp(ka * Math.min(0, -yc * sp + zc * cp - zw)) : 1;   // e^{k z} at the centroid
+    if (slopeAlongAt) { const sa = slopeAlongAt(st.x), vd = vol * dec; FKx -= vd * sa; FKy -= vd * sl; FKn -= vd * sl * st.x; }
+    if (accAt) {
+      accAt(st.x, ac); const vd = vol * dec;
+      FAx += vd * ac.a; FAy += vd * ac.l; FAn += vd * ac.l * st.x; FAz += vd * ac.v; FAm += vd * ac.v * st.x; FAk += vd * ac.l * zc;
+    }
   }
   out.V = V; out.My = My; out.Mx = Mx; out.girthLen = girthLen; out.lwl = xmax > xmin ? xmax - xmin : 0;
   out.FKx = FKx; out.FKy = FKy; out.FKn = FKn; out.deckSub = deckSub;
+  out.FAx = FAx; out.FAy = FAy; out.FAn = FAn; out.FAz = FAz; out.FAm = FAm; out.FAk = FAk;
   return out;
 }
 
+const ACC = { a: 0, l: 0, v: 0 };
 // Where the local water surface cuts each station's section: [x, y1, z1, y2, z2, ...] per station
 function waterlineStations(stations, heave, pitch, phi, etaAt, slopeLatAt) {
   const cp = Math.cos(phi), sp = Math.sin(phi), out = [];
@@ -238,8 +250,8 @@ export class HullHydro {
     const r = this.immerse(0, 0, 0, () => 0, () => 0, {});
     this.restWetted = r.girthLen; this.restLwl = Math.max(0.5, r.lwl); this.restV = r.V;
   }
-  immerse(heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt = null) {
-    return immerseStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt);
+  immerse(heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt = null, accAt = null, ka = 0) {
+    return immerseStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt, accAt, ka);
   }
   waterline(heave, pitch, phi, etaAt, slopeLatAt) { return waterlineStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt); }
 }
