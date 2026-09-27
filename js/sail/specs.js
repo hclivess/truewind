@@ -56,6 +56,7 @@ export function clothMaterial(C, s) {
 export function battens(C, s) {
   if (s.battens) return s.battens;
   if (s.key !== 'main') return { EI: 0, rows: [] };
+  if (C.battens) return C.battens;                                   // (a class that gives its own)
   if (C.id === 'cat') return { EI: 15, full: true, rows: [0.14, 0.28, 0.42, 0.56, 0.7, 0.84] };
   if (C.id === 'blackwatch') return { EI: 3, full: false, rows: [0.3, 0.52, 0.74] };
   return { EI: 3, full: false, rows: [0.25, 0.5, 0.75] };

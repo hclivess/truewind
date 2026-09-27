@@ -94,6 +94,25 @@ float sfbmA(vec2 p, float w){ float v; return sfbmV(p, w, v); }
 // of the same centre, its spread (sd 0.447 h) widened by u's. The pixel shows the mean foam cover of what it
 // spans, not a threshold of the mean (which paints sharp blobs that thin out and vanish with distance)
 float ssV(float c, float h, float x, float v){ float H = sqrt(h * h + 5.0 * v); return smoothstep(c - H, c + H, x); }
+// Aerated white water of cover c (1: fresh and dense; toward 0: old and thinning) at noise coordinates p
+// (footprint w, in p units). Patches of a domain-warped fbm (the warp folds its cells into ragged, self-similar
+// clumps and filaments) with bubbly edges (a fine grain on the threshold, not a soft grey ramp), thinning as c
+// falls into lace — the ridges of a finer warped fbm, and then only their filaments — as the foam ages and its
+// bubbles burst. Detail finer than the pixel goes to its mean and variance (ssV), so far foam is its mean cover.
+float aerated(vec2 p, float w, float c) {
+  vec2 q = p + 1.3 * (vec2(sfbmA(p * 0.4 + vec2(1.7, 9.2), w * 0.4), sfbmA(p * 0.4 + vec2(8.3, 2.8), w * 0.4)) - 0.5);
+  float vn, vm, vd, n = sfbmV(q, w, vn), m = sfbmV(q * 2.3 + vec2(4.4, 1.9), w * 2.3, vm);
+  // (and the same again six times finer: foam is self-similar down to the bubbles)
+  float d = sfbmV(q * 6.1 + vec2(9.9, 2.2), w * 6.1, vd) - 0.5; n += 0.4 * d; m += 0.5 * d; vn += 0.16 * vd; vm += 0.25 * vd;
+  float gk = smoothstep(0.8, 0.3, w * 25.0), g = mix(0.5, qn(q * 25.0 + vec2(7.7, 3.3)), gk), vg = 0.053 * (1.0 - gk * gk) * 0.02;
+  float ridge = 1.0 - abs(2.0 * m - 1.03);
+  float clump = ssV(0.84 - 0.6 * c, 0.035, n + 0.25 * (g - 0.5), vn + 3.2 * vg);
+  // (the lace fringes the clumps, where the old foam of their edges is bursting: not contour lines everywhere)
+  float lace = ssV(0.9 - 0.3 * c, 0.05, ridge + 0.21 * (g - 0.5), 4.0 * vm + 2.3 * vg) * smoothstep(0.02, 0.2, c) * ssV(0.66 - 0.5 * c, 0.08, n, vn);
+  // (dense foam is not a sheet either: the water shows through its finest grooves)
+  float r2 = 1.0 - abs(2.0 * d - 0.03), k2 = smoothstep(0.8, 0.3, w * 6.1);
+  return max(clump * mix(0.86, 0.72 + 0.28 * smoothstep(0.25, 0.75, r2), k2), lace * 0.75);
+}
 // the pixel's footprint on the water, an ellipse (eR: semi-axis along the line of sight, stretched by
 // 1/sin of the grazing angle; eT: across it): its extent along a direction d...
 float fpAlong(vec2 d, vec2 eR, vec2 eT){ return length(vec2(dot(d, eR), dot(d, eT))); }
@@ -376,6 +395,11 @@ export class Renderer {
           }
           // a breaking crest: its lean steepens the front face (WaveField._lean); lb.w, its intensity
           vec4 lb = leanB(e1, eH, -n.xz, Tj, vBreak);
+          // the breaking crest's phase from the analytic signal (pi/2 at the crest, 0 halfway down the front
+          // face, < 0 ahead of it) and, along the crest, how it varies: where it breaks harder, where the roller
+          // runs further down the face (so no two stretches of a breaking crest look alike)
+          float phB = atan(e1, -eH), acrB = dot(x0, vec2(-uDm.y, uDm.x)) * max(uBrk.x, 1e-3);
+          float alB = qn(vec2(acrB * 0.7, 3.3)), phJ = phB + 0.35 * (qn(vec2(acrB * 1.9, 8.1)) - 0.5);
           n.y = max(n.y + lb.z, 0.05);
           // slope of eta2 = K2 (eta^2 - H^2 + Q-self): n.xz here is minus the first-order slope
           n.xz -= uK2 * (-2.0 * e1 * n.xz + 2.0 * eH * gH + g2);
@@ -516,6 +540,10 @@ export class Renderer {
           float face = clamp(0.35 + dot(n.xz, V.xz) * 2.5, 0.0, 1.0);        // the face tilted toward you is thin
           vec3 sssCol = vec3(0.07, 0.42, 0.36);
           vec3 sss = sssCol * thin * (uSunCol * back * face * 0.9 * (1.0 - 0.85 * uOvercast) * shadow * step(0.0, L.y) + uAmbF * 0.10);
+          // the lip of a breaking crest, thrown forward and thinned to a translucent sheet: turquoise light through
+          // it (from the sky, and far more with the sun behind it), between the torn foam on it
+          float lip = lb.w * smoothstep(0.25, 0.7, lb.w) * smoothstep(0.65, 0.95, phJ) * (1.0 - smoothstep(1.3, 1.55, phJ));   // (only where it really breaks)
+          sss += vec3(0.04, 0.30, 0.25) * lip * (uAmbF * 0.35 + uSunCol * (0.2 + 1.6 * back) * (1.0 - 0.8 * uOvercast) * shadow * step(0.0, L.y));
           vec3 col = mix(body + sss, refl, F) + uSunCol * spec * 1.5;
           // ---- whitecaps and foam, Beaufort coverage from the wind (Monahan: W = 3.84e-6 U^3.41), placed
           // on the steepest crests: a z-score of crest compression (1 - Jacobian) against its local spread
@@ -535,7 +563,7 @@ export class Renderer {
           float fq = fpQ(vec2(0.28, 0.6), eRf, eT, fl, pr), v1, v2;
           float f1 = sfbmV(q, fq, v1), f2 = sfbmV(q * 3.1 + 7.1, fq * 3.1, v2);
           float lace = ssV(0.5, 0.18, f1 * 0.6 + f2 * 0.4, 0.36 * v1 + 0.16 * v2);
-          float foam = 0.0;
+          float foam = 0.0, foamFlat = 0.0;       // foam on the crests (whitecaps, breakers) and lying flat (streaks, old foam)
           // persistent foam around the player (the foam pass: whitecaps and wakes that linger, drift and
           // gather into windrows): dense while fresh, thinning to a lace of bubbles as it decays
           float pm = 0.0, pers = 0.0;
@@ -558,8 +586,8 @@ export class Renderer {
             }
             if (lodF > -0.5) PP = mix(PP, textureLod(uFoam, fuv, max(lodF, 0.0)).rg, clamp(lodF + 0.5, 0.0, 1.0));
             float P = max(PP.x, min(1.0, PP.y * 1.5));                         // whitecap foam, wake foam (shows sooner)
-            float det = f1 * 0.45 + f2 * 0.35 + lace * 0.2;
-            pers = ssV(1.0 - 0.7 * P, 0.1, det, 0.2 * v1 + 0.12 * v2) * min(1.0, P * 2.0) * 0.85 * pm;
+            // (aerated: fresh foam dense, thinning into lace and filaments as it decays)
+            pers = P > 0.003 ? aerated(q * 1.8 + vec2(3.3, 7.1), fq * 1.8, max(0.4 * PP.x, min(1.0, PP.y * 1.2))) * 0.9 * pm : 0.0;   // (a wake's churn stays dense longer)
           }
           #endif
           // gale streak rows: across-wind coordinate, meandering (and its change per pixel, outside any branch)
@@ -569,31 +597,82 @@ export class Renderer {
             float zA = invTail(0.4 * Wc);                                      // active breaking crests
             // (the crests a pixel cannot resolve still break: their variance zv.y widens the threshold, so a
             // far crest carries its share of the whitecaps and the flat far sea the mean of them all)
-            // (a crest far past the threshold, a rogue's, is still torn foam and not paint: its excess is capped)
-            float act = ssV(zA + 0.125, 0.275, min(zc, zA + 0.55) + (f1 - 0.5) * 1.1, zv.y + 1.21 * v1) * (0.5 + 0.5 * lace);
+            // (their cover, and the whitecap itself aerated white water, dense where it breaks hardest and lacy at
+            // its edges: a crest far past the threshold, a rogue's, is still torn foam and not paint)
+            float cw = ssV(zA + 0.1, 0.35, min(zc, zA + 0.9) + (f1 - 0.5) * 1.2 + (f2 - 0.5) * 0.5, zv.y + 1.44 * v1 + 0.25 * v2);   // (in patches along a crest, not along all of it)
+            float act = cw > 0.003 ? aerated(q, fq, 0.5 * cw) : 0.0;                 // (aerated's cover is ~1.2 c)
             // residual foam: thinning lace around the crests, and (beyond the foam pass) patches of old foam
             float vb, big = sfbmV(sw * vec2(0.02, 0.05) + vec2(0.0, 3.3), fpQ(vec2(0.02, 0.05), eRf, eT, fl, pr), vb);
             float thrB = 0.5 + 0.12 * invTail(clamp(0.6 * Wc, 1e-4, 0.5));
             float resid = max(ssV(zA - 0.3, 0.3, zc, zv.y), ssV(thrB + 0.025, 0.055, big, vb) * (1.0 - pm)) * 0.35 * lace;
-            // gale: foam blown into streaks along the wind (Beaufort 8 and up) — windrows ~9 m apart that
-            // meander, break into runs tens of metres long, each run its own width; box-filtered across the
-            // pixel, so a far streak fades with its width instead of staying a bright hairline
-            float st = smoothstep(13.0, 24.0, lw);
-            float row = floor(ya / 9.0), fy = ya - 9.0 * (row + 0.3 + 0.4 * hash(vec2(row, 3.7)));
-            float rh = hash(vec2(row, 1.9)) * 97.0 + 0.5;                      // this row's own noise (off the lattice)
-            float fx = fpAlong(fl, eRf, eT), k1 = smoothstep(0.8, 0.3, fx * 0.03), k2 = smoothstep(0.8, 0.3, fx * 0.02), k3 = smoothstep(0.8, 0.3, fx * 0.08);
-            float hur = smoothstep(25.0, 34.0, lw);                            // hurricane: streaks broaden and merge
-            float wdt = (0.3 + 1.2 * mix(0.5, qn(vec2(sw.x * 0.03, rh)), k1)) * (1.0 + 0.3 * hur);   // half-width, m
-            // runs tens of metres long with gaps, beaded with thicker clots every 10-20 m (filtered along the wind)
-            float run = ssV(0.575, 0.125, mix(0.5, qn(vec2(sw.x * 0.02, rh + 0.5)), k2), 0.053 * (1.0 - k2 * k2))
-                      * (0.35 + 0.65 * ssV(0.5, 0.2, mix(0.5, qn(vec2(sw.x * 0.08, rh + 0.25)), k3), 0.053 * (1.0 - k3 * k3)));
-            float fw = fwY + (0.4 + 0.6 * hur) * wdt;                          // plus a soft edge
-            // once the footprint spans rows the neighbours' streaks fall in it too: their mean cover
-            float line = mix(clamp((min(fy + 0.5 * fw, wdt) - max(fy - 0.5 * fw, -wdt)) / fw, 0.0, 1.0), 2.0 * wdt / 9.0, smoothstep(3.0, 9.0, fwY)) * run;
-            float streak = st * line * ssV(0.55, 0.25, f2, v2) * (0.4 + 0.6 * lace);
-            foam = max(act * (0.7 + 0.3 * f2), max(resid, streak * (0.55 + 0.1 * hur)));
+            // gale: foam blown into streaks along the wind (Beaufort 8 and up): narrow lines, rows ~9 m apart (and
+            // from Beaufort 9 a second, fainter family between them) that meander; each line wanders a little
+            // along its length, varies in width (a hand's breadth to a metre), and is beaded and broken by warped
+            // noise into runs, clots and gaps of 2-30 m, its edges bubbly. Filtered across the pixel (a far line
+            // spreads and dims, keeping its cover) and along the wind (a far run is its mean density)
+            float st = smoothstep(13.0, 24.0, lw), hur = smoothstep(25.0, 34.0, lw);
+            float fx = fpAlong(fl, eRf, eT), streak = 0.0;
+            #ifdef LOWQ
+            const int NFAM = 1;
+            #else
+            const int NFAM = 2;
+            #endif
+            for (int fam = 0; fam < NFAM; fam++) {
+              if (st <= 0.0) break;
+              float sp = fam == 0 ? 9.0 : 5.3, amp = fam == 0 ? 1.0 : 0.6 * smoothstep(17.0, 24.0, lw);
+              if (amp <= 0.0) break;
+              float yb = ya + (fam == 0 ? 0.0 : 2.9);
+              float row = floor(yb / sp), fy = yb - sp * (row + 0.3 + 0.4 * hash(vec2(row, 3.7 + float(fam))));
+              float rh = hash(vec2(row, 1.9 + float(fam))) * 97.0 + 0.5;          // this line's own noise (off the lattice)
+              float kw1 = smoothstep(0.8, 0.3, fx * 0.07), kw2 = smoothstep(0.8, 0.3, fx * 0.3);
+              float wob = 0.9 * (mix(0.5, qn(vec2(sw.x * 0.07, rh + 1.3)), kw1) - 0.5) + 0.3 * (mix(0.5, qn(vec2(sw.x * 0.3, rh + 2.1)), kw2) - 0.5);
+              float fy2 = fy - wob, wq = mix(0.5, qn(vec2(sw.x * 0.04, rh)), smoothstep(0.8, 0.3, fx * 0.04));
+              float wdt = (0.06 + 0.3 * wq * wq) * (1.0 + 0.5 * hur);              // half-width, m
+              float we = sqrt(wdt * wdt + 0.36 * fwY * fwY);
+              float prof = exp(-fy2 * fy2 / (we * we)) * wdt / we;
+              float vd, wx = sfbmA(vec2(sw.x * 0.05 + 3.1, rh * 1.7), fx * 0.05) - 0.5;
+              float d = sfbmV(vec2(sw.x * 0.12 + 2.0 * wx, rh * 2.3 + fy2 * 0.4), fx * 0.12, vd);
+              float kg = smoothstep(0.8, 0.3, fx * 1.1), gr = mix(0.5, qn(vec2(sw.x * 1.1 + 5.0, fy2 * 1.1 + rh)), kg);
+              float vd2, d2 = sfbmV(vec2(sw.x * 0.45 + 7.0, rh * 3.1 + fy2 * 1.3), fx * 0.45, vd2);   // broken again at 1-3 m
+              float dens = ssV(0.55 - 0.05 * hur, 0.05, 0.7 * d + 0.3 * d2 + 0.1 * (gr - 0.5), 0.49 * vd + 0.09 * vd2 + 0.053 * 0.01 * (1.0 - kg * kg));
+              float runs = 0.6 + 0.4 * ssV(0.5, 0.2, sfbmA(vec2(sw.x * 0.02, rh + 0.5), fx * 0.02), 0.0);
+              // once the footprint spans rows the neighbours' lines fall in it too: their mean cover
+              float mean = 1.77 * wdt / sp * 0.5 * 0.8;
+              // (the line itself bubbly, clotted and holed along its core, not a glossy ribbon: a fine grain on it)
+              float vb2, bub = sfbmV(vec2(sw.x * 0.6, fy2 * 1.2 + rh * 3.7), max(fx * 0.6, fwY * 1.2), vb2);
+              float cS = prof * dens * runs, sf = cS * (0.45 + 0.55 * ssV(0.47, 0.1, bub, vb2));
+              streak = max(streak, amp * mix(sf, mean, smoothstep(0.5 * sp, sp, fwY)));
+            }
+            streak *= st * (0.55 + 0.45 * lace);
+            // (a breaking crest churns the streaks it runs over into its own white water, and a steep compressed
+            // face tears them up: they lie on the gentler slopes between)
+            foam = max(act, resid); foamFlat = streak * (0.8 + 0.2 * hur) * (1.0 - smoothstep(0.05, 0.35, lb.w)) * smoothstep(0.35, 0.75, J);
           }
-          foam = max(foam, pers);
+          foamFlat = max(foamFlat, pers);
+          // depth-limited breaking on real bathymetry
+          foam = max(foam, ssV(1.125 - vBreak * 0.9, 0.125, f1 * 0.7 + f2 * 0.3, 0.49 * v1 + 0.09 * v2) * vBreak);
+          // ---- a breaking crest: white water by the wave's phase, so it rides the crest rather than the water:
+          // a dense roller over the crest's top, the translucent lip ahead of it torn by foam, the plunge where
+          // the jet lands a little down the face, exploding white and pouring down to there, but no further (the
+          // broken water rides with the crest; nothing breaks ahead of it); behind the crest the foam it has left,
+          // thinning into lace over the back of the wave. Its texture is fixed in the water (metres across the
+          // crest and along it, a little stretched along it), churning with time; the
+          // whole varies along the crest (alB, phJ)
+          float fshade = 1.0;
+          if (lb.w > 0.01) {
+            float kb = max(uBrk.x, 1e-3), sc = kb * 5.0;
+            float roll = 0.85 * smoothstep(1.25, 1.5, phJ) * (1.0 - smoothstep(1.9, 2.15, phJ));
+            float lipc = 0.35 * smoothstep(0.6, 0.9, phJ) * (1.0 - smoothstep(1.4, 1.6, phJ));
+            float plng = 0.75 * smoothstep(0.15, 0.45, phJ) * (1.0 - smoothstep(0.65, 0.95, phJ));
+            float cov = max(max(roll, 0.35 * smoothstep(3.2, 2.0, phJ) * smoothstep(1.6, 1.9, phJ)), max(lipc, plng)) * (0.65 + 0.35 * alB) * lb.w;
+            // (a constant stretch: a scale varying with the phase, multiplying coordinates kilometres from the origin,
+            // squeezed the noise into contour lines)
+            vec2 bp = vec2(acrB * 5.0, dot(x0, uDm) * sc * 0.75 + uTime * 0.05);
+            float bw = max(fpAlong(vec2(-uDm.y, uDm.x), eRf, eT), fpAlong(uDm, eRf, eT)) * sc;   // (the footprint's long axis: no aliasing)
+            foam = max(foam, aerated(bp, bw, cov));
+            // lit and shadowed clumps: the foam is a heap, not a sheet
+            fshade = mix(1.0, 0.88 + 0.12 * smoothstep(0.3, 0.7, sfbmA(bp * 0.7 + vec2(5.5, 1.1), bw * 0.7)), smoothstep(0.1, 0.5, cov));
+          }
           #ifdef HWKELVIN
           foam = max(foam, smoothstep(0.07, 0.2, length(kwv.yz)) * smoothstep(0.0, 0.03, kwv.x) * 0.5 * lace);   // the steep crests of the wake, whitened
           #endif
@@ -601,27 +680,9 @@ export class Renderer {
           #ifndef LOWQ
           float gfp = length(eRf) * 3.0;
           float grain = sfbmA(mat2(0.8, 0.6, -0.6, 0.8) * xd * 3.0, gfp);
-          foam *= mix(1.0, smoothstep(0.25, 0.6, grain) * 1.4, 0.6 * smoothstep(0.6, 0.15, gfp));   // x1.4: its mean, 1
+          float gm = mix(1.0, smoothstep(0.25, 0.6, grain) * 1.4, 0.6 * smoothstep(0.6, 0.15, gfp));   // x1.4: its mean, 1
+          foam *= gm; foamFlat *= gm;
           #endif
-          // depth-limited breaking on real bathymetry
-          foam = max(foam, ssV(1.125 - vBreak * 0.9, 0.125, f1 * 0.7 + f2 * 0.3, 0.49 * v1 + 0.09 * v2) * vBreak);
-          // ---- a breaking crest: the roller of whitewater over its top and a little ahead, and white water
-          // cascading down its front face in streaks, sliding down as the crest runs on. Placed by the wave's
-          // phase from the analytic signal (ph: pi/2 at the crest, 0 halfway down the front face, < 0 ahead of
-          // it), so the pattern rides the crest rather than the water; across it, streaks a few % of a wavelength
-          float Ea = sqrt(e1 * e1 + eH * eH);
-          if (lb.w > 0.01 && Ea > 1e-3) {
-            float ph = atan(e1, -eH), kb = max(uBrk.x, 1e-3), acr = dot(x0, vec2(-uDm.y, uDm.x)) * kb * 30.0;
-            float wq = fpAlong(vec2(-uDm.y, uDm.x), eRf, eT) * kb * 30.0, vs;
-            float st = sfbmV(vec2(acr, ph * 1.2 - uTime * 0.5), wq, vs);                  // streaks down the face
-            float rol = smoothstep(0.85, 1.25, ph) * (1.0 - smoothstep(1.7, 2.0, ph));   // the crest's top, a little ahead
-            // (broken along their length, thinning toward the foot of the face)
-            float st2 = st * 0.7 + 0.3 * qn(vec2(acr * 0.4 + 3.1, ph * 4.0 - uTime * 1.3));
-            float cas = smoothstep(-0.3, 0.3, ph) * (1.0 - smoothstep(0.85, 1.25, ph)) * ssV(0.55 + 0.12 * (1.0 - smoothstep(0.0, 1.1, ph)), 0.08, st2, vs);
-            float bk = smoothstep(1.7, 1.9, ph) * (1.0 - smoothstep(1.9, 2.5, ph)) * lace * 0.35;   // torn foam left behind
-            float rt = ssV(0.42, 0.14, st2 * 0.6 + f1 * 0.4, vs + 0.36 * v1);                 // the roller torn into clots
-            foam = max(foam, lb.w * lb.w * min(1.0, max(rol * (0.12 + 0.88 * rt), max(cas * 0.9, bk))));
-          }
           // at a grazing angle the waves no pixel draws hide their own troughs (Smith masking, from the slope
           // variance lostF + mssSub) but not the crests that carry the foam: a sight line skims 1/G1 = 1 + L
           // of surface for each unit it sees, and sees white where any crest it grazes is white (at most 4
@@ -629,7 +690,8 @@ export class Renderer {
           float nu = abs(V0.y) / max(length(V0.xz), 1e-4) / sqrt(lostF + mssSub + 1e-4);
           float Lam = nu < 1.6 ? (1.0 - 1.259 * nu + 0.396 * nu * nu) / (3.535 * nu + 2.181 * nu * nu) : 0.0;
           foam = 1.0 - pow(1.0 - clamp(foam, 0.0, 0.99), min(1.0 + Lam, 4.0));
-          vec3 foamCol = vec3(0.9, 0.94, 0.96) * (uAmbF * (0.72 + 0.2 * shadow) + uSunCol * 0.25 * NdL * shadow);
+          foam = max(foam, foamFlat);             // (foam lying flat is not heaped on the crests the sight line grazes)
+          vec3 foamCol = vec3(0.9, 0.94, 0.96) * fshade * (uAmbF * (0.72 + 0.2 * shadow) + uSunCol * 0.25 * NdL * shadow);
           col = mix(col, foamCol, clamp(foam, 0.0, 0.92));
           // shoreline surf
           if (uHasMap > 0.5) {
@@ -717,8 +779,10 @@ export class Renderer {
           // Langmuir windrows: cross-wind convergence onto the water shader's streak lines (same rows)
           float ya = sw.y + 14.0 * (qn(sw * vec2(0.005, 0.012)) - 0.5) + 4.0 * (qn(sw * vec2(0.025, 0.05) + 5.0) - 0.5);
           float row = floor(ya / 9.0), fy = ya - 9.0 * (row + 0.3 + 0.4 * hash(vec2(row, 3.7)));
-          vec2 v = uDrift - pr * uLang * clamp(fy / 3.0, -1.0, 1.0);
-          float conv = abs(fy) < 3.0 ? uLang / 3.0 : 0.0;
+          // (the cells are not uniform along a row: they gather foam in runs tens of metres long, with gaps)
+          float rh = hash(vec2(row, 1.9)) * 97.0 + 0.5, lz = smoothstep(0.35, 0.65, sfbmA(vec2(sw.x * 0.025, rh), 0.0));
+          vec2 v = uDrift - pr * uLang * lz * clamp(fy / 3.0, -1.0, 1.0);
+          float conv = abs(fy) < 3.0 ? uLang * lz / 3.0 : 0.0;
           // carried foam (semi-Lagrangian), spreading (the wake, r g, faster: its turbulence widens it);
           // nothing comes in from beyond the map
           vec2 uv = (p - v * uDt - uCp) / uFoamS + 0.5, e = vec2(uTexel, 0.0);
