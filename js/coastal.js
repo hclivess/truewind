@@ -488,7 +488,7 @@ export function buildCoastal(inp) {
         fmm(M, cs, kg, blocked, Sr);
         for (let k = 0; k < N; k++) Kr[k] = Sr[k] < Infinity ? Math.min(2, Math.sqrt(Er[k])) : 0;
         const lay = new Float32Array(Nr * 4);
-        halfPlanes(lay, M, R, blocked, Sr, Kr);
+        halfPlanes(lay, M, R, blocked, Sr, Kr, -kOff * dx, -kOff * dz);
         rIdx[ci] = refL.length; refL.push(lay);
       }
     }
@@ -562,7 +562,7 @@ function landFill(M, blocked) {
   return { order: Int32Array.from(order), layer };
 }
 // reflected planes at half resolution: the phase at the coarse centre from its known fine cells' planes
-function halfPlanes(out, M, R, blocked, S, K) {
+function halfPlanes(out, M, R, blocked, S, K, gx0, gz0) {
   const Mr = M >> 1, cs = 2 * R / M, csr = 2 * cs, ok = new Uint8Array(Mr * Mr);
   for (let J = 0; J < Mr; J++) for (let I = 0; I < Mr; I++) {
     const xc = -R + (I + 0.5) * csr, zc = -R + (J + 0.5) * csr;
@@ -597,6 +597,8 @@ function halfPlanes(out, M, R, blocked, S, K) {
     for (let k = 0; k < N; k++) if (ok[k] === 2) ok[k] = 1;
     if (!any) break;
   }
+  // beyond: no reflected wave, and a plane that is at least a wave (no zero wavevector to divide by)
+  for (let k = 0; k < Mr * Mr; k++) if (!ok[k]) { out[k * 4] = 0; out[k * 4 + 1] = gx0; out[k * 4 + 2] = gz0; out[k * 4 + 3] = 0; }
 }
 
 // ---------- runtime lookups (WaveField.sample; the water shader reads the same arrays as textures) ----------

@@ -228,7 +228,7 @@ export class Renderer {
             for (int r = 0; r < 2; r++) {
               if (r == 1 && !hr) break;
               vec4 cw = r == 0 ? cstInc(i, x0) : cstRef(i, x0);
-              float kl = length(cw.yz); vec2 u = cw.yz / kl;
+              float kl = max(length(cw.yz), 1e-4); vec2 u = cw.yz / kl;
               float A = b.x * cw.w * fade * smoothstep(3.0 * spc, 6.0 * spc, 6.2832 / kl);
               float th = cw.x - a.w * uTime + b.z, C = cos(th), S = sin(th);
               D += b.y * A * u * C; Y += A * S; eH += A * C; s2 += b.y * A * A * (C * C - S * S); sK += b.y * kl * A; a2 += A * A;
@@ -285,7 +285,7 @@ export class Renderer {
             for (int r = 0; r < 2; r++) {
             if (r == 1 && !hr) break;
             vec4 cw = r == 0 ? cstInc(i, x0) : cstRef(i, x0);                // the local wave (coastal.js)
-            float kw = length(cw.yz); vec2 u = cw.yz / kw;
+            float kw = max(length(cw.yz), 1e-4); vec2 u = cw.yz / kw;
             float th = cw.x - a.w * uTime + b.z;
             float WAt = kw * b.x * cw.w * vLim.x * vShore, WA0 = WAt * vFade;
             float att = smoothstep(fp * 2.0, fp * 6.0, 6.2832 / kw);
@@ -552,7 +552,7 @@ export class Renderer {
             for (int r = 0; r < 2; r++) {
               if (r == 1 && !hr) break;
               vec4 cw = r == 0 ? cstInc(i, p) : cstRef(i, p);
-              float kw = length(cw.yz), A = b.x * cw.w, th = cw.x - a.w * uTime + b.z, S = sin(th);
+              float kw = max(length(cw.yz), 1e-4), A = b.x * cw.w, th = cw.x - a.w * uTime + b.z, S = sin(th);
               Y += A * S; eH += A * cos(th); sK += b.y * kw * A;
               float WA = kw * A * shore * smoothstep(2.0 * cell.x, 4.0 * cell.x, 6.2832 / kw);
               J += b.y * WA * S; sJ2 += b.y * b.y * WA * WA * 0.5;
