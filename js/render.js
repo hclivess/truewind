@@ -403,10 +403,11 @@ export class Renderer {
           n.y = max(n.y + lb.z, 0.05);
           // slope of eta2 = K2 (eta^2 - H^2 + Q-self): n.xz here is minus the first-order slope
           n.xz -= uK2 * (-2.0 * e1 * n.xz + 2.0 * eH * gH + g2);
-          // ---- hull waves (hullwaves.js): their slope, at the level the pixel's footprint resolves (at the
-          // drawn, Eulerian, position: the field is laid in world coordinates)
+          // ---- hull waves (hullwaves.js): their slope at full strength, filtered only by the pixel's own
+          // (anisotropic) footprint, into the normal that the reflection, Fresnel and the sun's glint all use
+          // (at the drawn, Eulerian, position: the field is laid in world coordinates)
           #ifdef HWSIM
-          vec4 hwv = hwAt(vPos.xz, max(log2(length(eRf) * 2.0 / ${(HW.L / HW.N).toFixed(4)}), 0.0));
+          vec4 hwv = hwAtA(vPos.xz);
           n.xz -= hwv.yz;
           #endif
           #ifdef HWKELVIN
@@ -434,7 +435,7 @@ export class Renderer {
           #endif
           #ifndef LOWQ
           { vec2 suv = (x0 - uFoamC) / uFoamS + 0.5;
-            hwMod *= 1.0 - 0.8 * uFoamOn * textureLod(uFoam, suv, 1.0).b * (1.0 - smoothstep(0.4, 0.49, max(abs(suv.x - 0.5), abs(suv.y - 0.5)))); }
+            hwMod *= 1.0 - 0.85 * uFoamOn * textureLod(uFoam, suv, 1.0).b * (1.0 - smoothstep(0.4, 0.49, max(abs(suv.x - 0.5), abs(suv.y - 0.5)))); }
           #endif
           wk *= hwMod;
           float Cd = 0.0, sd2 = 0.0, sdR = 0.0, sdT = 0.0, wl = uLmin;
@@ -544,6 +545,44 @@ export class Renderer {
           // it (from the sky, and far more with the sun behind it), between the torn foam on it
           float lip = lb.w * smoothstep(0.25, 0.7, lb.w) * smoothstep(0.65, 0.95, phJ) * (1.0 - smoothstep(1.3, 1.55, phJ));   // (only where it really breaks)
           sss += vec3(0.04, 0.30, 0.25) * lip * (uAmbF * 0.35 + uSunCol * (0.2 + 1.6 * back) * (1.0 - 0.8 * uOvercast) * shadow * step(0.0, L.y));
+          // ---- the persistent foam map (read once: whitecap foam, wake foam, -, the wake's aeration)
+          float pm = 0.0; vec4 PP = vec4(0.0);
+          #ifndef LOWQ
+          vec2 fuv = (x0 - uFoamC) / uFoamS + 0.5;
+          pm = uFoamOn * (1.0 - smoothstep(0.36, 0.48, max(abs(fuv.x - 0.5), abs(fuv.y - 0.5))));
+          if (pm > 0.0) {
+            // cubic B-spline read (4 bilinear taps): plain bilinear leaves its texel creases in the thresholded
+            // foam as straight edges and diamonds
+            // foam, and once a texel is smaller than the footprint the map's mip level for it (a texel's
+            // mean, not whichever texel the pixel centre hits); explicit levels, as the taps jump per texel
+            float lodF = log2(max(length(eRf) * ${FOAM_N}.0 / uFoamS, 1e-3));
+            if (lodF < 0.5) {
+              vec2 tp = fuv * ${FOAM_N}.0 - 0.5, ti = floor(tp), tf = tp - ti, tf2 = tf * tf, tf3 = tf2 * tf;
+              vec2 w0 = (1.0 - 3.0 * tf + 3.0 * tf2 - tf3) / 6.0, w1 = (4.0 - 6.0 * tf2 + 3.0 * tf3) / 6.0, w3 = tf3 / 6.0, g0 = w0 + w1, g1 = 1.0 - g0;
+              vec2 h0 = (ti - 0.5 + w1 / g0) / ${FOAM_N}.0, h1 = (ti + 1.5 + w3 / g1) / ${FOAM_N}.0;
+              PP = g0.y * (g0.x * textureLod(uFoam, h0, 0.0) + g1.x * textureLod(uFoam, vec2(h1.x, h0.y), 0.0))
+                 + g1.y * (g0.x * textureLod(uFoam, vec2(h0.x, h1.y), 0.0) + g1.x * textureLod(uFoam, h1, 0.0));
+            }
+            if (lodF > -0.5) PP = mix(PP, textureLod(uFoam, fuv, max(lodF, 0.0)), clamp(lodF + 0.5, 0.0, 1.0));
+            PP *= pm;
+          }
+          // ---- a wake's bubble cloud: aerated water under the surface, not paint on it. Bubbles backscatter,
+          // so the water body turns a bright green-turquoise, whiter where the void fraction is highest,
+          // translucent (the sea's reflection stays over it) and streaky with the turbulence. Fresh behind
+          // a transom it is nearly white; within a boat length or two (3-5 s) it has faded to a pale green
+          // lane, then to nothing
+          if (PP.w > 0.02) {
+            vec2 xa = x0 - uFoamOff;
+            float va, na = sfbmV(xa * 0.9 + 4.1, length(eRf) * 0.9, va), vb2, nb = sfbmV(xa * 2.7 - 1.3, length(eRf) * 2.7, vb2);
+            float a = PP.w * (0.6 + 0.55 * na + 0.35 * (nb - 0.5));
+            vec3 lit = uAmbF * (0.62 + 0.25 * shadow) + uSunCol * (0.2 + 0.25 * NdL) * shadow;
+            vec3 bub = mix(vec3(0.16, 0.46, 0.44), vec3(0.62, 0.78, 0.76), smoothstep(0.35, 1.2, a)) * lit;
+            body = mix(body, bub, clamp(0.85 * smoothstep(0.08, 0.8, a), 0.0, 0.9));
+            sss *= 1.0 - clamp(a, 0.0, 1.0);
+            // the churned surface at the freshest part: froth, broken up
+            PP.y = max(PP.y, smoothstep(0.55, 1.3, a) * 0.9);
+          }
+          #endif
           vec3 col = mix(body + sss, refl, F) + uSunCol * spec * 1.5;
           // ---- whitecaps and foam, Beaufort coverage from the wind (Monahan: W = 3.84e-6 U^3.41), placed
           // on the steepest crests: a z-score of crest compression (1 - Jacobian) against its local spread
@@ -564,30 +603,27 @@ export class Renderer {
           float f1 = sfbmV(q, fq, v1), f2 = sfbmV(q * 3.1 + 7.1, fq * 3.1, v2);
           float lace = ssV(0.5, 0.18, f1 * 0.6 + f2 * 0.4, 0.36 * v1 + 0.16 * v2);
           float foam = 0.0, foamFlat = 0.0;       // foam on the crests (whitecaps, breakers) and lying flat (streaks, old foam)
-          // persistent foam around the player (the foam pass: whitecaps and wakes that linger, drift and
-          // gather into windrows): dense while fresh, thinning to a lace of bubbles as it decays
-          float pm = 0.0, pers = 0.0;
+          // persistent foam around the player (the foam pass: whitecaps that linger, drift and gather into
+          // windrows; a wake's lace): dense while fresh, thinning to a lace of bubbles as it decays
+          float pers = 0.0;
           #ifndef LOWQ
-          vec2 fuv = (x0 - uFoamC) / uFoamS + 0.5;
-          pm = uFoamOn * (1.0 - smoothstep(0.36, 0.48, max(abs(fuv.x - 0.5), abs(fuv.y - 0.5))));
           if (pm > 0.0) {
-            // cubic B-spline read (4 bilinear taps): plain bilinear leaves its texel creases in the thresholded
-            // foam as straight edges and diamonds
-            // foam, and once a texel is smaller than the footprint the map's mip level for it (a texel's
-            // mean, not whichever texel the pixel centre hits); explicit levels, as the taps jump per texel
-            float lodF = log2(max(length(eRf) * ${FOAM_N}.0 / uFoamS, 1e-3));
-            vec2 PP = vec2(0.0);
-            if (lodF < 0.5) {
-              vec2 tp = fuv * ${FOAM_N}.0 - 0.5, ti = floor(tp), tf = tp - ti, tf2 = tf * tf, tf3 = tf2 * tf;
-              vec2 w0 = (1.0 - 3.0 * tf + 3.0 * tf2 - tf3) / 6.0, w1 = (4.0 - 6.0 * tf2 + 3.0 * tf3) / 6.0, w3 = tf3 / 6.0, g0 = w0 + w1, g1 = 1.0 - g0;
-              vec2 h0 = (ti - 0.5 + w1 / g0) / ${FOAM_N}.0, h1 = (ti + 1.5 + w3 / g1) / ${FOAM_N}.0;
-              PP = g0.y * (g0.x * textureLod(uFoam, h0, 0.0).rg + g1.x * textureLod(uFoam, vec2(h1.x, h0.y), 0.0).rg)
-                 + g1.y * (g0.x * textureLod(uFoam, vec2(h0.x, h1.y), 0.0).rg + g1.x * textureLod(uFoam, h1, 0.0).rg);
-            }
-            if (lodF > -0.5) PP = mix(PP, textureLod(uFoam, fuv, max(lodF, 0.0)).rg, clamp(lodF + 0.5, 0.0, 1.0));
-            float P = max(PP.x, min(1.0, PP.y * 1.5));                         // whitecap foam, wake foam (shows sooner)
             // (aerated: fresh foam dense, thinning into lace and filaments as it decays)
-            pers = P > 0.003 ? aerated(q * 1.8 + vec2(3.3, 7.1), fq * 1.8, max(0.4 * PP.x, min(1.0, PP.y * 1.2))) * 0.9 * pm : 0.0;   // (a wake's churn stays dense longer)
+            pers = PP.x > 0.003 ? aerated(q * 1.8 + vec2(3.3, 7.1), fq * 1.8, 0.4 * PP.x) * 0.9 * pm : 0.0;
+            // a wake's surface foam: bubbles surfacing out of its cloud leave a lace — a network of thin
+            // strands around clear cells (the ridges of a multi-octave noise, cells ~0.3-1 m, not stretched
+            // by the wind), thickening into patches only where it is fresh, thinning and breaking up into
+            // scraps as it ages
+            if (PP.y > 0.01) {
+              float fw1 = length(eRf), vA, nA = sfbmV(xd * 1.3 + vec2(3.7, 1.1), fw1 * 1.3, vA), vB, nB = sfbmV(xd * 3.4 - 2.2, fw1 * 3.4, vB);
+              float rdg = abs(0.6 * nA + 0.4 * nB - 0.5) * 2.0, vr = 4.0 * (0.36 * vA + 0.16 * vB);
+              float wl = 0.03 + 0.5 * PP.y * PP.y;
+              float strand = 1.0 - ssV(wl, 0.04, rdg, vr);
+              // scattered: only patches of the lane carry it, fewer as it thins (a scrap here, a streak there)
+              float vp, pa = sfbmV(xd * 0.4 + vec2(9.3, 2.9), fw1 * 0.4, vp);
+              float scrap = ssV(0.7 - 1.2 * PP.y, 0.12, pa, 2.0 * vp);
+              pers = max(pers, strand * scrap * smoothstep(0.01, 0.15, PP.y) * (0.4 + 0.35 * ssV(0.45, 0.2, nB, vB)) * pm);
+            }
           }
           #endif
           // gale streak rows: across-wind coordinate, meandering (and its change per pixel, outside any branch)
@@ -786,30 +822,40 @@ export class Renderer {
           // carried foam (semi-Lagrangian), spreading (the wake, r g, faster: its turbulence widens it);
           // nothing comes in from beyond the map
           vec2 uv = (p - v * uDt - uCp) / uFoamS + 0.5, e = vec2(uTexel, 0.0);
-          // (b: the wake's slick, the turbulent strip that smooths the short waves long after its foam is gone)
-          vec3 old = vec3(0.0);
+          // r: whitecap foam; g: the wake's surface foam (the lace the bubbles leave as they surface); b: the
+          // wake's slick (the turbulent strip that smooths the short waves long after its foam is gone);
+          // a: the wake's aeration (the bubble cloud's void fraction, 1 fresh behind a transom at ~6 kn)
+          vec4 old = vec4(0.0);
           if (uKeep > 0.5 && all(greaterThan(uv, e.xx)) && all(lessThan(uv, 1.0 - e.xx))) {
-            vec3 c = textureLod(uPrev, uv, 0.0).rgb;
-            vec3 nb = textureLod(uPrev, uv + e.xy, 0.0).rgb + textureLod(uPrev, uv - e.xy, 0.0).rgb + textureLod(uPrev, uv + e.yx, 0.0).rgb + textureLod(uPrev, uv - e.yx, 0.0).rgb;
-            old = c + (nb - 4.0 * c) * min(vec3(0.2), vec3(0.08, 0.15, 0.3) * uDt / (cell.x * cell.x));
+            vec4 c = textureLod(uPrev, uv, 0.0);
+            vec4 nb = textureLod(uPrev, uv + e.xy, 0.0) + textureLod(uPrev, uv - e.xy, 0.0) + textureLod(uPrev, uv + e.yx, 0.0) + textureLod(uPrev, uv - e.yx, 0.0);
+            // spreading: the wake's turbulence widens its bubble cloud (D ~ 0.1 m^2/s: ~1.3 m in 8 s)
+            old = c + (nb - 4.0 * c) * min(vec4(0.2), vec4(0.08, 0.1, 0.3, 0.1) * uDt / (cell.x * cell.x));
           }
           float tau = 3.0 + 6.0 * qn(xd * 0.04 + 1.3);                   // e-folding, patchy: gone in ~5-15 s
-          old *= exp(-uDt / vec3(tau, 12.0, 70.0)) * (1.0 + conv * uDt);
-          float src = (act * 2.0 + brk * 2.0) * uDt, wake = 0.0, slk = 0.0;   // ~0.5 s of breaking to full cover
+          // the bubbles rise out in 3-5 s (the cloud's void fraction e-folds: patchy), the scraps of foam they
+          // leave on the surface pop in ~5 s
+          float tauA = 3.0 + 2.0 * qn(xd * 0.3 + 7.7);
+          old *= exp(-uDt / vec4(tau, 5.0, 70.0, tauA)) * vec4(1.0 + conv * uDt, 1.0 + conv * uDt, 1.0, 1.0);
+          float src = (act * 2.0 + brk * 2.0) * uDt, slk = 0.0, aer = 0.0;   // ~0.5 s of breaking to full cover
           for (int i = 0; i < 6; i++) {
             vec4 w = uWake[i]; vec4 ww = uWakeW[i];
             if (ww.y <= 0.0) continue;
             vec2 ab = w.zw - w.xy, ap = p - w.xy;
             float d = length(ap - ab * clamp(dot(ap, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0));
-            wake += ww.y * smoothstep(ww.x, ww.x * 0.3, d) * (0.6 + 0.8 * f1) * 5.0 * uDt;
-            slk += min(ww.y, 1.0) * smoothstep(ww.x * 2.0, ww.x * 0.6, d) * 3.0 * uDt;
+            // water just behind the transom is freshly churned: its aeration is set, not added (the same at
+            // any frame rate), a transom wide with a ragged edge
+            aer = max(aer, ww.y * smoothstep(ww.x * 1.3, ww.x * 0.3, d * (0.8 + 0.4 * f1)));
+            slk += min(ww.y, 1.0) * smoothstep(ww.x * 2.5, ww.x * 0.8, d) * 3.0 * uDt;
           }
+          float lace = old.w * 0.08 * uDt;                                 // bubbles surfacing leave foam
           // ---- hull waves (hullwaves.js): white water where the boats' own waves break (the bow wave, and
-          // the divergent crests once the boat goes fast), laid down with the wake's foam
+          // the divergent crests once the boat goes fast): aerated, and its foam
           #ifdef HWSIM
-          wake += hwAt(p, 0.0).w * (0.3 + f1) * 3.0 * uDt;
+          float hb = hwAt(p, 0.0).w;
+          aer = max(aer, min(old.w + hb * 3.0 * uDt, hb)); lace += hb * (0.3 + f1) * 1.5 * uDt;
           #endif
-          gl_FragColor = vec4(min(old + vec3(src, wake, slk), 1.0), 1.0);
+          gl_FragColor = vec4(min(old.rgb + vec3(src, lace, slk), 1.0), min(max(old.w, aer), 3.0));
         }`,
     });
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); quad.frustumCulled = false;
@@ -823,7 +869,9 @@ export class Renderer {
     const dt0 = this.foamT === null ? 0 : t - this.foamT;
     const jump = this.foamT === null || dt0 < 0 || dt0 > 5;
     this.foamT = t;
-    const dt = jump ? 0 : Math.min(dt0, 0.25), W = env.waves, U = this.waterU;
+    // (up to a second a step: the carrying is semi-Lagrangian and the spreading clamped, so a slow frame
+    // or time warp keeps the foam's lifetimes in sim time instead of stretching them)
+    const dt = jump ? 0 : Math.min(dt0, 1), W = env.waves, U = this.waterU;
     const dr = env.wavesOn && W.drift ? W.drift : { x: 0, z: 0 };
     U.uFoamOff.value.x += dr.x * dt; U.uFoamOff.value.y += dr.z * dt;
     if (!this.foamRT || !player || (dt <= 0 && !jump)) return;
@@ -855,8 +903,12 @@ export class Renderer {
         const pv = prev[h];
         if (!pv || jump || Math.hypot(x0 - pv[0], z0 - pv[1]) >= 10) continue;
         const sp = Math.hypot(b.u || 0, b.v || 0), pw = clamp(b.propWash ?? (b.engine && b.engine.active ? Math.abs(b.engine.T || 0) / (0.06 * (b.mass || 1000) * 9.81) : 0), 0, 1);
+        // half the transom's width at the waterline (at least ~a foam texel: a cat's slender hulls); aeration
+        // full from ~4.5 kn, weaker slower, and a planing hull (Fn past ~0.5) churns up to 3x as much, which takes
+        // its extra few seconds to rise out: white for longer
+        const Fn = sp / Math.sqrt(9.81 * C.lwl), tw = 0.4 * (C.hullBeam ?? C.beam) * (C.hull && C.hull.transom || 0.7);
         F.uWake.value[n].set(pv[0], pv[1], x0, z0);
-        F.uWakeW.value[n].set(Math.max((C.hullBeam ?? C.beam) * (0.3 + 0.04 * sp + 0.15 * pw), 0.3 + 0.02 * sp), clamp((sp - 0.4) / 1.6, 0, 1) + pw, 0, 0);   // (at least a foam texel: a cat's slender hulls)
+        F.uWakeW.value[n].set(Math.max(tw * (1 + 0.3 * pw), 0.25), clamp((sp - 0.3) / 2.0, 0, 1) * (1 + 2 * clamp((Fn - 0.45) / 0.55, 0, 1)) + 0.8 * pw, 0, 0);
         n++;
       }
       this._sternPrev.set(b, cur);
