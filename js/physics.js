@@ -140,8 +140,9 @@ export const CLASSES = {
     hullLat: { area: 1.5, cd: 0.9, z: -0.1 },
     windage: { area: 2.8, z: 2.4, cd: 0.9 },
     // J/Boats sail plan: the deck-stepped mast is 2.5 m aft of the stem (J 2.34 m from the jib tack), 10.0 m DWL to
-    // masthead, gooseneck 1.7 m above the waterline; the mast rakes about 0.6 m aft at the masthead
-    mastX: 1.03, mastHeight: 10.0, boomZ: 1.7, keelBulb: true, mastRake: 0.6,
+    // masthead, gooseneck 1.7 m above the waterline. (Its ~0.6 m of rake (mastRake, js/boom.js mastXAt) is left out while the
+    // solved rig, js/rig-structure.js, models an upright mast: the raked luff on it lost the backstay's flattening)
+    mastX: 1.03, mastHeight: 10.0, boomZ: 1.7, keelBulb: true,
     targetHeel: 17 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 1400,
     // J/70 (Harken layout, J/70 building spec): 6:1 mainsheet (a 2:1 fine tune on top) to a switchable Carbo ratchet on a 144 swivel base
     // with a 150 cam; 2:1 jib sheets on B8 / SnubbAir winches with cam cleats; gennaker sheets hand-held through
