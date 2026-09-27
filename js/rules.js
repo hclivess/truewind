@@ -160,8 +160,8 @@ export class RuleEngine {
       p.acc += dpsi;
       if (!p.dir && Math.abs(p.acc) > 40 * DEG) p.dir = Math.sign(p.acc);
       if (Math.abs(b.r || 0) > 3 * DEG) p.idle = 0; else p.idle += dt;
-      if (p.dir && (p.acc * p.dir < p.max - 100 * DEG || p.idle > 12)) { p.acc = 0; p.dir = 0; p.max = 0; p.tk = 0; p.gy = 0; }   // turned back, or stopped turning
-      else if (!p.dir && p.idle > 12) { p.acc = 0; p.tk = 0; p.gy = 0; }
+      if (p.dir && (p.acc * p.dir < p.max - 100 * DEG || p.idle > 20)) { p.acc = 0; p.dir = 0; p.max = 0; p.tk = 0; p.gy = 0; }   // turned back, or stopped turning
+      else if (!p.dir && p.idle > 20) { p.acc = 0; p.tk = 0; p.gy = 0; }
       if (p.dir) p.max = Math.max(p.max, p.acc * p.dir);
       p.made = Math.min(p.turns, Math.floor((p.max + 25 * DEG) / (2 * Math.PI)), p.tk, p.gy);
       if (p.made >= p.turns) this.penaltyDone(b, s);

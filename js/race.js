@@ -348,6 +348,10 @@ export class AIHelm {
     // too slow to come through the wind: first a reach to build speed (a stalled turn ends in irons)
     const vT = Math.max(1, Math.min(this.targetsUpBsp ?? 2, 0.45 * (b.diag.tws ?? 5)));
     if (!pen.dir && b.u < 0.7 * vT) { this.steer(dt, twd - tack * 100 * DEG); return; }
+    // coming up toward the tack too slow to carry through it: hold a reach until she has way on (a stall head to
+    // wind falls back and the turn is lost)
+    const upward = (this.penD > 0) === (twa > 0), a = Math.abs(twa);
+    if (upward && a > 60 * DEG && a < 115 * DEG && b.u < 0.8 * vT) { this.steer(dt, b.psi + this.penD * 2 * DEG, true); return; }
     this.steer(dt, b.psi + this.penD * 70 * DEG, true);
   }
 
