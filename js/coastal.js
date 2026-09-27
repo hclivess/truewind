@@ -635,7 +635,7 @@ export class CoastalField {
     this.gx = a[a0 + 1] * w[0] + a[a1 + 1] * w[1] + a[a2 + 1] * w[2] + a[a3 + 1] * w[3];
     this.gz = a[a0 + 2] * w[0] + a[a1 + 2] * w[1] + a[a2 + 2] * w[2] + a[a3 + 2] * w[3];
     this.k = a[a0 + 3] * w[0] + a[a1 + 3] * w[1] + a[a2 + 3] * w[2] + a[a3 + 3] * w[3];
-    this.p = P + this.gx * this.x + this.gz * this.z;
+    this.P = P; this.p = P + this.gx * this.x + this.gz * this.z;
   }
   // component ci at the point set up: phase p (without the time term), wavevector (gx, gz), amplitude factor k
   inc(ci) { this._blend(this.incA, ci * this.N * 4, this.w, this.o); return this; }

@@ -671,24 +671,26 @@ export class WaveField {
   // the coastal field for this layout of components (coastal.js CoastalField), or null
   setCoastal(f) { this.coastal = f && f.n === this.comps.length ? f : null; }
 
-  // Every wave at the (undisplaced) point x0: the components, and where a wall reflects them their reflected
-  // waves. Each has its local phase at t = 0 (th0), direction (ux, uz), wavenumber k and amplitude A: from
-  // the coastal field when there is one, else a plane wave at the component's base wavenumber.
-  _local(x0, z0) {
-    const W = this._L || (this._L = { n: 0, th0: new Float64Array(2 * MAXW), ux: new Float64Array(2 * MAXW), uz: new Float64Array(2 * MAXW), k: new Float64Array(2 * MAXW), A: new Float64Array(2 * MAXW), Q: new Float64Array(2 * MAXW), w: new Float64Array(2 * MAXW), we: new Float64Array(2 * MAXW) });
-    const cf = this.coastal;
+  // Every wave near the (undisplaced) point x0: the components, and where a wall reflects them their reflected
+  // waves. Each is a local plane wave, phase p + g.x at t = 0 (g its wavevector: direction (ux, uz), wavenumber
+  // k), amplitude A: from the coastal field when there is one, else a plane wave at the component's base
+  // wavenumber. slot 0: the query point's (Newton's iterations), 1: the water's own point.
+  _local(x0, z0, slot = 1) {
+    const L = this._L || (this._L = [0, 1].map(() => { const f = () => new Float64Array(2 * MAXW); return { n: 0, p: f(), gx: f(), gz: f(), ux: f(), uz: f(), k: f(), A: f(), Q: f(), w: f(), we: f() }; }));
+    const W = L[slot], cf = this.coastal;
     if (cf) cf.at(x0, z0);
     let n = 0;
-    const put = (c, p, gx, gz, A) => {
-      const k = Math.hypot(gx, gz) || 1e-9;
-      W.th0[n] = p + c.phase; W.ux[n] = gx / k; W.uz[n] = gz / k; W.k[n] = k; W.A[n] = A; W.Q[n] = c.Q; W.w[n] = c.omega; W.we[n] = c.omegaEff ?? c.omega; n++;
-    };
-    for (let i = 0; i < this.comps.length; i++) {
-      const c = this.comps[i], A0 = c.A * (c.curAmp ?? 1);
-      if (cf) {
-        cf.inc(i); put(c, cf.p, cf.gx, cf.gz, A0 * cf.k);
-        if (cf.ref(i)) put(c, cf.p, cf.gx, cf.gz, A0 * cf.k);
-      } else { const k = c.kRef ?? c.k; put(c, k * (c.dx * x0 + c.dz * z0), k * c.dx, k * c.dz, A0); }
+    for (let i = 0, nc = this.comps.length; i < nc; i++) {
+      const c = this.comps[i], A0 = c.A * (c.curAmp ?? 1), we = c.omegaEff ?? c.omega;
+      for (let r = 0; r < 2; r++) {
+        let P, gx, gz, A;
+        if (cf) {
+          if (r === 0) cf.inc(i); else if (!cf.ref(i)) break;
+          P = cf.P; gx = cf.gx; gz = cf.gz; A = A0 * cf.k;
+        } else { if (r) break; const kb = c.kRef ?? c.k; P = 0; gx = kb * c.dx; gz = kb * c.dz; A = A0; }
+        const k = Math.sqrt(gx * gx + gz * gz) || 1e-9;
+        W.p[n] = P + c.phase; W.gx[n] = gx; W.gz[n] = gz; W.ux[n] = gx / k; W.uz[n] = gz / k; W.k[n] = k; W.A[n] = A; W.Q[n] = c.Q; W.w[n] = c.omega; W.we[n] = we; n++;
+      }
     }
     W.n = n;
     return W;
@@ -703,11 +705,11 @@ export class WaveField {
     this._cap = cap; this._qs = Math.min(1, QMAX / Math.max(1e-9, sK * cap));
   }
 
-  _disp(x0, z0, t, o) {
-    const W = this._local(x0, z0), h = this.depthFn ? this.depthFn(x0, z0) : null;
+  _disp(x0, z0, t, o, W = this._local(x0, z0)) {
+    const h = this.depthFn ? this.depthFn(x0, z0) : null;
     let X = 0, Z = 0, Y = 0, eH = 0, sK = 0, xx = 0, xz = 0, zz = 0;
     for (let i = 0; i < W.n; i++) {
-      const th = W.th0[i] - W.we[i] * t, C = Math.cos(th), S = Math.sin(th);
+      const th = W.p[i] + W.gx[i] * x0 + W.gz[i] * z0 - W.we[i] * t, C = Math.cos(th), S = Math.sin(th);
       const A = W.A[i], QA = W.Q[i] * A, QAkS = QA * W.k[i] * S, ux = W.ux[i], uz = W.uz[i];
       X += QA * ux * C; Z += QA * uz * C; Y += A * S; eH += A * C; sK += QA * W.k[i];
       xx += QAkS * ux * ux; xz += QAkS * ux * uz; zz += QAkS * uz * uz;
@@ -724,10 +726,12 @@ export class WaveField {
   // Gerstner displacement; the coastal field's local waves, their steepness limit and depth-limited breaking.
   sample(x, z, t, out = {}) {
     const d = this._d || (this._d = { x: 0, y: 0, z: 0 });
-    // Newton on x0 + D(x0) = x (sharp crests make the plain fixed-point iteration converge slowly)
+    // Newton on x0 + D(x0) = x (sharp crests make the plain fixed-point iteration converge slowly), with the
+    // local waves of the query point (the water is a few metres off at most: its tangent planes hold)
     let x0 = x, z0 = z;
+    const Wq = this._local(x, z, 0);
     for (let i = 0; i < 3; i++) {
-      this._disp(x0, z0, t, d);
+      this._disp(x0, z0, t, d, Wq);
       const fx = x0 + d.x - x, fz = z0 + d.z - z;
       const a = 1 + d.jxx, b = d.jxz, e = 1 + d.jzz, det = a * e - b * b;
       if (det > 0.05) { x0 -= (e * fx - b * fz) / det; z0 -= (a * fz - b * fx) / det; }
@@ -740,7 +744,7 @@ export class WaveField {
     for (let i = 0; i < W.n; i++) {
       const A = W.A[i], kk = W.k[i], ux = W.ux[i], uz = W.uz[i], w = W.w[i], Q = W.Q[i];
       a2 += A * A; sK += Q * kk * A;
-      const th = W.th0[i] - W.we[i] * t, C = Math.cos(th), S = Math.sin(th);
+      const th = W.p[i] + W.gx[i] * x0 + W.gz[i] * z0 - W.we[i] * t, C = Math.cos(th), S = Math.sin(th);
       const WA = kk * A;
       hsum += A * S;
       nx -= ux * WA * C; nz -= uz * WA * C; nyQ += Q * WA * S;

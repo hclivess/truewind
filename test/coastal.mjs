@@ -139,7 +139,7 @@ env.waves.setCoastal(cf);
     const L = W._local(x0, z0), h = W.depthFn(x0, z0);
     let X = 0, Z = 0, Y = 0, eH = 0, sK = 0, s2 = 0;
     for (let i = 0; i < L.n; i++) {
-      const th = L.th0[i] - L.we[i] * t, C = Math.cos(th), S = Math.sin(th), A = L.A[i];
+      const th = L.p[i] + L.gx[i] * x0 + L.gz[i] * z0 - L.we[i] * t, C = Math.cos(th), S = Math.sin(th), A = L.A[i];
       X += L.Q[i] * A * L.ux[i] * C; Z += L.Q[i] * A * L.uz[i] * C; Y += A * S; eH += A * C; sK += L.Q[i] * L.k[i] * A; s2 += L.Q[i] * A * A * (C * C - S * S);
     }
     W._limits(h, Y, eH, sK);
