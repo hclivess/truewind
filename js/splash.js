@@ -499,6 +499,8 @@ export class SeaSpray {
           this.emit(x + j * cz / (Math.hypot(cx, cz) + 1e-3), s.h + sc * (0.05 + 0.25 * Math.random()), z - j * cx / (Math.hypot(cx, cz) + 1e-3),
             cx * f + wx * 0.1, 0.5 + 2.5 * k * Math.random(), cz * f + wz * 0.1, sc * (0.35 + 0.5 * Math.random()), 3, 0.35 + Math.random() * 0.3);
         }
+        // and mist over the crest, torn off the lip and hanging in the wind
+        if (Math.random() < 0.6 * k) this.emit(x, s.h + sc * (0.2 + 0.4 * Math.random()), z, cx * 0.5 + wx * 0.3, 0.5 + Math.random(), cz * 0.5 + wz * 0.3, sc * (0.6 + 0.8 * Math.random()), 1, 0.25 + 0.2 * Math.random());
         for (let m = 0; m < 4 * k; m++) {
           const f = 0.8 + Math.random() * 0.4;
           this.emit(x, s.h + 0.2 * sc, z, cx * f, 1.5 + Math.random() * 0.25 * Math.sqrt(9.81 * sc), cz * f, 0.05 + Math.random() * 0.08, 0, 0.8);
