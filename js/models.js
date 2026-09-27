@@ -338,7 +338,8 @@ function sailTexture(C, s) {
     const panelPx = h * 0.9 / s.luff;
     // coloured panels (a Sunfish's rainbow stripes): bands of cloth across the sail, each its own colour
     // (bands: [b0, b1, colour] in v (0 head .. 1 foot), tilted by bandTilt toward the luff: v = b + tilt (1 - x / w))
-    if (cl.bands && s.kind !== 'spin') cl.bands.forEach(([b0, b1, c]) => {
+    const diagBands = cl.bands && Array.isArray(cl.bands[0]);   // ([b0, b1, colour] rows; a list of colours is the catamaran's crosscut panels below)
+    if (diagBands && s.kind !== 'spin') cl.bands.forEach(([b0, b1, c]) => {
       const tl = cl.bandTilt || 0, yy = (b, x) => h * (b + tl * (1 - x / w));
       g.fillStyle = c; g.beginPath(); g.moveTo(0, yy(b0, 0)); g.lineTo(w, yy(b0, w)); g.lineTo(w, yy(b1, w)); g.lineTo(0, yy(b1, 0)); g.fill();
     });
@@ -371,7 +372,7 @@ function sailTexture(C, s) {
       g.fillStyle = 'rgba(255,255,255,0.14)'; g.fillRect(0, h * 0.44, w, h * 0.12);
     } else {
       // crosscut Dacron with a faint weave
-      if (cl.bands) {
+      if (cl.bands && !diagBands) {
         // coloured panels in bands from the foot up (each band a few panels deep)
         const nb = cl.bands.length;
         for (let y = panelPx * 0.6 - panelPx; y < h + 40; y += panelPx) {
