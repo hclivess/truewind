@@ -23,7 +23,7 @@ const course = new Course(world, env.wind.twd, { length: 800, laps: 1, lineLengt
 console.log('course len', course.L.toFixed(0), 'origin', course.origin.x.toFixed(0), course.origin.z.toFixed(0), 'depth at W', world.depthAt(course.windward.x, course.windward.z).toFixed(1));
 const boats = [], ais = [];   // (the AI fleet sails at L1 in the game: LOD=0/1/2 to change it; a big fleet has only
 // the NCLOTH nearest the camera in cloth, the rest on the strip model: NCLOTH=n puts boats n.. at L2)
-for (let i=0;i<+nb;i++){ const b=new Boat(cls,{id:i, lod: i < +(process.env.NCLOTH ?? 1e9) ? +(process.env.LOD ?? 1) : 2}); const off=(i-(+nb)/2)*16; b.reset(course.origin.x - course.ux*150 + course.rx*off, course.origin.z - course.uz*150 + course.rz*off, env.wind.twd+Math.PI/2); boats.push(b); const a=new AIHelm(b,{seed: SEED, startFrac:i/(+nb), skill: 0.85+0.03*i}); a.targetsUpBsp=vt.up.bsp; ais.push(a);}
+for (let i=0;i<+nb;i++){ const b=new Boat(cls,{id:i, lod: i < +(process.env.NCLOTH ?? 1e9) ? +(process.env.LOD ?? 1) : 2}); const off=(i-(+nb)/2)*Math.min(16, 2*course.half/(+nb+1)); b.reset(course.origin.x - course.ux*150 + course.rx*off, course.origin.z - course.uz*150 + course.rz*off, env.wind.twd+Math.PI/2); boats.push(b); const a=new AIHelm(b,{seed: SEED, startFrac:i/(+nb), skill: 0.85+0.03*i}); a.targetsUpBsp=vt.up.bsp; ais.push(a);}
 const race = new Race(course, boats, { countdown: 90 });
 // TRAFFIC=light|normal|busy: the harbour traffic around the race, kept off the course as in the game
 let traffic = null, bumps = 0;

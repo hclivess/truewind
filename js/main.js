@@ -416,7 +416,7 @@ class Game {
       const n = S.fleet;
       const spots = [];
       for (let i = 0; i <= n; i++) {
-        const off = (i - n / 2) * 16;
+        const off = (i - n / 2) * Math.min(16, 2 * course.half / (n + 1));   // (a big fleet packs closer on a line the water shortened)
         spots.push([course.origin.x - course.ux * 170 + course.rx * off, course.origin.z - course.uz * 170 + course.rz * off]);
       }
       player.reset(spots[0][0], spots[0][1], twd + Math.PI / 2);
