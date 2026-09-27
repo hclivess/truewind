@@ -1484,7 +1484,7 @@ function buildStanding(boat, rig) {
   rig.add(g);
   return { g, wires, stays, sprs, a: [0, 0, 0], b: [0, 0, 0] };
 }
-const _sa = new THREE.Vector3(), _sb = new THREE.Vector3(), _sd = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
+const _sa = new THREE.Vector3(), _sb = new THREE.Vector3(), _sd = new THREE.Vector3();
 function placeRod(m, a, b, r) {
   _sa.copy(V(a[0], a[1], a[2])); _sb.copy(V(b[0], b[1], b[2])); _sd.subVectors(_sb, _sa);
   const L = _sd.length(); if (L < 1e-4) { m.visible = false; return; }
