@@ -622,13 +622,15 @@ export function aiRules(ai, sim, desired, mode, t, up) {
   const plan = { until: t + 0.25, h: null, ease: false };
   ai.kc = plan;
   const H = clamp(4 + b.cls.loa * 0.9, 6, 12), dt = 0.5;
-  const give = [], row = [];
+  const give = [], row = [], extra = new Map();
   const Vr = Math.max(b.u, 1.2) + 1, Rb = reach(b);
   for (const pr of rels) {
     const o = pr.a === b ? pr.b : pr.a;
     // (out of reach within the horizon whatever either does: nothing to plan for)
     if (pr.d - (Vr + Math.hypot(o.vgx ?? 0, o.vgz ?? 0)) * H > Rb + reach(o) + 3) continue;
     (R.owes(pr, b) ? give : row).push([o, pr]);
+    // (room and mark-room she owes: room to round, not just not to touch — the other's turn is not in her track)
+    if (pr.room && pr.room.giver === b && pr.room.ent === o) extra.set(o, o.cls.loa * 0.6);
   }
   // the others' tracks (for the whole plan)
   const tracks = new Map();
@@ -649,7 +651,7 @@ export function aiRules(ai, sim, desired, mode, t, up) {
       x += (Math.sin(p) * V + cx) * dt; z += (-Math.cos(p) * V + cz) * dt;
     }
     let worst = 1e9;
-    for (const [o] of list) { const c = trackClear(me, mine, o, tracks.get(o), dt, stop); worst = Math.min(worst, c); if (worst < stop) return worst; }
+    for (const [o] of list) { const x = extra.get(o) || 0, c = trackClear(me, mine, o, tracks.get(o), dt, stop + x) - x; worst = Math.min(worst, c); if (worst < stop) return worst; }
     for (const m of marks) for (let i = 0; i < mine.length; i += 3) {
       const cp = capsule(b, mine[i], mine[i + 1], mine[i + 2], _c1);
       worst = Math.min(worst, segDist(cp.ax, cp.az, cp.bx, cp.bz, m.x, m.z, m.x, m.z) - cp.r - (m.kind === 'committee' ? 2.6 : 1.2) + 0.8);
