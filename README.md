@@ -163,38 +163,42 @@ Polars from `node test/vpp.mjs` in 12 kn of true wind (boat speed in knots, `g` 
 | Dinghy | 40°, 4.92, 3.77 (36°, 4.4, 3.6) | 6.47 (6.2) | 5.79 (5.7) | 4.75 (4.7) | 4.34 at 180° (4.4) |
 | Beach cat | 48°, 8.04, 5.38 (55°, 9.6, 5.5) | 13.64 g (13.3 g) | 11.33 g (15.2 g) | 6.76 g (7.6 g) | 6.42 at 135° (7.7) |
 
-The production and famous boats (`js/classes/`, baked at 8, 12 and 16 kn with the crew's own trim):
+The production and famous boats (`js/classes/`, baked at 8, 12 and 16 kn with the crew's own trim, their engines aboard):
 
 | Boat | Upwind (TWA, speed, VMG) | 90° | 120° | 150° | Best downwind VMG |
 |---|---|---|---|---|---|
 | Catalina 22 | 40°, 5.18, 3.97 (40°, 5.12, 3.92) | 5.89 (6.2) | 5.79 (5.8) | 4.98 (5.1) | 4.31 at 150° (4.48) |
-| Catalina 30 | 40°, 5.60, 4.29 (44°, 5.98, 4.30) | 6.54 (6.7) | 6.18 (6.1) | 5.37 (5.2) | 4.65 at 150° (4.47) |
-| Oceanis 38.1 | 44°, 6.49, 4.67 (44°, 6.57, 4.73) | 7.77 (7.8) | 7.11 (7.1) | 5.44 (5.6) | 4.74 at 165° (4.86) |
-| Contessa 32 | 44°, 5.79, 4.17 (44°, 5.80, 4.17) | 6.21 (6.4) | 5.84 (5.9) | 4.99 (5.1) | 4.65 at 180° (4.41) |
-| Westsail 32 | 40°, 4.74, 3.63 (40°, 4.37, 3.34) | 5.83 (6.2) | 5.55 (5.6) | 4.69 (4.7) | 4.28 at 165° (4.11) |
-| Optimist | 44°, 3.30, 2.38 (40°, 3.14, 2.40) | 3.71 (4.0) | 3.79 (3.9) | 3.62 (3.7) | 3.46 at 180° (3.49) |
+| Catalina 30 | 44°, 5.70, 4.10 (44°, 5.98, 4.30) | 6.41 (6.7) | 6.13 (6.1) | 5.09 (5.2) | 5.08 at 165° (4.47) |
+| Oceanis 38.1 | 44°, 6.47, 4.65 (44°, 6.57, 4.73) | 7.79 (7.8) | 7.11 (7.1) | 5.43 (5.6) | 4.73 at 165° (4.86) |
+| Contessa 32 | 44°, 5.63, 4.05 (44°, 5.80, 4.17) | 6.10 (6.4) | 5.69 (5.9) | 4.77 (5.1) | 4.43 at 180° (4.41) |
+| Westsail 32 | 40°, 4.49, 3.44 (40°, 4.40, 3.37) | 5.64 (6.2) | 5.33 (5.6) | 4.43 (4.8) | 4.04 at 165° (4.11) |
+| Optimist | 44°, 3.21, 2.31 (40°, 3.14, 2.40) | 3.78 (4.0) | 3.83 (3.9) | 3.72 (3.7) | 3.62 at 180° (3.49) |
 | Sunfish | 44°, 4.78, 3.43 (40°, 4.73, 3.62) | 5.77 (6.1) | 5.27 (5.6) | 4.55 (4.7) | 4.33 at 180° (4.41) |
 | Flying Scot | 36°, 5.05, 4.08 (40°, 5.28, 4.05) | 5.79 (7.4g) | 6.20 g (7.7g) | 4.84 (6.1g) | 4.51 at 165° (5.32) |
 | Dragon | 40°, 4.91, 3.76 (40°, 4.79, 3.67) | 5.78 (6.2g) | 5.63 (6.4g) | 5.09 g (5.9g) | 4.74 at 165° (5.14) |
 | Etchells | 40°, 5.62, 4.30 (40°, 5.69, 4.36) | 6.85 (7.8g) | 6.82 g (8.2g) | 5.65 g (6.8g) | 5.56 at 180° (5.91) |
 | Melges 24 | 40°, 6.45, 4.94 (40°, 6.42, 4.92) | 8.33 g (8.8g) | 9.00 g (11.8g) | 7.45 g (8.0g) | 6.45 at 150° (7.40) |
-| Spray | 44°, 4.68, 3.37 (44°, 5.10, 3.67) | 6.06 (6.5) | 5.73 (6.1) | 5.01 (5.1) | 4.57 at 180° (4.56) |
-| Joshua | 40°, 5.01, 3.84 (44°, 5.43, 3.91) | 6.61 (7.0) | 6.31 (6.4) | 5.19 (5.3) | 4.71 at 165° (4.60) |
+| Spray | 44°, 4.69, 3.38 (44°, 5.10, 3.67) | 5.96 (6.5) | 5.70 (6.1) | 4.96 (5.1) | 4.47 at 180° (4.56) |
+| Joshua | 40°, 4.98, 3.82 (44°, 5.42, 3.90) | 6.69 (7.0) | 6.18 (6.3) | 4.99 (5.3) | 4.56 at 165° (4.57) |
 
 Checked against their ratings, as the time to sail a mile of windward-leeward course in 12 kn (upwind and downwind VMG), converted to US PHRF by anchoring the sportboat at the J/70's 117 s/mile, and to US Portsmouth (DPN) by anchoring the Laser-type dinghy at 91.1:
 
 - **Catalina 22**: 871 s/mile, implied PHRF 286 against its 270 (2% slower). It reaches at 6.7 kn in 16 kn of wind (hull speed 5.9 kn).
-- **Catalina 30**: implied PHRF 222 against 180 (5% slower on the mile). It reaches at 6.5 kn in 12 kn and 7.5 kn in 16 kn, around its 6.7 kn hull speed.
+- **Catalina 30**: implied PHRF 209 against 180 (4% slower on the mile). It reaches at 6.4 kn in 12 kn and 7.4 kn in 16 kn, around its 6.7 kn hull speed.
 - **Oceanis 38.1**: no rating to check against here; 6.5 kn close-hauled and 7.8 kn at 90° in 12 kn, 8.9 kn reaching in 16 kn (hull speed 7.9 kn on its 10.72 m waterline).
-- **Contessa 32**: implied PHRF 234 against 204 (4% slower). 6.9 kn reaching in 16 kn, just over her 6.6 kn hull speed.
-- **Westsail 32**: implied PHRF 332 against 222 (13% slower on the mile, the largest gap): a slenderness-based resistance cannot see the long, fine-ended waterline that lets the real boat do better than her displacement suggests. She never passes her 7.0 kn hull speed (6.7 kn at best in 16 kn), as a 9-tonne double-ender should not.
-- **Optimist**: implied DPN 130.5 against the Portsmouth 136 (4% faster; RYA PN 1646, the slowest on the list).
+- **Contessa 32**: implied PHRF 266 against 204 (8% slower; 234 before her fixed two-blade prop's drag was counted, below). 6.9 kn reaching in 16 kn, just over her 6.6 kn hull speed.
+- **Westsail 32**: implied PHRF 384 against 222 (20% slower on the mile, the largest gap). She never passes her 7.0 kn hull speed (6.6 kn at best in 16 kn), as a 9-tonne double-ender should not. What was checked:
+  - **Form from the lines.** `node tools/hull-form.mjs westsail32` measures her drawn hull: Cp 0.66, LCB 3% forward of midships, a 40° half angle of entrance, 33.7 m² wetted (her deep forefoot and full-length deadwood are in the lines, as the photographs of her hauled out show). Holtrop & Mennen's regression on those numbers rates her wave-making above the Blackwatch's at every speed (1.13x at Fn 0.4), so it cannot close the gap; for the Blackwatch itself it predicts 0.013 of the weight at Fn 0.4 against the 0.031 its towing-tank table gives. Ship regressions do not hold for a yacht this short and full, and the residuary tables stay the physics.
+  - **The long keel.** The canoe body and deadwood act as one low-aspect wing over the whole draft (span 1.5 m, 5.4 m², effective aspect ratio 0.83), not as a 0.9 m deadwood fin with the hull's cross-flow drag on top. Upwind that takes her leeway from 7.7° to 6.0°, and the keel's drag at 42° from 70 N to 40 N: +0.1 kn.
+  - **The propeller.** Her three-blade 16 in fixed prop turns in the deadwood's wake (a Taylor wake fraction of 0.3, not the 0.1 of a shaft under a fin-keel hull), which takes its windmilling drag at 5 kn from 115 N to 95 N. With the engines in the physics (js/engine.js), a stopped fixed prop is 12–15% of a heavy cruiser's resistance at 4–5 kn. Counting it took the Contessa from 234 to 266; the Westsail was at 332 (13%) before the engines, and would be about there without her prop. That share looks high for a prop left in neutral, and is the first thing to check against measured drag.
+  - **What is left** is mostly in her sails. Close-hauled, the yankee (the high-cut jib) works at a lift coefficient of 0.85–0.93 against the main's 1.3, and reaching the club-footed staysail cannot be eased past about 27°. A club vang on the staysail was tried and removed: it made her slower (implied PHRF 403).
+- **Optimist**: implied DPN 130.4 against the Portsmouth 136 (4% faster; RYA PN 1646, the slowest on the list).
 - **Sunfish**: implied DPN 96 against 100 (4% faster); on a reach in 16 kn it planes at 8.8 kn.
 - **Flying Scot**: implied DPN 86 against 90 (5% faster), with its hull drag scaled 1.3x the Laser-type table's for its beamy, hard-bilged shape.
 - **Dragon**: no PHRF; RYA PN 986. 4.9 kn close-hauled at 40° and 5.8 kn at 90° in 12 kn, and 6.5 kn in 16 kn: her overhangs make her sailing length (and the lines give her dynamic waterline) longer than the 5.66 m static one.
 - **Etchells**: implied PHRF 157 against 138 (2.5% slower).
 - **Melges 24**: implied PHRF 58 against 84 (4% faster); 9.0 kn at 120° under the asymmetric in 12 kn and 13 kn in 16 kn, where the class planes.
-- **Spray** and **Joshua**: no ratings. Spray does 4.7 kn close-hauled at 44°, 6.1 kn at 90° and 7.0 kn in 16 kn (her hull speed about 7.8 kn). Joshua sailed the 37,455 miles of the Long Way in 303 days (Plymouth, 22 August 1968, to Tahiti, 21 June 1969), 5.2 kn on average; here 6.6 kn at 90° in 12 kn and 7.6 kn in 16 kn.
+- **Spray** and **Joshua**: no ratings. Spray does 4.7 kn close-hauled at 44°, 6.0 kn at 90° and 7.0 kn in 16 kn (her hull speed about 7.8 kn). Joshua sailed the 37,455 miles of the Long Way in 303 days (Plymouth, 22 August 1968, to Tahiti, 21 June 1969), 5.2 kn on average; here 6.7 kn at 90° in 12 kn and 7.6 kn in 16 kn.
 
 The sportboat is J/70-sized, and the J/70's ORC certificate (2024) gives, in 12 kn: beat VMG 4.52 kn at 37.6°, 6.88 kn at 90°, 7.72 kn at 120°, 6.47 kn at 150° and a run VMG of 5.60 kn. The cloth sails are within 4% of it upwind, at 150° and downwind, and faster reaching (8.1 and 8.6 kn, +18% and +11%); the strip model's reaching speeds are 25–32% above the certificate. Downwind, the cloth rigs' drive agrees with ORC's sail coefficients to within about 10%, where the strip model's is 20–25% higher: most of the difference in the downwind columns. The cat's reaching and downwind numbers under spinnaker have no certificate to check against.
 
