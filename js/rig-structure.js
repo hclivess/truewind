@@ -835,7 +835,7 @@ export class RigStructure {
       const ca = Math.cos(ang), sa = Math.sin(ang), cx = -ca, cy = sa;         // chord, aft from the luff
       const nx = sa, ny = ca;                                                  // its normal (to starboard for a centred chord)
       const An = Fx * nx + Fy * ny, Ac = Fx * cx + Fy * cy;
-      const Tc = 0.4 * Math.abs(An) / (8 * Math.max(0.05, dep));
+      const Tc = 0.4 * Math.abs(An) / (8 * Math.max(0.1, dep));        // (a flat section carries its load by the leech, not the chord)
       const Lx = 0.5 * An * nx + 0.5 * Ac * cx + Tc * cx, Ly = 0.5 * An * ny + 0.5 * Ac * cy + Tc * cy;
       if (s.key === 'main') this.loadMast(Math.min(this.zTop, z), Lx, Ly, 0, -this.track, 0);
       else if (stay) { const v = clamp((z - s.tackZ) / Math.max(0.5, s.luff), 0.03, 0.97); stay.P.push([v, Lx, Ly, 0]); }
@@ -859,7 +859,16 @@ export class RigStructure {
       // the head pulled toward the clew (where the boom has it), and the halyard's hauling part down the mast (a sleeved
       // luff has no halyard)
       const ba = (b.booms && b.booms.main && b.booms.main.a) || 0, head = { kind: 'mast', i: this.node(zH), ox: -this.track, oy: 0 };
-      this.pull(head, { kind: 'fixed', p: [this.axisX - this.track - s.foot * Math.cos(ba), s.foot * Math.sin(ba), C.boomZ] }, Th);
+      // (the leech leaves the head along its own curve, the roach and the sail's twist carrying it ~12 deg aft of the
+      // straight line to the clew: a pull in that direction, not a string to a fixed point)
+      {
+        const lx = -s.foot * Math.cos(ba), ly = s.foot * Math.sin(ba), lz = C.boomZ - zH, ll = Math.hypot(lx, ly, lz), hl = Math.hypot(lx, ly) || 1;
+        const a12 = 12 * DEG, ca = Math.cos(a12), sa = Math.sin(a12);
+        // turn the head-to-clew direction 12 deg toward the horizontal, aft along the boom
+        const ex = lx / ll, ey = ly / ll, ez = lz / ll, hx = lx / hl, hy = ly / hl;
+        const dx = ex * ca + hx * sa * Math.abs(ez), dy = ey * ca + hy * sa * Math.abs(ez), dz = ez * ca + sa * hl / ll, dn = Math.hypot(dx, dy, dz);
+        this.loadMast(zH, Th * dx / dn, Th * dy / dn, Th * dz / dn, -this.track, 0);
+      }
       if (!this.spec.noHalyard) this.pull(head, { kind: 'mast', i: 0, ox: 0, oy: 0 }, Th);
       this.loadMast(zH, Lhx, Lhy, 0, -this.track, 0);
       // (and the clew's share, through the boom: the part the gooseneck takes, the sheet's lever on the boom being 0.86)
