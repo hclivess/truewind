@@ -35,14 +35,14 @@ const DAYS = opt('--days', 15.5), SPIN = opt('--spin', 1.2), CALN = opt('--cal',
 // (one anchor set for every open side, so the forced level is smooth round the corners: a step there drives a jet)
 const SOLENT_BC = ['Bournemouth', 'Swanage', 'Sandown', 'Portsmouth'];
 export const MODELS = {
-  solent: { box: [-1.626, 50.555, -0.944, 50.989], dx: 200, n: 0.024, date: '2026-06-01',
+  solent: { box: [-1.626, 50.555, -0.944, 50.989], dx: 200, n: 0.026, date: '2026-06-01',
     cal: { Bournemouth: 'Lymington', Swanage: 'Lymington', Sandown: 'Portsmouth', Portsmouth: 'Portsmouth' },
     sides: { W: { a: SOLENT_BC }, E: { a: SOLENT_BC }, S: { a: SOLENT_BC } },
     check: [['Hurst Narrows', 50.7055, -1.5465], ['Needles Channel', 50.672, -1.575], ['Yarmouth Roads', 50.712, -1.49], ['Cowes (Egypt Pt)', 50.772, -1.31], ['Bramble Bank', 50.79, -1.29], ['Calshot', 50.815, -1.305], ['Spithead', 50.76, -1.10], ['Portsmouth entrance', 50.793, -1.108]] },
   sfbay: { box: [-122.80, 37.43, -121.95, 38.15], fine: [-122.515, 37.765, -122.335, 37.88], dx: 150, grow: 1.08, dmax: 700, n: 0.022, date: '2026-06-01',
     cal: { 'Point Reyes': 'San Francisco (Presidio)', 'Pillar Point Harbor': 'San Francisco (Presidio)' },
     sides: { W: { a: ['Point Reyes', 'Pillar Point Harbor'] }, N: { a: ['Point Reyes', 'Pillar Point Harbor'], lon: [-123, -122.62] }, S: { a: ['Point Reyes', 'Pillar Point Harbor'], lon: [-123, -122.52] }, E: { a: ['Port Chicago'], lat: [37.99, 38.13] } },
-    check: [['Golden Gate Bridge', 37.8125, -122.4775], ['Point Bonita', 37.815, -122.53], ['Alcatraz N', 37.83, -122.42], ['Raccoon Strait', 37.868, -122.445], ['Blossom Rock', 37.818, -122.40], ['Anita Rock (City Front)', 37.807, -122.44]] },
+    check: [['Golden Gate Bridge', 37.8200, -122.4750], ['Point Bonita', 37.815, -122.53], ['Alcatraz N', 37.83, -122.42], ['Raccoon Strait', 37.868, -122.445], ['Blossom Rock', 37.818, -122.40], ['Anita Rock (City Front)', 37.807, -122.44]] },
   newport: { box: [-71.52, 41.33, -71.10, 41.84], fine: [-71.44, 41.42, -71.28, 41.54], dx: 120, grow: 1.08, dmax: 500, n: 0.024, date: '2026-06-01',
     cal: { 'Point Judith': 'Newport', Sakonnet: 'Newport' },
     sides: { S: { a: ['Point Judith', 'Sakonnet'] }, W: { a: ['Point Judith', 'Sakonnet'], lat: [41.30, 41.38] }, E: { a: ['Point Judith', 'Sakonnet'], lat: [41.30, 41.46] } },

@@ -44,7 +44,7 @@ export function decodeBathy(buf) {
 // elevations (m, + up) on a lat/lon grid, north row first. bbox: [lonW, latS, lonE, latN]. Node and browser.
 export async function fetchNCEI(bbox, w, h, service = 'DEM_global_mosaic') {
   const url = `https://gis.ngdc.noaa.gov/arcgis/rest/services/DEM_mosaics/${service}/ImageServer/exportImage?bbox=${bbox.join(',')}` +
-    `&bboxSR=4326&imageSR=4326&size=${w},${h}&format=bsq&pixelType=F32&interpolation=RSP_BilinearInterpolation&f=image`;
+    `&bboxSR=4326&imageSR=4326&size=${w},${h}&format=bsq&pixelType=F32&interpolation=RSP_BilinearInterpolation&adjustAspectRatio=false&f=image`;   // (else the server widens the box to square pixels)
   const r = await fetch(url, typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(60000) } : undefined);
   if (!r.ok) throw new Error('NCEI DEM ' + r.status);
   const buf = await r.arrayBuffer();

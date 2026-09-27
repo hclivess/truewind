@@ -71,7 +71,7 @@ const maxOver = (tide, lat, lon, v, t0, t1, dir) => {
   if (!tide) check(false, 'San Francisco: no baked stream maps (node tools/bake-tide.mjs sfbay)');
   else {
     // springs at the end of September 2026: NOAA predicts 4.4 kn of ebb at the Bay Entrance (SFB1201)
-    const [ebb, te] = maxOver(tide, 37.8125, -122.4775, V, utc('2026-09-28 12:00'), utc('2026-10-01 12:00'), 247 * Math.PI / 180);
+    const [ebb, te] = maxOver(tide, 37.8200, -122.4750, V, utc('2026-09-28 12:00'), utc('2026-10-01 12:00'), 247 * Math.PI / 180);
     check(ebb >= 3.5 && ebb <= 5.5, `Golden Gate under the bridge: strongest spring ebb ${ebb.toFixed(1)} kn (3.5–5.5)`);
     // NOAA SFB1201 (Bay Entrance, outside): ebb and flood maxima and slacks, spring tides; model at the station
     const NO = [['2026-09-29 23:57', 'ebb', -4.3], ['2026-09-30 00:56', 'ebb', -4.42], ['2026-09-30 07:23', 'flood', 2.9], ['2026-09-30 13:10', 'ebb', -3.2], ['2026-09-30 19:21', 'flood', 3.1]];
