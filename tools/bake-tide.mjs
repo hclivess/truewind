@@ -16,7 +16,7 @@
 // Output: data/venues/<id>.tide.json `streams` (Int8 cos/sin coefficients per constituent and component on a regular
 // grid over the venue; see js/tide.js TideStreams) and `model` (the run's settings and its validation).
 // Usage: node tools/bake-tide.mjs [venueId...] [--days 15.5] [--noquick]
-import { VENUES, makeProjection, MAP_RADIUS } from '../js/world.js';
+import { VENUES, makeProjection, MAP_RADIUS, World, overpassQuery, processOSM } from '../js/world.js';
 import { args, TideStation, constituentName } from '../js/tide.js';
 import { sample, z0Field } from './bathy-src.mjs';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -47,7 +47,7 @@ export const MODELS = {
     cal: { 'Point Judith': 'Newport', Sakonnet: 'Newport' },
     sides: { S: { a: ['Point Judith', 'Sakonnet'] }, W: { a: ['Point Judith', 'Sakonnet'], lat: [41.30, 41.38] }, E: { a: ['Point Judith', 'Sakonnet'], lat: [41.30, 41.46] } },
     check: [['East Passage (Rose I.)', 41.495, -71.345], ['Newport Harbor ent.', 41.487, -71.33], ['West Passage (Dutch I.)', 41.50, -71.40], ['Castle Hill', 41.462, -71.36]] },
-  sydney: { box: [151.00, -33.93, 151.36, -33.74], fine: [151.17, -33.875, 151.30, -33.80], dx: 80, grow: 1.08, dmax: 500, n: 0.025, date: '2026-06-01',
+  sydney: { box: [151.00, -33.93, 151.36, -33.74], fine: [151.17, -33.875, 151.30, -33.80], dx: 80, grow: 1.08, dmax: 500, n: 0.025, date: '2026-06-01', carve: 12,
     cal: { 'Fort Denison': 'Fort Denison' },
     sides: { E: { a: ['Fort Denison'] }, N: { a: ['Fort Denison'], lon: [151.29, 152] }, S: { a: ['Fort Denison'], lon: [151.265, 152] } },
     check: [['The Heads', -33.832, 151.285], ['Bradleys Head', -33.853, 151.245], ['Harbour Bridge', -33.852, 151.211], ['Middle Harbour ent.', -33.822, 151.265]] },
@@ -108,6 +108,35 @@ class Model {
       if (wet >= 5 && h[j * nx + i] < 0.3) h[j * nx + i] = 0.3;          // a mostly wet cell stays wet at MSL
     }
     this.h = h;
+    // a survey grid too coarse for a harbour (ETOPO's 450 m cells across Port Jackson's reaches): the OpenStreetMap
+    // shoreline over the whole model domain says where the water is, and inside it the depth is at least the
+    // shelving estimate (M.carve: the reaches' typical depth, m)
+    if (this.M.carve) await this.carve(this.M.carve);
+  }
+  async carve(typ) {
+    const { nx, nz, xc, zc, h, v } = this;
+    const R = Math.max(-this.xe[0], this.xe[nx], -this.ze[0], this.ze[nz]) + 500;
+    const cf = join(tmpdir(), `truewind-osm-${v.id}-${Math.round(R)}.json`);
+    let geo = existsSync(cf) ? JSON.parse(readFileSync(cf, 'utf8')) : null;
+    if (!geo) {
+      const q = overpassQuery(v.lat, v.lon, R);
+      for (let k = 0; k < 4 && !geo; k++) {
+        try {
+          const r = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'truewind tide baker', Accept: 'application/json' } });
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          geo = processOSM(await r.json(), v.lat, v.lon, R);
+        } catch (e) { console.log('  overpass retry', e.message); await new Promise(r => setTimeout(r, 15000)); }
+      }
+      if (!geo) { console.log('  no OSM shoreline: not carved'); return; }
+      writeFileSync(cf, JSON.stringify(geo));
+    }
+    const w = new World({ ...v, R, depth: typ, shelf: 150 }, geo, { N: 2048 });
+    let n = 0;
+    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+      const k = j * nx + i, sd = w.sdfAt(xc[i], zc[j]);
+      if (sd > 0) { const e = w.estDepth(xc[i], zc[j], sd); if (h[k] < e) { h[k] = e; n++; } }
+    }
+    console.log(`  carved ${n} cells to the OSM shoreline (reaches ${typ} m)`);
   }
   setup() {
     const { nx, nz, h } = this, N = nx * nz, M = this.M;
