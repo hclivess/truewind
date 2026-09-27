@@ -559,8 +559,9 @@ export class Renderer {
           foam = max(foam, ssV(1.125 - vBreak * 0.9, 0.125, f1 * 0.7 + f2 * 0.3, 0.49 * v1 + 0.09 * v2) * vBreak);
           // ---- a breaking crest: white water by the wave's phase, so it rides the crest rather than the water:
           // a dense roller over the crest's top, the translucent lip ahead of it torn by foam, the plunge where
-          // the jet lands a little down the face, exploding white, and from there aerated water running down and
-          // thinning into lace toward the foot; behind the crest the foam it has left. Its texture in metres
+          // the jet lands a little down the face, exploding white and pouring down to there, but no further (the
+          // broken water rides with the crest; nothing breaks ahead of it); behind the crest the foam it has left,
+          // thinning into lace over the back of the wave. Its texture in metres
           // across the crest and down the face (stretched down it: the water pours), churning with time; the
           // whole varies along the crest (alB, phJ)
           float fshade = 1.0;
@@ -568,8 +569,8 @@ export class Renderer {
             float kb = max(uBrk.x, 1e-3), sc = kb * 5.0, casc = smoothstep(1.1, 0.5, phJ);
             float roll = 0.85 * smoothstep(1.25, 1.5, phJ) * (1.0 - smoothstep(1.9, 2.15, phJ));
             float lipc = 0.35 * smoothstep(0.6, 0.9, phJ) * (1.0 - smoothstep(1.4, 1.6, phJ));
-            float plng = 0.75 * smoothstep(-0.9, 0.35, phJ) * (1.0 - smoothstep(0.65, 0.95, phJ));
-            float cov = max(max(roll, 0.3 * smoothstep(2.8, 2.0, phJ) * smoothstep(1.6, 1.9, phJ)), max(lipc, plng)) * (0.65 + 0.35 * alB) * lb.w;
+            float plng = 0.75 * smoothstep(-0.25, 0.3, phJ) * (1.0 - smoothstep(0.65, 0.95, phJ));
+            float cov = max(max(roll, 0.35 * smoothstep(3.2, 2.0, phJ) * smoothstep(1.6, 1.9, phJ)), max(lipc, plng)) * (0.65 + 0.35 * alB) * lb.w;
             vec2 bp = vec2(acrB * 5.0, (phB / kb) * sc * (1.0 - 0.35 * casc) - uTime * 0.12 * casc) + vec2(0.0, uTime * 0.03);
             float bw = fpAlong(vec2(-uDm.y, uDm.x), eRf, eT) * sc;
             foam = max(foam, aerated(bp, bw, cov));
