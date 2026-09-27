@@ -101,13 +101,13 @@ export const RIG_DATA = {
     prebend: 0.01, lineMax: 1800,
   },
   // Laser / ILCA 7: unstayed two-piece aluminium mast in a deck tube. Class: bottom section 2865 mm x 63.5 mm, top
-  // section 3600 mm x 50.8 mm (walls est. 2.3 / 1.9 mm: ~4.5 and ~3 kg), heel 355 mm below the deck; the top
+  // section 3600 mm x 50.8 mm (walls est. 1.8 / 1.55 mm from the sections' ~2.8 and ~2.4 kg), heel 355 mm below the deck; the top
   // section slides ~0.27 m into the bottom one at the sleeve. The sail's luff sleeve wraps the mast.
   dinghy: {
     step: { type: 'tube', z: 0.05, collar: 0.41 },
-    spans: [{ z0: 0.05, z1: 2.645, dia: 0.0635, t: 0.0023, mat: 'alu6061' },
-      { z0: 2.645, z1: 2.915, dia: 0.0635, t: 0.0023, mat: 'alu6061', plus: { dia: 0.0508, t: 0.0019 } },
-      { z0: 2.915, z1: 6.24, dia: 0.0508, t: 0.0019, mat: 'alu6061' }],
+    spans: [{ z0: 0.05, z1: 2.645, dia: 0.0635, t: 0.0018, mat: 'alu6061' },
+      { z0: 2.645, z1: 2.915, dia: 0.0635, t: 0.0018, mat: 'alu6061', plus: { dia: 0.0508, t: 0.00155 } },
+      { z0: 2.915, z1: 6.24, dia: 0.0508, t: 0.00155, mat: 'alu6061' }],
     spreaders: [], wires: [], prebend: 0, lineMax: 2500, noHalyard: true,
   },
   // Hobie 16: rotating aluminium wing mast (8.07 m) on a ball on the front beam, side stays to the hulls, forestay to
@@ -620,9 +620,10 @@ export class RigStructure {
     this.us = us; this.u.set(u0); for (const w of this.wires) w.Lrest = w.Lrest0;
     this.pulls.length = 0; this.F.fill(0);
     for (const e of this.el) { e.N = e.EA / e.L * (this.u[5 * e.j + 4] - this.u[5 * e.i + 4]); e.Ng = e.N; }
-    // (between the 0.6% of the luff the cloth was cut with before and the ~1.5% sailmakers give the bendiest dinghy
+    // (between the 0.6% of the luff the cloth was cut with before and the ~1% sailmakers give the bendiest dinghy
     // spars: a linear column is least trustworthy at the Laser's top-section bends)
-    return clamp(0.9 * off, 0.35 * 0.018 * M.luff, 0.015 * M.luff);
+    this.designOff = off;
+    return clamp(0.9 * off, 0.35 * 0.018 * M.luff, 0.02 * M.luff);
   }
 
   // ---------------------------------------------------------------- loads
@@ -862,8 +863,10 @@ export class RigStructure {
       this.loadMast(zH, Lhx, Lhy, 0, -this.track, 0);
       // (and the clew's share, through the boom: the part the gooseneck takes, the sheet's lever on the boom being 0.86)
       this.loadMast(C.boomZ, 0.14 * Lhx, 0.14 * Lhy, 0, -this.track, 0);
-      this.loadMast(C.boomZ, V * bl / l, 0, -V * hz / l - lead);
-      this.loadMast(zv, -V * bl / l, 0, V * hz / l);
+      // (along the boom, wherever it is swung: squared off, the boom pushes the mast sideways)
+      const cb = Math.cos(ba), sb = Math.sin(ba);
+      this.loadMast(C.boomZ, V * bl / l * cb, -V * bl / l * sb, -V * hz / l - lead);
+      this.loadMast(zv, -V * bl / l * cb, V * bl / l * sb, V * hz / l);
       this.loads.vang = V; this.loads.gooseneck = Math.hypot(V * bl / l, V * hz / l + lead);
     } else if (stay) {
       // the leech toward the clew (the sheet's side), the halyard down the mast
@@ -939,14 +942,14 @@ export class RigStructure {
     const uGood = this.uGood || (this.uGood = Float64Array.from(this.u));
     const isBad = () => {
       if (this.buckled) return true;
-      const lim = 0.06 * (this.zTop - this.zStep);
+      const lim = (this.spec.wires.length ? 0.06 : 0.12) * (this.zTop - this.zStep);   // (an unstayed spar bends further)
       for (let i = 0; i < this.nm; i++) if (!(Math.abs(this.u[5 * i]) < lim && Math.abs(this.u[5 * i + 2]) < lim)) return true;
       for (const w of this.wires) if (!(w.T < 2 * w.brk)) return true;
       return false;
     };
     this.solve(this.ready ? 5 : 10);
     if (RigStructure.debug) RigStructure.debug(this, b);
-    // a column past its critical load, or loads beyond anything the rig could stand (a spar bent past 6% of its length,
+    // a column past its critical load, or loads beyond anything the rig could stand (a stayed spar bent past 6% of its length (an unstayed one 12%),
     // a wire at twice its breaking load): the rig has failed at this load. Report it (the damage model decides what
     // breaks), and draw the shape at the largest fraction of the load the rig still stands
     let bad = isBad(), frac = 1;
