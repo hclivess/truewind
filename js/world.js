@@ -321,8 +321,7 @@ export class World {
     this.bathySource = bathy.source;
   }
   // bed depth below MSL (m; negative: a drying bank or land above MSL)
-  bedAt(x, z) {
-    const s = this.sdfAt(x, z);
+  bedAt(x, z, s = this.sdfAt(x, z)) {
     if (!this.bed) return s <= 0 ? s * 0.05 : this.estDepth(x, z, s);
     if (s <= 0 && s < -this.bedG.dx) return s * 0.05 - 0.3;
     const g = this.bedG, b = this.bed;
@@ -338,7 +337,7 @@ export class World {
   depthAt(x, z) {
     const d = this.sdfAt(x, z);
     if (d <= 0) return d * 0.05;
-    return (this.bed ? this.bedAt(x, z) : this.estDepth(x, z, d)) + this.levelAt(x, z);
+    return (this.bed ? this.bedAt(x, z, d) : this.estDepth(x, z, d)) + (this.tide ? this.tide.levelAt(x, z) : 0);
   }
   // charted depth: below chart datum (LAT, or MLLW in US waters); negative = drying height
   chartDepthAt(x, z) { return this.bedAt(x, z) - (this.tide ? this.tide.z0At(x, z) : 0); }

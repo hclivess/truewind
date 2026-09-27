@@ -114,8 +114,8 @@ export class TideStation {
     this._t = NaN; this._a = null;
   }
   _args(ms) { if (ms !== this._t) { this._t = ms; this._a = args(ms); } return this._a; }
-  level(ms) {
-    const a = this._args(ms); let h = 0;
+  level(ms, a = this._args(ms)) {
+    let h = 0;
     for (const [n, A, G] of this.cons) { const [f, Vu] = a[n]; h += f * A * Math.cos((Vu - G) * D2R); }
     return h;
   }
@@ -218,6 +218,7 @@ export class TideStreams {
 // ---------------------------------------------------------------------------------------------------------
 // A venue's tide at run time: the level (inverse-distance blend of the level gauges' predictions, each cached per
 // game time), the chart datum and MHW fields, and the streams. clock0: UTC ms at game time t = 0.
+const LV = (g) => g.lv;
 export class Tide {
   constructor(j) {
     const b64 = (s) => { if (typeof atob === 'function') { const t = atob(s), a = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) a[i] = t.charCodeAt(i); return a; } return new Uint8Array(Buffer.from(s, 'base64')); };
@@ -240,19 +241,20 @@ export class Tide {
   setTime(t) {
     this.t = t;
     const q = Math.floor(t);
-    if (q !== this._lt) { this._lt = q; const ms = this.clock0 + t * 1000; for (const g of this.gauges) g.lv = g.level(ms); }
+    if (q !== this._lt) { this._lt = q; const ms = this.clock0 + t * 1000, a = args(ms); for (const g of this.gauges) g.lv = g.level(ms, a); }
     if (this.streams) this.streams.update(t, this.clock0);
   }
   now() { return this.clock0 + this.t * 1000; }
   _blend(x, z, f) {
     const G = this.gauges; if (!G.length) return 0;
     if (G.length === 1) return f(G[0]);
+    if (f === LV) { let s = 0, w = 0; for (let i = 0; i < G.length; i++) { const g = G[i], dx = x - g.x, dz = z - g.z, d2 = dx * dx + dz * dz + 4e6, q = 1 / (d2 * d2); s += q * g.lv; w += q; } return s / w; }
     let s = 0, w = 0;
     for (const g of G) { const d2 = (x - g.x) ** 2 + (z - g.z) ** 2 + 4e6, q = 1 / (d2 * d2); s += q * f(g); w += q; }
     return s / w;
   }
   // water level above MSL at (x, z), now
-  levelAt(x, z) { return this.still ? 0 : this._blend(x, z, g => g.lv); }      // (still: the menu's steady current, no rise and fall)
+  levelAt(x, z) { return this.still ? 0 : this._blend(x, z, LV); }      // (still: the menu's steady current, no rise and fall)
   // chart datum below MSL, and MHW above MSL, at (x, z)
   z0At(x, z) { return this._blend(x, z, g => g.z0); }
   mhwAt(x, z) { return this._blend(x, z, g => g.mhw); }
