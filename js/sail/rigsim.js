@@ -384,7 +384,9 @@ export class BoomSailRig extends ClothRig {
     const W = rigWires(C, boat.sailBy);
     if (onMast && !lateen) cloth.addCapsule(isMain ? [mastXAt(C, 0) + 0.05, 0, 0] : [gx + 0.05, 0, 0], isMain ? [mastXAt(C, C.mastHeight) + 0.05, 0, C.mastHeight] : [gx + 0.05, 0, s.mast.h], isMain ? 0.05 : 0.04, bodyNodes(cloth, nu, nv));
     // eased right out (running), the main comes up against the leeward shrouds and spreader and lies on them
-    if (isMain && !lateen) for (const sh of W.shrouds) cloth.addWire(sh, 0.03, bodyNodes(cloth, nu, nv));
+    // (a main lies on its shrouds from aft: caught on one with its boom well inside the shroud's angle, it was carried
+    // through it in a crash gybe and is walked back aft, js/sail/cloth.js pref)
+    this.shrouds = isMain && !lateen ? W.shrouds.map((sh) => cloth.addWire(sh, 0.03, bodyNodes(cloth, nu, nv), [-1, 0, 0])) : [];
     if (!onMast) cloth.addWire(mastBelow(W, s.tackZ + s.luff), 0.06, bodyNodes(cloth, nu, nv, 2));   // (the staysail round the mast)
     this.a = 0; this.rate = 0; this.elev = 0;
   }
@@ -392,6 +394,7 @@ export class BoomSailRig extends ClothRig {
   // put the cloth at its rest shape swung out to boom angle a (camber to leeward), at rest
   pose(a, tw = null) {
     this.poseCloth(a, tw);
+    this.vangSlip = 0;
     const c = this.cloth, g = this.Gp[0];
     if (this.lateen) {
       // the whole rig turns about the mast: every node (the luff on its yard too) swung by a about the mast's axis
@@ -465,7 +468,8 @@ export class BoomSailRig extends ClothRig {
     this.sheet.len = sheetLen(C, s0, ease) - (this.sheetHaul ?? 0.035) * (1 - sstep(0, 0.25, ease));
     if (this.vang && !this.noVang) {
       const L0 = hyp(this.tv * this.Lb, this.dv), vg = clamp(ctrl.vang, 0, 1);
-      this.vang.len = L0 - (this.vangHaul ?? 0.012) * vg + 0.05 * (1 - vg) ** 1.3;
+      this._vL = L0 - (this.vangHaul ?? 0.012) * vg + 0.05 * (1 - vg) ** 1.3;
+      this.vang.len = this._vL + (this.vangSlip || 0);
     }
     if (s0.vang !== 'rigid') this.topping.len = hyp(this.Lb, this.mastHead[2] - this.pz + 0.15 * this.Lb);
     // preventer: rigged, it is made fast at the length it has, on the side the boom is on; released, it runs free
@@ -481,6 +485,8 @@ export class BoomSailRig extends ClothRig {
 
   step(b, dt, nsub, fr) {
     const wasTaut = this.sheet.taut, rate0 = this.rate, c = this.cloth, s0 = this.s0, E3 = 3 * this.E;
+    // (the boom 25° or more inside where the shroud stops it: the main has no business on a shroud)
+    if (this.shrouds.length) { const on = Math.abs(this.a) < (s0.max ?? 1.4) - 0.44; for (const w of this.shrouds) w.prefOn = on; }
     if (this.track) {
       // the boom end in the sea (sailsim.js hands the water's pull over in dipF), and the rigid kicker's gas spring
       // pushing the boom up whenever the strut is shorter than its free length
@@ -493,6 +499,15 @@ export class BoomSailRig extends ClothRig {
     }
     this.stepCloth(dt, nsub, fr);
     if (this.track) {
+      // the boom end in the sea: the crew blows the vang (the stiff penalty rope alone held 30 kN on a J/70 whose boom
+      // the water was lifting, and tore the main at the clew), so it pays out past about twice what they haul on it,
+      // and is taken back in, a couple of cm/s, once the boom is clear and the load off
+      if (this.vang && !this.noVang && s0.vangMax) {
+        const hold = 2 * s0.vangMax, F = this.vang.force;
+        if (F > hold && b.diag.rig.boomWet > 0) this.vangSlip = (this.vangSlip || 0) + (F - hold) / this.vang.w;
+        else if (this.vangSlip > 0 && F < 0.5 * hold) this.vangSlip = Math.max(0, this.vangSlip - 0.02 * dt);
+        if (this.vangSlip > 0 && this._vL !== undefined) this.vang.len = this._vL + this.vangSlip;
+      }
       // boom brake: friction at the boom's swing, a force at its end that slows it and never reverses it
       const Fb = (b.ctrl.brake || 0) * (s0.brake || 0);
       if (Fb > 0) {
