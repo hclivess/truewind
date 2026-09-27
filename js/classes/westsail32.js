@@ -24,16 +24,21 @@ export default {
   massHull: M, zG: MP.zG, crewN: 3, crewEach: 80, crewZ: 1.2, crewMaxOut: 1.3, crewLee: -0.6, hikeRate: 0.45,
   gm: 1.1, bmForm: 0.8, Ixx: MP.Ixx, Izz: MP.Izz, amX: 0.08, amY: 0.95, amYaw: 0.65, amRoll: 0.32,
   rr: rrTable(LWL, M + 240, { prism: -0.05 }),
-  // (a long keel is part of the lines: its skin friction is in the hull's, so the foil keeps only its form drag)
-  keel: { x: 0.1, z: -0.95, area: 3.3, ARe: 1.0, stall: 26 * DEG, cd0: 0.003, span: 0.9, chord: 4.4, long: true },
+  // (a long keel is part of the lines: its skin friction is in the hull's, so the foil keeps only its form drag. The
+  // canoe body and the deadwood below it make one low-aspect wing whose span is the whole draft (Larsson & Eliasson,
+  // ch. 6): lateral area 5.4 m^2 (deadwood 3.3 + the canoe body's 2.1), span 1.5 m, effective AR 2 b^2 / A with the
+  // hull's mirror; the canoe body's cross-flow drag below keeps only the part above the wing)
+  keel: { x: 0.1, z: -0.8, area: 5.4, ARe: 0.83, stall: 26 * DEG, cd0: 0.003, span: 1.5, chord: 3.6, long: true },
   rudder: { x: -4.95, z: -0.6, area: 0.78, ARe: 2.0, stall: 22 * DEG, cd0: 0.014, max: 35 * DEG, span: 1.35, chord: 0.62, transom: true, loadRef: 2200 },
-  hullLat: { area: 2.8, cd: 0.9, z: -0.25 },
+  hullLat: { area: 1.0, cd: 0.9, z: -0.2 },
   windage: { area: 5.6, z: 2.6, cd: 0.95 },
   mastX: 0.6, mastHeight: 14.3, boomZ: 2.45, mastR: 0.075, keelBulb: false,
   targetHeel: 18 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 2400, reefTime: 75,
   // inboard: Volvo Penta MD2B (2-cyl diesel, 25 hp at 2,500 rpm, 2:1 reverse gear), 3-blade 16 x 11 in prop in the
-  // aperture between the keel and the rudder
-  engine: { type: 'inboard', model: 'Volvo Penta MD2B', kW: 25 * HP, rpmMax: 2500, rpmIdle: 750, cyl: 2, fuel: 'diesel', gear: 2.0,
+  // aperture between the keel and the rudder. There it turns in the deadwood's wake: a Taylor wake fraction of about
+  // 0.3 for a single screw behind a full keel (against 0.1 for a shaft under a fin-keel hull), which also slows it
+  // when it windmills under sail (its drag at 5 kn 95 N, not 115)
+  engine: { type: 'inboard', model: 'Volvo Penta MD2B', kW: 25 * HP, rpmMax: 2500, rpmIdle: 750, cyl: 2, fuel: 'diesel', gear: 2.0, wake: 0.3,
     prop: { D: 0.41, P: 0.28, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-4.4, 0, -0.8], mount: [-2.8, 0, -0.2], mass: 180, inMass: true,
     shaftAngle: 7 * DEG, exhaust: [-4.6, 0.7, 0.4] },
   lines: { main: { handler: 'cam', n: 4, at: 'car' }, trav: { handler: 'horn', n: 1, at: 'deck' }, jib: { handler: 'winchHorn', at: 'winch' },
@@ -45,7 +50,7 @@ export default {
       cd0: 0.07, ARe: 3.8, min: 2 * DEG, max: 80 * DEG, trav: [-4 * DEG, 11 * DEG], Iboom: 220, boomMass: 30, reefs: 2,
       vangBend: 0.04, sheetBend: 0.03, color: 0xf0ebdf, pockets: [[0.25, 0.14], [0.5, 0.16], [0.75, 0.14]] },
     { key: 'stay', kind: 'boom', selfTacking: true, area: 12.5, tackX: 3.4, tackZ: 1.62, luff: 10.0, foot: 2.5, head: 0.05,
-      depth: [0.12, 0.13, 0.11], twistMax: 14 * DEG, cd0: 0.05, ARe: 3.5, min: 5 * DEG, max: 55 * DEG, Iboom: 30, boomMass: 10, color: 0xf0ebdf, clubVang: true },
+      depth: [0.12, 0.13, 0.11], twistMax: 14 * DEG, cd0: 0.05, ARe: 3.5, min: 5 * DEG, max: 55 * DEG, Iboom: 30, boomMass: 10, color: 0xf0ebdf },
     { key: 'jib', kind: 'loose', area: 20.0, tackX: 6.15, tackZ: 1.75, luff: 12.1, foot: 4.4, head: 0.05, footRise: 1.1,
       depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 3.8, min: 12 * DEG, max: 55 * DEG, sagK: 1.5, color: 0xf0ebdf, window: false },
   ],
