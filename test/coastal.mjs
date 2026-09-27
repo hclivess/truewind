@@ -130,6 +130,17 @@ env.waves.setCoastal(cf);
   check(hp < 0.25 * ho, `the hull feels it: max |eta| ${hp.toFixed(2)} m in the port against ${ho.toFixed(2)} m outside`);
 }
 
+// ---- 6b. finite everywhere, land and sea, with the rogue groups (a group never focuses where the coast has
+// taken the sea away)
+{
+  let bad = 0, n = 0; const o = {};
+  for (let t = 0; t < 900; t += 61.7) for (let x = -6600; x <= 6600; x += 197) for (let z = -6600; z <= 6600; z += 211) {
+    env.waves.sample(x, z, t, o); n++;
+    if (![o.h, o.sx, o.sz, o.vx, o.vy, o.vz, o.ax, o.ay, o.az, o.x0, o.z0, o.breaking].every(Number.isFinite)) bad++;
+  }
+  check(!bad, `sample() finite at ${n} points over the whole map, land included (${bad} not)`);
+}
+
 // ---- 7. sample() is the drawn surface: the vertex the shader computes from the same texture data (a transcription
 // of the GLSL in render.js: every local wave, the limits, the lean, the second order, the shore's fade), pushed
 // back through sample() at the displaced point. Also a steep storm sea with a rogue group focused on the coast.

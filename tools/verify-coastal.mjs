@@ -32,6 +32,8 @@ export async function gpuCheck({ venue = 'marseille', tws = '18', twd = '225', s
       // (the rogue groups off: the GPU draws only the two nearest the player, the physics feels every one; big-seas
       // checks the groups' formula against the shader's)
       W.rogue = false; W.rgForced.length = 0; W._rgL = new Map(); R.setRogues(W, U.uTime.value, 0, 0);
+      // (a moment of its own, the uniforms set from the sea as it is then: the game may be paused behind a dialog)
+      U.uTime.value = 37.3; W.update(37.3); R.setWaves(W); R.setRogues(W, 37.3, 0, 0);
       // points on the water: a lattice over the map, kept off the beach's last metres (where the texture's 8-bit
       // chart and the world's own depth differ)
       const pts = [];

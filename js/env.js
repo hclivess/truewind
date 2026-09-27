@@ -838,6 +838,8 @@ export class WaveField {
     let F = 0, Sk = 0;
     const a = new Float64Array(N);
     for (let q = 0; q < N; q++) if (comps[q].kind === 'sea') { a[q] = A[q] * A[q] / m0s; F += a[q] * af[q]; Sk += a[q] * af[q] * comps[q].k; }
+    // (no group where the coast has taken the wind sea away: on land, in a harbour's lee)
+    if (!(F > 0.05)) return null;
     let c1 = (al - er) / F, c2 = -hr / F;
     // no group steeper than a crest can stand (S = sum a_i k_i ~ 0.45, well into plunging)
     const S = Sk * Math.hypot(c1, c2);
