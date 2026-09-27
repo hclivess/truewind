@@ -92,7 +92,7 @@ export class Race {
       const cur = { x: b.x, z: b.z };
       if (!r.prev) { r.prev = cur; continue; }
       const leg = C.legs[r.leg];
-      if (r.finished) { r.prev = cur; continue; }
+      if (r.finished || r.retired) { r.prev = cur; continue; }   // (retired: e.g. motored after the preparatory signal)
       if (leg.type === 'start') {
         const [a] = C.frame(b.x, b.z, C.pin.x, C.pin.z);
         const [aC] = C.frame(b.x, b.z, C.committee.x, C.committee.z);
@@ -140,11 +140,21 @@ export class Race {
     if (this.xFlag && (clock > 240 || !this.racers.some(r => r.ocs))) { this.xFlag = false; this.events.push({ type: 'xflag', up: false }); }
   }
 
+  // one way out of a race for every reason (RRS 42 motoring, damage): RET in the standings, why in the race card
+  retire(boat, why) {
+    const r = this.racers.find((x) => x.boat === boat);
+    if (!r || r.retired || r.finished) return false;
+    r.retired = true; r.retiredWhy = why;
+    this.events.push({ type: 'retired', boat, why });
+    return true;
+  }
+
   standings() {
     const C = this.course;
     const score = (r) => {
       if (r.dsq) return -2e9 + (r.finished ? 1e6 - r.finishTime : r.leg * 1e3);     // disqualified: at the bottom
       if (r.finished) return 1e9 - r.finishTime;
+      if (r.retired) return -1e9;                   // (RET: RRS 42, or dismasted, sinking, keel or rudder gone: js/gear.js)
       const tgt = C.target(C.legs[r.leg], r.boat);
       return r.leg * 1e5 - Math.hypot(r.boat.x - tgt.x, r.boat.z - tgt.z);
     };
@@ -183,8 +193,8 @@ export class AIHelm {
     const R = sim.rules;
     // a penalty flagged by the umpire: two turns (one for a mark) at once, each a tack and a gybe, same way round
     // (22.2: she keeps clear while turning, so first she sails clear of the boats around her and out of the mark's
-    // zone, 40 s at most)
-    const pen = R && racer && !racer.finished ? R.penaltyOf(b) : null;
+    // zone, 45 s at most)
+    const pen = R && racer && !racer.finished && !racer.retired ? R.penaltyOf(b) : null;
     if (pen) return this.penaltyTurns(dt, pen, sim, t);
     this.penD = 0;
     this.twdMean = this.twdMean === null ? twd : this.twdMean + wrap(twd - this.twdMean) * dt / 90;
@@ -194,7 +204,7 @@ export class AIHelm {
     let dest = null;
     const leg = racer ? course.legs[racer.leg] : null;
     const clock = sim.race ? sim.race.clock : 0;
-    if (racer && racer.finished) { // sail away gently
+    if (racer && (racer.finished || racer.retired)) { // sail away gently (finished, or out of the race)
       dest = { x: b.x + Math.sin(twd + Math.PI / 2) * 200, z: b.z - Math.cos(twd + Math.PI / 2) * 200 };
       b.ctrl.gen = false;
     } else if (leg && leg.type === 'start' && clock < 0) {
@@ -546,7 +556,7 @@ export function resolveCollisions(boats, marks, piers, onEvent, onTouch) {
     if (vn < 0) {
       const nvx = vx - 1.4 * vn * nx, nvz = vz - 1.4 * vn * nz;
       b.u = (nvx * fx + nvz * fz) * 0.8; b.v = (nvx * sx + nvz * sz) * 0.8;
-      if (-vn > 0.4 && onEvent) onEvent(b, other, -vn);
+      if (-vn > 0.4 && onEvent) onEvent(b, other, -vn, nx, nz);   // (nx, nz: the contact normal, for the damage model)
     }
   };
   const S = boats.map(seg);

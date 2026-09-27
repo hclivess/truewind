@@ -9,6 +9,7 @@
 //  * Each browser is authoritative for its own boat and streams its state at 10 Hz.
 //  * Remote boats are re-simulated locally from their control inputs (so sails, heel and trim
 //    look right) and continuously pulled toward the dead-reckoned remote state.
+import { validateSailNo, validateBoatName } from './boatid.js';
 import { Boat, CLASSES, wrap, lerp, clamp } from './physics.js';
 
 const TRYSTERO = 'https://cdn.jsdelivr.net/npm/trystero@0.25.4/+esm';
@@ -25,11 +26,12 @@ export class Net {
     this.status = 'offline';
   }
 
-  async connect({ venueId, room, name, cls, cond }) {
+  async connect({ venueId, room, name, cls, cond, sailNo = '', boatName = '' }) {
     this.status = 'connecting';
     const mod = await import(TRYSTERO);
     this.selfId = mod.selfId;
     this.name = (name || 'Sailor').slice(0, 20);
+    this.sailNo = sailNo; this.boatName = boatName;
     this.cls = cls;
     this.cond = cond;          // { seed, epoch, tws, twd, gust, shift, swell, current, currentDir }
     this.condSince = this.since;
@@ -58,7 +60,7 @@ export class Net {
     window.addEventListener('beforeunload', () => { try { this.aBye.send({}); r.leave(); } catch (e) {} });
   }
 
-  helloMsg() { return { name: this.name, cls: this.cls, v: 1 }; }
+  helloMsg() { return { name: this.name, cls: this.cls, sn: this.sailNo, bn: this.boatName, v: 1 }; }
 
   disconnect() {
     try { this.aBye && this.aBye.send({}); this.room && this.room.leave(); } catch (e) {}
@@ -73,6 +75,13 @@ export class Net {
       this.peers.set(id, p);
       this.g.hud.toast(`${p.name} joined`, 2);
     } else { p.name = d.name || p.name; }
+    // a peer's own sail number and boat name, validated here as well (never trust what arrives)
+    const sn = validateSailNo(d.sn), bn = validateBoatName(d.bn);
+    const snv = sn.ok ? sn.value : '', bnv = bn.ok ? bn.value : '';
+    if (p.sn !== snv || p.bn !== bnv) {
+      p.sn = snv; p.bn = bnv;
+      if (p.boat) { this.g.removeRemoteBoat(p.boat); p.boat.sailNo = snv; p.boat.boatName = bnv; this.g.addRemoteBoat(p.boat); }
+    }
   }
 
   onCond(d, id) {
@@ -93,6 +102,7 @@ export class Net {
       // (re-simulated here with the fleet's sail model and level: cloth at L1 unless this machine cannot)
       const b = new Boat(p.cls, { id: 'net-' + id, name: p.name, sailModel: this.g.sailModel, lod: this.g.fleetSailLevel() });
       b.remote = true; b.auto.hike = false; b.auto.trim = false;
+      b.sailNo = p.sn || ''; b.boatName = p.bn || '';
       b.reset(d.x, d.z, d.psi);
       p.boat = b;
       this.g.addRemoteBoat(b);
@@ -126,6 +136,8 @@ export class Net {
       cy: q(me.crewY), cx: q(me.crewX), rud: q(me.rudder, 1000), gd: q(me.genDeploy), gf: q(me.genFill), sj: q(me.side.jib), sg: q(me.side.gennaker),
       rf: q(me.reefPos),
       b: booms, ctrl: c, cap: me.capsized ? 1 : 0, race: raceInfo || null,
+      e: me.engine ? me.engine.packet() : undefined,   // engine: the throttle while it runs, absent when stopped
+      dm: me.dmg ? me.dmg.netState() : null, an: me.anchor && me.anchor.state !== 'up' ? [q(me.anchor.x), q(me.anchor.z)] : null,
     });
   }
 
@@ -135,6 +147,7 @@ export class Net {
       const b = p.boat, d = p.pkt; if (!b || !d) continue;
       for (const k of CTRL_KEYS) if (d.ctrl[k] !== undefined) b.ctrl[k] = d.ctrl[k];
       b.ctrl.gen = !!d.ctrl.gen; b.ctrl.hike = 0;
+      if (b.engine) b.engine.follow(d.e);
     }
   }
   postStep(dt) {
@@ -161,6 +174,8 @@ export class Net {
       if (b.sailSys && b.sailSys.active(b)) b.sailSys.follow(b, { booms: d.b, jib: d.sj, gennaker: d.sg }, dt);
       b.capsized = !!d.cap;
       b.netRace = d.race;
+      if (b.dmg && d.dm) b.dmg.applyNet(d.dm);                                  // (a dismasted, torn or sinking boat looks it)
+      b.lights = b.lights || {}; b.lights.anchor = !!d.an;
     }
   }
 

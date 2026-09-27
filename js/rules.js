@@ -174,7 +174,7 @@ export class RuleEngine {
   // the marks a boat must now leave on a side (rule 18 does not apply at a starting mark while boats start)
   marksOf(b) {
     const r = this.racerOf(b), C = this.course;
-    if (!r || !C || r.finished) return null;
+    if (!r || !C || r.finished || r.retired) return null;
     const leg = C.legs[Math.min(r.leg, C.legs.length - 1)];
     if (!leg || leg.type === 'start') return null;
     if (leg.type === 'mark') { leg.mark.side = 'port'; return [leg.mark]; }
@@ -439,7 +439,7 @@ export class RuleEngine {
     if (other && other.cls) { this.touches.push([b, other]); return; }
     const C = this.course; if (!C || !other) return;
     if (!(C.marks().includes(other) || other === C.committee)) return;     // (the real buoys around are obstructions, not marks of the course)
-    const r = this.racerOf(b); if (!r || r.finished) return;
+    const r = this.racerOf(b); if (!r || r.finished || r.retired) return;
     const s = this.S(b); s.markT = s.markT || new Map();
     if (this.t - (s.markT.get(other) ?? -1e9) < 20) return;
     s.markT.set(other, this.t);
@@ -516,6 +516,7 @@ export class RuleEngine {
     for (const [b, s] of this.st) {
       const p = s.pen; if (!p || p.done) continue;
       const r = this.racerOf(b);
+      if (r && r.retired && !r.dsq) { s.pen = null; continue; }        // (out of the race for another reason: nothing to take)
       if (p.dir && t > p.deadline && t < p.deadline + 30) continue;    // (turning when time is up: she may finish them)
       if ((r && r.finished) || t > p.deadline) this.dsq(b, s, r && r.finished ? 'finished with the penalty not taken' : 'penalty not taken');
     }
@@ -523,7 +524,7 @@ export class RuleEngine {
   // the umpire rules on an incident: a penalty for the boat that broke a rule (if she is still racing)
   decide(inc, by) {
     const r = this.racerOf(inc.off);
-    if (!r || r.finished || r.dsq) { inc.status = 'norace'; return; }
+    if (!r || r.finished || r.dsq || r.retired) { inc.status = 'norace'; return; }
     inc.status = 'penalty'; inc.by = by;
     inc.turns = inc.rule === '31' ? 1 : 2;
     if (this.owned(inc.off)) this.penalize(inc.off, inc);
@@ -543,7 +544,8 @@ export class RuleEngine {
   }
   dsq(b, s, why) {
     for (const i of s.pen.incs) i.status = 'dsq';
-    const r = this.racerOf(b); if (r && !r.remote) { r.dsq = s.pen.rule; r.dsqWhy = why; }
+    // DSQ, and out of the race the one way every retirement goes (Race.retire: she is no longer scored as she sails)
+    const r = this.racerOf(b); if (r && !r.remote) { r.dsq = s.pen.rule; r.dsqWhy = why; if (this.race && !r.finished) this.race.retire(b, `DSQ — ${why} (rule ${s.pen.rule})`); }
     this.events.push({ type: 'dsq', boat: b, rule: s.pen.rule, why });
     s.pen = null;
   }
