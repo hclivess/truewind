@@ -47,6 +47,7 @@ function sectionCut(p, sp, cp, zw, sl, r) {
 // pose: { x, z, psi, heave, pitch, phi } (the drawn pose); the sea along the hull from the last physics step
 export function hullEntries(b, pose, list, max = HW.MAXH) {
   const C = b.cls, hy = b.hydro, NS = HW.NS, P = pose || b;
+  if (!(isFinite(P.x) && isFinite(P.z) && isFinite(P.psi) && isFinite(P.phi || 0) && isFinite(P.pitch || 0) && isFinite(P.heave || 0))) return list;   // (a broken state must not poison the grid)
   const etaAt = b._etaAt || (() => 0), slLat = b._slLat || (() => 0);
   const cp = Math.cos(P.phi || 0), sp = Math.sin(P.phi || 0), heave = P.heave || 0, pitch = P.pitch || 0;
   const S = hy.stations, n = S.length, nh = S[0].polys.length;
@@ -292,6 +293,13 @@ vec4 hwAt(vec2 x, float lod) {
   vec2 uv = (x - uHWC.xy) / uHWC.z + 0.5;
   float w = uHWC.w * (1.0 - smoothstep(0.38, 0.47, max(abs(uv.x - 0.5), abs(uv.y - 0.5))));
   return w > 0.0 ? textureLod(uHW, uv, lod) * w : vec4(0.0);
+}
+// (fragment shaders) the same with the hardware's own footprint: anisotropic, so a crest line seen at a
+// grazing angle keeps its full slope across the line of sight instead of being blurred by the long axis
+vec4 hwAtA(vec2 x) {
+  vec2 uv = (x - uHWC.xy) / uHWC.z + 0.5;
+  float w = uHWC.w * (1.0 - smoothstep(0.38, 0.47, max(abs(uv.x - 0.5), abs(uv.y - 0.5))));
+  return texture(uHW, uv) * w;
 }`;
 
 export class HullWaves {
@@ -305,6 +313,7 @@ export class HullWaves {
     const mk = (o) => new THREE.WebGLRenderTarget(N, N, { type: THREE.FloatType, format: THREE.RGFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, generateMipmaps: false, ...o });
     this.A = mk(); this.B = mk();
     this.S = mk({ type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: true });
+    this.S.texture.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy());
     this.uniforms.uHW.value = this.S.texture;
     const mat = (frag, u) => new THREE.ShaderMaterial({ uniforms: u, vertexShader: FS_VERT, fragmentShader: `const int N = ${N};\n` + frag, depthTest: false, depthWrite: false, blending: THREE.NoBlending });
     const v4 = (n) => Array.from({ length: n }, () => new THREE.Vector4());
@@ -356,11 +365,12 @@ export class HullWaves {
         float x1 = hd(ij + ivec2(1, 0), 0), x0 = hd(ij - ivec2(1, 0), 1), z1 = hd(ij + ivec2(0, 1), 2), z0 = hd(ij - ivec2(0, 1), 3);
         vec2 g = vec2(x1 - x0, z1 - z0) / (2.0 * uDx);
         float lap = (x1 + x0 + z1 + z0 - 4.0 * h0) / (uDx * uDx);
-        // breaking: a crest steeper than ~0.12 on this grid (which rounds off the sharp crests of the waves
+        // breaking: a crest steeper than ~0.2 on this grid (which rounds off the sharp crests of the waves
         // it resolves: a real crest there is about twice as steep; Stokes' limit 0.58) and curving down,
-        // outside the hulls: the divergent crests once the boat goes fast; gentler crests only spill a lace
+        // outside the hulls: the divergent crests of a heavy boat driven fast (a keelboat's at 6 kn stay
+        // glassy: they show only in the reflections)
         float dry = 1.0 - smoothstep(0.005, 0.04, q);
-        float sl = length(g), brk = max(smoothstep(0.12, 0.3, sl), 0.3 * smoothstep(0.06, 0.14, sl)) * smoothstep(0.0, 0.03, h0) * smoothstep(0.1, -0.4, lap) * dry;
+        float sl = length(g), brk = smoothstep(0.2, 0.35, sl) * smoothstep(0.0, 0.03, h0) * smoothstep(0.1, -0.4, lap) * dry;
         // and the bow wave: water standing up against the hull (the cell at the waterline, a hull cell next
         // to it) spills as white water past ~6 cm (an entry at Fn ~0.3)
         float edge = smoothstep(0.02, 0.08, max(max(qn[0], qn[1]), max(qn[2], qn[3]))) * dry;
