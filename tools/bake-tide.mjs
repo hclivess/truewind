@@ -39,7 +39,7 @@ export const MODELS = {
     cal: { Bournemouth: 'Lymington', Swanage: 'Lymington', Sandown: 'Portsmouth', Portsmouth: 'Portsmouth' },
     sides: { W: { a: SOLENT_BC }, E: { a: SOLENT_BC }, S: { a: SOLENT_BC } },
     check: [['Hurst Narrows', 50.7055, -1.5465], ['Needles Channel', 50.672, -1.575], ['Yarmouth Roads', 50.712, -1.49], ['Cowes (Egypt Pt)', 50.772, -1.31], ['Bramble Bank', 50.79, -1.29], ['Calshot', 50.815, -1.305], ['Spithead', 50.76, -1.10], ['Portsmouth entrance', 50.793, -1.108]] },
-  sfbay: { box: [-122.80, 37.43, -121.95, 38.15], fine: [-122.515, 37.765, -122.335, 37.88], dx: 150, grow: 1.08, dmax: 700, n: 0.022, date: '2026-06-01',
+  sfbay: { box: [-122.80, 37.43, -121.95, 38.15], fine: [-122.515, 37.765, -122.335, 37.88], dx: 150, grow: 1.08, dmax: 550, n: 0.022, date: '2026-06-01',
     cal: { 'Point Reyes': 'San Francisco (Presidio)', 'Pillar Point Harbor': 'San Francisco (Presidio)' },
     sides: { W: { a: ['Point Reyes', 'Pillar Point Harbor'] }, N: { a: ['Point Reyes', 'Pillar Point Harbor'], lon: [-123, -122.62] }, S: { a: ['Point Reyes', 'Pillar Point Harbor'], lon: [-123, -122.52] }, E: { a: ['Port Chicago'], lat: [37.99, 38.13] } },
     check: [['Golden Gate Bridge', 37.8200, -122.4750], ['Point Bonita', 37.815, -122.53], ['Alcatraz N', 37.83, -122.42], ['Raccoon Strait', 37.868, -122.445], ['Blossom Rock', 37.818, -122.40], ['Anita Rock (City Front)', 37.807, -122.44]] },
@@ -51,7 +51,7 @@ export const MODELS = {
     cal: { 'Fort Denison': 'Fort Denison' },
     sides: { E: { a: ['Fort Denison'] }, N: { a: ['Fort Denison'], lon: [151.29, 152] }, S: { a: ['Fort Denison'], lon: [151.265, 152] } },
     check: [['The Heads', -33.832, 151.285], ['Bradleys Head', -33.853, 151.245], ['Harbour Bridge', -33.852, 151.211], ['Middle Harbour ent.', -33.822, 151.265]] },
-  auckland: { box: [174.55, -36.95, 175.02, -36.68], fine: [174.74, -36.87, 174.90, -36.77], dx: 100, grow: 1.08, dmax: 600, n: 0.025, date: '2026-06-01',
+  auckland: { box: [174.55, -36.95, 175.02, -36.68], fine: [174.74, -36.87, 174.90, -36.77], dx: 100, grow: 1.08, dmax: 600, n: 0.025, date: '2026-06-01', carve: 15,
     cal: { 'Auckland (Waitematā)': 'Auckland (Waitematā)' },
     sides: { N: { a: ['Auckland (Waitematā)'] }, E: { a: ['Auckland (Waitematā)'] }, S: { a: ['Auckland (Waitematā)'], lon: [174.92, 176] } },
     check: [['Rangitoto Channel', -36.80, 174.84], ['North Head', -36.83, 174.815], ['Harbour Bridge', -36.832, 174.745], ['Tamaki Strait', -36.85, 174.9]] },
@@ -102,9 +102,11 @@ class Model {
     this.source = r.source;
     const h = new Float64Array(nx * nz), W = xs.length;
     for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
-      let s = 0, wet = 0;
-      for (let b = 0; b < sub; b++) for (let a = 0; a < sub; a++) { const d = r.data[(j * sub + b) * W + i * sub + a] / 10; s += d; if (d > 0) wet++; }
-      h[j * nx + i] = s / (sub * sub);
+      let s = 0, wet = 0, sw = 0;
+      for (let b = 0; b < sub; b++) for (let a = 0; a < sub; a++) { const d = r.data[(j * sub + b) * W + i * sub + a] / 10; s += d; if (d > 0) { wet++; sw += d; } }
+      // (a channel through a coarse cell of banks and levees keeps its water: the wet part's depth, thinned by the
+      // share it covers, not the mean with the levees — else the far South Bay is cut off from the Gate)
+      h[j * nx + i] = wet >= 2 ? Math.max(s / (sub * sub), sw / wet * Math.sqrt(wet / (sub * sub))) : s / (sub * sub);
       if (wet >= 5 && h[j * nx + i] < 0.3) h[j * nx + i] = 0.3;          // a mostly wet cell stays wet at MSL
     }
     this.h = h;
