@@ -1599,7 +1599,10 @@ function clothToMesh(mesh, rig) {
   const c = rig.cloth, nu = c.nu, nv = c.nv, off = c.off, X = c.x, pos = mesh.geometry.attributes.position.array;
   // (never a non-finite vertex to the GPU: a cloth caught mid-blow-up keeps the shape it was last drawn with; the
   // physics re-poses it from its rest shape on its next step)
-  for (let i = 3 * off; i < X.length; i++) if (!Number.isFinite(X[i])) return;
+  for (let i = 3 * off; i < X.length; i++) if (!Number.isFinite(X[i])) {
+    if (!rig._nanWarned) { rig._nanWarned = true; console.warn(`cloth sail ${rig.s.key} (${rig.boat.cls.id}, L${rig.lod}) holds a non-finite node at t ${(rig.boat.t || 0).toFixed(2)} s: its last drawn shape is kept`); }
+    return;
+  }
   const P = (i, j, k) => {
     // nodes outside the grid are extrapolated linearly
     const ii = i < 0 ? 0 : i >= nu ? nu - 1 : i, jj = j < 0 ? 0 : j >= nv ? nv - 1 : j;
@@ -1632,7 +1635,10 @@ function updateSail(mesh, boat, s, t) {
   const C = boat.cls, d = boat.diag;
   const sh = d.shape[s.key], st = d.strips[s.key];
   // (never a non-finite vertex to the GPU: the strip model's shape after a numerical upset keeps the last drawing)
-  if (!Number.isFinite(st.baseAngle ?? 0) || !sh.every((o) => Number.isFinite(o.ang) && Number.isFinite(o.d) && Number.isFinite(o.f))) return;
+  if (!Number.isFinite(st.baseAngle ?? 0) || !sh.every((o) => Number.isFinite(o.ang) && Number.isFinite(o.d) && Number.isFinite(o.f))) {
+    if (!mesh.userData.nanWarned) { mesh.userData.nanWarned = true; console.warn(`sail ${s.key} (${C.id}, strip model) has a non-finite shape at t ${(boat.t || 0).toFixed(2)} s: its last drawn shape is kept`); }
+    return;
+  }
   const pos = mesh.geometry.attributes.position.array;
   const areaF = st.areaF ?? 1;
   mesh.visible = areaF > 0.03;

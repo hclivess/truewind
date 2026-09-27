@@ -407,7 +407,8 @@ export class BoomSailRig extends ClothRig {
       for (let j = 0; j < nv; j++) { const v = j / (nv - 1), dx = this.px - this.rake * v - g; c.pin(c.node(0, j), g + dx * ca, -dx * sa, this.pz + v * luff); }
     } else for (let j = 0; j < nv; j++) {
       const v = j / (nv - 1), n = c.node(0, j), z = this.pz + v * luff;
-      if (rs && this.isMain && !s.rig) { rs.luffAt(z, P); c.pin(n, P[0], P[1], z); }
+      // (the solved mast is upright about C.mastX; a raked mast (C.mastRake) carries the luff aft with its rake)
+      if (rs && this.isMain && !s.rig) { rs.luffAt(z, P); c.pin(n, P[0] - this.rake * v, P[1], z); }
       else if (onStay) { const sg = rs.staySag(s.key) * 4 * v * (1 - v), sd = Math.sign(c.x[1 + 3 * c.node(nu1(this), 0)] || 1); c.pin(n, this.px - this.rake * v - 0.3 * sg, 0.95 * sd * sg, z); }
       else c.pin(n, this.px - this.rake * v + bend * Math.sin(Math.PI * v), 0, z);
     }

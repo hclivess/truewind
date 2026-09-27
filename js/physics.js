@@ -79,7 +79,7 @@ export const CLASSES = {
     gm: 0.92, bmForm: 0.62, Ixx: 1150, Izz: 2250, amX: 0.07, amY: 0.9, amYaw: 0.6, amRoll: 0.3,
     rr: [[0.1, 0.0002], [0.15, 0.0006], [0.2, 0.0016], [0.25, 0.0035], [0.3, 0.0072], [0.35, 0.0145], [0.4, 0.031],
          [0.45, 0.058], [0.5, 0.085], [0.55, 0.101], [0.6, 0.11], [0.7, 0.12], [0.8, 0.125], [1.0, 0.13], [1.5, 0.14]],
-    // (x: the centre of the drawn long keel; its lift acts a quarter chord ahead, at the forefoot: keelLiftX)
+    // (x: the centre of the drawn long keel; its lift acts a quarter chord ahead, at the forefoot: js/foils.js)
     keel: { x: 0.42, z: -0.3, area: 1.7, ARe: 0.95, stall: 26 * DEG, cd0: 0.013, span: 0.35, chord: 3.6, long: true },
     rudder: { x: -2.78, z: -0.28, area: 0.34, ARe: 2.4, stall: 22 * DEG, cd0: 0.014, max: 35 * DEG, span: 0.75, chord: 0.5, transom: true, loadRef: 900 },
     hullLat: { area: 0.9, cd: 0.9, z: -0.1 },
@@ -262,7 +262,6 @@ for (const C of [...RACE, ...FAMOUS]) CLASSES[C.id] = C;
 // its own mast, a mizzen, keeps its, as does a sail marked fixedRake). A raked mast (mastRake: m aft at the masthead,
 // from the gooseneck up) carries the main's luff and the headsails' heads aft with it: the sails' centre of effort
 // moves aft by about half the rake
-export const keelLiftX = (C) => C.keel.x + (C.keel.long ? 0.25 * C.keel.chord : 0);
 for (const C of Object.values(CLASSES)) for (const s of C.sails) {
   if (s.mast || s.fixedRake) continue;
   if (s.kind === 'loose' || (s.kind === 'boom' && s.key !== 'main')) s.rake = s.tackX - (mastXAt(C, s.tackZ + s.luff) + 0.07);

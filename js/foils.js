@@ -125,7 +125,10 @@ export const depthAt = (zw, y, z, cphi, sphi) => zw - (-y * sphi + z * cphi);
 // zw(x): water level in body z; y: lateral offset of the foil (twin hulls).
 export function foilGeom(S, boardDown, kick, zw, cphi, sphi, y, V, out) {
   const F = S.F;
-  let span = S.span, x = F.x, zMid = F.z, sweepCos = 1;
+  // (a foil's lift acts near its quarter chord: F.x is a fin's; a long keel's is the middle of its drawn profile, and
+  // its lift, like any very low aspect ratio wing's, is concentrated forward, its centre ~35% of the chord back from
+  // the forefoot: 0.15 chord ahead of the middle)
+  let span = S.span, x = F.x + (F.long ? 0.15 * (F.chord || 0) : 0), zMid = F.z, sweepCos = 1;
   // root and tip of the full blade (F.z: the middle of the span as the class gives it)
   let zRoot = F.z + span / 2;
   if (S.board === 'dagger') { span = S.span * clamp(boardDown, 0.02, 1); zMid = zRoot - span / 2; }
