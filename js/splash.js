@@ -100,7 +100,7 @@ function materials(sky) {
         float a;
         if (vK < 0.5) a = (1.0 - vC.x * vC.x) * mix(0.25, 1.0, vC.y) * clamp(vL * 1.6, 0.0, 1.0) * 0.9;
         else if (vK < 1.5) { vec2 q = vec2(vC.x, vC.y * 2.0 - 1.0); a = exp(-dot(q, q) * 3.0) * vL * 0.12; }
-        else { vec2 q = vec2(vC.x, vC.y * 2.0 - 1.0); a = exp(-dot(q, q) * 2.2) * min(1.0, vL * 1.5) * 0.32; }
+        else { vec2 q = vec2(vC.x, vC.y * 2.0 - 1.0); a = exp(-dot(q, q) * 2.2) * min(1.0, vL * 1.5) * (vK > 2.5 ? 0.6 : 0.32); }
         if (a < 0.01) discard;
         gl_FragColor = vec4(col, a);
         #include <tonemapping_fragment>
@@ -423,8 +423,12 @@ export class HullSplash {
 // Spindrift: from about Beaufort 7 the wind tears the tops off breaking crests and blows them downwind
 // as sheets of spray. Breaking crests are found the way the water shader finds whitecaps — the steepest
 // crest compression (Gerstner Jacobian) for the wind's whitecap coverage — on the real wave field
-// around the camera, so the spray leaves the crests you see break.
-const SEA_DROPS = 1200;
+// around the camera, so the spray leaves the crests you see break. At hurricane force (Beaufort 12, from
+// ~64 kn: "the air filled with foam and spray") far more of it, in bigger sheets, from every crest.
+// And a crest that breaks as a wave (WaveField.sample's brk: a steep sea's steepest crests, a rogue group,
+// a shoaling breaker) throws its lip ahead and pours white water down its front face: sheets the size
+// of the wave moving at its crest speed and falling, and a scatter of heavy drops.
+const SEA_DROPS = 2400;
 const invTail = (p) => { const t = Math.sqrt(-2 * Math.log(Math.max(p, 1e-6))); return t - (2.515517 + 0.802853 * t + 0.010328 * t * t) / (1 + 1.432788 * t + 0.189269 * t * t + 0.001308 * t * t * t); };
 export class SeaSpray {
   constructor(scene, sky, low = false) {
@@ -438,7 +442,7 @@ export class SeaSpray {
     g.instanceCount = n;
     this.mesh = new THREE.Mesh(g, M.spray); this.mesh.frustumCulled = false; this.mesh.renderOrder = 4;
     scene.add(this.mesh);
-    this.next = 0; this.acc = 0; this._s = {}; this._w = {}; this.live = 0;
+    this.next = 0; this.acc = 0; this.accB = 0; this._s = {}; this._w = {}; this.live = 0;
   }
   emit(x, y, z, vx, vy, vz, size, kind, fade) {
     const i = this.next; this.next = (this.next + 1) % this.n;
@@ -453,14 +457,15 @@ export class SeaSpray {
     const w = env.wind.sample(cam.x, cam.z, t, this._w);
     const U = w.speed, wx = -Math.sin(w.dir) * U, wz = Math.cos(w.dir) * U;
     const gale = Math.max(0, Math.min(1, (U - 13) / 10));          // 25 kn: nothing; 45 kn: full spindrift
+    const hurr = Math.max(0, Math.min(1, (U - 28) / 8));           // 55 kn: more; 70 kn: the air full of it
     const waves = env.waves;
     if (gale > 0 && env.wavesOn) {
-      const Wc = Math.min(0.3, 3.84e-6 * Math.pow(U, 3.41)), zA = invTail(0.4 * Wc) + 0.2;
+      const Wc = Math.min(0.3, 3.84e-6 * Math.pow(U, 3.41)), zA = invTail(0.4 * Wc) + 0.2 - 0.9 * hurr;
       const sig = Math.max(0.02, waves.jSigma || 0.1);
-      this.acc += dt * 1500 * gale;
+      this.acc += dt * 1500 * gale * (1 + 1.5 * hurr);
       for (; this.acc >= 1; this.acc--) {
-        // a crest somewhere in view, 10-180 m out
-        const r = 10 + Math.pow(Math.random(), 0.8) * 170, a = (Math.random() - 0.5) * 2.2;
+        // a crest somewhere in view, 10-180 m out (farther in a hurricane: the whole sea smokes)
+        const r = 10 + Math.pow(Math.random(), 0.8) * (170 + 200 * hurr), a = (Math.random() - 0.5) * 2.2;
         const ca = Math.cos(a), sa = Math.sin(a);
         const x = cam.x + (fwdX * ca - fwdZ * sa) * r, z = cam.z + (fwdZ * ca + fwdX * sa) * r;
         const s = waves.sample(x, z, t, this._s);
@@ -471,11 +476,32 @@ export class SeaSpray {
         for (let m = 0; m < 2 + 3 * k; m++) {
           const f = 0.45 + Math.random() * 0.4;
           this.emit(x + (Math.random() - 0.5) * 3, s.h + 0.2 + Math.random() * 0.5, z + (Math.random() - 0.5) * 3,
-            wx * f + s.vx, 0.6 + Math.random() * 1.6 * k, wz * f + s.vz, 1.0 + Math.random() * 2.0 * (0.5 + k), 2, 0.3 + Math.random() * 0.25);
+            wx * f + s.vx, 0.6 + Math.random() * 1.6 * k, wz * f + s.vz, (1.0 + Math.random() * 2.0 * (0.5 + k)) * (1 + 1.5 * hurr), 2, 0.3 + Math.random() * 0.25);
         }
         for (let m = 0; m < 3 * k; m++) {
           const f = 0.3 + Math.random() * 0.4;
           this.emit(x, s.h + 0.15, z, wx * f + s.vx, 1.5 + Math.random() * 3, wz * f + s.vz, 0.03 + Math.random() * 0.05, 0, 0.9);
+        }
+      }
+    }
+    if (env.wavesOn && (waves.Hs || 0) > 0.3) {
+      const R = Math.min(420, 60 + 18 * waves.Hs);
+      this.accB += dt * 320 * Math.min(1, waves.Hs / 3);
+      for (; this.accB >= 1; this.accB--) {
+        const r = 8 + Math.pow(Math.random(), 0.7) * R, a = (Math.random() - 0.5) * 2.0;
+        const ca = Math.cos(a), sa = Math.sin(a);
+        const x = cam.x + (fwdX * ca - fwdZ * sa) * r, z = cam.z + (fwdZ * ca + fwdX * sa) * r;
+        const s = waves.sample(x, z, t, this._s);
+        if (!(s.brk > 0.12)) continue;
+        const k = Math.min(1, s.brk), sc = Math.max(0.4, s.Ea), cx = s.cbx, cz = s.cbz;
+        for (let m = 0; m < 1 + 3 * k; m++) {
+          const f = 0.65 + Math.random() * 0.35, j = (Math.random() - 0.5) * sc;
+          this.emit(x + j * cz / (Math.hypot(cx, cz) + 1e-3), s.h + sc * (0.05 + 0.25 * Math.random()), z - j * cx / (Math.hypot(cx, cz) + 1e-3),
+            cx * f + wx * 0.1, 0.5 + 2.5 * k * Math.random(), cz * f + wz * 0.1, sc * (0.35 + 0.5 * Math.random()), 3, 0.35 + Math.random() * 0.3);
+        }
+        for (let m = 0; m < 4 * k; m++) {
+          const f = 0.8 + Math.random() * 0.4;
+          this.emit(x, s.h + 0.2 * sc, z, cx * f, 1.5 + Math.random() * 0.25 * Math.sqrt(9.81 * sc), cz * f, 0.05 + Math.random() * 0.08, 0, 0.8);
         }
       }
     }
@@ -485,8 +511,8 @@ export class SeaSpray {
       if (L[i] <= 0) continue;
       live++;
       const k3 = i * 3;
-      if (K[i] < 0.5) {
-        V[k3 + 1] -= 9.81 * dt;
+      if (K[i] < 0.5 || K[i] > 2.5) {
+        V[k3 + 1] -= (K[i] > 2.5 ? 6 : 9.81) * dt;                   // (a sheet of white water falls, a little held by the air)
         const dr = Math.exp(-dt * 0.8);
         V[k3] = wx + (V[k3] - wx) * dr; V[k3 + 2] = wz + (V[k3 + 2] - wz) * dr;
       } else {
