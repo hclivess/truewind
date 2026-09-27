@@ -47,7 +47,7 @@ function shroudAt(W, z) {
 }
 
 // the gooseneck and the boom (drawn length: the cloth scales its own)
-export const goose = (C) => ({ x: C.mastX - 0.02, z: C.boomZ });
+export const goose = (C) => (C._goose && C._goose.m === C.mastX && C._goose.z === C.boomZ ? C._goose : (C._goose = { x: C.mastX - 0.02, z: C.boomZ, m: C.mastX }));   // (kept: asked many times a step)
 export const boomLen = (s) => s.foot * 1.04;
 
 // The largest angle the boom can swing to: where it comes up against the leeward shroud at its own height (less the
@@ -74,10 +74,9 @@ export function sectionContactAngle(C, sails, z, chord) {
 // The car on its track: trav 0 = the windward end, 1 = the leeward end (side: the side the boom is on, +1 starboard).
 // A horse has no car: the block slides to the point of the bridle under the boom.
 export function sheetCar(C, s, trav, side, a, out = [0, 0, 0]) {
-  const T = s.track, G = goose(C);
+  const T = s.track;
   out[0] = T.x; out[2] = T.z;
   out[1] = T.horse ? clamp(T.s * Math.sin(a), -T.half, T.half) : (side || 1) * lerp(-T.half, T.half, clamp(trav, 0, 1));
-  void G;
   return out;
 }
 // boom block at boom angle a (+ to starboard) and elevation e
@@ -145,16 +144,15 @@ export function sheetDir(C, s, a, trav, side, out = [0, 0, 0]) {
 // deflection below the straight line gooseneck-end at the vang and at the sheet block (m), from Euler-Bernoulli
 // superposition of the two point loads on a simply supported span L of stiffness EI (N m^2).
 export function boomBend(L, EI, xv, Fv, xs, Fs, out = {}) {
-  const loads = [[xv, Fv], [xs, Fs]];
-  // reactions: the end (leech) carries sum F x / L, the gooseneck the rest
-  let Rend = 0; for (const [x, F] of loads) Rend += F * x / L;
-  // moment at each load point (the peak of a point-loaded span is under a load)
-  const M = (x) => { let m = Rend * (L - x); for (const [xi, F] of loads) if (xi > x) m -= F * (xi - x); return m; };
-  out.M = Math.max(Math.abs(M(xv)), Math.abs(M(xs)));
-  const defl = (x) => { let y = 0; for (const [c, F] of loads) { const b = L - c, xx = x <= c ? x : L - x, bb = x <= c ? b : c; y += F * bb * xx * (L * L - bb * bb - xx * xx) / (6 * EI * L); } return y; };
-  out.dv = defl(xv); out.ds = defl(xs);
+  // reactions: the end (leech) carries sum F x / L, the gooseneck the rest; the moment peaks under a load
+  const Rend = (Fv * xv + Fs * xs) / L;
+  const Mv = Rend * (L - xv) - (xs > xv ? Fs * (xs - xv) : 0), Ms = Rend * (L - xs) - (xv > xs ? Fv * (xv - xs) : 0);
+  out.M = Math.max(Math.abs(Mv), Math.abs(Ms));
+  out.dv = defl1(L, EI, xv, xv, Fv) + defl1(L, EI, xv, xs, Fs); out.ds = defl1(L, EI, xs, xv, Fv) + defl1(L, EI, xs, xs, Fs);
   return out;
 }
+// deflection at x of a simply supported span L under F at c
+function defl1(L, EI, x, c, F) { const b = L - c, xx = x <= c ? x : L - x, bb = x <= c ? b : c; return F * bb * xx * (L * L - bb * bb - xx * xx) / (6 * EI * L); }
 
 // ---- the boom end in the sea
 // Five points along the boom (angle a, elevation e, length L from the gooseneck G) in the rig frame; the boat's heel

@@ -1320,6 +1320,7 @@ export class Boat {
 // Automatic trim — what a competent crew does. Used by AI boats, the player's trim assist and the VPP.
 // Sheets and traveler for angle of attack; shape controls for wind strength and how overpowered the
 // boat is; board height; (AI only) reefs.
+const AK = {};   // (the telltale filters' keys, one string per sail)
 export function autoTrim(boat, dt, aoaBias = 0, full = true) {
   const C = boat.cls, d = boat.diag, c = boat.ctrl;
   const awa = Math.abs(d.awaMid ?? Math.PI);
@@ -1430,7 +1431,7 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
       // hauled in harder); running, by the lee, the side the sail is on)
       const sd = (awa < 150 * DEG ? -Math.sign(d.awaMid) : 0) || st.side || Math.sign(st.baseAngle || (s.kind === 'boom' ? boat.booms[s.key].a : boat.side.jib)) || 1;
       let a = 0; for (let i = 0; i < 3; i++) a += clamp((st[i].alpha || 0) * sd, -0.3, 0.6) * STRIP_W[i];
-      const ak = 'a_' + key; tt[ak] = lerp(tt[ak] ?? a, a, clamp(dt / (runT - 0.4), 0, 1)); a = tt[ak];
+      const ak = AK[key] || (AK[key] = 'a_' + key); tt[ak] = lerp(tt[ak] ?? a, a, clamp(dt / (runT - 0.4), 0, 1)); a = tt[ak];
       if (s.key === 'main' && s.trav) {
         const sheetEase = clamp(0.06 + 0.25 * flat * upwind + (1 - upwind) * 0.3, 0, 1);
         c.trav = lerp(c.trav, clamp((want - sheetEase * (s.max - s.trav[1]) - s.trav[0]) / (s.trav[1] - s.trav[0]), 0, 1), k * 2);
