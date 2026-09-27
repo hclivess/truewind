@@ -87,10 +87,10 @@ function weatherTex() {
   // rust bleeding down from every rivet and fitting, dents, and patches of other plate welded over holes
   return canvasTex('weather', 512, 512, (g, w, h) => {
     const r = rnd(23);
-    g.fillStyle = '#857766'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#8e8676'; g.fillRect(0, 0, w, h);
     for (let i = 0; i < 90; i++) {                                     // mottling: rust, grime, bare metal
       const x = r() * w, y = r() * h, rad = 12 + r() * 70, k = r(), grd = g.createRadialGradient(x, y, 0, x, y, rad);
-      const c = k < 0.3 ? '138,82,44' : k < 0.65 ? '56,50,44' : '170,158,138';
+      const c = k < 0.25 ? '128,90,60' : k < 0.6 ? '62,58,52' : '178,170,152';
       grd.addColorStop(0, `rgba(${c},${0.18 + r() * 0.3})`); grd.addColorStop(1, `rgba(${c},0)`);
       g.fillStyle = grd; g.fillRect(x - rad, y - rad, 2 * rad, 2 * rad);
     }
@@ -100,7 +100,7 @@ function weatherTex() {
       for (let x = -off; x < w; x += 256) {
         if (r() < 0.3) { g.fillStyle = `rgba(${r() < 0.5 ? '110,80,55' : '70,66,60'},0.3)`; g.fillRect(x + 4, y + 4, 248, ph - 8); }
         g.strokeStyle = 'rgba(30,22,16,0.7)'; g.lineWidth = 2.5; g.strokeRect(x, y, 256, ph);       // seam
-        g.strokeStyle = 'rgba(210,190,160,0.25)'; g.lineWidth = 1; g.strokeRect(x + 2, y + 2, 252, ph - 4);
+        g.strokeStyle = 'rgba(200,185,160,0.1)'; g.lineWidth = 1; g.strokeRect(x + 3, y + 3, 250, ph - 6);
         for (let k = 6; k < 256; k += 12) for (const yy of [y + 6, y + ph - 6]) {                    // rivets along the laps
           g.fillStyle = 'rgba(40,30,22,0.85)'; g.beginPath(); g.arc(x + k, yy, 2.2, 0, 7); g.fill();
           if (r() < 0.2) { const L = 10 + r() * 80, grd = g.createLinearGradient(0, yy, 0, yy + L); grd.addColorStop(0, 'rgba(120,64,30,0.5)'); grd.addColorStop(1, 'rgba(120,64,30,0)'); g.fillStyle = grd; g.fillRect(x + k - 1.5, yy, 3 + r() * 2, L); }

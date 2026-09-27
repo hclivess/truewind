@@ -62,7 +62,8 @@ export default {
   insignia: '',
   // the sails' look (js/models.js): cloth colour and kind, number and insignia colours, translucency, gloss
   sailcloth: { cloth: 0xc4b89c, kind: 'dacron', mottle: true, num: '#2a2520', logo: '#2a2520', trans: 0.3, rough: 0.75 },
-  hull: { color: 0xd8c8ae, stripe: 0xd8c8ae, deck: 0x6b6152, boot: 0x3b2f27, bootTop: 0x5a4a3c, sectionN: 2.2, transom: 0.55, bowRake: 0.15, sheer: 0.05,
+  hull: { color: 0xece2d0, stripe: 0xece2d0, levels: [0.04, 0.04, -1, -1],  // no painted cove stripe on salvaged plate
+    deck: 0x6b6152, boot: 0x3b2f27, bootTop: 0x5a4a3c, sectionN: 2.2, transom: 0.55, bowRake: 0.15, sheer: 0.05,
     weathered: true, patchedSails: true, noNumber: true, lifelines: false, deckTint: '#7d7263', extension: false,
     cockpit: { t0: 0.12, t1: 0.36, w: 0.6, sole: 0.85 }, cabin: { t0: 0.37, t1: 0.56, h: 0.55, w: 0.95 } },
   // deck hardware (js/rigging.js): traveller [x, half length, z], primary winches [x, y], jib tracks [aft.. fwd, y]
