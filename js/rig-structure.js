@@ -983,10 +983,10 @@ export class RigStructure {
     this.failed = bad; this.loadFrac = frac;
     // the shape the sails' luffs follow: eased toward the solution (~0.3 s, at most ~0.3 m/s). A cloth whose pinned luff
     // is jerked answers with a jerk in its pins' loads: moved at once, the luff and the rig would feed each other.
-    // (over ~1 s: the sails' shape, the heel and the crew's hiking otherwise chase each other through the rig into a roll
-    // the crew would not let build)
-    const us = this.us || (this.us = Float64Array.from(this.u)), ku = clamp(dt * every / 1.0, 0, 1), cap = 0.3 * dt * every;
-    this._kS = ku;
+    const us = this.us || (this.us = Float64Array.from(this.u)), ku = clamp(dt * every / 0.3, 0, 1), cap = 0.3 * dt * every;
+    // (the strip model's bend and sag over ~1 s: its sails' shape, the heel and the crew's hiking otherwise chase each
+    // other through the rig)
+    this._kS = clamp(dt * every / 1.0, 0, 1);
     for (let i = 0; i < us.length; i++) us[i] += clamp((this.u[i] - us[i]) * ku, -cap, cap);
     for (const st of Object.values(this.stays)) st.Ts = st.Ts === undefined ? st.T : st.Ts + (st.T - st.Ts) * ku;
     // the shapes the sails and the drawing follow are the rig's deflection from its dock tune: the sails were cut for
