@@ -19,6 +19,8 @@ const check = (ok, msg) => { console.log((ok ? 'ok   ' : 'FAIL ') + msg); if (!o
   rs.F.fill(0); rs.loadMast(rs.zTop, P, 0, -N); for (let k = 0; k < 8; k++) rs.solve(10);
   const tip2 = rs.u[5 * (rs.nm - 1)], amp = tip2 / th, ampTh = 1 / (1 - N / Pcr);
   check(Math.abs(amp / ampTh - 1) < 0.05, `P-delta: end compression 0.4 Pcr amplifies the tip by ${amp.toFixed(3)} (1/(1-P/Pcr) = ${ampTh.toFixed(3)})`);
+  const lcr = rs.criticalFactor();
+  check(Math.abs(0.4 * lcr - 1) < 0.03, `the solve's own critical factor at 0.4 Pcr: ${lcr.toFixed(3)} (Euler 2.5): P/Pcr for the damage model`);
   rs.F.fill(0); rs.loadMast(rs.zTop, P, 0, -1.3 * Pcr); rs.solve(10); rs.solve(10);
   check(rs.buckled, `a compression past Pcr (${(1.3 * Pcr).toFixed(0)} N) is reported as buckling`);
 }

@@ -546,98 +546,104 @@ export class RigStructure {
   }
 
   // ---------------------------------------------------------------- the solve
+  // the tangent stiffness K and the residual R at the current shape u, the mast's geometric stiffness scaled by kg
+  assemble(kg = 1) {
+    const n = this.n, K = this.K, R = this.R, u = this.u, pa = this._sa || (this._sa = [0, 0, 0]), pb = this._sb || (this._sb = [0, 0, 0]), Kd = this._Kd || (this._Kd = new Float64Array(9)), fb = this._fb || (this._fb = [0, 0, 0]);
+    if (!this._KE) { this._KE = new Float64Array(16); this._KG = new Float64Array(16); this._dd = new Int32Array(4); this._fc = new Int32Array(n); }
+    K.fill(0); R.set(this.F);
+    // mast beam-column elements (both bending planes, axial; P-delta from the axial force)
+    for (const e of this.el) {
+      const L = e.L, bi = 5 * e.i, bj = 5 * e.j;
+      const Nax = e.EA / L * (u[bj + 4] - u[bi + 4]); e.N = Nax;
+      // (the geometric stiffness takes the compression of the last converged shape: an overshooting iterate must not
+      // make the column look buckled)
+      const Ng = e.Ng ?? Nax;
+      const cr = Math.cos(this.rot), sr = Math.sin(this.rot), EIx = e.EIx * cr * cr + e.EIy * sr * sr, EIy = e.EIy * cr * cr + e.EIx * sr * sr;
+      const ka = e.EA / L;
+      const ax = [bi + 4, bj + 4];
+      K[ax[0] * n + ax[0]] += ka; K[ax[1] * n + ax[1]] += ka; K[ax[0] * n + ax[1]] -= ka; K[ax[1] * n + ax[0]] -= ka;
+      R[ax[0]] += Nax; R[ax[1]] -= Nax;
+      for (let pl = 0; pl < 2; pl++) {
+        const EI = pl ? EIy : EIx, o = 2 * pl, k = EI / (L * L * L), g = kg * Ng / (30 * L);
+        const d0 = bi + o, d1 = bi + o + 1, d2 = bj + o, d3 = bj + o + 1;
+        const KE = this._KE, KG = this._KG, dd = this._dd;
+        KE[0] = 12 * k; KE[1] = 6 * L * k; KE[2] = -12 * k; KE[3] = 6 * L * k; KE[5] = 4 * L * L * k; KE[6] = -6 * L * k; KE[7] = 2 * L * L * k; KE[10] = 12 * k; KE[11] = -6 * L * k; KE[15] = 4 * L * L * k;
+        KG[0] = 36 * g; KG[1] = 3 * L * g; KG[2] = -36 * g; KG[3] = 3 * L * g; KG[5] = 4 * L * L * g; KG[6] = -3 * L * g; KG[7] = -L * L * g; KG[10] = 36 * g; KG[11] = -3 * L * g; KG[15] = 4 * L * L * g;
+        for (let r = 0; r < 4; r++) for (let c = 0; c < r; c++) { KE[4 * r + c] = KE[4 * c + r]; KG[4 * r + c] = KG[4 * c + r]; }
+        dd[0] = d0; dd[1] = d1; dd[2] = d2; dd[3] = d3;
+        for (let r = 0; r < 4; r++) {
+          let fr = 0; const row = dd[r] * n;
+          for (let c = 0; c < 4; c++) { const kt = KE[4 * r + c] + KG[4 * r + c]; K[row + dd[c]] += kt; fr += kt * u[dd[c]] + KG[4 * r + c] * this.u0[dd[c]]; }
+          R[dd[r]] -= fr;
+        }
+      }
+    }
+    // wires: tension only, large displacement, geometric stiffness; stays with their luff load's sag
+    for (const w of this.wires) {
+      this.pos(w.a, u, pa); this.pos(w.b, u, pb);
+      let ex = pb[0] - pa[0], ey = pb[1] - pa[1], ez = pb[2] - pa[2];
+      const L = hyp3(ex, ey, ez); ex /= L; ey /= L; ez /= L;
+      const k = w.EA / w.Lrest;
+      let T, kt;
+      if (w.stay && w.A2 > 0) {
+        // T = k (L - Lrest + A2 / T^2): the arc the sag adds (A2 = 1/2 int (M/T)'^2 T^2 ds)
+        T = Math.max(1, w.T || k * (L - w.Lrest));
+        for (let q = 0; q < 12; q++) { const f = T - k * (L - w.Lrest) - k * w.A2 / (T * T), fp = 1 + 2 * k * w.A2 / (T * T * T); T = Math.max(1, T - f / fp); }
+        kt = k / (1 + 2 * k * w.A2 / (T * T * T));
+      } else { T = k * (L - w.Lrest); kt = k; if (T <= 0) { T = 0; kt = 0.02 * k; } }
+      w.T = T; w.L = L; w.e = [ex, ey, ez];
+      const g = T / L, E = [ex, ey, ez];
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) Kd[3 * r + c] = kt * E[r] * E[c] + g * ((r === c ? 1 : 0) - E[r] * E[c]);
+      fb[0] = -T * ex; fb[1] = -T * ey; fb[2] = -T * ez;          // the wire pulls b toward a
+      this.addPair(w.a, w.b, Kd, fb);
+    }
+    // spreaders: a strut built into the mast, carried by its rotation
+    for (const pair of this.tips) for (const tp of pair) {
+      const sp = tp.sp, r = this.rotV(tp.r), Ls = Math.hypot(r[0], r[1]), ex = r[0] / Ls, ey = r[1] / Ls;
+      const root = tp._root || (tp._root = { kind: 'mast', i: this.node(sp.z), ox: 0, oy: 0 });
+      root.ox = r[0]; root.oy = r[1]; root._m = null;
+      const tip = tp._tip || (tp._tip = { kind: 'node', k: tp.node });
+      const ka = sp.EA / Ls, kb = 3 * sp.EI / (Ls * Ls * Ls), E = [ex, ey, 0];
+      for (let rr = 0; rr < 3; rr++) for (let c = 0; c < 3; c++) Kd[3 * rr + c] = ka * E[rr] * E[c] + kb * ((rr === c ? 1 : 0) - E[rr] * E[c]);
+      // relative displacement of the tip from where the mast carries it
+      const k0 = tp.node;
+      const d0 = [u[k0.dof] - (u[5 * root.i]), u[k0.dof + 1] - u[5 * root.i + 2], u[k0.dof + 2] - (u[5 * root.i + 4] - r[0] * u[5 * root.i + 1] - r[1] * u[5 * root.i + 3])];
+      // (the tip node's reference sits where the unrotated spreader put it: include the rotation's offset)
+      d0[0] += k0.p[0] - (this.axisX + r[0]); d0[1] += k0.p[1] - r[1];
+      for (let rr = 0; rr < 3; rr++) { fb[rr] = 0; for (let c = 0; c < 3; c++) fb[rr] -= Kd[3 * rr + c] * d0[c]; }
+      this.addPair(root, tip, Kd, fb);
+    }
+    // pulls: a line at a set tension T from a to b: force T e on a, its geometric stiffness T/L (I - e e^T)
+    for (const pl of this.pulls) {
+      this.pos(pl.a, u, pa); this.pos(pl.b, u, pb);
+      let ex = pb[0] - pa[0], ey = pb[1] - pa[1], ez = pb[2] - pa[2]; const L = hyp3(ex, ey, ez) || 1; ex /= L; ey /= L; ez /= L;
+      const E = [ex, ey, ez], g = pl.T / L;
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) Kd[3 * r + c] = g * ((r === c ? 1 : 0) - E[r] * E[c]);
+      fb[0] = -pl.T * ex; fb[1] = -pl.T * ey; fb[2] = -pl.T * ez;
+      this.addPair(pl.a, pl.b, Kd, fb);
+    }
+    // bowsprit: a cantilever from the stem
+    if (this.spritStrut) {
+      const s = this.spritStrut, k0 = s.node, ex = k0.p[0] - s.root[0], ez = k0.p[2] - s.root[2], l = Math.hypot(ex, ez), e = [ex / l, 0, ez / l], nv = [-e[2], 0, e[0]];
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) Kd[3 * r + c] = s.kAx * e[r] * e[c] + s.kV * nv[r] * nv[c] + (r === 1 && c === 1 ? s.kH : 0);
+      const tip = s._tip || (s._tip = { kind: 'node', k: k0 }), root = s._root || (s._root = { kind: 'fixed', p: s.root });
+      const d0 = [u[k0.dof], u[k0.dof + 1], u[k0.dof + 2]];
+      for (let r = 0; r < 3; r++) { fb[r] = 0; for (let c = 0; c < 3; c++) fb[r] -= Kd[3 * r + c] * d0[c]; }
+      this.addPair(root, tip, Kd, fb);
+    }
+    // supports (penalty) and a light spring on the free nodes (a slack wire must not leave them singular)
+    for (const s of this.supports) for (const o of s.dofs) { const d = 5 * s.i + o; K[d * n + d] += PEN; R[d] -= PEN * u[d]; }
+    for (const k of this.extra) for (let c = 0; c < 3; c++) { const d = k.dof + c; K[d * n + d] += 50; R[d] -= 50 * u[d]; }
+    for (let i = 0; i < this.nm; i++) { const d = 5 * i + 4; K[d * n + d] += 1; }
+  }
   // one quasi-static solution for the loads in this.F. Returns false if the mast buckled.
   solve(maxIt = 8) {
-    const n = this.n, K = this.K, R = this.R, u = this.u, du = this.du, pa = this._sa || (this._sa = [0, 0, 0]), pb = this._sb || (this._sb = [0, 0, 0]), Kd = this._Kd || (this._Kd = new Float64Array(9)), fb = this._fb || (this._fb = [0, 0, 0]);
-    if (!this._KE) { this._KE = new Float64Array(16); this._KG = new Float64Array(16); this._dd = new Int32Array(4); this._fc = new Int32Array(n); }
+    const n = this.n, K = this.K, R = this.R, u = this.u, du = this.du;
+    if (!this._fc) this._fc = new Int32Array(n);
     let ok = true, kg = 1;
     this.buckled = false; this.converged = false;
     for (let it = 0; it < maxIt; it++) {
-      K.fill(0); R.set(this.F);
-      // mast beam-column elements (both bending planes, axial; P-delta from the axial force)
-      for (const e of this.el) {
-        const L = e.L, bi = 5 * e.i, bj = 5 * e.j;
-        const Nax = e.EA / L * (u[bj + 4] - u[bi + 4]); e.N = Nax;
-        // (the geometric stiffness takes the compression of the last converged shape: an overshooting iterate must not
-        // make the column look buckled)
-        const Ng = e.Ng ?? Nax;
-        const cr = Math.cos(this.rot), sr = Math.sin(this.rot), EIx = e.EIx * cr * cr + e.EIy * sr * sr, EIy = e.EIy * cr * cr + e.EIx * sr * sr;
-        const ka = e.EA / L;
-        const ax = [bi + 4, bj + 4];
-        K[ax[0] * n + ax[0]] += ka; K[ax[1] * n + ax[1]] += ka; K[ax[0] * n + ax[1]] -= ka; K[ax[1] * n + ax[0]] -= ka;
-        R[ax[0]] += Nax; R[ax[1]] -= Nax;
-        for (let pl = 0; pl < 2; pl++) {
-          const EI = pl ? EIy : EIx, o = 2 * pl, k = EI / (L * L * L), g = kg * Ng / (30 * L);
-          const d0 = bi + o, d1 = bi + o + 1, d2 = bj + o, d3 = bj + o + 1;
-          const KE = this._KE, KG = this._KG, dd = this._dd;
-          KE[0] = 12 * k; KE[1] = 6 * L * k; KE[2] = -12 * k; KE[3] = 6 * L * k; KE[5] = 4 * L * L * k; KE[6] = -6 * L * k; KE[7] = 2 * L * L * k; KE[10] = 12 * k; KE[11] = -6 * L * k; KE[15] = 4 * L * L * k;
-          KG[0] = 36 * g; KG[1] = 3 * L * g; KG[2] = -36 * g; KG[3] = 3 * L * g; KG[5] = 4 * L * L * g; KG[6] = -3 * L * g; KG[7] = -L * L * g; KG[10] = 36 * g; KG[11] = -3 * L * g; KG[15] = 4 * L * L * g;
-          for (let r = 0; r < 4; r++) for (let c = 0; c < r; c++) { KE[4 * r + c] = KE[4 * c + r]; KG[4 * r + c] = KG[4 * c + r]; }
-          dd[0] = d0; dd[1] = d1; dd[2] = d2; dd[3] = d3;
-          for (let r = 0; r < 4; r++) {
-            let fr = 0; const row = dd[r] * n;
-            for (let c = 0; c < 4; c++) { const kt = KE[4 * r + c] + KG[4 * r + c]; K[row + dd[c]] += kt; fr += kt * u[dd[c]] + KG[4 * r + c] * this.u0[dd[c]]; }
-            R[dd[r]] -= fr;
-          }
-        }
-      }
-      // wires: tension only, large displacement, geometric stiffness; stays with their luff load's sag
-      for (const w of this.wires) {
-        this.pos(w.a, u, pa); this.pos(w.b, u, pb);
-        let ex = pb[0] - pa[0], ey = pb[1] - pa[1], ez = pb[2] - pa[2];
-        const L = hyp3(ex, ey, ez); ex /= L; ey /= L; ez /= L;
-        const k = w.EA / w.Lrest;
-        let T, kt;
-        if (w.stay && w.A2 > 0) {
-          // T = k (L - Lrest + A2 / T^2): the arc the sag adds (A2 = 1/2 int (M/T)'^2 T^2 ds)
-          T = Math.max(1, w.T || k * (L - w.Lrest));
-          for (let q = 0; q < 12; q++) { const f = T - k * (L - w.Lrest) - k * w.A2 / (T * T), fp = 1 + 2 * k * w.A2 / (T * T * T); T = Math.max(1, T - f / fp); }
-          kt = k / (1 + 2 * k * w.A2 / (T * T * T));
-        } else { T = k * (L - w.Lrest); kt = k; if (T <= 0) { T = 0; kt = 0.02 * k; } }
-        w.T = T; w.L = L; w.e = [ex, ey, ez];
-        const g = T / L, E = [ex, ey, ez];
-        for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) Kd[3 * r + c] = kt * E[r] * E[c] + g * ((r === c ? 1 : 0) - E[r] * E[c]);
-        fb[0] = -T * ex; fb[1] = -T * ey; fb[2] = -T * ez;          // the wire pulls b toward a
-        this.addPair(w.a, w.b, Kd, fb);
-      }
-      // spreaders: a strut built into the mast, carried by its rotation
-      for (const pair of this.tips) for (const tp of pair) {
-        const sp = tp.sp, r = this.rotV(tp.r), Ls = Math.hypot(r[0], r[1]), ex = r[0] / Ls, ey = r[1] / Ls;
-        const root = tp._root || (tp._root = { kind: 'mast', i: this.node(sp.z), ox: 0, oy: 0 });
-        root.ox = r[0]; root.oy = r[1]; root._m = null;
-        const tip = tp._tip || (tp._tip = { kind: 'node', k: tp.node });
-        const ka = sp.EA / Ls, kb = 3 * sp.EI / (Ls * Ls * Ls), E = [ex, ey, 0];
-        for (let rr = 0; rr < 3; rr++) for (let c = 0; c < 3; c++) Kd[3 * rr + c] = ka * E[rr] * E[c] + kb * ((rr === c ? 1 : 0) - E[rr] * E[c]);
-        // relative displacement of the tip from where the mast carries it
-        const k0 = tp.node;
-        const d0 = [u[k0.dof] - (u[5 * root.i]), u[k0.dof + 1] - u[5 * root.i + 2], u[k0.dof + 2] - (u[5 * root.i + 4] - r[0] * u[5 * root.i + 1] - r[1] * u[5 * root.i + 3])];
-        // (the tip node's reference sits where the unrotated spreader put it: include the rotation's offset)
-        d0[0] += k0.p[0] - (this.axisX + r[0]); d0[1] += k0.p[1] - r[1];
-        for (let rr = 0; rr < 3; rr++) { fb[rr] = 0; for (let c = 0; c < 3; c++) fb[rr] -= Kd[3 * rr + c] * d0[c]; }
-        this.addPair(root, tip, Kd, fb);
-      }
-      // pulls: a line at a set tension T from a to b: force T e on a, its geometric stiffness T/L (I - e e^T)
-      for (const pl of this.pulls) {
-        this.pos(pl.a, u, pa); this.pos(pl.b, u, pb);
-        let ex = pb[0] - pa[0], ey = pb[1] - pa[1], ez = pb[2] - pa[2]; const L = hyp3(ex, ey, ez) || 1; ex /= L; ey /= L; ez /= L;
-        const E = [ex, ey, ez], g = pl.T / L;
-        for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) Kd[3 * r + c] = g * ((r === c ? 1 : 0) - E[r] * E[c]);
-        fb[0] = -pl.T * ex; fb[1] = -pl.T * ey; fb[2] = -pl.T * ez;
-        this.addPair(pl.a, pl.b, Kd, fb);
-      }
-      // bowsprit: a cantilever from the stem
-      if (this.spritStrut) {
-        const s = this.spritStrut, k0 = s.node, ex = k0.p[0] - s.root[0], ez = k0.p[2] - s.root[2], l = Math.hypot(ex, ez), e = [ex / l, 0, ez / l], nv = [-e[2], 0, e[0]];
-        for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) Kd[3 * r + c] = s.kAx * e[r] * e[c] + s.kV * nv[r] * nv[c] + (r === 1 && c === 1 ? s.kH : 0);
-        const tip = s._tip || (s._tip = { kind: 'node', k: k0 }), root = s._root || (s._root = { kind: 'fixed', p: s.root });
-        const d0 = [u[k0.dof], u[k0.dof + 1], u[k0.dof + 2]];
-        for (let r = 0; r < 3; r++) { fb[r] = 0; for (let c = 0; c < 3; c++) fb[r] -= Kd[3 * r + c] * d0[c]; }
-        this.addPair(root, tip, Kd, fb);
-      }
-      // supports (penalty) and a light spring on the free nodes (a slack wire must not leave them singular)
-      for (const s of this.supports) for (const o of s.dofs) { const d = 5 * s.i + o; K[d * n + d] += PEN; R[d] -= PEN * u[d]; }
-      for (const k of this.extra) for (let c = 0; c < 3; c++) { const d = k.dof + c; K[d * n + d] += 50; R[d] -= 50 * u[d]; }
-      for (let i = 0; i < this.nm; i++) { const d = 5 * i + 4; K[d * n + d] += 1; }
+      this.assemble(kg);
       du.set(R);
       if (!cholesky(K, n, this._fc)) {
         // no stiffness left: the column has buckled. Say so, and take the shape at a reduced compression
@@ -656,6 +662,19 @@ export class RigStructure {
     // what the step and the collar hold the mast with (z: the step's compression)
     this.stepF = [this._reac(0), this._reac(2), this._reac(4)];
     return ok;
+  }
+  // the rig's own critical load factor: how many times the mast's present compression its tangent stiffness (the
+  // wires' stretch and the spreaders' give, the mast continuous over its supports, both planes) takes before it is
+  // singular. Bisection on the geometric stiffness at the solved shape; 1 / it is the P / Pcr the damage model reads.
+  criticalFactor() {
+    const n = this.n, K = this.K, fc = this._fc;
+    const pd = (l) => { this.assemble(l); return cholesky(K, n, fc); };
+    let lo = 0, hi = this.lcr > 0 ? this.lcr : 2;
+    // bracket (from the last answer: the load changes slowly)
+    if (pd(hi)) { lo = hi; hi *= 1.6; while (hi < 40 && pd(hi)) { lo = hi; hi *= 1.6; } }
+    else { lo = hi / 1.6; while (lo > 0.05 && !pd(lo)) { hi = lo; lo /= 1.6; } }
+    for (let k = 0; k < 5; k++) { const m = 0.5 * (lo + hi); if (pd(m)) lo = m; else hi = m; }
+    return (this.lcr = 0.5 * (lo + hi));
   }
   _reac(o) { let r = 0; for (const s of this.supports) if (s.dofs.includes(o)) r -= PEN * this.u[5 * s.i + o]; return r; }
   rotV(r) { const c = Math.cos(this.rot), s = Math.sin(this.rot); return [r[0] * c - r[1] * s, r[0] * s + r[1] * c]; }
@@ -1082,7 +1101,7 @@ export class RigStructure {
     // the rig as tuned (its rake and pre-bend), and the model is drawn as it stands at the dock
     const ur = this.ur || (this.ur = new Float64Array(us.length));
     for (let i = 0; i < us.length; i++) ur[i] = us[i] - this.u0dock[i];
-    this.ready = true;
+    this.ready = true; this._dtOut = dt * every;
     this.outputs(b);
   }
 
@@ -1195,14 +1214,13 @@ export class RigStructure {
       }
       util = Math.max(util, (Math.max(0, -e.N) / e.A + e.M0 / e.Zx + e.M2 / e.Zy) / e.sy);
     }
-    // P / Pcr for the panel between supports with the most compression: Euler on the panel's length (both planes)
-    const sup = this.panelZ || (this.panelZ = [...new Set([this.zStep, ...this.wires.filter((w) => w.b.kind === 'mast').map((w) => this.z[w.b.i]), ...this.tips.map((t) => t[0].sp.z), this.zTop])].sort((a, c) => a - c));
-    for (let k = 0; k + 1 < sup.length; k++) {
-      const z0 = sup[k], z1 = sup[k + 1]; if (z1 - z0 < 0.3) continue;
-      let N = 0, EI = Infinity;
-      for (const e of this.el) if (this.z[e.i] >= z0 - 1e-6 && this.z[e.j] <= z1 + 1e-6) { N = Math.max(N, -e.N); EI = Math.min(EI, e.EIx, e.EIy); }
-      if (EI < Infinity) pcr = Math.max(pcr, N * (z1 - z0) ** 2 / (Math.PI * Math.PI * EI));
-    }
+    // P / Pcr: the solved rig's own (its tangent stiffness singular at 1 / pcr times the mast's compression). An Euler
+    // column on each panel between rigid pinned supports misses both ways: the mast is continuous over the spreaders
+    // (the lightly loaded panel above holds the one below: it read 0.7 on a cruiser whose rig takes 0.5, 1.4 on Joshua's
+    // at 0.5), and the stays stretch (a fractional rig's whole mast bows fore-and-aft: 0.4 on a J/70 at 0.6). Checked
+    // every ~0.25 s: it moves with the loads, which the rig low-passes over 0.15 s.
+    if (this.buckled) pcr = 1;
+    else { this._lcrT = (this._lcrT ?? 1) + (this._dtOut ?? 1); if (this._lcrT >= 0.25 || !(this.lcr > 0)) { this._lcrT = 0; this.criticalFactor(); } pcr = 1 / this.lcr; }
     if (this.bridle && this.stays.jib && this.stays.jib.e) {
       // the two bridle wires in equilibrium with the forestay's pull on their apex: solve the 3x2 system in least squares
       const st = this.stays.jib, T = st.T, e = st.e, br = this.bridle, f = [T * e[0], T * e[1], T * e[2]];
@@ -1216,7 +1234,7 @@ export class RigStructure {
     Object.assign(L, W);
     L.mastComp = comp; L.mastStep = [sb[0], sb[1], sb[2]]; L.mastMoment = mMax; L.mastStress = util; L.buckling = this.buckled ? 1 : pcr; L.buckled = !!this.buckled;
     // for js/damage.js: the lowers of a side together (it rates them as one part), and each load's breaking strength
-    // (the wires' from their size; the mast's compression against its panel's Euler load)
+    // (the wires' from their size; the mast's compression against its critical load)
     const lowerKeys = ['lowerShroud', 'lowerFwd', 'lowerAft'].filter((k) => W[k]);
     if (lowerKeys.length) L.lowerShrouds = [0, 1].map((i) => lowerKeys.reduce((a, k) => a + W[k][i], 0));
     const mbl = L.mbl || (L.mbl = {});
