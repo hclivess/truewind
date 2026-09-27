@@ -14,7 +14,13 @@
 import { DEG, FT, LB, HP, rrTable, massProps } from './util.js';
 
 const LWL = 27.5 * FT, M = 19500 * LB, BAL = 7000 * LB;
-const MP = massProps([{ m: M - BAL - 230, z: 0.45, ry: 1.15, rx: 2.5 }, { m: BAL, z: -0.9, ry: 0.15, rx: 1.2 }, { m: 230, z: 6.8, rz: 4.0 }]);
+// (the mass heights: the ballast cast into the full keel's cavity, which runs from the canoe body (-0.65 m) to the
+// keel's foot (-1.52 m), its centroid ~-1.0 m for the lead of the later boats; the hull and fit-out centroid ~0.3 m
+// above the waterline, low for its size: a heavy hand-laid shell that is half below the water, the keel's own
+// laminate, the engine, tanks and chain in the bilge. zG ~0 m (it was 0.13 m with the hull at 0.45 m and the
+// ballast at -0.9, which left her a GM of ~0.2 m and heeling 18° close-hauled in 12 kn, twice the Contessa's
+// heel under a like side force; the boat is known to heel early and then stiffen, not to be tender))
+const MP = massProps([{ m: M - BAL - 230, z: 0.3, ry: 1.15, rx: 2.5 }, { m: BAL, z: -1.0, ry: 0.15, rx: 1.2 }, { m: 230, z: 6.8, rz: 4.0 }]);
 export default {
   id: 'westsail32', name: 'Westsail 32', group: 'cruiser',
   blurb: "The 'Wet Snail': a 32 ft double-ender after Colin Archer's rescue boats, nine tonnes of it. Full keel, canoe stern with the rudder hung outboard, bowsprit and boomkin, cutter rig with a club-footed staysail. Slow in light air, unstoppable in a gale.",
