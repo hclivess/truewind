@@ -303,8 +303,8 @@ export class AIHelm {
     const b = this.b, cur = Math.sign(wrap(twd - b.psi)) || 1, rel = wrap(twd - desired);
     if ((Math.sign(rel) || 1) === cur) return desired;
     if (R.t < (this.turnGo || 0) || Math.abs(wrap(twd - b.psi)) < up * 0.8) { this.turnGo = Math.max(this.turnGo || 0, R.t + 2); return desired; }
-    if (R.t > (this.turnNo || 0) && R.canTurn(b, desired, 8)) { this.turnGo = R.t + 8; return desired; }
-    this.turnNo = R.t + 2;
+    // (a refusal stands for two seconds before she asks again)
+    if (R.t > (this.turnNo || 0)) { if (R.canTurn(b, desired, 8)) { this.turnGo = R.t + 8; return desired; } this.turnNo = R.t + 2; }
     return twd - cur * clamp(Math.abs(rel), up, 150 * DEG);
   }
   // keeping clear of a boat ahead with nowhere to go: ease the sheets and slow down

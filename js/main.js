@@ -341,7 +341,7 @@ class Game {
     // boats
     this.renderer.removeAllBoats();
     this.boats = []; this.ais = [];
-    this.race = null; this.course = null; this.waypoint = null; this.rules = null;
+    this.race = null; this.course = null; this.waypoint = null; this.rules = null; this._xUp = false;
     $('#results').hidden = true;
     const cls = CLASSES[S.cls];
     const player = new Boat(cls, { id: 0, name: 'You', sailModel: SAIL_MODEL, lod: SAIL_MODEL === 'strip' ? 2 : this.sailLevelFor(cls) });

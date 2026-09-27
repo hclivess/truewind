@@ -48,7 +48,7 @@ for (let s=0; s< +mins*60/dt; s++) {
   for (const e of race.events.splice(0)) if (e.type!=='signal') console.log(`t=${race.clock.toFixed(0)}s`, e.type, e.boat?.id ?? '', e.name ?? '', e.place ?? '');
   if (rules) for (const e of rules.events.splice(0)) {
     if (e.type === 'incident') {
-      console.log(`t=${race.clock.toFixed(0)}s rule ${e.inc.rule} ${e.inc.kind}: ${e.inc.off.id}${e.inc.vic ? ' vs ' + e.inc.vic.id : ''}`);
+      console.log(`t=${race.clock.toFixed(0)}s rule ${e.inc.rule} ${e.inc.kind}: ${e.inc.off.id}${e.inc.vic ? ' vs ' + e.inc.vic.id : ''}${e.inc.mark ? ' (' + (e.inc.mark.name || e.inc.mark.kind) + ')' : ''}`);
       if (process.env.DBG && e.inc.vic) {   // DBG=1: both boats as the umpire saw them
         const pr = rules.pairOf(e.inc.off, e.inc.vic);
         for (const b of [e.inc.off, e.inc.vic]) { const s = rules.S(b); console.log(`   ${b.id} x ${b.x.toFixed(1)} z ${b.z.toFixed(1)} hdg ${(b.psi/DEG).toFixed(0)} twa ${(wrap(b.diag.twd-b.psi)/DEG).toFixed(0)} u ${b.u.toFixed(2)} r ${(b.r/DEG).toFixed(1)} tack ${s.tack}${s.tacking?' TACKING':''} mode ${ais[b.id].mode} pen ${!!s.pen} ago ${((wrap(b.psi-rules.psiAgo(s,2.5)))/DEG).toFixed(0)}`); }
