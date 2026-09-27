@@ -32,6 +32,7 @@ import { HullHydro } from './hull.js';
 import { LOCKABLE, initLines, stepLines, swapJib } from './linehandlers.js';
 export { LOCKABLE };
 import { Engine } from './engine.js';
+import { FAMOUS } from './classes/famous.js';
 // (Math.hypot allocates when V8 does not inline it: these do not)
 const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
@@ -223,12 +224,18 @@ export const CLASSES = {
     hull: { color: 0xf5f5f2, stripe: 0xd9412b, deck: 0xe8e8e4, boot: 0xeeeeea, bootTop: 0xf5f5f2, sectionN: 2, transom: 0.35, bowRake: 0.05, sheer: 0.1 },
   },
 };
+// production and famous boats (js/classes/*.js)
+for (const C of FAMOUS) CLASSES[C.id] = C;
 // headsails are set on stays that run from the tack up to the mast: the head sits at the mast, so the
-// luff's rake is the horizontal distance from the tack to the mast (a free-flying gennaker keeps its own)
+// luff's rake is the horizontal distance from the tack to the mast (a free-flying gennaker keeps its own; a sail on
+// its own mast, a mizzen, keeps its, as does a sail marked fixedRake)
 for (const C of Object.values(CLASSES)) for (const s of C.sails) {
+  if (s.mast || s.fixedRake) continue;
   if (s.kind === 'loose' || (s.kind === 'boom' && s.key !== 'main')) s.rake = s.tackX - (C.mastX + 0.07);
 }
-export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat'];
+export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat', ...FAMOUS.map(C => C.id)];
+// sheets the crew trims (a boomed sail's sheet is keyed by the sail: a mizzen has its own)
+const SHEETS = ['main', 'jib', 'stay', 'lazy', 'mizzen'];
 
 export const STRIP_F = [0.17, 0.5, 0.82];
 export const STRIP_W = [0.43, 0.34, 0.23];
@@ -243,7 +250,7 @@ export function reefAt(pos) {
   return { a: lerp(REEF[i].a, REEF[Math.min(2, i + 1)].a, f), l: lerp(REEF[i].l, REEF[Math.min(2, i + 1)].l, f) };
 }
 // seconds for the crew to put in (or shake out) one reef
-export function reefTime(C) { return C.id === 'blackwatch' ? 70 : 45; }
+export function reefTime(C) { return C.reefTime ?? (C.id === 'blackwatch' ? 70 : 45); }
 
 // ---------------------------------------------------------------------------------------------
 // Section coefficients from sail shape. a = |alpha| (rad, 0..pi/2), d = camber depth / chord,
@@ -300,7 +307,7 @@ function cfITTC(u, L) {
 export function defaultControls() {
   return {
     helm: 0,            // -1..1 of max rudder (+ = bow turns to starboard)
-    main: 0.3, jib: 0.3, stay: 0.3, // sheet ease: 0 = hard in, 1 = fully eased
+    main: 0.3, jib: 0.3, stay: 0.3, mizzen: 0.3, // sheet ease: 0 = hard in, 1 = fully eased
     trav: 0.5,          // traveler car: 0 = to windward, 1 = to leeward
     vang: 0.3, cunn: 0.2, outhaul: 0.4, backstay: 0.3,
     jibLead: 0.45,      // jib car: 0 = forward (deep foot, closed leech) .. 1 = aft (flat foot, open leech)
@@ -370,7 +377,7 @@ export class Boat {
     this.side = { jib: 1, gennaker: 1 };
     this.genDeploy = 0; this.genFill = 0;
     this.rudder = 0; this.crewY = 0; this.crewX = 0;
-    this.lines = { main: this.ctrl.main, jib: this.ctrl.jib, stay: this.ctrl.stay, lazy: this.ctrl.lazy };
+    this.lines = { main: this.ctrl.main, jib: this.ctrl.jib, stay: this.ctrl.stay, lazy: this.ctrl.lazy, mizzen: this.ctrl.mizzen };
     this.backedByLazy = false;
     // every line is held by something (js/linehandlers.js: cam, clam, jammer, horn, clutch, ratchet, winch...).
     // Released, a loaded line runs out by itself until it is made fast again (or held: the player is hauling it)
@@ -427,8 +434,9 @@ export class Boat {
         d *= 1 + 0.45 * sag * (s.sagK ?? 1) * (i === 1 ? 1.2 : 0.8) * 0.7;
         f = 0.48 - 0.2 * c.jibHalyard + 0.1 * stretch + 0.08 * sag;
         d *= 1 + 0.08 * stretch;
-      } else if (s.key === 'stay') {
-        const ease = this.lines.stay;
+      } else if (s.key === 'stay' || s.kind === 'boom') {
+        // (a staysail on its club, or a mizzen: the sheet sets the twist)
+        const ease = this.lines[s.key] ?? 0.3;
         tw = (s.twistMax * (0.4 + 0.6 * sstep(0, 0.5, ease))) * Math.pow(fr, 1.2);
         d *= 1 + 0.25 * sag;
         f = 0.45 + 0.1 * stretch;
@@ -500,7 +508,8 @@ export class Boat {
     if (s.kind === 'boom') {
       const b = this.booms[key];
       baseAngle = b.a; side = Math.sign(b.a) || 1;
-      if (key === 'main') { pivotX = C.mastX; pivotZ = C.boomZ; areaF = reef.a; luff = s.luff * reef.l; }
+      // (a lateen's luff starts at its tack, forward of the mast on the boom)
+      if (key === 'main') { pivotX = C.mastX + (s.rig === 'lateen' ? s.tackFwd : 0); pivotZ = C.boomZ; areaF = reef.a; luff = s.luff * reef.l; }
       else { pivotX = s.tackX; pivotZ = s.tackZ; }
     } else if (s.kind === 'loose') {
       areaF = genDef && genDef.replaces === key ? 1 - this.genDeploy : 1;
@@ -574,6 +583,7 @@ export class Boat {
         // slot: headsail downwash on the main, main upwash on the headsail
         const sgn = Math.sign(alpha) || 1;
         if (key === 'main') alpha -= sgn * 0.055 * this._clHead;
+        else if (s.mast) alpha -= sgn * 0.04 * this._clMain;   // a mizzen sails in the main's downwash
         else alpha += sgn * 0.03 * this._clMain;
         let a = Math.abs(alpha), rev = 1;
         if (a > Math.PI / 2) { a = Math.PI - a; rev = -1; }
@@ -603,7 +613,7 @@ export class Boat {
         o.flog = Math.max(sc.flog, flogging, s.kind === 'spin' ? 1 - fill : 0);
         if (i === 1) {
           if (key === 'main') clMainMid = cl;
-          else clHeadSum = Math.max(clHeadSum, cl * areaF);
+          else if (!s.mast) clHeadSum = Math.max(clHeadSum, cl * areaF);
         }
       }
       ds.F = Fsum;
@@ -687,7 +697,7 @@ export class Boat {
     // ---- lines: handlers take their time, slip when overloaded; released lines run out under their load ----
     stepLines(this, dt);
     // ---- running rigging: lines move at crew/winch speed, slower under load ----
-    for (const k of ['main', 'jib', 'stay', 'lazy']) {
+    for (const k of SHEETS) {
       const target = ctrl[k] ?? (k === 'lazy' ? 1 : 0.3);
       const load = (d.rig[(k === 'lazy' ? 'lazy' : k) + 'Load'] || 0) / SP;
       const rate = target > this.lines[k] ? 0.7 : 0.45 / (1 + load * load);
@@ -722,7 +732,7 @@ export class Boat {
         if (want !== cur && Math.abs(awaMid) < hold) want = cur;
         else if (want !== cur && Math.abs(awaMid) > 176 * DEG) want = cur;
       }
-      const rt = flipRate * dt * (k === 'jib' ? 2 : 1.2) * (C.id === 'blackwatch' ? 0.7 : 1);
+      const rt = flipRate * dt * (k === 'jib' ? 2 : 1.2) * (C.id === 'blackwatch' || C.keel.long ? 0.7 : 1);
       this.side[k] = clamp(cs + clamp(want - cs, -rt, rt), -1, 1);
       if (k === 'jib' && Math.sign(this.side.jib) !== cur && this.side.jib !== 0) {
         // the clew crossed: the sheet on the new side is now the working sheet
@@ -979,7 +989,7 @@ export class Boat {
 
     // ---- mast in the water: a sealed spar floats, which is what holds a capsized boat on its side ----
     {
-      const r0 = C.id === 'dinghy' ? 0.032 : C.id === 'sportboat' ? 0.05 : 0.055;
+      const r0 = C.mastR ?? (C.id === 'dinghy' ? 0.032 : C.id === 'sportboat' ? 0.05 : 0.055);
       const base = C.boomZ - 0.8, L = (this.mastTop ?? C.mastHeight) - base, nSeg = 6;   // (a broken mast: its stump)
       for (let k = 0; k < nSeg; k++) {
         const zseg = base + (k + 0.5) * L / nSeg;
@@ -1138,7 +1148,7 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
     } else {
       // (off the wind the vang holds the leech: a cloth main twists off as far as its vang lets it, so it goes on
       // harder than the strip model's twist rule needed)
-      c.vang = lerp(c.vang, upwind > 0.5 ? (C.id === 'dinghy' ? lerp(0.15, 0.95, flat) : lerp(0.05, 0.7, flat)) : clothMain ? lerp(0.7, 0.85, power) : lerp(0.35, 0.55, power), k);
+      c.vang = lerp(c.vang, upwind > 0.5 ? (C.id === 'dinghy' || C.vangSheeting ? lerp(0.15, 0.95, flat) : lerp(0.05, 0.7, flat)) : clothMain ? lerp(0.7, 0.85, power) : lerp(0.35, 0.55, power), k);
     }
     const clothJib = boat.sailBy.jib && boat.sailSys && boat.sailSys.owns && boat.sailSys.owns('jib') && boat.genDeploy < 0.5;
     if (clothJib) {
@@ -1162,7 +1172,7 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
   let letFly = false;
   if (boat.sailBy.jib && boat.genDeploy < 0.5 && !boat.backedByLazy) {
     const js = Math.sign(boat.side.jib) || 1, wantSide = -Math.sign(d.awaMid ?? 0) || js;
-    const hold = (C.id === 'blackwatch' ? 20 : 7) * DEG;
+    const hold = (C.id === 'blackwatch' || C.keel.long ? 20 : 7) * DEG;
     if (wantSide !== js && awa > hold && awa < 160 * DEG) letFly = true;
   }
   if (!boat.backedByLazy) c.lazy = 1;
