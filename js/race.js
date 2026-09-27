@@ -16,10 +16,18 @@ export class Course {
     const rx = -uz, rz = ux;                                 // to the right when facing upwind
     this.ux = ux; this.uz = uz; this.rx = rx; this.rz = rz;
     const cx = spot.x, cz = spot.z;
-    const half = (opts.lineLength ?? 120) / 2;
-    this.origin = { x: cx, z: cz };
-    this.committee = { x: cx + rx * half, z: cz + rz * half, kind: 'committee', heading: Math.atan2(-rz, rx) + Math.PI / 2 };
-    this.pin = { x: cx - rx * half, z: cz - rz * half, kind: 'pin' };
+    // a long line (a big fleet) must fit the water: slide it across the wind, or shorten it, until both ends and
+    // the start box 170 m below them are clear of the shore and the shallows
+    let half = (opts.lineLength ?? 120) / 2, ox = cx, oz = cz;
+    const ok = (x, z) => !world || world.open || (world.sdfAt(x, z) > 50 && world.depthAt(x, z) > 2.5);
+    const fits = (x, z, h) => { for (let f = -1; f <= 1.001; f += 0.25) for (const b of [0, 90, 170]) if (!ok(x + rx * h * f - ux * b, z + rz * h * f - uz * b)) return false; return true; };
+    search: for (let k = 0; k < 12 && half > 60; k++, half = Math.max(60, half * 0.85)) {
+      for (let s = 0; s <= 300; s += 30) for (const sg of s ? [1, -1] : [1]) if (fits(cx + rx * s * sg, cz + rz * s * sg, half)) { ox = cx + rx * s * sg; oz = cz + rz * s * sg; break search; }
+    }
+    this.half = half;
+    this.origin = { x: ox, z: oz };
+    this.committee = { x: ox + rx * half, z: oz + rz * half, kind: 'committee', heading: Math.atan2(-rz, rx) + Math.PI / 2 };
+    this.pin = { x: ox - rx * half, z: oz - rz * half, kind: 'pin' };
     this.windward = { x: cx + ux * L, z: cz + uz * L, kind: 'mark', name: 'W' };
     const gOff = L * 0.1, gHalf = 28;
     this.gateL = { x: cx + ux * gOff - rx * gHalf, z: cz + uz * gOff - rz * gHalf, kind: 'mark', name: 'G-P', color: 0xffc21a };
@@ -136,11 +144,20 @@ export class Race {
     }
   }
 
+  // one way out of a race for every reason (RRS 42 motoring, damage): RET in the standings, why in the race card
+  retire(boat, why) {
+    const r = this.racers.find((x) => x.boat === boat);
+    if (!r || r.retired || r.finished) return false;
+    r.retired = true; r.retiredWhy = why;
+    this.events.push({ type: 'retired', boat, why });
+    return true;
+  }
+
   standings() {
     const C = this.course;
     const score = (r) => {
       if (r.finished) return 1e9 - r.finishTime;
-      if (r.retired) return -1e9;
+      if (r.retired) return -1e9;                   // (RET: RRS 42, or dismasted, sinking, keel or rudder gone: js/gear.js)
       const tgt = C.target(C.legs[r.leg], r.boat);
       return r.leg * 1e5 - Math.hypot(r.boat.x - tgt.x, r.boat.z - tgt.z);
     };
@@ -471,7 +488,7 @@ export function resolveCollisions(boats, marks, piers, onEvent) {
     if (vn < 0) {
       const nvx = vx - 1.4 * vn * nx, nvz = vz - 1.4 * vn * nz;
       b.u = (nvx * fx + nvz * fz) * 0.8; b.v = (nvx * sx + nvz * sz) * 0.8;
-      if (-vn > 0.4 && onEvent) onEvent(b, other, -vn);
+      if (-vn > 0.4 && onEvent) onEvent(b, other, -vn, nx, nz);   // (nx, nz: the contact normal, for the damage model)
     }
   };
   const S = boats.map(seg);

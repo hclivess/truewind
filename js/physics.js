@@ -29,7 +29,10 @@
 
 import { G, DEG, KT } from './env.js';
 import { HullHydro } from './hull.js';
+import { LOCKABLE, initLines, stepLines, swapJib } from './linehandlers.js';
+export { LOCKABLE };
 import { Engine } from './engine.js';
+import { FAMOUS } from './classes/famous.js';
 // (Math.hypot allocates when V8 does not inline it: these do not)
 const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
@@ -75,13 +78,21 @@ export const CLASSES = {
     // mast stepped on the cabin top 2.1 m aft of the stem (photos of hull #66: 37% of LOD from the bow)
     mastX: 0.72, mastHeight: 8.4, boomZ: 1.5, keelBulb: false,
     targetHeel: 18 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 900,
+    // line handlers (js/linehandlers.js): a traditional small cutter. Bronze winches with horn cleats for the jib
+    // sheets and (at the mast foot) the jib halyard, a V-jammer for the staysail sheet, cam on the mainsheet fiddle,
+    // push-button traveller car, cunningham on a mast horn cleat, outhaul in a clam on the boom; classic cream ropes
+    lines: { main: { handler: 'cam', n: 4, at: 'car' }, trav: { handler: 'pinStop', at: 'car' }, jib: { handler: 'winchHorn', at: 'winch' },
+      stay: { handler: 'jam', n: 2, at: 'cabin' }, vang: { handler: 'cam', n: 6, at: 'deck' }, cunn: { handler: 'horn', n: 2, at: 'mast' },
+      outhaul: { handler: 'clam', n: 4, at: 'boom' }, backstay: { handler: 'cam', n: 6, at: 'deck' }, jibHalyard: { handler: 'winchHorn', winch: 'cabin', at: 'mast' } },
+    ropeStyle: 'classic',
     // auxiliary (js/engine.js): a long-shaft outboard on a transom bracket to port of the barn-door rudder — what the
     // boats carry (Blue Water Boatworks fitted no inboard; owners' listings: Tohatsu 4 hp long shaft, Mercury 5,
     // British Seagull 5). Tohatsu MFS4: 4 hp at 5000 rpm, 123 cc single, 2.15:1, 7.8 x 6 in three-blade, 26 kg (not in
-    // the designer's 1,021 kg). Steered by the rudder; tilted clear of the water when stopped.
+    // the designer's 1,021 kg). Steered by the rudder. A lifting bracket on the transom (x from the hull's stern station,
+    // js/engine.js transomX): 20 in shaft, clamp 0.35 m up with the prop 0.28 m down; slid up 0.42 m clear when stopped.
     engine: { type: 'outboard', model: 'Tohatsu MFS4 long shaft', kW: 2.94, rpmMax: 5000, rpmIdle: 1100, cyl: 1, fuel: 'petrol', gear: 2.15,
-      prop: { D: 0.198, P: 0.152, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-3.3, -0.45, -0.28], mount: [-3.1, -0.45, 0.36],
-      mass: 26, inMass: false, tilts: true, steers: false, exhaust: [-3.3, -0.45, 0.12] },
+      prop: { D: 0.198, P: 0.152, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-3.14, -0.45, -0.28], mount: [-3.0, -0.45, 0.35], lift: 0.42,
+      mass: 26, inMass: false, tilts: true, steers: false, exhaust: [-3.14, -0.45, 0.12] },
     sails: [
       { key: 'main', kind: 'boom', area: 10.4, luff: 6.5, foot: 3.0, head: 0.15, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
         cd0: 0.07, ARe: 3.2, min: 2 * DEG, max: 80 * DEG, trav: [-4 * DEG, 12 * DEG], Iboom: 42, boomMass: 18, reefs: 2,
@@ -115,13 +126,21 @@ export const CLASSES = {
     // masthead, gooseneck 1.7 m above the waterline
     mastX: 1.03, mastHeight: 10.0, boomZ: 1.7, keelBulb: true,
     targetHeel: 17 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 1400,
+    // J/70 (Harken layout, J/70 building spec): 6:1 mainsheet (a 2:1 fine tune on top) to a switchable Carbo ratchet on a 144 swivel base
+    // with a 150 cam; 2:1 jib sheets on B8 / SnubbAir winches with cam cleats; gennaker sheets hand-held through
+    // 2x-grip Ratchamatics on the quarters; 2:1 traveller and the backstay cascade on cams; tack line on a cabin-top cam;
+    // halyard and control leads through a clutch bank to the cabin-top winch
+    lines: { main: { handler: 'ratchetCam', n: 6, at: 'sole' }, trav: { handler: 'cam', n: 2, at: 'deck' }, jib: { handler: 'winchCam', n: 2, at: 'winch' },
+      gen: { handler: 'ratchet', hold: 20, at: 'quarter' }, vang: { handler: 'clutch', n: 16, winch: 'cabin', at: 'cabin' }, cunn: { handler: 'clutch', n: 4, winch: 'cabin', at: 'cabin' },
+      outhaul: { handler: 'clutch', n: 4, winch: 'cabin', at: 'cabin' }, backstay: { handler: 'cam', n: 16, at: 'deck' },
+      jibHalyard: { handler: 'clutch', n: 4, winch: 'cabin', at: 'cabin' }, tackLine: { handler: 'cam', at: 'cabin' } },
     // auxiliary: J/70 class rule C.5.3 — one functioning outboard of at least 12 kg aboard, NOT FOR USE while racing
     // (stowed below, secured at the mast step: it is inside the class weight). A 3.5 hp four-stroke short shaft
     // (Tohatsu MFS3.5: 85 cc single, 5500 rpm, 2.08:1, 7.2 x 5 in three-blade, 17.4 kg) on the transom bracket for
-    // getting to and from the course; tilted up when stopped.
+    // getting to and from the course (15 in shaft; the clamp's x from the transom); slid up clear when stopped.
     engine: { type: 'outboard', model: '3.5 hp four-stroke short shaft', kW: 2.57, rpmMax: 5500, rpmIdle: 1150, cyl: 1, fuel: 'petrol', gear: 2.08,
-      prop: { D: 0.183, P: 0.127, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-3.78, -0.42, -0.27], mount: [-3.58, -0.42, 0.24],
-      mass: 17.4, inMass: true, stow: [0.55, 0, -0.12], tilts: true, steers: false, exhaust: [-3.78, -0.42, 0.1] },
+      prop: { D: 0.183, P: 0.127, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-3.62, -0.42, -0.27], mount: [-3.48, -0.42, 0.23], lift: 0.38,
+      mass: 17.4, inMass: true, stow: [0.55, 0, -0.12], tilts: true, steers: false, exhaust: [-3.62, -0.42, 0.1] },
     sails: [
       { key: 'main', kind: 'boom', area: 16.7, luff: 7.97, foot: 2.88, head: 0.45, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
         cd0: 0.06, ARe: 4.8, min: 1.5 * DEG, max: 78 * DEG, trav: [-6 * DEG, 12 * DEG], Iboom: 38, boomMass: 14, reefs: 0,
@@ -150,6 +169,10 @@ export const CLASSES = {
     // the deck tube: the gooseneck is ~0.6 m above the deck, the masthead ~6.2 m above the waterline
     mastX: 1.15, mastHeight: 6.24, boomZ: 1.0, keelBulb: false,
     targetHeel: 6 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 420,
+    // Laser / ILCA: the mainsheet is hand-held through the ratchet block on the cockpit floor (no cleat); vang
+    // (15:1 cascade), cunningham and outhaul led to Harken cam cleats on the deck
+    lines: { main: { handler: 'ratchet', n: 3, at: 'sole' }, vang: { handler: 'cam', n: 15, size: 'micro', at: 'deck' },
+      cunn: { handler: 'cam', n: 8, size: 'micro', at: 'deck' }, outhaul: { handler: 'cam', n: 8, size: 'micro', at: 'deck' } },
     engine: null,                       // a dinghy is paddled, not motored
     sails: [
       { key: 'main', kind: 'boom', area: 7.06, luff: 5.1, foot: 2.75, head: 0.25, depth: [0.12, 0.14, 0.12], twistMax: 24 * DEG,
@@ -182,6 +205,12 @@ export const CLASSES = {
     // 8.07 m (26' 6") rotating mast stepped on the front beam
     mastX: 0.6, mastHeight: 8.6, boomZ: 1.25, keelBulb: false,
     targetHeel: 7 * DEG, canCapsize: true, hasBackstay: false, hasBoard: false, sheetPower: 700,
+    // Hobie 16: 6:1 mainsheet, lower block a triple Ratchamatic with a 150 cam on the traveller car; the traveller
+    // line cleats in a cam on the car; 2:1 jib sheets in swivel cam cleats; spinnaker sheets hand-held through
+    // ratchet blocks; downhaul cam at the mast, outhaul in a clam on the boom
+    lines: { main: { handler: 'ratchetCam', n: 6, at: 'car' }, trav: { handler: 'carCam', n: 2, at: 'car' }, jib: { handler: 'cam', n: 2, at: 'deck' },
+      gen: { handler: 'ratchet', hold: 20, at: 'quarter' }, cunn: { handler: 'cam', n: 6, at: 'mast' }, outhaul: { handler: 'clam', n: 4, at: 'boom' }, jibHalyard: { handler: 'cam', n: 6, at: 'mast' },
+      tackLine: { handler: 'cam', at: 'deck' } },
     engine: null,
     sails: [
       { key: 'main', kind: 'boom', area: 13.7, luff: 7.2, foot: 2.6, head: 1.1, depth: [0.1, 0.12, 0.11], twistMax: 15 * DEG,
@@ -195,15 +224,18 @@ export const CLASSES = {
     hull: { color: 0xf5f5f2, stripe: 0xd9412b, deck: 0xe8e8e4, boot: 0xeeeeea, bootTop: 0xf5f5f2, sectionN: 2, transom: 0.35, bowRake: 0.05, sheer: 0.1 },
   },
 };
+// production and famous boats (js/classes/*.js)
+for (const C of FAMOUS) CLASSES[C.id] = C;
 // headsails are set on stays that run from the tack up to the mast: the head sits at the mast, so the
-// luff's rake is the horizontal distance from the tack to the mast (a free-flying gennaker keeps its own)
+// luff's rake is the horizontal distance from the tack to the mast (a free-flying gennaker keeps its own; a sail on
+// its own mast, a mizzen, keeps its, as does a sail marked fixedRake)
 for (const C of Object.values(CLASSES)) for (const s of C.sails) {
+  if (s.mast || s.fixedRake) continue;
   if (s.kind === 'loose' || (s.kind === 'boom' && s.key !== 'main')) s.rake = s.tackX - (C.mastX + 0.07);
 }
-// lines that are held by a cleat, clutch or self-tailer (and which way they run when released)
-export const LOCKABLE = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibHalyard', 'tackLine'];
-const RUNS_UP = new Set(['main', 'jib', 'lazy', 'stay', 'trav', 'tackLine']);
-export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat'];
+export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat', ...FAMOUS.map(C => C.id)];
+// sheets the crew trims (a boomed sail's sheet is keyed by the sail: a mizzen has its own)
+const SHEETS = ['main', 'jib', 'stay', 'lazy', 'mizzen'];
 
 export const STRIP_F = [0.17, 0.5, 0.82];
 export const STRIP_W = [0.43, 0.34, 0.23];
@@ -218,7 +250,7 @@ export function reefAt(pos) {
   return { a: lerp(REEF[i].a, REEF[Math.min(2, i + 1)].a, f), l: lerp(REEF[i].l, REEF[Math.min(2, i + 1)].l, f) };
 }
 // seconds for the crew to put in (or shake out) one reef
-export function reefTime(C) { return C.id === 'blackwatch' ? 70 : 45; }
+export function reefTime(C) { return C.reefTime ?? (C.id === 'blackwatch' ? 70 : 45); }
 
 // ---------------------------------------------------------------------------------------------
 // Section coefficients from sail shape. a = |alpha| (rad, 0..pi/2), d = camber depth / chord,
@@ -275,7 +307,7 @@ function cfITTC(u, L) {
 export function defaultControls() {
   return {
     helm: 0,            // -1..1 of max rudder (+ = bow turns to starboard)
-    main: 0.3, jib: 0.3, stay: 0.3, // sheet ease: 0 = hard in, 1 = fully eased
+    main: 0.3, jib: 0.3, stay: 0.3, mizzen: 0.3, // sheet ease: 0 = hard in, 1 = fully eased
     trav: 0.5,          // traveler car: 0 = to windward, 1 = to leeward
     vang: 0.3, cunn: 0.2, outhaul: 0.4, backstay: 0.3,
     jibLead: 0.45,      // jib car: 0 = forward (deep foot, closed leech) .. 1 = aft (flat foot, open leech)
@@ -345,12 +377,11 @@ export class Boat {
     this.side = { jib: 1, gennaker: 1 };
     this.genDeploy = 0; this.genFill = 0;
     this.rudder = 0; this.crewY = 0; this.crewX = 0;
-    this.lines = { main: this.ctrl.main, jib: this.ctrl.jib, stay: this.ctrl.stay, lazy: this.ctrl.lazy };
+    this.lines = { main: this.ctrl.main, jib: this.ctrl.jib, stay: this.ctrl.stay, lazy: this.ctrl.lazy, mizzen: this.ctrl.mizzen };
     this.backedByLazy = false;
-    // every line is held by something: a cam cleat, a clutch or a winch self-tailer. Released, a loaded line
-    // runs out by itself until it is cleated again (or held: the game marks lines the player is hauling)
-    this.locks = Object.fromEntries(LOCKABLE.map(k => [k, true]));
-    this.held = {};
+    // every line is held by something (js/linehandlers.js: cam, clam, jammer, horn, clutch, ratchet, winch...).
+    // Released, a loaded line runs out by itself until it is made fast again (or held: the player is hauling it)
+    initLines(this);
     this.heave = 0; this.heaveV = 0; this.pitch = 0; this.pitchV = 0;
     this.capsized = false; this.capsizeT = 0; this.righting = false;
     this.aground = 0;
@@ -403,8 +434,9 @@ export class Boat {
         d *= 1 + 0.45 * sag * (s.sagK ?? 1) * (i === 1 ? 1.2 : 0.8) * 0.7;
         f = 0.48 - 0.2 * c.jibHalyard + 0.1 * stretch + 0.08 * sag;
         d *= 1 + 0.08 * stretch;
-      } else if (s.key === 'stay') {
-        const ease = this.lines.stay;
+      } else if (s.key === 'stay' || s.kind === 'boom') {
+        // (a staysail on its club, or a mizzen: the sheet sets the twist)
+        const ease = this.lines[s.key] ?? 0.3;
         tw = (s.twistMax * (0.4 + 0.6 * sstep(0, 0.5, ease))) * Math.pow(fr, 1.2);
         d *= 1 + 0.25 * sag;
         f = 0.45 + 0.1 * stretch;
@@ -457,7 +489,7 @@ export class Boat {
       b.a = sg * limit;
       if (b.rate * sg > 0) {
         const J = s.Iboom * b.rate * 1.2;
-        if (key === 'main') { this.slam = Math.max(this.slam, Math.abs(b.rate)); if (Math.abs(b.rate) > 1.2) this.slamEvents++; }
+        if (key === 'main') { this.slam = Math.max(this.slam, Math.abs(b.rate)); if (Math.abs(b.rate) > 1.2) this.slamEvents++; this.slamJ = Math.max(this.slamJ || 0, Math.abs(J)); }
         this.r -= J / this.Izz * 0.6;
         b.rate *= -0.2;
       }
@@ -476,7 +508,8 @@ export class Boat {
     if (s.kind === 'boom') {
       const b = this.booms[key];
       baseAngle = b.a; side = Math.sign(b.a) || 1;
-      if (key === 'main') { pivotX = C.mastX; pivotZ = C.boomZ; areaF = reef.a; luff = s.luff * reef.l; }
+      // (a lateen's luff starts at its tack, forward of the mast on the boom)
+      if (key === 'main') { pivotX = C.mastX + (s.rig === 'lateen' ? s.tackFwd : 0); pivotZ = C.boomZ; areaF = reef.a; luff = s.luff * reef.l; }
       else { pivotX = s.tackX; pivotZ = s.tackZ; }
     } else if (s.kind === 'loose') {
       areaF = genDef && genDef.replaces === key ? 1 - this.genDeploy : 1;
@@ -489,6 +522,8 @@ export class Boat {
       flogging = 1 - sstep(0.5, 0.95, Math.abs(this.side.gennaker));
       fill = this.genFill;
     }
+    if (this.sailHealth) areaF *= this.sailHealth[key] ?? 1;   // torn, blown out or the rig down (js/damage.js)
+    if (this.furl) areaF *= 1 - this.furl;                       // lowered at anchor or alongside (js/gear.js)
     o.areaF = areaF; o.baseAngle = baseAngle; o.pivotX = pivotX; o.pivotZ = pivotZ; o.side = side;
     o.flogging = flogging; o.fill = fill; o.luff = luff;
     return o;
@@ -548,6 +583,7 @@ export class Boat {
         // slot: headsail downwash on the main, main upwash on the headsail
         const sgn = Math.sign(alpha) || 1;
         if (key === 'main') alpha -= sgn * 0.055 * this._clHead;
+        else if (s.mast) alpha -= sgn * 0.04 * this._clMain;   // a mizzen sails in the main's downwash
         else alpha += sgn * 0.03 * this._clMain;
         let a = Math.abs(alpha), rev = 1;
         if (a > Math.PI / 2) { a = Math.PI - a; rev = -1; }
@@ -577,7 +613,7 @@ export class Boat {
         o.flog = Math.max(sc.flog, flogging, s.kind === 'spin' ? 1 - fill : 0);
         if (i === 1) {
           if (key === 'main') clMainMid = cl;
-          else clHeadSum = Math.max(clHeadSum, cl * areaF);
+          else if (!s.mast) clHeadSum = Math.max(clHeadSum, cl * areaF);
         }
       }
       ds.F = Fsum;
@@ -603,6 +639,7 @@ export class Boat {
     const fx = sps, fz = -cps, sx = cps, sz = sps;
     const cphi = Math.cos(this.phi), sphi = Math.sin(this.phi);
     const disp = this.mass;
+    const SP = C.sheetPower * (this.crewPower ?? 1);   // the crew's pulling power, less when tired (js/fatigue.js)
 
     // ---- environment at the boat ----
     const cur = env.current.at(this.x, this.z, this._c);
@@ -657,21 +694,12 @@ export class Boat {
     const qMid = 0.5 * rhoA * (axm * axm + aym * aym);
     d.awaMid = awaMid; d.qMid = qMid;
 
-    // ---- released lines run out under their load (sheets ease, controls lose tension, the car slides) ----
-    for (const k of LOCKABLE) {
-      if (this.held[k] > 0) { this.held[k] -= dt; continue; }
-      if (this.locks[k] !== false || ctrl[k] === undefined) continue;
-      const ld = k === 'main' || k === 'jib' || k === 'stay' ? (d.rig[k + 'Load'] || 0) / C.sheetPower : k === 'lazy' ? (d.rig.lazyLoad || 0) / C.sheetPower : k === 'trav' ? (d.rig.mainLoad || 0) / C.sheetPower : 0.35 * (ctrl[k] || 0) + 0.1;
-      if (ld < 0.01) continue;
-      const rate = Math.min(2.5, 0.25 + 1.6 * ld) * dt;
-      if (RUNS_UP.has(k)) ctrl[k] = Math.min(1, ctrl[k] + rate);        // sheets and tack line ease, the car goes to leeward
-      else ctrl[k] = Math.max(0, ctrl[k] - rate);                        // vang, cunningham, outhaul, backstay, halyard go slack
-      if (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy') this.lines[k] = Math.max(this.lines[k], Math.min(ctrl[k], this.lines[k] + rate * 1.5));
-    }
+    // ---- lines: handlers take their time, slip when overloaded; released lines run out under their load ----
+    stepLines(this, dt);
     // ---- running rigging: lines move at crew/winch speed, slower under load ----
-    for (const k of ['main', 'jib', 'stay', 'lazy']) {
+    for (const k of SHEETS) {
       const target = ctrl[k] ?? (k === 'lazy' ? 1 : 0.3);
-      const load = (d.rig[(k === 'lazy' ? 'lazy' : k) + 'Load'] || 0) / C.sheetPower;
+      const load = (d.rig[(k === 'lazy' ? 'lazy' : k) + 'Load'] || 0) / SP;
       const rate = target > this.lines[k] ? 0.7 : 0.45 / (1 + load * load);
       this.lines[k] = clamp(this.lines[k] + clamp(target - this.lines[k], -rate * dt, rate * dt), 0, 1);
     }
@@ -704,13 +732,14 @@ export class Boat {
         if (want !== cur && Math.abs(awaMid) < hold) want = cur;
         else if (want !== cur && Math.abs(awaMid) > 176 * DEG) want = cur;
       }
-      const rt = flipRate * dt * (k === 'jib' ? 2 : 1.2) * (C.id === 'blackwatch' ? 0.7 : 1);
+      const rt = flipRate * dt * (k === 'jib' ? 2 : 1.2) * (C.id === 'blackwatch' || C.keel.long ? 0.7 : 1);
       this.side[k] = clamp(cs + clamp(want - cs, -rt, rt), -1, 1);
       if (k === 'jib' && Math.sign(this.side.jib) !== cur && this.side.jib !== 0) {
         // the clew crossed: the sheet on the new side is now the working sheet
         const byLazy = this.lines.lazy < this.lines.jib;
         [ctrl.jib, ctrl.lazy] = [ctrl.lazy, ctrl.jib];
         [this.lines.jib, this.lines.lazy] = [this.lines.lazy, this.lines.jib];
+        swapJib(this);
         this.backedByLazy = byLazy && -Math.sign(awaMid) !== Math.sign(this.side.jib);
       }
     }
@@ -739,7 +768,8 @@ export class Boat {
     ax.Wbx = Wbx; ax.Wby = Wby; ax.ug = ug; ax.vg = vg; ax.rhoA = rhoA; ax.awaMid = awaMid; ax.qMid = qMid;
     ax.bend = bend; ax.sag = sag; ax.aeroOn = aeroOn;
     ax.X = 0; ax.Y = 0; ax.K = 0; ax.N = 0; ax.sailX = 0; ax.sailY = 0; ax.sailK = 0;
-    if (this.sailSys && this.sailSys.active(this)) this.sailSys.step(this, ax);
+    if (this.rigDown) { /* dismasted: no sails (the wreck's drag comes in through ext, js/damage.js) */ }
+    else if (this.sailSys && this.sailSys.active(this)) this.sailSys.step(this, ax);
     else this.sailsStrip(ax);
     X += ax.X; Y += ax.Y; K += ax.K; N += ax.N;
     sailX = ax.sailX; sailY = ax.sailY; sailK = ax.sailK;
@@ -792,7 +822,7 @@ export class Boat {
       const F = C.keel;
       let board = F.board ? clamp(ctrl.board, 0.05, 1) : 1;
       if (F.twin) board *= 0.5 + 0.5 * this.flyIn;           // the windward board lifts out with its hull
-      const area = F.area * board, ARe = F.ARe * Math.max(0.3, board), zk = F.z * (0.4 + 0.6 * board);
+      const area = F.area * board * (this.keelEff ?? 1), ARe = F.ARe * Math.max(0.3, board), zk = F.z * (0.4 + 0.6 * board);
       const ww = waterAt(F.x, zk * cphi);
       const ul = this.u - ww.u;
       const vl = (this.v - ww.v + this.r * F.x + this.p * zk) * cphi;
@@ -820,7 +850,7 @@ export class Boat {
       const eps = 1.2 * keelCl / (Math.PI * d.keelARe) * (ul > 0 ? 1 : 0) * (F.transom ? 0.35 : 1);
       foilCoef(wrap(Math.atan2(vl, ul) - eps + this.rudder), F, F.ARe, fc);
       const vent = (1 - sstep(38 * DEG, 70 * DEG, Math.abs(this.phi))) * (F.twin ? 0.5 + 0.5 * this.flyIn : 1);
-      const q = 0.5 * RHO_W * V2 * F.area * vent;
+      const q = 0.5 * RHO_W * V2 * F.area * vent * (this.rudderEff ?? 1);   // (a bent blade: js/damage.js)
       const rx = q * (fc.cl * vl / V - fc.cd * ul / V), rn = q * (-fc.cl * ul / V - fc.cd * vl / V);
       X += rx; Y += rn * cphi; K += rn * F.z; N += F.x * rn * cphi;
       d.Nrud = F.x * rn * cphi; d.rudAlpha = wrap(Math.atan2(vl, ul) - eps + this.rudder); d.eps = eps;
@@ -900,7 +930,7 @@ export class Boat {
     // hull + ballast weight at its real height, crew weight where the crew is
     const Fb = RHO_W * G * imm.V;
     K -= RHO_W * G * imm.My;
-    K += C.massHull * G * C.zG * sphi;
+    K += (this.mHull ?? C.massHull) * G * (this.zG ?? C.zG) * sphi;          // (less, and higher, with the keel gone)
     K -= this.cRoll * this.p;
     if (this.righting) {
       if (C.multihull) K -= (Math.sign(this.phi) || 1) * this.crewMass * G * (C.hullSpacing * 0.75) * Math.abs(cphi) ** 0.3; // hanging off the righting line
@@ -959,8 +989,8 @@ export class Boat {
 
     // ---- mast in the water: a sealed spar floats, which is what holds a capsized boat on its side ----
     {
-      const r0 = C.id === 'dinghy' ? 0.032 : C.id === 'sportboat' ? 0.05 : 0.055;
-      const base = C.boomZ - 0.8, L = C.mastHeight - base, nSeg = 6;
+      const r0 = C.mastR ?? (C.id === 'dinghy' ? 0.032 : C.id === 'sportboat' ? 0.05 : 0.055);
+      const base = C.boomZ - 0.8, L = (this.mastTop ?? C.mastHeight) - base, nSeg = 6;   // (a broken mast: its stump)
       for (let k = 0; k < nSeg; k++) {
         const zseg = base + (k + 0.5) * L / nSeg;
         const hW = zseg * cphi + heaveH - waveH;
@@ -974,6 +1004,9 @@ export class Boat {
     this.capsized = !!(C.canCapsize && Math.abs(this.phi) > 75 * DEG);
     if (this.righting && Math.abs(this.phi) < 20 * DEG) this.righting = false;
 
+    // external loads: anchor rode, mooring lines, fenders, a wreck over the side, water aboard (js/anchor.js, mooring.js, damage.js)
+    const E = this.ext;
+    if (E) { X += E.X; Y += E.Y; N += E.N; K += E.K; }
     // ---- integrate rigid body ----
     const m11 = this.m11, m22 = this.m22;
     let du = (X + m22 * this.v * this.r) / m11;
@@ -1003,14 +1036,14 @@ export class Boat {
     if (this.phi > Math.PI) this.phi -= 2 * Math.PI; if (this.phi < -Math.PI) this.phi += 2 * Math.PI;
 
     // ---- rudder: slew rate limited by hydrodynamic load on the blade ----
-    const target = clamp(ctrl.helm, -1, 1) * C.rudder.max;
+    const target = clamp(ctrl.helm, -1, 1) * C.rudder.max * (this.rudderLim ?? 1) + (this.rudderBias || 0);   // (a bent stock)
     const slew = 1.5 / (1 + (d.rudderLoad || 0) / C.rudder.loadRef);
     this.rudder += clamp(target - this.rudder, -slew * dt, slew * dt);
 
     // ---- crew: hiking (athwartships) and fore-aft ----
     let crewTarget;
     const windSide = -Math.sign(awaMid) || 1;
-    const lim = C.crewMaxOut;
+    const lim = C.crewMaxOut * (this.hikeLimit ?? 1);   // (tired legs: js/fatigue.js)
     if (this.auto.hike) {
       const upwindness = 1 - sstep(80 * DEG, 150 * DEG, Math.abs(awaMid));
       const tgt = windSide * C.targetHeel * 0.6 * upwindness;
@@ -1069,7 +1102,7 @@ export class Boat {
     // ---- diagnostics / instruments ----
     d.X = X; d.Y = Y; d.K = K; d.N = N;
     d.sailX = sailX; d.sailY = sailY; d.sailK = sailK;
-    d.RM = RHO_W * G * imm.My - C.massHull * G * C.zG * sphi - this.crewMass * G * (this.crewY * cphi + C.crewZ * sphi);
+    d.RM = RHO_W * G * imm.My - (this.mHull ?? C.massHull) * G * (this.zG ?? C.zG) * sphi - this.crewMass * G * (this.crewY * cphi + C.crewZ * sphi);
     d.rig.backstayLoad = (C.hasBackstay ? 350 + 5200 * ctrl.backstay ** 1.5 : 0) + 0.35 * (d.rig.mainLoad || 0);
     d.rig.bendMM = bend * M0.luff * 18;
     d.rig.sagMM = sag * (this.sailBy.jib ? this.sailBy.jib.luff * 12 * (this.sailBy.jib.sagK ?? 1) : 0);
@@ -1115,7 +1148,7 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
     } else {
       // (off the wind the vang holds the leech: a cloth main twists off as far as its vang lets it, so it goes on
       // harder than the strip model's twist rule needed)
-      c.vang = lerp(c.vang, upwind > 0.5 ? (C.id === 'dinghy' ? lerp(0.15, 0.95, flat) : lerp(0.05, 0.7, flat)) : clothMain ? lerp(0.7, 0.85, power) : lerp(0.35, 0.55, power), k);
+      c.vang = lerp(c.vang, upwind > 0.5 ? (C.id === 'dinghy' || C.vangSheeting ? lerp(0.15, 0.95, flat) : lerp(0.05, 0.7, flat)) : clothMain ? lerp(0.7, 0.85, power) : lerp(0.35, 0.55, power), k);
     }
     const clothJib = boat.sailBy.jib && boat.sailSys && boat.sailSys.owns && boat.sailSys.owns('jib') && boat.genDeploy < 0.5;
     if (clothJib) {
@@ -1139,7 +1172,7 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
   let letFly = false;
   if (boat.sailBy.jib && boat.genDeploy < 0.5 && !boat.backedByLazy) {
     const js = Math.sign(boat.side.jib) || 1, wantSide = -Math.sign(d.awaMid ?? 0) || js;
-    const hold = (C.id === 'blackwatch' ? 20 : 7) * DEG;
+    const hold = (C.id === 'blackwatch' || C.keel.long ? 20 : 7) * DEG;
     if (wantSide !== js && awa > hold && awa < 160 * DEG) letFly = true;
   }
   if (!boat.backedByLazy) c.lazy = 1;

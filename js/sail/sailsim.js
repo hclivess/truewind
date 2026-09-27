@@ -420,7 +420,8 @@ export class SailSystem {
         const rig = x.rig, cl = rig.cloth;
         cl.f.fill(0);
         // (the wind comes on gradually after the sail is (re)set, as a crew would hoist it)
-        const ramp = Math.min(1, (rig.sincePose || 0) / 0.6);
+        // (a torn sail loses the load of the cloth it has lost, and leaks pressure through the tear: js/damage.js)
+        const ramp = Math.min(1, (rig.sincePose || 0) / 0.6) * (b.sailHealth ? b.sailHealth[key] ?? 1 : 1);
         for (let jj = 0; jj < q.ns; jj++) {
           let fx = 0, fy = 0, fz = 0;
           for (let i = 0; i < q.nc; i++) {
@@ -494,7 +495,7 @@ export class SailSystem {
         if (wet > 0.99) { o.state = 0; o.cl = 0; o.flog = 0; }
         if (i === 1) {
           if (key === 'main') clMainMid = o.cl;
-          else clHeadSum = Math.max(clHeadSum, o.cl * rg.areaF);
+          else if (!s.mast) clHeadSum = Math.max(clHeadSum, o.cl * rg.areaF);
           if (s.kind === 'spin') {
             const target = Math.abs(o.alpha) > o.alf * 0.75 * (1 - 0.3 * b.ctrl.tackLine) && Math.abs(b.side.gennaker) > 0.8 ? 1 : 0;
             b.genFill = clamp(b.genFill + (target ? 1.4 : -2.6) * dt, 0, 1);

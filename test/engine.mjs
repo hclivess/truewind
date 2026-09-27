@@ -119,7 +119,7 @@ for (const rh of [1, -1]) {
     const s0 = vpp(spNone, twa), s1 = vpp(CLASSES.sportboat, twa);
     const b0 = vpp(bare, twa), bo = vpp(CLASSES.blackwatch, twa), bf = vpp(inboard({ folding: true }), twa), bw = vpp(inboard({ folding: false }), twa), bl = vpp(inboard({ folding: false }, { lockWhenOff: true }), twa);
     const pc = (v) => `${v.toFixed(2)} (${((v / b0 - 1) * 100).toFixed(1)}%)`;
-    console.log(`VPP 12 kn TWA ${twa}°: J/70 no engine ${s0.toFixed(3)} / stowed outboard ${s1.toFixed(3)} kn | Blackwatch bare ${b0.toFixed(2)}, tilted 26 kg outboard ${pc(bo)}, inboard folding ${pc(bf)}, fixed windmilling ${pc(bw)}, fixed locked ${pc(bl)}`);
+    console.log(`VPP 12 kn TWA ${twa}°: J/70 no engine ${s0.toFixed(3)} / stowed outboard ${s1.toFixed(3)} kn | Blackwatch bare ${b0.toFixed(2)}, raised 26 kg outboard ${pc(bo)}, inboard folding ${pc(bf)}, fixed windmilling ${pc(bw)}, fixed locked ${pc(bl)}`);
     check(s0 === s1, `J/70 with its outboard stowed sails exactly as without (TWA ${twa}°)`);
     check(Math.abs(bf / b0 - 1) < 0.005, `folding prop: sailing speed unchanged within 0.5% (TWA ${twa}°)`);
     check(bw < bf && bw / b0 > 0.9 && bl <= bw * 1.01, `fixed prop: slightly slower (TWA ${twa}°)`);

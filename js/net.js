@@ -14,7 +14,7 @@ import { Boat, CLASSES, wrap, lerp, clamp } from './physics.js';
 
 const TRYSTERO = 'https://cdn.jsdelivr.net/npm/trystero@0.25.4/+esm';
 const APP_ID = 'truewind-sailing-sim-v1';
-const CTRL_KEYS = ['helm', 'main', 'jib', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibLead', 'jibHalyard', 'tackLine', 'board', 'reef', 'crewAft', 'lazy', 'pushBoom'];
+const CTRL_KEYS = ['helm', 'main', 'jib', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibLead', 'jibHalyard', 'tackLine', 'board', 'reef', 'crewAft', 'lazy', 'pushBoom', 'mizzen'];
 
 export class Net {
   constructor(game) {
@@ -136,6 +136,7 @@ export class Net {
       rf: q(me.reefPos),
       b: booms, ctrl: c, cap: me.capsized ? 1 : 0, race: raceInfo || null,
       e: me.engine ? me.engine.packet() : undefined,   // engine: the throttle while it runs, absent when stopped
+      dm: me.dmg ? me.dmg.netState() : null, an: me.anchor && me.anchor.state !== 'up' ? [q(me.anchor.x), q(me.anchor.z)] : null,
     });
   }
 
@@ -172,6 +173,8 @@ export class Net {
       if (b.sailSys && b.sailSys.active(b)) b.sailSys.follow(b, { booms: d.b, jib: d.sj, gennaker: d.sg }, dt);
       b.capsized = !!d.cap;
       b.netRace = d.race;
+      if (b.dmg && d.dm) b.dmg.applyNet(d.dm);                                  // (a dismasted, torn or sinking boat looks it)
+      b.lights = b.lights || {}; b.lights.anchor = !!d.an;
     }
   }
 

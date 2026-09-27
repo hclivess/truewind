@@ -40,16 +40,22 @@
 //   gear        reduction ratio engine : propeller
 //   prop        { D, P (pitch), Z (blades), BAR (expanded area ratio, default 0.5), folding: bool, rh: +1 | -1 (right /
 //               left handed, seen from astern turning ahead) }
-//   pos         [x, y, z] propeller centre
+//   pos         [x, y, z] propeller centre. For an outboard on a transom bracket (the default, transom: false to opt out)
+//               only y and z count: x is found from the hull's own stern station (see transomX)
 //   shaftAngle  shaft inclination (down by the stern), rad
-//   mount       [x, y, z] outboard clamp / tilt pivot (the motor's weight sits here); inboards: engine CG (optional)
+//   mount       [x, y, z] outboard clamp / tilt pivot (the motor's weight sits here); inboards: engine CG (optional).
+//               On a transom bracket: y, z of the clamp with the motor down; x = the transom at that height less the
+//               bracket's standoff (default 0.11 m), and the prop sits propAft (default 0.14 m) behind the clamp
 //   mass, inMass  kg; inMass: the class's massHull already includes it (then only moving it changes anything)
 //   stow        [x, y, z] where it lives when stowed below (a racing crew's outboard), or null: not stowable. A stowable
 //               engine starts stowed (the class's racing trim); the game mounts it for free sailing
-//   tilts       outboard tilted clear of the water while stopped; steers: turns with the helm (tiller-linked)
+//   tilts       outboard raised clear of the water while stopped: the bracket slides it up the transom by lift (default:
+//               the prop's depth + 0.14 m) and the motor tips back a few degrees about the clamp; steers: turns with the helm
 //   lockWhenOff fixed prop left in gear when stopped (locked, not windmilling)
 //   exhaust     [x, y, z] exhaust outlet (visuals); wake, deduction, walkA, walkR, legArea, shiftDelay, startTime,
 //               I (engine rotating inertia at the crank, kg m^2): optional overrides of the type's defaults
+
+import { linesFor, hullSection, calibrate } from './hull.js';
 
 const RHO = 1025, G = 9.81, PI = Math.PI, TAU = 2 * Math.PI;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
@@ -142,11 +148,27 @@ const TYPES = {
 // brake specific fuel consumption at best load (g/kWh) and density (kg/L)
 const FUEL = { petrol: { bsfc: 380, rho: 0.74 }, diesel: { bsfc: 260, rho: 0.84 } };
 
-export function engineSpec(spec) {
+// The transom surface at height z (body x), from the hull's own stern station exactly as js/models.js lofts it: a raked
+// transom has its top further aft. Also its rake, dx/dz.
+export function transomX(C, z) {
+  calibrate(C);
+  const Lx = linesFor(C), sec = hullSection(C, Lx, 0), zTop = sec[0][1], zBot = sec[sec.length - 1][1], span = Math.max(0.05, zTop - zBot);
+  return { x: C.sternX - Lx.H.transomRake * clamp((z - zBot) / span, 0, 1), dxdz: -Lx.H.transomRake / span, zTop, halfBeam: sec[0][0] };
+}
+
+export function engineSpec(spec, C = null) {
   const T = TYPES[spec.type] || TYPES.outboard;
   const S = { ...T, cyl: 1, shaftAngle: 0, inMass: false, stow: null, steers: false, lockWhenOff: false, ...spec };
   S.prop = { BAR: 0.5, Z: 3, folding: false, rh: 1, ...spec.prop };
   S.mount = spec.mount || spec.pos;
+  // an outboard on a transom bracket: the clamp stands off the transom surface, the prop a little behind the clamp
+  if (S.type === 'outboard' && C && C.sternX !== undefined && spec.transom !== false) {
+    const [, my, mz] = S.mount, [, py, pz] = S.pos, tr = transomX(C, mz);
+    const mx = tr.x - (spec.standoff ?? 0.11), px = mx - (spec.propAft ?? 0.14);
+    S.transomAt = tr; S.mount = [mx, my, mz]; S.pos = [px, py, pz];
+    if (spec.exhaust) S.exhaust = [px, spec.exhaust[1], spec.exhaust[2]];
+  }
+  if (S.tilts) S.lift = spec.lift ?? Math.max(0.3, -S.pos[2] + 0.14);
   // shaft drives walk harder the steeper the shaft (the blades' inflow is asymmetric)
   if (S.type === 'inboard' && spec.walkR === undefined) { S.walkR = 0.04 + 0.4 * Math.sin(S.shaftAngle); S.walkA = 0.3 * S.walkR; }
   return S;
@@ -154,7 +176,7 @@ export function engineSpec(spec) {
 
 export class Engine {
   constructor(boat, spec) {
-    const S = this.spec = engineSpec(spec);
+    const S = this.spec = engineSpec(spec, boat && boat.cls);
     this.prop = new Prop(S.prop);
     this.wMax = S.rpmMax * TAU / 60; this.wIdle = S.rpmIdle * TAU / 60;
     this.Trated = S.kW * 1000 / this.wMax;
@@ -215,11 +237,12 @@ export class Engine {
     // the outboard's leg is lowered to start and tilted clear when stopped (the crew takes ~1.5 s)
     const wantDown = !this.stowed && (!S.tilts || this.running || this.starting);
     this.down = clamp(this.down + (wantDown ? 1 : -1) * dt / 1.5, 0, 1);
-    const legIn = S.tilts ? sstep(0.75, 1, this.down) : 1;
-    // prop immersion: a pitching or heeling stern lifts it out and it ventilates
-    let depth = -(zp * cphi - yp * sphi + xp * Math.sin(b.pitch) + b.heave);
+    const up = this.up = S.tilts ? (1 - this.down) * S.lift : 0;       // the bracket slid up the transom
+    // prop immersion: raised on its bracket, or a pitching or heeling stern, lifts it out and it ventilates
+    let depth = -((zp + up) * cphi - yp * sphi + xp * Math.sin(b.pitch) + b.heave);
     if (b._etaAt) depth += b._etaAt(clamp(xp, C.sternX, C.bowX));
-    const kv = this.kv = legIn * sstep(-0.35 * D, 0.75 * D, depth);
+    const kv = this.kv = sstep(-0.35 * D, 0.75 * D, depth);
+    const legIn = S.tilts ? sstep(-0.05, 0.3, depth) : 1;               // how much of the leg is in the water
     // water at the prop: along the shaft (yaw swings an off-centre prop) and across
     const ax = uw - b.r * yp, lat = (vw + b.r * xp + b.p * zp) * cphi;
     const Va = ax > 0 ? ax * (1 - S.wake) : ax;
@@ -319,7 +342,7 @@ export class Engine {
     }
     // ---- the engine's weight where it is ----
     if (S.mass) {
-      const at = this.stowed ? S.stow : S.mount;
+      const at = this.stowed ? S.stow : up ? [S.mount[0], S.mount[1], S.mount[2] + up] : S.mount;
       const ref = S.inMass ? (S.stow || S.mount) : null;
       const dx = at[0] - (ref ? ref[0] : b.xG), dy = at[1] - (ref ? ref[1] : 0), dz = at[2] - (ref ? ref[2] : 0);
       if (dx || dy || dz) { this.My -= S.mass * G * dx; this.K += S.mass * G * (dy * cphi + dz * sphi); }

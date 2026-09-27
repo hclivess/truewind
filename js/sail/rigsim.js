@@ -16,7 +16,7 @@ const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x 
 // chord of the drawn sail at height fraction fv (before scaling to the rated area), as the renderer draws it
 export function chordAt(s, fv, roach = true) {
   let c = s.foot * (1 - fv) + s.head * fv;
-  if (s.key === 'main' && roach) c += s.foot * 0.07 * Math.sin(Math.PI * fv * 0.85);
+  if (roach && (s.roach ?? (s.key === 'main' ? 0.07 : 0))) c += s.foot * (s.roach ?? 0.07) * Math.sin(Math.PI * fv * 0.85);
   if (s.kind === 'spin') c *= 0.9 + 0.25 * Math.sin(Math.PI * fv);
   return c;
 }
@@ -24,7 +24,23 @@ export function chordAt(s, fv, roach = true) {
 export function areaScale(s, luff, area, roach = true) {
   let A0 = 0; const n = 40;
   for (let j = 0; j < n; j++) A0 += 0.5 * (chordAt(s, j / n, roach) + chordAt(s, (j + 1) / n, roach)) / n;
-  return area / Math.max(1e-6, A0 * luff);
+  const k = area / Math.max(1e-6, A0 * luff);
+  if (!s.headRise) return k;
+  // a gaff, sprit or lateen sail: the head rises aft (the peak above the throat), so the planform is a
+  // quadrilateral, not a stack of level chords: its area in the plane of the sail, found by quadrature and
+  // solved for the chord scale (the area is near linear in it)
+  const A = (kc) => {
+    let a = 0; const m = 16, fr = s.footRise || 0, hr = s.headRise, rk = s.rake || 0;
+    for (let j = 0; j < m; j++) for (let i = 0; i < m; i++) {
+      const u = (i + 0.5) / m, v = (j + 0.5) / m, c = chordAt(s, v, roach) * kc, dc = (chordAt(s, v + 1e-3, roach) - chordAt(s, v - 1e-3, roach)) / 2e-3 * kc;
+      const xu = -c, zu = hr * v + fr * (1 - v), xv = -rk - dc * u, zv = luff + (hr - fr) * u;
+      a += Math.abs(xu * zv - zu * xv) / (m * m);
+    }
+    return a;
+  };
+  let k0 = k * 0.7, k1 = k, a0 = A(k0), a1 = A(k1);
+  for (let it = 0; it < 6 && Math.abs(a1 - area) > 1e-3 * area; it++) { const k2 = k1 + (area - a1) * (k1 - k0) / (a1 - a0 || 1e-9); k0 = k1; a0 = a1; k1 = k2; a1 = A(k1); }
+  return k1;
 }
 const depthAt = (s, fv) => {
   const d = s.depth, F = STRIP_F;
@@ -47,7 +63,7 @@ class ClothRig {
     this.nu = nu; this.nv = nv;
     const cloth = this.cloth = new Cloth(nu, nv, o.extra);
     const mat = this.mat = clothMaterial(C, s);
-    this.px = o.px; this.pz = o.pz; this.rake = o.rake || 0; this.footRise = o.footRise || 0;
+    this.px = o.px; this.pz = o.pz; this.rake = o.rake || 0; this.footRise = o.footRise || 0; this.headRise = s.headRise || 0;
     this.luff0 = s.luff;
     // the cloth is cut with a straight leech: a roach needs its battens to hold it out, and a roach the cloth
     // cannot hold folds and bows the leech to windward
@@ -62,7 +78,7 @@ class ClothRig {
         const u = i / (nu - 1), k = 3 * (j * nu + i);
         rest[k] = this.px - this.rake * v + lr * (1 - u) - c * u;
         rest[k + 1] = d * c * camb(u, 0.45);
-        rest[k + 2] = this.pz + v * s.luff + this.footRise * u * (1 - v);
+        rest[k + 2] = this.pz + v * s.luff + this.footRise * u * (1 - v) + this.headRise * u * v;
       }
     }
     const H = [rest[3 * ((nv - 1) * nu)], 0, rest[3 * ((nv - 1) * nu) + 2]], Cl = [rest[3 * (nu - 1)], 0, rest[3 * (nu - 1) + 2]], Tk = [rest[0], 0, rest[2]];
@@ -92,10 +108,13 @@ class ClothRig {
     for (let i = cloth.off; i < cloth.n; i++) this.ma[i] = cloth.m[i] - cloth.mg[i];
     // luff on its mast or stay: every luff node held by its slider or hank
     for (let j = 0; j < nv; j++) cloth.setKinematic(cloth.node(0, j), true);
-    // headboard: stiff bars along the head row (it swings with the sail, it does not fold)
-    for (let i = 0; i < nu - 1; i++) {
-      const a = cloth.node(i, nv - 1), b = cloth.node(i + 1, nv - 1); cloth.addDistance(a, b, this._rd(a, b), 3e5);
-      if (i + 2 < nu) { const c2 = cloth.node(i + 2, nv - 1); cloth.addDistance(a, c2, this._rd(a, c2), 3e5); }
+    // headboard: stiff bars along the head row (it swings with the sail, it does not fold); on a gaff sail that
+    // is the gaff itself. A spritsail's head is cloth and tape, held out at the peak by the sprit
+    if (s.rig === 'sprit') for (let i = 0; i < nu - 1; i++) { const a = cloth.node(i, nv - 1), b = cloth.node(i + 1, nv - 1); cloth.addDistance(a, b, this._rd(a, b), 1.5e5 / this._rd(a, b), true); }
+    else for (let i = 0; i < nu - 1; i++) {
+      const w = s.rig === 'gaff' ? 1e6 : 3e5;
+      const a = cloth.node(i, nv - 1), b = cloth.node(i + 1, nv - 1); cloth.addDistance(a, b, this._rd(a, b), w);
+      if (i + 2 < nu) { const c2 = cloth.node(i + 2, nv - 1); cloth.addDistance(a, c2, this._rd(a, c2), w); }
     }
     // leech and foot tapes: the sail's edges are bound with tape that carries the leech and foot tension
     this.tapeEA = 1.5e5;
@@ -221,22 +240,28 @@ class ClothRig {
 const wrapA = (a) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
 
 // A sail set on a boom: the main (luff on the mast, boom on the gooseneck, sheet to the traveller car, vang,
-// topping lift) or the Blackwatch's self-tacking staysail (luff on the inner forestay, club on the tack).
+// topping lift), a mizzen on its own mast (s.mast) or the Blackwatch's self-tacking staysail (luff on the inner
+// forestay, club on the tack). The main may be a gaff sail (s.rig 'gaff': the head on a gaff, its peak held up by
+// the peak halyard), a spritsail ('sprit': a sprit from low on the mast pushes the peak up and out) or a lateen
+// ('lateen': the luff laced to a yard that swings round the mast with the boom, the tack forward of the mast).
 export class BoomSailRig extends ClothRig {
   // reef: the reef the sail is tied in at (0, 1, 2 or a half-way stage): a reefed main is a smaller sail, so
   // the rig is rebuilt for it (sailsim.js does that as the crew works through the reef)
   constructor(boat, s0, lod, reef = 0) {
-    const C = boat.cls, isMain = s0.key === 'main';
+    const C = boat.cls, isMain = s0.key === 'main', onMast = isMain || !!s0.mast, lateen = s0.rig === 'lateen';
     const rf = reefAt(reef), s = reef > 0 ? { ...s0, luff: s0.luff * rf.l, area: s0.area * rf.a } : s0;
-    super(boat, s, lod, { extra: 1, px: isMain ? C.mastX - 0.02 : s.tackX, pz: isMain ? C.boomZ : s.tackZ, rake: isMain ? 0 : (s.rake || 0),
-      luffRound: isMain ? 0.35 * 0.018 * s.luff : 0 });
-    this.isMain = isMain; this.reefLevel = reef; this.s0 = s0;
+    // (the gooseneck: on the main's mast, on the mizzen's, or the staysail's tack)
+    const gx = isMain ? C.mastX - 0.02 : onMast ? s.tackX - 0.02 : s.tackX, gz = isMain ? C.boomZ : s.tackZ;
+    super(boat, s, lod, { extra: 1, px: lateen ? gx + s.tackFwd : gx, pz: gz, rake: onMast && !lateen ? 0 : (s.rake || 0),
+      luffRound: onMast && !lateen ? 0.35 * 0.018 * s.luff : 0 });
+    this.isMain = isMain; this.onMast = onMast; this.lateen = lateen; this.reefLevel = reef; this.s0 = s0;
     const cloth = this.cloth, nu = this.nu, nv = this.nv;
     this.E = 0;
-    this.Lb = this.footLen * 1.04;                            // boom length (a little past the clew)
-    this.lroundK = isMain ? 0.018 * s.luff : 0;               // bend -> mid-luff deflection (m), as the HUD reports it
+    this.tackFwd = lateen ? s.tackFwd : 0;
+    this.Lb = this.footLen * 1.04 - this.tackFwd;             // boom length aft of the gooseneck (a little past the clew)
+    this.lroundK = onMast && !lateen ? 0.018 * s.luff : 0;    // bend -> mid-luff deflection (m), as the HUD reports it
     // the boom: a particle on the gooseneck with the boom's moment of inertia and weight moment
-    this.Gp = [this.px, 0, this.pz];
+    this.Gp = [gx, 0, gz];
     const mE = Math.max(s.Iboom / (this.Lb * this.Lb), 0.5), wE = s.boomMass * 0.45 * s.foot / this.Lb;
     cloth.setParticle(this.E, mE, wE);
     cloth.addLength(this.E, this.Gp, this.Lb, 2e6);
@@ -244,14 +269,26 @@ export class BoomSailRig extends ClothRig {
     this.clewAtt = cloth.addAttach(cloth.node(nu - 1, 0), this.E, 0.95, this.Gp, 5e5);
     // sheet from the boom block to the car, vang to the mast foot, topping lift from the masthead
     this.tb = isMain ? 0.86 : 0.9;
-    this.hz = isMain ? Math.max(0.3, C.boomZ - C.freeboard * 0.95) : 0.25;
+    this.hz = onMast ? Math.max(0.3, gz - C.freeboard * 0.95) : 0.25;
     this.car = [0, 0, this.pz - this.hz];
     this.sheet = cloth.addRope(this.E, this.tb, this.Gp, this.car, 1, 3e5);
-    this.tv = 0.22; this.dv = isMain ? Math.min(0.55, Math.max(0.3, C.boomZ - C.freeboard + 0.1)) : 0.15;
-    this.vangBase = [this.px, 0, this.pz - this.dv];
-    this.vang = isMain ? cloth.addRope(this.E, this.tv, this.Gp, this.vangBase, 1, 6e5) : null;
-    this.mastHead = [this.px, 0, this.pz + s.luff + 0.3];
+    this.tv = 0.22; this.dv = onMast ? Math.min(0.55, Math.max(0.3, gz - C.freeboard + 0.1)) : 0.15;
+    this.vangBase = [gx, 0, this.pz - this.dv];
+    this.vang = onMast ? cloth.addRope(this.E, this.tv, this.Gp, this.vangBase, 1, 6e5) : null;
+    this.mastHead = [gx, 0, lateen ? (s.mastTop ?? this.pz + 0.6 * s.luff) : this.pz + s.luff + 0.3];
     this.topping = cloth.addRope(this.E, 1, this.Gp, this.mastHead, 1, 1e5);
+    const peak = cloth.node(nu - 1, nv - 1), pk = 3 * (nv * nu - 1);
+    if (s.rig === 'gaff') {
+      // peak halyard: from the peak to its block on the mast above the throat (it lets the gaff swing round the
+      // mast with the sail, and sag off to leeward as far as the leech lets it, but not droop)
+      this.peakBlock = [gx, 0, this.pz + s.luff + 0.55 * s.headRise + 0.2];
+      this.peakHalyard = cloth.addRope(peak, 1, [0, 0, 0], this.peakBlock, hyp3(this.rest[pk] - gx, this.rest[pk + 1], this.rest[pk + 2] - this.peakBlock[2]), 4e5);
+    } else if (s.rig === 'sprit') {
+      // the sprit: a strut from its snotter low on the mast to the peak
+      this.snotter = [gx + 0.03, 0, this.pz + s.snotterZ];
+      this.spritLen = hyp3(this.rest[pk] - this.snotter[0], this.rest[pk + 1], this.rest[pk + 2] - this.snotter[2]);
+      cloth.addLength(peak, this.snotter, this.spritLen, 1e6);
+    }
     // battens: stiff chains of nodes on the batten rows (full length on a fully battened sail, the aft third
     // otherwise), with the batten's bending stiffness on every second node
     const bt = battens(C, s);
@@ -268,15 +305,25 @@ export class BoomSailRig extends ClothRig {
       }
     }
     // the mast: the cloth wraps round it, it does not pass through it
-    if (isMain) cloth.addCapsule([C.mastX + 0.03, 0, 0], [C.mastX + 0.03, 0, C.mastHeight], 0.05, Array.from({ length: nu * nv }, (_, k) => cloth.off + k).filter((k) => (k - cloth.off) % nu > 0));
+    // (a lateen hangs clear of it, to one side; a mizzen wraps round its own)
+    if (onMast && !lateen) cloth.addCapsule([gx + 0.05, 0, 0], [gx + 0.05, 0, isMain ? C.mastHeight : s.mast.h], isMain ? 0.05 : 0.04, Array.from({ length: nu * nv }, (_, k) => cloth.off + k).filter((k) => (k - cloth.off) % nu > 0));
     this.a = 0; this.rate = 0; this.elev = 0;
   }
 
   // put the cloth at its rest shape swung out to boom angle a (camber to leeward), at rest
   pose(a, tw = null) {
     this.poseCloth(a, tw);
-    const c = this.cloth;
-    c.x[0] = this.px - this.Lb * Math.cos(a); c.x[1] = this.Lb * Math.sin(a); c.x[2] = this.pz;
+    const c = this.cloth, g = this.Gp[0];
+    if (this.lateen) {
+      // the whole rig turns about the mast: every node (the luff on its yard too) swung by a about the mast's axis
+      const side = Math.sign(a) || 1, ca = Math.cos(a), sa = Math.sin(a), { nu, nv } = this;
+      for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
+        const k = 3 * (j * nu + i), n = 3 * c.node(i, j), dx = this.rest[k] - g, dy = this.rest[k + 1] * side;
+        c.x[n] = g + dx * ca + dy * sa; c.x[n + 1] = -dx * sa + dy * ca; c.x[n + 2] = this.rest[k + 2];
+      }
+      this.side = side;
+    }
+    c.x[0] = g - this.Lb * Math.cos(a); c.x[1] = this.Lb * Math.sin(a); c.x[2] = this.pz;
     this.a = a; this.rate = 0;
   }
 
@@ -288,13 +335,17 @@ export class BoomSailRig extends ClothRig {
     const slack = this.isMain ? b.reefSlack : 0;
     const luff = this.luff0 * (1 + 0.006 * ((this.isMain ? ctrl.cunn : 0.3) - 0.3) - 0.06 * slack);
     const bend = this.lroundK * bendRig;
-    for (let j = 0; j < nv; j++) {
+    if (this.lateen) {
+      // the yard swings with the boom: the luff laced to it turns about the mast with the boom's angle
+      const g = this.Gp[0], ca = Math.cos(this.a), sa = Math.sin(this.a);
+      for (let j = 0; j < nv; j++) { const v = j / (nv - 1), dx = this.px - this.rake * v - g; c.pin(c.node(0, j), g + dx * ca, -dx * sa, this.pz + v * luff); }
+    } else for (let j = 0; j < nv; j++) {
       const v = j / (nv - 1), n = c.node(0, j);
       c.pin(n, this.px - this.rake * v + bend * Math.sin(Math.PI * v), 0, this.pz + v * luff);
     }
     // outhaul: the clew's place on the boom
     const out = this.isMain ? ctrl.outhaul : 0.5;
-    const tc = this.footLen * (0.965 + 0.05 * out) / this.Lb;
+    const tc = (this.footLen * (0.965 + 0.05 * out) - this.tackFwd) / this.Lb;
     if (Math.abs(tc - this.clewAtt.t) > 2e-4) { this.clewAtt.t = tc; c._dirty = true; }   // (the matrix holds t: refactor)
     // sheet: the boom may swing out to the angle the sheet and traveller allow (Boat.boomLimit), pulled down
     // onto the car when hard in
@@ -304,7 +355,7 @@ export class BoomSailRig extends ClothRig {
     const ey = c.x[1];
     if (Math.abs(ey) > 0.05 * this.Lb) this.side = Math.sign(ey);
     const R = this.tb * this.Lb;
-    this.car[0] = this.px - R * Math.cos(travA); this.car[1] = this.side * R * Math.sin(travA);
+    this.car[0] = this.Gp[0] - R * Math.cos(travA); this.car[1] = this.side * R * Math.sin(travA);
     const chord = 2 * R * Math.sin(Math.max(0, lim - travA) / 2);
     this.sheet.len = Math.sqrt(chord * chord + this.hz * this.hz) - 0.035 * (1 - sstep(0, 0.25, ease));
     if (this.vang) {
@@ -320,7 +371,7 @@ export class BoomSailRig extends ClothRig {
     const wasTaut = this.sheet.taut, rate0 = this.rate, c = this.cloth;
     this.stepCloth(dt, nsub, fr);
     // boom state for the rest of the game (angle + to starboard, rate, lift)
-    const ex = c.x[0] - this.px, ey = c.x[1], ez = c.x[2] - this.pz;
+    const ex = c.x[0] - this.Gp[0], ey = c.x[1], ez = c.x[2] - this.pz;
     const a = Math.atan2(ey, -ex);
     this.rate = wrapA(a - this.a) / dt; this.a = a;
     this.elev = Math.atan2(ez, hyp(ex, ey));
@@ -401,6 +452,7 @@ export class JibRig extends ClothRig {
       [ctrl.jib, ctrl.lazy] = [ctrl.lazy, ctrl.jib];
       [b.lines.jib, b.lines.lazy] = [b.lines.lazy, b.lines.jib];
       if (b.locks) [b.locks.jib, b.locks.lazy] = [b.locks.lazy, b.locks.jib];
+      if (b.lh) [b.lh.jib, b.lh.lazy] = [b.lh.lazy, b.lh.jib];
       this.side = -this.side;
       b.backedByLazy = byLazy && -Math.sign(b.diag.awaMid) !== this.side;
     }
@@ -433,14 +485,25 @@ export class SpinRig extends JibRig {
   }
   setTargets(b, bendRig) {
     const s = this.s, c = this.cloth, ctrl = b.ctrl, nv = this.nv;
-    if (this.needPose) { const sg = Math.sign(b.side.gennaker) || 1; this.pose(this._poseAngle(b, sg), this._poseTwist(b)); this.side = Math.sign(this.a) || sg; }
+    if (this.needPose) { const sg = Math.sign(b.side.gennaker) || 1; this.pose(this._poseAngle(b, sg), this._poseTwist(b)); this.side = Math.sign(this.a) || sg; this.needPoleSet = true; }
     const up = 0.5 * clamp(ctrl.tackLine, 0, 1);                        // an eased tack line lets the tack rise
-    c.pin(c.node(0, 0), this.px, 0, this.pz + up);
-    c.pin(c.node(0, nv - 1), this.px - this.rake, 0, this.pz + this.luff0);
     // the crew gybes it: when the wind has been on the other side for a moment, the new sheet is the working one
     const wind = -Math.sign(b.diag.awaMid) || this.side;
     this.windT = wind !== this.side ? this.windT + 1 / 120 : 0;
     if (this.windT > 1.5) { this.side = wind; this.windT = 0; }
+    if (s.pole) {
+      // a symmetric spinnaker: the tack is the pole end, to windward, the pole squared to the apparent wind (at 90
+      // degrees to it, from the forestay on a reach to square across the boat on a run); the tack line is the
+      // pole's topping lift / downhaul. (The pole end moves at the foredeck crew's pace.)
+      const awa = Math.abs(b.diag.awaMid ?? Math.PI), th = clamp(awa - Math.PI / 2, 12 * Math.PI / 180, 85 * Math.PI / 180);
+      const g = b.cls.mastX + 0.05, L = s.pole, ws = -this.side;
+      const T = [g + L * Math.cos(th), ws * L * Math.sin(th), this.pz + up], P = this.poleEnd || (this.poleEnd = T.slice());
+      if (this.needPoleSet) { P[0] = T[0]; P[1] = T[1]; P[2] = T[2]; this.needPoleSet = false; }
+      const dx = T[0] - P[0], dy = T[1] - P[1], dz = T[2] - P[2], dl = hyp3(dx, dy, dz), mv = Math.min(1, 1.2 / 120 / Math.max(dl, 1e-9));
+      P[0] += dx * mv; P[1] += dy * mv; P[2] += dz * mv;
+      c.pin(c.node(0, 0), P[0], P[1], P[2]);
+    } else c.pin(c.node(0, 0), this.px, 0, this.pz + up);
+    c.pin(c.node(0, nv - 1), this.px - this.rake, 0, this.pz + this.luff0);
     const p = this._p;
     for (let k = 0; k < 2; k++) {
       const sd = k === 0 ? 1 : -1, L = this.leads[k];
