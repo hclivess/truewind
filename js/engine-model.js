@@ -40,38 +40,45 @@ export function buildEngineModel(boat, vis) {
   const out = { root, S, pivot: null, motor: null, prop: null, spin: 0 };
   if (S.type === 'outboard') {
     const [mx, my, mz] = S.mount;
-    // where the transom surface is at the clamp's height (a raked transom: the top further aft)
-    const zBot = Lx.keelZ(0), zTop = Lx.sheer(0);
-    const xT = C.sternX - Lx.H.transomRake * Math.max(0, Math.min(1, (mz - zBot) / Math.max(0.05, zTop - zBot)));
-    // bracket: a plate on the transom and two arms out to the clamp board
-    const brk = new THREE.Group();
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.3, 0.02), M.alu()); plate.position.copy(V(xT - 0.012, my, mz + 0.06)); brk.add(plate);
+    // the transom surface along the bracket's travel (from the hull's stern station: js/engine.js transomX)
+    const tr = S.transomAt || { x: mx + 0.11, dxdz: 0, zTop: mz + 0.4 }, xAt = (z) => tr.x + tr.dxdz * (z - mz);
+    const lift = S.lift || 0, zA = mz - 0.12, zB = Math.min(tr.zTop - 0.03, mz + lift + 0.05), zR = mz + lift + 0.1;
+    const along = (z0, z1, w, d, off, m) => {     // a part lying on the raked transom from height z0 to z1, off m aft of it
+      const g = new THREE.Mesh(new THREE.BoxGeometry(w, z1 - z0, d), m), zc = (z0 + z1) / 2;
+      g.position.copy(V(xAt(zc) - off, my, zc)); g.rotation.x = Math.atan(-tr.dxdz); return g;
+    };
+    // fixed: a backing plate on the transom and the two rails the carriage slides up
+    root.add(along(zA, zB, 0.24, 0.018, 0.009, M.alu()));
+    for (const s of [-1, 1]) { const r = along(zA + 0.02, zR, 0.022, 0.022, 0.04, M.alu()); r.position.x += s * 0.085; root.add(r); }
+    // the carriage: slides along the rails with the motor on its clamp board
+    const slide = new THREE.Group(); root.add(slide);
+    const sd = Math.max(0.04, xAt(mz) - mx);
+    const car = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.1, 0.05), M.alu()); car.position.copy(V(xAt(mz) - 0.05, my, mz)); slide.add(car);
     for (const s of [-1, 1]) {
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.035, Math.max(0.05, xT - mx)), M.alu());
-      arm.position.copy(V((xT + mx) / 2, my + s * 0.1, mz + 0.02)); brk.add(arm);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.03, sd), M.alu());
+      arm.position.copy(V(xAt(mz) - sd / 2, my + s * 0.1, mz + 0.01)); slide.add(arm);
     }
-    const board = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.035), M.black()); board.position.copy(V(mx + 0.02, my, mz + 0.02)); brk.add(board);
-    root.add(brk);
-    // the motor, pivoting about the clamp (athwartships axis)
+    const board = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.035), M.black()); board.position.copy(V(mx + 0.02, my, mz - 0.03)); slide.add(board);
+    // the motor, pivoting about its clamp (athwartships axis)
     const pivot = new THREE.Group(); pivot.position.copy(V(mx, my, mz));
     const motor = new THREE.Group(); pivot.add(motor);
     const kw = S.kW, sc = 0.85 + 0.06 * kw, a = mx - px;           // (a: the prop sits this far aft of the clamp)                        // a bigger outboard is a bigger box
     const cowlC = /tohatsu/i.test(S.model || '') ? 0xd9dde0 : 0x3a3f46;
     const cowl = new THREE.Mesh(new THREE.CapsuleGeometry(0.11 * sc, 0.16 * sc, 4, 10), M.cowl(cowlC));
-    cowl.rotation.x = Math.PI / 2; cowl.scale.set(1, 1, 1.25); cowl.position.set(0, 0.26 * sc, a - 0.02); motor.add(cowl);
-    const lower = new THREE.Mesh(new THREE.BoxGeometry(0.2 * sc, 0.1, 0.3 * sc), M.leg()); lower.position.set(0, 0.1, a - 0.04); motor.add(lower);
+    cowl.rotation.x = Math.PI / 2; cowl.scale.set(1, 1, 1.25); cowl.position.set(0, 0.26 * sc, a - 0.07); motor.add(cowl);
+    const lower = new THREE.Mesh(new THREE.BoxGeometry(0.2 * sc, 0.1, 0.3 * sc), M.leg()); lower.position.set(0, 0.1, a - 0.08); motor.add(lower);
     const tiller = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, 0.42, 8), M.black());
     tiller.rotation.x = Math.PI / 2 - 0.15; tiller.position.set(0, 0.16, -0.22); motor.add(tiller);
     // leg down to the prop shaft
     const legLen = mz - pz;
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.045, legLen - 0.05, 0.12), M.leg()); leg.position.set(0, -(legLen - 0.05) / 2 + 0.05, a - 0.05); motor.add(leg);
-    const plateA = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.01, 0.22), M.leg()); plateA.position.set(0, -legLen + 0.11, a - 0.04); motor.add(plateA);
-    const gear = new THREE.Mesh(new THREE.CapsuleGeometry(0.038, 0.16, 4, 10), M.leg()); gear.rotation.x = Math.PI / 2; gear.position.set(0, -legLen, a - 0.06); motor.add(gear);
-    const skeg = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.08, 0.08), M.leg()); skeg.position.set(0, -legLen - 0.07, a - 0.04); motor.add(skeg);
-    const prop = propeller(S.prop.D, S.prop.Z, M.prop()); prop.position.set(0, -legLen, a + 0.06); motor.add(prop);
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.045, legLen - 0.05, 0.12), M.leg()); leg.position.set(0, -(legLen - 0.05) / 2 + 0.05, a - 0.12); motor.add(leg);
+    const plateA = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.01, 0.22), M.leg()); plateA.position.set(0, -legLen + 0.11, a - 0.1); motor.add(plateA);
+    const gear = new THREE.Mesh(new THREE.CapsuleGeometry(0.038, 0.16, 4, 10), M.leg()); gear.rotation.x = Math.PI / 2; gear.position.set(0, -legLen, a - 0.12); motor.add(gear);
+    const skeg = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.08, 0.08), M.leg()); skeg.position.set(0, -legLen - 0.07, a - 0.1); motor.add(skeg);
+    const prop = propeller(S.prop.D, S.prop.Z, M.prop()); prop.position.set(0, -legLen, a); motor.add(prop);
     motor.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-    root.add(pivot);
-    Object.assign(out, { pivot, motor, prop, legLen });
+    slide.add(pivot);
+    Object.assign(out, { pivot, motor, prop, legLen, slide, dxdz: tr.dxdz, bracket: root });
   } else {
     // inboard / saildrive: an exhaust outlet on the transom (or topsides), the shaft and prop out of sight below
     const ex = S.exhaust || [C.sternX, 0.3, 0.2];
@@ -94,9 +101,12 @@ export function updateEngineModel(vis, b, t, dt) {
   const m = vis.engineVis; if (!m) return;
   const e = b.engine, S = m.S;
   if (m.pivot) {
-    // tilted up about the clamp when stopped (the leg swings aft and up), hidden below when stowed
+    // raised clear when stopped: the carriage slides up the raked transom and the motor tips back a little about its
+    // clamp; hidden below when stowed (the bracket stays)
     m.motor.visible = !e.stowed;
-    m.pivot.rotation.set(-(1 - e.down) * 1.25, S.steers ? b.rudder : 0, 0, 'YXZ');
+    const up = (1 - e.down) * (S.lift || 0);
+    m.slide.position.set(0, up, -m.dxdz * up);
+    m.pivot.rotation.set(-(1 - e.down) * 0.14, S.steers ? b.rudder : 0, 0, 'YXZ');
   }
   if (m.prop) {
     // (a turning prop, slowed down to what the eye makes of it)

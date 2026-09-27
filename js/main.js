@@ -13,6 +13,7 @@ import { Audio } from './audio.js';
 import { Net } from './net.js';
 import { Vector3 as THREE_V } from 'three';
 import { Rigging } from './rigging.js';
+import { work, letFly as flyLine, handlerOf, lineName, handRate } from './linehandlers.js';
 import { sunPosition } from './sky.js';
 import './sail/sailsim.js';   // (registers the cloth / lattice sail model with physics.js)
 import { SailGovernor, setSailLevel, sailsFlown } from './governor.js';
@@ -20,6 +21,8 @@ import { loadBakedPolars, bakedPolars } from './sail/surrogate.js';
 import { Traffic, fetchTrafficGeo } from './traffic.js';
 import { TrafficView } from './traffic-render.js';
 import { fleetLevels, clothBudget } from './fleet.js';
+import { Gear } from './gear.js';            // damage, anchor, mooring lines, man overboard, crew fatigue
+import { GearVis } from './gear-render.js';
 
 // every boat's sail model: cloth (cloth shaped by the wind and the rig, forces from a vortex lattice over it; the
 // default), ?sails=strip (three strips per sail: the light fallback) or ?sails=vlm (vortex lattice on the rig-set
@@ -45,6 +48,8 @@ class Game {
     this.renderer = new Renderer($('#view'));
     this.hud = new HUD(this);
     this.nav = new Nav(this);                                 // chart, waypoints, nav readout, steering compass
+    this.gear = new Gear(this);                               // damage, anchoring, mooring, MOB, fatigue
+    this.gearVis = new GearVis(this.renderer, this);
     this.audio = new Audio();
     this.net = new Net(this);
     this.netEpoch = null;
@@ -54,6 +59,7 @@ class Game {
     this.settings = {
       cls: 'blackwatch', venue: 'progreso', mode: 'free', tws: 14, twd: 70, gust: 0.5, shift: 7, swell: 0, current: 0.4,
       fleet: 5, sailNo: '', boatName: '', countdown: 120, laps: 1, weather: 'changing', tod: 'afternoon', traffic: 'normal', autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true,
+      damage: 'realistic',    // or 'off' (the Boat section of the rig panel)
     };
     this.venueTouched = false;
     // the last setup is remembered (a custom location is not: its coastline is downloaded per visit)
@@ -133,7 +139,7 @@ class Game {
   pickVenue(id, fromUser, keepWind = false) {
     this.settings.venue = id;
     const v = VENUES.find(x => x.id === id) || this.customV;
-    if (v && !v.open && !keepWind) { this.setSlider('twd', v.wind); this.setSlider('tws', v.windKt); this.setSlider('current', v.current?.kt ?? 0); }
+    if (v && (!v.open || v.preset) && !keepWind) { this.setSlider('twd', v.wind); this.setSlider('tws', v.windKt); this.setSlider('current', v.current?.kt ?? 0); if (v.swell !== undefined) this.setSlider('swell', v.swell); }
     this.refreshMenu();
   }
   setSlider(k, v) { const el = $('#' + k); el.value = v; el.dispatchEvent(new Event('input')); }
@@ -196,7 +202,7 @@ class Game {
     } catch (e) { st.textContent = 'Could not reach OpenStreetMap (offline or blocked). Try a built-in venue.'; }
   }
   // where on Earth we are (for the sun and moon); open water is somewhere in the North Atlantic
-  skyPlace() { const v = this.currentVenueDef(); return !v || v.open ? { lat: 32, lon: -40 } : { lat: v.lat, lon: v.lon }; }
+  skyPlace() { const v = this.currentVenueDef(); return !v || (v.open && !v.preset) ? { lat: 32, lon: -40 } : { lat: v.lat, lon: v.lon }; }
   // UTC time for the chosen time of day, today, in local solar time at the venue (Live = now)
   clockFor() {
     const tod = this.settings.tod || 'afternoon';
@@ -453,6 +459,8 @@ class Game {
     for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (this.settings.sailNo || (cls.id === 'blackwatch' ? '79' : '7')) : (b.sailNo || String(100 + b.id * 7)), name: b === player ? this.settings.boatName : b.name, hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9] });
     await this.buildTraffic(v, world, cond, player);
     this.hud.buildRig(player);
+    this.gear.setSession();
+    this.gear.buildPanel(player);
     document.body.classList.toggle('no-jib', !player.sailBy.jib);
     this.buildTouch(player);
     this.renderer.cam.mode = idle ? 'orbit' : 'chase';
@@ -479,6 +487,12 @@ class Game {
     this.showLaylines = S.laylines;
     this.polar = null; this.targets = null;
     this.computePolar(cls, env.wind.mean(0).speed);
+    // ?rogue (offline only: a room's sea is the seed's): a rogue group brought to the boat, focusing a
+    // minute and a half from now where it will be
+    if (!idle && !online && /[?&]rogue\b/.test(location.search)) {
+      const E = env.waves.forceEvent({ x: player.x + Math.sin(player.psi) * 90 * player.u, z: player.z - Math.cos(player.psi) * 90 * player.u, t: 90, crestHs: 1.3 });
+      if (E) setTimeout(() => this.hud.toast(`A rogue group is gathering: ${E.crest.toFixed(0)} m crest in 90 s`, 4), 4000);
+    }
     $('#loading').hidden = true;
     if (!idle) {
       $('#hud').hidden = false;
@@ -501,11 +515,14 @@ class Game {
     const fetchM = world.open ? 60000 : world.fetchAt(0, 0, twd, 6000);
     // open ocean: effectively unlimited fetch, the sea grows to fully developed (Pierson-Moskowitz)
     const fetchKm = world.open ? 2000 : fetchM >= 6000 ? 25 : Math.max(0.4, fetchM / 1000);
+    // an open-ocean gale brings its own swell, raised in its earlier hours and its other sectors, running
+    // under the local sea and crossing it (0.4 of the fully developed sea by 50 kn); the slider's if bigger
+    const U = cond.tws * KT, sw = world.open ? Math.max(cond.swell, 0.4 * 0.21 * U * U / 9.81 * clamp((cond.tws - 30) / 20, 0, 1)) : cond.swell;
     const env = new Environment({
       tws: cond.tws * KT, twd: cond.twd, gust: cond.gust, shift: cond.shift, seed: cond.seed, weather: cond.weather ?? 'changing',
-      fetchKm, swellH: cond.swell, swellT: 5 + 3.2 * Math.sqrt(Math.max(0.1, cond.swell)),   // longer swell for bigger swell
+      fetchKm, swellH: sw, swellT: 6 + 3.4 * Math.sqrt(Math.max(0.1, sw)),   // longer swell for bigger swell: 1 m 9 s, 8 m 16 s, 16 m 20 s
       currentKt: cond.current, currentDir: cond.currentDir,
-      hemi: v && !v.open && v.lat < 0 ? -1 : 1,     // puffs and squalls veer north of the equator, back south of it
+      hemi: v && v.lat < 0 ? -1 : 1,     // puffs and squalls veer north of the equator, back south of it
       // sea/lake and land breezes by the real sun at the venue. clock0 = UTC ms at t = 0: online it is the
       // room's shared epoch (every peer's clock is epoch + t), offline the chosen time of day
       thermal: world.open || !v ? null : { lat: v.lat, lon: v.lon, land: world, regional: v.regional,
@@ -538,6 +555,7 @@ class Game {
     this.boats.push(b);
     const idx = this.boats.length;
     this.renderer.addBoat(b, { number: b.sailNo || String(200 + (idx * 37) % 700), name: b.boatName || '', hullColor: [0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc][idx % 7], label: b.name });
+    this.gear.attach(b, { remote: true });
   }
   removeRemoteBoat(b) {
     this.boats = this.boats.filter(x => x !== b);
@@ -633,7 +651,7 @@ class Game {
     }
     return this.waypoint;
   }
-  onWaypoint() { this.renderer.setMarks(this.waypoint ? [this.waypoint] : [], null); }
+  onWaypoint() { this.renderer.setMarks(this.waypoint && !this.waypoint.ghost ? [this.waypoint] : [], null); }   // (a MOB mark is only on the plotter)
 
   userTouched(k) {
     const trimKeys = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibLead', 'jibHalyard', 'tackLine', 'board'];
@@ -644,16 +662,27 @@ class Game {
   toggleAutoHike() { this.player.auto.hike = !this.player.auto.hike; this.hud.toast(this.player.auto.hike ? 'Automatic weight placement on' : 'Automatic weight off — you place your weight (Q/E)'); }
   // the side panel's buttons: same rates as the keys, loaded sheets come in slower
   // throw the working jib sheet off the winch: it runs out and the clew is free to cross
-  letFly() { const b = this.player; if (!b.sailBy.jib) return; this.userTouched('jib'); b.locks.jib = false; this.audio.click && this.audio.click(); this.hud.toast('Jib sheet out of the self-tailer — it runs free', 1.4); }
-  // cleat / release a line (cam cleat, clutch or self-tailer)
+  letFly() { const b = this.player; if (!b.sailBy.jib) return; this.userTouched('jib'); flyLine(b, 'jib'); this.audio.click && this.audio.click(); this.hud.toast(`${lineName(b, 'jib')} let fly — the turns are off, it runs free`, 1.4); }
+  // make a line fast / cast it off: its handler (js/linehandlers.js) takes its own time — a cam or clutch a moment,
+  // a horn cleat seconds of figure-eights
   toggleLock(k) {
     const b = this.player; if (!b.locks || !(k in b.locks)) return;
-    this.userTouched(k); b.locks[k] = !b.locks[k]; this.audio.click && this.audio.click();
-    const names = { main: 'Mainsheet', jib: 'Jib sheet', lazy: 'Lazy jib sheet', stay: 'Staysail sheet', trav: 'Traveler', vang: 'Vang', cunn: 'Cunningham', outhaul: 'Outhaul', backstay: 'Backstay', jibHalyard: 'Jib halyard', tackLine: 'Tack line' };
-    this.hud.toast(`${names[k] || k} ${b.locks[k] ? 'cleated' : 'released — it runs under load'}`, 1.4);
+    this.userTouched(k); b.locks[k] = !b.locks[k]; if (b.lh && b.lh[k]) b.lh[k].auto = false; this.audio.click && this.audio.click();
+    const H = handlerOf(b, k), n = lineName(b, k);
+    const msg = H.hand ? (b.locks[k] ? `${n} in the hand through the ratchet` : `${n} let go — it runs out through the ratchet`)
+      : b.locks[k] ? `${n}: ${H.lockT > 1 ? 'making it fast on the' : 'into the'} ${H.name.toLowerCase()}${H.lockT > 0.5 ? ` (${H.lockT} s)` : ''}`
+      : `${n}: out of the ${H.name.toLowerCase()}${H.releaseT > 0.5 ? ` (${H.releaseT} s)` : ''} — ${H.release === 'dump' ? 'it runs out under load' : H.release === 'ease' ? 'it surges out round the drum' : 'played in the hand'}`;
+    this.hud.toast(msg, 1.8);
   }
-  // hauling a line seats it in its cleat or self-tailer; while the player works it, it does not run
-  working(k, trimming) { const b = this.player; if (!b.locks || !(k in b.locks)) return; b.held[k] = 0.3; if (trimming) b.locks[k] = true; }
+  // the player works a line: returns how much of the movement happens now. Hauling goes through a one-way handler
+  // (cam, clam, clutch, self-tailer, ratchet); easing, or hauling off a horn cleat / jammer / push-button car, first
+  // casts it off (nothing moves until it is), and it is made fast again when the player lets go
+  working(k, trimming) {
+    const b = this.player; if (!b.locks || !(k in b.locks)) return 1;
+    const was = b.lh && b.lh[k] ? b.lh[k].s : 'locked', f = work(b, k, trimming);
+    if (!f && was === 'locked') { const H = handlerOf(b, k); if (H.releaseT > 0.5) this.hud.toast(`${lineName(b, k)}: taking it off the ${H.name.toLowerCase()} first (${H.releaseT} s)`, 1.4); }
+    return f;
+  }
   nudge(k, d, dt) {
     const b = this.player, c = b.ctrl, C = b.cls;
     if (k === 'helm') { c.helm = clamp(c.helm + d * 0.9 * dt, -1, 1); return; }
@@ -663,9 +692,10 @@ class Game {
     let rate = 0.3 * dt;
     const load = k === 'main' ? b.diag.rig.mainLoad : k === 'jib' || k === 'lazy' ? b.diag.rig.jibLoad : k === 'stay' ? b.diag.rig.stayLoad : 0;
     const trimming = (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy' || k === 'trav') ? d < 0 : k === 'tackLine' ? d < 0 : d > 0;
-    if (trimming && (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy')) rate /= 1 + ((load || 0) / C.sheetPower) ** 2;
-    this.working(k, trimming);
-    c[k] = clamp(c[k] + d * rate, 0, 1);
+    if (trimming && (k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy')) rate /= 1 + ((load || 0) / (C.sheetPower * (b.crewPower ?? 1))) ** 2;
+    const hr = b.locks && k in b.locks ? handRate(b, k, trimming) : null;   // through the line's tackle, hand over hand
+    if (hr !== null) rate = hr * dt;
+    c[k] = clamp(c[k] + d * rate * this.working(k, trimming), 0, 1);
   }
   grabIdForKey(k) { return Rigging.idForKey(k, this.player); }
   setReef(r) {
@@ -675,6 +705,7 @@ class Game {
   }
   rightBoat() {
     const b = this.player;
+    if (b.unmanned) { this.hud.toast('Swim to the boat first', 1.4); return; }
     if (b.capsized || Math.abs(b.phi) > 50 * DEG) { b.righting = true; this.hud.toast(b.cls.multihull ? 'On the righting line — lean back' : 'Standing on the daggerboard — lean back', 3); } else this.hud.toast('The boat is upright', 1.2);
   }
   toggleGen() {
@@ -687,7 +718,7 @@ class Game {
     const e = this.player.engine;
     if (!e) { this.hud.toast(`The ${this.player.cls.name} has no engine`, 1.5); return; }
     const r = e.toggle();
-    this.hud.toast(r === 'stowed' ? 'The outboard is stowed below for racing' : r === 'starting' ? (e.spec.tilts ? 'Lowering the outboard — starting' : 'Starting the engine') : r === 'stopped' ? 'Engine stopped' + (e.spec.tilts ? ' — outboard tilted up' : '') : '', 1.8);
+    this.hud.toast(r === 'stowed' ? 'The outboard is stowed below for racing' : r === 'starting' ? (e.spec.tilts ? 'Lowering the outboard — starting' : 'Starting the engine') : r === 'stopped' ? 'Engine stopped' + (e.spec.tilts ? ' — outboard raised on its bracket' : '') : '', 1.8);
     if (r === 'starting' && this.race && this.race.clock >= -240) this.hud.toast('Engine on after the preparatory signal: you retire (RRS 42)', 3);
     this.syncEngineTouch();
   }
@@ -848,7 +879,7 @@ class Game {
   onGrabDrag(drag, mx, my) {
     const g = drag.grab, b = this.player, c = b.ctrl, C = b.cls;
     const load = g.key === 'main' ? b.diag.rig.mainLoad : g.key === 'jib' ? b.diag.rig.jibLoad : g.key === 'lazy' ? (b.backedByLazy ? b.diag.rig.jibLoad : (b.diag.rig.jibLoad || 0) * 0.3) : g.key === 'stay' ? b.diag.rig.stayLoad : 0;
-    const effort = 1 / (1 + ((load || 0) / C.sheetPower) ** 2);   // heavy lines come in slowly
+    const effort = 1 / (1 + ((load || 0) / (C.sheetPower * (b.crewPower ?? 1))) ** 2);   // heavy lines come in slowly (slower when the crew is spent)
     if (g.kind === 'pull') {
       const dy = (drag.y - my) * 0.0035;                            // up = pull
       if (g.easeOnly && dy > 0) return;
@@ -856,8 +887,7 @@ class Game {
       const trimming = (g.dir < 0 && dy > 0) || (g.dir > 0 && dy > 0);
       if (trimming) delta *= g.handTail ? effort * effort * 0.6 : effort;  // tailing by hand only works while the sheet is light
       const tr = ['main', 'jib', 'stay', 'lazy', 'tackLine'].includes(g.key) ? delta < 0 : delta > 0;
-      this.working(g.key, tr);
-      c[g.key] = clamp(c[g.key] + delta, 0, 1);
+      c[g.key] = clamp(c[g.key] + delta * this.working(g.key, tr), 0, 1);
     } else if (g.kind === 'track') {
       const [ax, ay] = this.screenOf(g.A), [bx, by] = this.screenOf(g.B);
       const vx = bx - ax, vy = by - ay, L2 = vx * vx + vy * vy || 1;
@@ -866,8 +896,7 @@ class Game {
         const lee = Math.sign(b.booms.main.a) || 1;
         t = lee > 0 ? t : 1 - t;
       }
-      this.working(g.key, true);
-      c[g.key] = lerp(c[g.key], t, 0.5);
+      if (this.working(g.key, true)) c[g.key] = lerp(c[g.key], t, 0.5);
     } else if (g.kind === 'crank') {
       const [cx, cy] = [g.sx ?? drag.x0, g.sy ?? drag.y0];
       const ang = Math.atan2(my - cy, mx - cx);
@@ -886,10 +915,9 @@ class Game {
         else {
           R.handleCrank = (R.handleCrank || 0) - da; R.crankT = performance.now();   // the handle follows your hand, either way
           const travel = g.trim > 0 ? 0.8 : g.key === 'lazy' ? 1.4 : (b.genDeploy > 0.5 ? 3.0 : 1.4);   // metres of line over the control's range
-          const dl = Math.abs(da) / (2 * Math.PI) * 0.19 * gear / travel;
+          const dl = Math.abs(da) / (2 * Math.PI) * 0.19 * gear / travel * this.working(g.key, true);   // (off its horn cleat first)
           c[g.key] = clamp(c[g.key] + g.trim * dl, 0, 1);
           if (g.key === 'jib' || g.key === 'lazy') b.lines[g.key] = clamp(Math.min(b.lines[g.key], c[g.key] + 0.002), 0, 1);  // the line comes in as the drum turns
-          this.working(g.key, true);
         }
         if (!stall) drag.clicks = (drag.clicks || 0) + Math.abs(da);
         if (drag.clicks > (low ? 0.25 : 0.5)) { drag.clicks = 0; this.audio.click(); }
@@ -921,6 +949,7 @@ class Game {
     const b = this.player;
     if (this.setCamera(k)) return;
     if (k === 'Tab') { e.preventDefault(); this.nav.toggleChart(); return; }
+    if (this.gear.onKey(k, e)) return;
     if (k === 'h') this.toggleAutoHike();
     else if (k === 't') this.toggleAutoTrim();
     else if (k === 'g') this.toggleGen();
@@ -996,6 +1025,7 @@ class Game {
   // continuous controls, applied every physics step
   applyInput(dt) {
     const b = this.player, K = this.keys, c = b.ctrl, C = b.cls;
+    if (b.unmanned || b.sunk) return;                      // in the water, or she has gone
     const has = (...ks) => ks.some(k => K.has(k));
     const shift = K.has('Shift');
     let steer = 0;
@@ -1005,7 +1035,7 @@ class Game {
     if (steer) c.helm = clamp(c.helm + steer * 0.9 * dt, -1, 1);
     // the helmsman holds the tiller where it was put (Space centres it)
     const rate = 0.28 * dt;
-    const trim = (key, dir) => { this.userTouched(key); const tr = ['main', 'jib', 'stay', 'lazy', 'trav', 'tackLine'].includes(key) ? dir < 0 : dir > 0; this.working(key, tr); c[key] = clamp(c[key] + dir * rate, 0, 1); };
+    const trim = (key, dir) => { this.userTouched(key); const tr = ['main', 'jib', 'stay', 'lazy', 'trav', 'tackLine'].includes(key) ? dir < 0 : dir > 0; const hr = handRate(b, key, tr); c[key] = clamp(c[key] + dir * (hr === null ? rate : hr * dt) * this.working(key, tr), 0, 1); };
     if (has('w')) trim('main', -1);
     if (has('s')) trim('main', +1);
     if (K.has('ArrowUp')) trim(shift && b.sailBy.stay ? 'stay' : 'jib', -1);
@@ -1020,7 +1050,7 @@ class Game {
     if (has('e')) { this.userTouched('hike'); c.hike = clamp(c.hike + 1.2 * dt, -1, 1); }
     // the lazy jib sheet (J hauls, Shift+J eases); a una-rig pushes the boom out by hand (J / Shift+J = port / stbd)
     if (has('j')) {
-      if (b.sailBy.jib) { this.userTouched('lazy'); const load = (b.diag.rig.jibLoad || 0) / C.sheetPower; c.lazy = clamp(c.lazy + (shift ? 1 : -1 / (1 + load * load)) * rate, 0, 1); }
+      if (b.sailBy.jib) { this.userTouched('lazy'); const load = (b.diag.rig.jibLoad || 0) / (C.sheetPower * (b.crewPower ?? 1)); c.lazy = clamp(c.lazy + (shift ? 1 : -1 / (1 + load * load)) * rate * this.working('lazy', !shift), 0, 1); }
       else c.pushBoom = shift ? 1 : -1;
     } else if (!this.pushHeld) c.pushBoom = 0;
     // throttle lever (PgUp / ] ahead, PgDn / [ astern): it stops in the neutral detent until the key is let go
@@ -1095,6 +1125,7 @@ class Game {
       const r0 = this.race && this.race.racers[0];
       this.net.update(dt, p, this.sharedRace && r0 ? { id: this.sharedRace.id, leg: r0.leg, fin: r0.finished ? r0.finishTime : 0 } : null);
       this.hud.update(dt);
+      this.gear.update(dt);
       this.nav.update(dt);
       this.audio.update(p, dt, this.renderer.rainNow || 0);
       this.audio.engines && this.audio.engines(this.boats, this.renderer.camera, dt);
@@ -1150,7 +1181,7 @@ class Game {
     const b = this.player;
     this.t += dt;
     if (!this.idle) this.applyInput(dt);
-    if (b.auto.trim || this.idle) autoTrim(b, dt, 0, true);
+    if ((b.auto.trim || this.idle) && !b.unmanned) autoTrim(b, dt, 0, true);
     if (this.idle) this.idleHelm(dt);
     for (const ai of this.ais) {
       const i = this.boats.indexOf(ai.b);
@@ -1159,11 +1190,13 @@ class Game {
     this.net.preStep();
     this._shadowN = (this._shadowN || 0) + 1;
     if (this._shadowN % 12 === 0) applyWindShadow(this.boats);
+    this.gear.preStep(dt);
     for (const bb of this.boats) bb.step(dt, this.env, this.t, this.world);
     this.net.postStep(dt);
-    const marks = this.course ? [...this.course.marks(), this.course.committee] : this.waypoint ? [this.waypoint] : [];
+    const marks = this.course ? [...this.course.marks(), this.course.committee] : this.waypoint && !this.waypoint.ghost ? [this.waypoint] : [];
     if (this.nav.hazards.length) marks.push(...this.nav.hazards);        // the real buoys and beacons around
-    resolveCollisions(this.boats, marks, this.obstacles || [], (boat, other, v) => {
+    resolveCollisions(this.boats, marks, this.obstacles || [], (boat, other, v, nx, nz) => {
+      this.gear.onContact(boat, other, v, nx, nz);
       if (boat === this.player && v > 0.6) { this.hud.toast(other && other.cls ? `Collision with ${other.name}!` : other && other.kind === 'pier' || other?.pts ? 'You hit the pier!' : 'Mark touched!', 2); this.audio.thump(Math.min(1, v / 2)); }
     });
     if (this.traffic) this.traffic.collide(this.boats, (boat, v, sp) => {
@@ -1176,13 +1209,14 @@ class Game {
     // not sailing the course (RRS 42): the boat retires. The AI never motors.
     if (this.race && b.engine && b.engine.active && this.race.clock >= -240) {
       const r0 = this.race.racers[0];
-      if (!r0.retired && !r0.finished) { r0.retired = true; this._retT = this.t; this.audio.horn(false); }
+      if (this.race.retire(b, 'engine used after the preparatory signal (RRS 42)')) { this._retT = this.t; this.audio.horn(false); }
     }
     if (this.race) {
       this.race.update(dt);
       if (this.timeWarp > 1 && !this.canWarp()) { this.timeWarp = 1; this.hud.toast('Time ×1 — 20 seconds to the gun', 2); }
       for (const ev of this.race.events.splice(0)) this.onRaceEvent(ev);
     }
+    this.gear.postStep(dt);
   }
 
   idleHelm(dt) { // gentle reaching behind the menu
@@ -1217,10 +1251,11 @@ class Game {
     const b = this.player, C = b.cls;
     if (b.engine && b.engine.stalled) { b.engine.stalled = false; this.hud.toast('The engine stalled', 2); this.syncEngineTouch(); }
     if (b.capsized && b.righting) this.hud.alert(`Righting… ${Math.round(Math.abs(b.phi) * 57.3)}° — keep your weight out`, true);
-    else if (b.capsized) this.hud.alert('Capsized — press R to stand on the board and right her', true);
+    else if (b.capsized && !b.unmanned) this.hud.alert('Capsized — press R to stand on the board and right her', true);
+    else if (this.gear.alert()) { const a = this.gear.alert(); this.hud.alert(a.msg, a.bad); }
     else if (b.reefing) this.hud.alert(`${(b.ctrl.reef | 0) > b.reefPos ? 'Reefing' : 'Shaking out'} · ${Math.round(b.diag.reefProgress * 100)}% · main depowered`);
     else if (b.aground > 0.02) this.hud.alert(`Aground — ${this.world.depthAt(b.x, b.z).toFixed(1)} m of water`, true);
-    else if (this.race && this.race.racers[0].retired && this.t - (this._retT ?? 0) < 10) this.hud.alert('Retired — engine used after the preparatory signal (RRS 42)', true);
+    else if (this.race && this.race.racers[0].retired && this.t - (this._retT ?? 0) < 10) this.hud.alert(`Retired — ${this.race.racers[0].retiredWhy || 'RET'}`, true);
     else if (this.race && this.race.racers[0].ocs) this.hud.alert('OCS — dip back below the line', true);
     else if (Math.abs(b.phi) > C.targetHeel + 14 * 0.01745) this.hud.alert(b.sailBy.main.reefs ? 'Overpowered — ease, depower or reef' : 'Overpowered — ease the main');
     else if (b.u < 0.3 && Math.abs(b.diag.twa || 0) < 35 * DEG) this.hud.alert(b.sailBy.jib ? 'In irons — ease the main, let the jib sheet fly (F) and haul the lazy sheet (J) to back the jib, reverse the tiller while going astern' : 'In irons — ease the main, push the boom out (J / Shift+J), reverse the tiller while going astern');
