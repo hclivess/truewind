@@ -226,16 +226,14 @@ console.log('\n7. Sails');
   while (t < 1800 && tTear === null) { run(b, D, env, 5, () => { b.ctrl.main = 1; b.ctrl.jib = 1; b.ctrl.stay = 1; b.lines.main = 1; }, null, () => { b.psi = 0; b.r = 0; b.x = 0; b.z = 0; }); t += 5; if (D.sails.main.tear > 0) tTear = t; }
   const q = 0.5 * 1.225 * (35 * KT) ** 2, Tex = 1200 * Math.pow(145 / q, 2.2);
   check(tTear !== null && tTear > Tex * 0.8 && tTear < Tex * 4, `Dacron main flogging head to wind in 35 kn (q ${Math.round(q)} Pa): tears after ${tTear ?? '>1800'} s (life at full flog ${Math.round(Tex)} s)`);
-  // overload: a nylon gennaker hard pressed in a blast (cloth sails). (Cut for its sheeting angle, the kite carries the
-  // sheet's pull in its leech as well as its foot, and the corner tension is lower: 52 kn to tear it)
-  const e2 = makeSteadyEnv(52 * KT);
+  // overload: a nylon gennaker hard pressed in a 38 kn blast (cloth sails)
+  const e2 = makeSteadyEnv(45 * KT);
   const g = new Boat('sportboat'); g.reset(0, 0, 110 * DEG); g.u = 6; g.ctrl.gen = true; g.genDeploy = 1; g.genFill = 1;
   const DG = new Damage(g);
-  // (its sheet held right in: the automatic crew eases a kite this overpowered until it flogs, js/physics.js autoTrim)
-  run(g, DG, e2, 30, () => { autoTrim(g, dt, 0, true); g.ctrl.jib = Math.min(g.ctrl.jib, 0.1); }, null, () => { g.psi = 110 * DEG; g.r = 0; });
+  run(g, DG, e2, 30, () => autoTrim(g, dt, 0, true), null, () => { g.psi = 110 * DEG; g.r = 0; });
   const S = DG.sails.gennaker;
   console.log('     (gennaker state', JSON.stringify({ tear: S.tear, D: S.D, ratio: S.ratio, peak: S.peak, blown: S.blown }), ')');
-  check(S.tear > 0, `gennaker reaching in a 52 kn blast: peak cloth tension ${(S.peak / 1000).toFixed(2)} kN/m (x${3} at the corners vs ${(S.mat.S / 1000).toFixed(0)} kN/m nylon): ${S.blown ? 'BLOWN OUT' : `torn ${Math.round(S.tear * 100)}%`}`);
+  check(S.tear > 0, `gennaker reaching in a 45 kn blast: peak cloth tension ${(S.peak / 1000).toFixed(2)} kN/m (x${3} at the corners vs ${(S.mat.S / 1000).toFixed(0)} kN/m nylon): ${S.blown ? 'BLOWN OUT' : `torn ${Math.round(S.tear * 100)}%`}`);
   const e3 = makeSteadyEnv(14 * KT);
   const g2 = new Boat('sportboat'); g2.reset(0, 0, 110 * DEG); g2.u = 6; g2.ctrl.gen = true; g2.genDeploy = 1; g2.genFill = 1;
   const DG2 = new Damage(g2);
