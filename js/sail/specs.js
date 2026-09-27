@@ -40,16 +40,21 @@ export const MATERIALS = {
   dacronCruise: { warp: 180e3, fill: 250e3, bias: 20e3, rho: 0.30, D: 2e-3, layout: 'crosscut' },
   dacronDinghy: { warp: 120e3, fill: 160e3, bias: 12e3, rho: 0.20, D: 1.5e-3, layout: 'crosscut' },
   laminate: { warp: 600e3, fill: 350e3, bias: 120e3, rho: 0.18, D: 4e-3, layout: 'radial' },
+  // heavy cruising / traditional cloth (a replica gaff rig's cream or tanbark sails: soft, heavy, stretchy on the bias)
+  canvas: { warp: 150e3, fill: 210e3, bias: 14e3, rho: 0.42, D: 3e-3, layout: 'crosscut' },
   nylon: { warp: 25e3, fill: 25e3, bias: 4e3, rho: 0.045, D: 5e-5, layout: 'radial' },
 };
 export function clothMaterial(C, s) {
+  if (s.cloth) return MATERIALS[s.cloth];            // (a class may name its cloth per sail, or for the boat)
   if (s.kind === 'spin') return MATERIALS.nylon;
+  if (C.cloth) return MATERIALS[C.cloth];
   if (C.id === 'blackwatch') return MATERIALS.dacronCruise;
   if (C.id === 'dinghy') return MATERIALS.dacronDinghy;
   return MATERIALS.laminate;
 }
 // battens: bending stiffness EI (N m^2) and the heights (fraction of the luff) they sit at
 export function battens(C, s) {
+  if (s.battens) return s.battens;
   if (s.key !== 'main') return { EI: 0, rows: [] };
   if (C.id === 'cat') return { EI: 15, full: true, rows: [0.14, 0.28, 0.42, 0.56, 0.7, 0.84] };
   if (C.id === 'blackwatch') return { EI: 3, full: false, rows: [0.3, 0.52, 0.74] };

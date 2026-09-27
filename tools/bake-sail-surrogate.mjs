@@ -1,4 +1,4 @@
-// Bakes the cloth sails' polars: node tools/bake-sail-surrogate.mjs [class...] [--tws=4,6,8,...] [--jobs=N] [--secs=30]
+// Bakes the cloth sails' polars: node tools/bake-sail-surrogate.mjs [class...] [--tws=4,6,8,...] [--jobs=N] [--secs=30] [--biases=-4,0,4]
 //
 // For each class and wind speed, the full cloth + vortex-lattice model (level 0, the player's) sails at each of the
 // VPP's true wind angles at the game's 120 Hz step, yaw locked, flat water, steady wind with its gradient, with the
@@ -10,7 +10,8 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { cpus } from 'node:os';
 
 const KT = 0.514444, DEG = Math.PI / 180;
-const BIASES = [-4, 0, 4];
+// (--biases=0 for a quick bake on a busy machine: the automatic crew's own trim only)
+const BIASES = isMainThread ? (process.argv.find((x) => x.startsWith('--biases=')) || '--biases=-4,0,4').split('=')[1].split(',').map(Number) : workerData.biases;
 
 async function sailAngle(cls, twsKn, twa, secs) {
   const { Boat, autoTrim, makeSteadyEnv, CLASSES, vppStart } = await import('../js/physics.js');
@@ -18,12 +19,28 @@ async function sailAngle(cls, twsKn, twa, secs) {
   const C = CLASSES[cls], dt = 1 / 120, steps = Math.round(secs / dt);
   const gens = C.sails.some((s) => s.kind === 'spin') && twa >= 85 ? [false, true] : [false];
   let best = { bsp: 0, heel: 0, leeway: 0, gen: 0, bias: 0 };
+  const hold = Math.round(Math.min(4, 0.15 * secs) / dt);
   for (const gen of gens) for (const bias of BIASES) {
     const env = makeSteadyEnv(twsKn * KT), b = new Boat(C, { sailModel: 'cloth', lod: 0 });
     vppStart(b, twsKn * KT, twa, gen);
+    // warm start: the same boat settled first with the strip model (milliseconds): its speed, heel, boom angles and
+    // sheets are where the cloth run begins, held at that speed for its first seconds while the cloth fills. (From
+    // 1.5 m/s and default trim a heavy boat was still accelerating at the end of the window: a 15 t hull's speed
+    // settles over ~25 s, and a big overlapping genoa started eased out could fly round the forestay first.)
+    const w = new Boat(C, { sailModel: 'strip' }), sdt = 1 / 50;
+    vppStart(w, twsKn * KT, twa, gen);
+    for (let i = 0; i < 50 * 45; i++) { autoTrim(w, sdt, bias); w.step(sdt, env, i * sdt); w.r = 0; w.psi = twa * DEG; w.rudder = 0; }
+    const u0 = Number.isFinite(w.u) && !w.capsized ? Math.max(1.0, w.u) : b.u;
+    if (u0 > 1.0) {
+      Object.assign(b.ctrl, w.ctrl); Object.assign(b.lines, w.lines); for (const k in b.booms) b.booms[k].a = w.booms[k].a;
+      b.side.jib = w.side.jib; b.side.gennaker = w.side.gennaker; b.phi = w.phi; b.crewY = w.crewY; b.v = w.v;
+      if (b.sailSys) b.sailSys.reset(b);
+    }
+    b.u = u0;
     let acc = 0, n = 0, heel = 0, lee = 0, bad = false;
     for (let i = 0; i < steps; i++) {
       autoTrim(b, dt, bias); b.step(dt, env, i * dt); b.r = 0; b.psi = twa * DEG; b.rudder = 0;
+      if (i < hold) b.u = u0;
       if (!Number.isFinite(b.u)) { bad = true; break; }
       if (i > steps * 0.6) { acc += b.u; heel += b.phi; lee += b.diag.leeway || 0; n++; }
     }
@@ -50,29 +67,31 @@ if (!isMainThread) {
   const out = {};
   for (const cls of todo) out[cls] = { rows: {} };
   const t0 = Date.now(); let done = 0;
-  await new Promise((resolve) => {
-    let next = 0, alive = 0;
-    const workers = Array.from({ length: Math.min(nJobs, jobs.length) }, () => new Worker(new URL(import.meta.url), { workerData: { secs } }));
-    const feed = (w) => { if (next < jobs.length) { w.postMessage(jobs[next++]); return true; } w.terminate(); return false; };
-    for (const w of workers) {
-      alive++;
-      w.on('message', (m) => {
-        out[m.cls].rows[`${m.tws}:${m.twa}`] = m.r; done++;
-        if (done % 20 === 0) process.stdout.write(`\r${done}/${jobs.length} ${((Date.now() - t0) / 1000).toFixed(0)} s`);
-        if (!feed(w) && --alive === 0) resolve();
-      });
-      feed(w);
-    }
-  });
   mkdirSync(new URL('../data/sails/', import.meta.url), { recursive: true });
   const r3 = (v) => Math.round(v * 1000) / 1000, r1 = (v) => Math.round(v * 10) / 10;
-  for (const cls of todo) {
+  // each class is written as soon as its last angle is in (a long bake that is stopped keeps what it finished)
+  const write = (cls) => {
     const R = out[cls].rows, tab = (f) => TWS.map((t) => POLAR_TWAS.map((a) => f(R[`${t}:${a}`])));
     const data = { class: cls, model: 'cloth', lod: 0, secs, hz: 120, biases: BIASES, baked: new Date().toISOString().slice(0, 10),
       tws: TWS, twa: POLAR_TWAS, bsp: tab((r) => r3(r.bsp)), heel: tab((r) => r1(r.heel)), leeway: tab((r) => r1(r.leeway)), gen: tab((r) => r.gen), bias: tab((r) => r.bias) };
     writeFileSync(new URL(`../data/sails/${cls}.json`, import.meta.url), JSON.stringify(data) + '\n');
     const i12 = TWS.indexOf(12);
     if (i12 >= 0) console.log(`\n${cls} 12 kn: ` + POLAR_TWAS.map((a, j) => `${a}:${data.bsp[i12][j].toFixed(2)}${data.gen[i12][j] ? 'g' : ''}`).join(' '));
-  }
+  };
+  await new Promise((resolve) => {
+    let next = 0, alive = 0;
+    const workers = Array.from({ length: Math.min(nJobs, jobs.length) }, () => new Worker(new URL(import.meta.url), { workerData: { secs, biases: BIASES } }));
+    const feed = (w) => { if (next < jobs.length) { w.postMessage(jobs[next++]); return true; } w.terminate(); return false; };
+    for (const w of workers) {
+      alive++;
+      w.on('message', (m) => {
+        out[m.cls].rows[`${m.tws}:${m.twa}`] = m.r; done++;
+        if (Object.keys(out[m.cls].rows).length === TWS.length * POLAR_TWAS.length) write(m.cls);
+        if (done % 20 === 0) process.stdout.write(`\r${done}/${jobs.length} ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+        if (!feed(w) && --alive === 0) resolve();
+      });
+      feed(w);
+    }
+  });
   console.log(`\nbaked ${todo.join(', ')} in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
 }

@@ -12,7 +12,9 @@ const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (
 const classes = process.argv[2] ? [process.argv[2]] : ['blackwatch', 'sportboat', 'dinghy', 'cat'];
 
 // settle a boat close-hauled (heading and helm held), auto crew, then hold a set of controls and settle again
-function settle(cls, set = null, secs = 14, twa0 = null) {
+function settle(cls, set = null, secs = null, twa0 = null) {
+  // (a heavy boat takes longer to come up to speed and settle: ~14 s for the light ones, up to 40 s for a 15 t boat)
+  const Cc = CLASSES[cls]; secs = secs ?? Math.round(Math.max(14, Math.min(40, 6 + (Cc.massHull + Cc.crewN * Cc.crewEach) / 400)));
   const env = makeSteadyEnv(12 * KT), b = new Boat(cls);
   attachSails(b, 'cloth', 0);
   const twa = twa0 ?? (cls === 'cat' ? 50 : 45);
@@ -20,7 +22,7 @@ function settle(cls, set = null, secs = 14, twa0 = null) {
   const dt = 1 / 120;
   for (let i = 0; i < 120 * secs; i++) {
     autoTrim(b, dt);
-    if (set && i > 120 * 6) for (const k in set) b.ctrl[k] = set[k];
+    if (set && i > 120 * secs * 0.43) for (const k in set) b.ctrl[k] = set[k];
     b.step(dt, env, i * dt); b.r = 0; b.psi = twa * DEG; b.rudder = 0;
   }
   // average the shape over three seconds (the cloth breathes: a fully battened main sheeted hard, its leech held by the
