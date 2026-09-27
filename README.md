@@ -152,8 +152,41 @@ Polars from `node test/vpp.mjs` in 12 kn of true wind (boat speed in knots, `g` 
 | Sportboat | 40°, 6.00, 4.60 (40°, 6.1, 4.7) | 8.12 g (8.6 g) | 8.57 g (10.2 g) | 6.59 g (7.0 g) | 5.80 at 165° (6.2) |
 | Dinghy | 40°, 4.92, 3.77 (36°, 4.4, 3.6) | 6.47 (6.2) | 5.79 (5.7) | 4.75 (4.7) | 4.34 at 180° (4.4) |
 | Beach cat | 48°, 8.04, 5.38 (55°, 9.6, 5.5) | 13.64 g (13.3 g) | 11.33 g (15.2 g) | 6.76 g (7.6 g) | 6.42 at 135° (7.7) |
+| Nordic Folkboat | 40°, 4.36, 3.34 | 5.58 | 5.46 | 4.37 | 4.10 at 180° |
+| J/24 | 44°, 5.63, 4.05 | 6.70 g | 6.37 g | 5.84 g | 5.32 at 165° |
+| Star | 36°, 5.60, 4.53 | 6.99 | 6.52 | 5.48 | 4.98 at 165° |
+| J/122 | 44°, 6.99, 5.03 | 8.93 g | 9.06 g | 7.65 g | 6.63 at 150° |
+| 470 | 40°, 5.92, 4.53 | 10.01 g | 8.47 g | 5.96 g | 5.32 at 165° |
+| 49er | 48°, 9.52, 6.37 | 14.71 | 13.41 g | 10.69 g | 10.15 at 135° |
+| Mariner's trimaran | 48°, 12.61, 8.44 | 20.95 | 16.44 | 9.35 | 8.28 at 135° |
 
 The sportboat is J/70-sized, and the J/70's ORC certificate (2024) gives, in 12 kn: beat VMG 4.52 kn at 37.6°, 6.88 kn at 90°, 7.72 kn at 120°, 6.47 kn at 150° and a run VMG of 5.60 kn. The cloth sails are within 4% of it upwind, at 150° and downwind, and faster reaching (8.1 and 8.6 kn, +18% and +11%); the strip model's reaching speeds are 25–32% above the certificate. Downwind, the cloth rigs' drive agrees with ORC's sail coefficients to within about 10%, where the strip model's is 20–25% higher: most of the difference in the downwind columns. The cat's reaching and downwind numbers under spinnaker have no certificate to check against.
+
+The newer classes against published data, in 12 kn (cloth sails, baked polars; model / reference, difference):
+
+| Boat | Reference | Beat VMG | 90° | 120° | 150° | Run VMG |
+|---|---|---|---|---|---|---|
+| J/24 | ORC GER 907 | 4.05 / 4.18 (−3%) | 6.70 / 6.43 (+4%) | 6.37 / 6.43 (−1%) | 5.84 / 5.87 (−1%) | 5.32 / 5.27 (+1%) |
+| J/122 | ORC *J-Curve* | 5.03 / 5.33 (−6%) | 8.93 / 8.30 (+8%) | 9.06 / 8.43 (+7%) | 7.65 / 7.61 (+1%) | 6.63 / 6.59 (+1%) |
+| Nordic Folkboat | ORC NED 866 (non-spinnaker) | 3.34 / 3.49 (−4%) | 5.58 / 5.72 (−2%) | 5.46 / 5.53 (−1%) | 4.37 / 4.89 (−11%) | 4.10 / 4.46 (−8%) |
+
+- **J/24:** within 4% everywhere; it points 4° lower than the certificate (44° against 40°) at the same VMG.
+- **J/122:** 6% slow upwind (it too sails 44° where ORC has 39°) and 7–8% fast reaching under the asymmetric, as the sportboat is against the J/70's certificate; downwind within 1%.
+- **Folkboat:** within 4% upwind and reaching; 8–11% slow on a run, where ORC credits a jib poled out on a whisker pole, which the sim does not rig (see below).
+
+The classes without ORC certificates are checked against their Portsmouth numbers, as course speed (the harmonic mean of the best upwind and downwind VMG, which is what an elapsed-time handicap measures on a windward-leeward course) relative to the Laser's (the singlehander here) in 12 kn, against the ratio of the Portsmouth numbers (Laser/ILCA 7 1100; RYA 470 973, Star 917, 49er 697; US Sailing D-PN Folkboat 103.2 against the Laser's 91.1):
+
+| Boat | Model course speed / Laser | Portsmouth ratio | Difference |
+|---|---|---|---|
+| 470 | 1.21 | 1.13 | +7% |
+| Star | 1.17 | 1.20 | −3% |
+| Nordic Folkboat | 0.91 | 0.88 | +3% |
+| 49er | 1.94 | 1.58 | +23% |
+
+- **470:** 7% fast, most of it reaching and running under the spinnaker, where it planes (10 kn at 90°).
+- **Star:** within 3%; it points highest of all the boats (36°), as Stars do.
+- **49er:** 23% over its Portsmouth ratio. Portsmouth numbers average a club season's winds, and a skiff gains most on a Laser in the planing range: in 12 kn the 49er is upwind at 9.5 kn and downwind at 14 kn (VMG 10 kn at 135°). No published 49er polar was found to check that against, so this class is not validated to 10%.
+- **Mariner's trimaran:** no certificate or handicap exists. It reaches at 21 kn (1.75 x the wind) and does 12.6 kn upwind in 12 kn: ORMA 60 speeds cut by the heavier, salvaged build, as intended.
 
 In 20 kn the sportboat reaches at 13.5 kn and does 14.7 kn at 120° under gennaker, and the cat reaches at 18.8 kn. The Blackwatch sails upwind with 6° of leeway (a long keel) and cannot pass its 5.6 kn hull speed.
 
