@@ -34,7 +34,7 @@ export default {
     prop: { D: 0.197, P: 0.165, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-3.42, -0.42, -0.45], mount: [-3.3, -0.42, 0.45], mass: 26, inMass: false,
     tilts: true, steers: false, shaftAngle: 0, exhaust: [-3.42, -0.42, 0.1] },
   lines: { main: { handler: 'cam', n: 4, at: 'car' }, trav: { handler: 'cam', n: 2, at: 'deck' }, jib: { handler: 'winchHorn', at: 'winch' },
-    vang: { handler: 'cam', n: 4, at: 'deck' }, cunn: { handler: 'horn', n: 1, at: 'mast' }, outhaul: { handler: 'cam', n: 2, at: 'boom' },
+    vang: { handler: 'cam', n: 6, at: 'deck' }, cunn: { handler: 'horn', n: 1, at: 'mast' }, outhaul: { handler: 'cam', n: 2, at: 'boom' },
     jibHalyard: { handler: 'horn', at: 'mast' } },
   sails: [
     { key: 'main', kind: 'boom', area: 101.4 * SQFT, luff: 21.0 * FT, foot: 9.66 * FT, head: 0.12, depth: [0.11, 0.125, 0.12], twistMax: 20 * DEG,

@@ -30,7 +30,7 @@ export default {
   targetHeel: 6 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 380,
   engine: null,
   lines: { main: { handler: 'ratchet', n: 2, at: 'sole' }, vang: { handler: 'cam', n: 2, size: 'micro', at: 'deck' },
-    cunn: { handler: 'cam', n: 1, size: 'micro', at: 'deck' }, outhaul: { handler: 'cam', n: 1, size: 'micro', at: 'deck' } },
+    cunn: { handler: 'cam', n: 2, at: 'deck' }, outhaul: { handler: 'cam', n: 1, size: 'micro', at: 'deck' } },
   sails: [
     { key: 'main', kind: 'boom', rig: 'lateen', area: 7.0, luff: 3.51, rake: 2.77, fixedRake: true, tackFwd: 0.56, foot: 3.99, head: 0.05, roach: 0, mastTop: 3.05,
       depth: [0.12, 0.13, 0.12], twistMax: 24 * DEG, cd0: 0.07, ARe: 3.0, min: 3 * DEG, max: 88 * DEG, trav: null, Iboom: 14, boomMass: 5, reefs: 0,

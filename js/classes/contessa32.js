@@ -34,8 +34,8 @@ export default {
     prop: { D: 0.36, P: 0.23, Z: 2, BAR: 0.35, folding: false, rh: 1 }, pos: [-2.95, 0, -0.62], mount: [-2.1, 0, -0.1], mass: 115, inMass: true,
     shaftAngle: 9 * DEG, exhaust: [-4.7, 0.5, 0.3] },
   lines: { main: { handler: 'cam', n: 4, at: 'car' }, trav: { handler: 'cam', n: 2, at: 'deck' }, jib: { handler: 'winchHorn', at: 'winch' },
-    vang: { handler: 'cam', n: 4, at: 'deck' }, cunn: { handler: 'horn', n: 2, at: 'mast' }, outhaul: { handler: 'clam', n: 2, at: 'boom' },
-    backstay: { handler: 'cam', n: 4, at: 'deck' }, jibHalyard: { handler: 'winchHorn', winch: 'cabin', at: 'mast' } },
+    vang: { handler: 'cam', n: 8, at: 'deck' }, cunn: { handler: 'horn', n: 2, at: 'mast' }, outhaul: { handler: 'horn', n: 2, at: 'boom' },
+    backstay: { handler: 'horn', n: 4, at: 'deck' }, jibHalyard: { handler: 'winchHorn', winch: 'cabin', at: 'mast' } },
   sails: [
     { key: 'main', kind: 'boom', area: 0.5 * 30.5 * 11.0 * SQFT, luff: 30.5 * FT, foot: 11.0 * FT, head: 0.12, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
       cd0: 0.07, ARe: 4.2, min: 2 * DEG, max: 80 * DEG, trav: [-5 * DEG, 11 * DEG], Iboom: 110, boomMass: 18, reefs: 2,

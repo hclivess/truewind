@@ -34,7 +34,7 @@ export default {
     shaftAngle: 0, exhaust: [-5.45, 0.9, 0.35] },
   lines: { main: { handler: 'clutch', n: 4, winch: 'cabin', at: 'cabin' }, jib: { handler: 'selfTailer', at: 'winch' },
     vang: { handler: 'clutch', n: 6, winch: 'cabin', at: 'cabin' }, cunn: { handler: 'clutch', n: 2, winch: 'cabin', at: 'cabin' }, outhaul: { handler: 'clutch', n: 1, winch: 'cabin', at: 'cabin' },
-    backstay: { handler: 'cam', n: 4, at: 'deck' }, jibHalyard: { handler: 'clutch', winch: 'cabin', at: 'cabin' } },
+    backstay: { handler: 'horn', n: 1, at: 'deck' }, jibHalyard: { handler: 'clutch', winch: 'cabin', at: 'cabin' } },
   sails: [
     // in-mast furling: no battens, a hollow leech; it reefs by rolling into the mast
     { key: 'main', kind: 'boom', area: 30.0, luff: 13.7, foot: 4.75, head: 0.2, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG, roach: -0.02,

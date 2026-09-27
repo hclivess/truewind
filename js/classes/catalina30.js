@@ -34,8 +34,8 @@ export default {
     prop: { D: 0.33, P: 0.23, Z: 2, BAR: 0.35, folding: false, rh: 1 }, pos: [-2.75, 0, -0.62], mount: [-1.9, 0, -0.05], mass: 125, inMass: true,
     shaftAngle: 11 * DEG, exhaust: [-4.4, 0.6, 0.35] },
   lines: { main: { handler: 'cam', n: 6, at: 'car' }, trav: { handler: 'cam', n: 3, at: 'deck' }, jib: { handler: 'selfTailer', at: 'winch' },
-    vang: { handler: 'cam', n: 4, at: 'deck' }, cunn: { handler: 'clutch', n: 2, winch: 'cabin', at: 'cabin' }, outhaul: { handler: 'clutch', n: 2, winch: 'cabin', at: 'cabin' },
-    backstay: { handler: 'cam', n: 4, at: 'deck' }, jibHalyard: { handler: 'clutch', winch: 'cabin', at: 'cabin' } },
+    vang: { handler: 'cam', n: 8, at: 'deck' }, cunn: { handler: 'clutch', n: 2, winch: 'cabin', at: 'cabin' }, outhaul: { handler: 'clutch', n: 2, winch: 'cabin', at: 'cabin' },
+    backstay: { handler: 'horn', n: 4, at: 'deck' }, jibHalyard: { handler: 'clutch', winch: 'cabin', at: 'cabin' } },
   sails: [
     { key: 'main', kind: 'boom', area: 201.3 * SQFT * 1.04, luff: 35 * FT, foot: 11.5 * FT, head: 0.15, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
       cd0: 0.07, ARe: 4.2, min: 2 * DEG, max: 80 * DEG, trav: [-6 * DEG, 12 * DEG], Iboom: 150, boomMass: 22, reefs: 2,

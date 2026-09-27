@@ -35,7 +35,7 @@ export default {
     stow: [0.6, 0, -0.1], tilts: true, steers: false, shaftAngle: 0, exhaust: [-3.7, -0.45, 0.1] },
   lines: { main: { handler: 'ratchetCam', n: 6, at: 'sole' }, trav: { handler: 'cam', n: 2, at: 'deck' }, jib: { handler: 'ratchetCam', n: 1, at: 'deck' },
     gen: { handler: 'ratchet', hold: 20, at: 'quarter' }, vang: { handler: 'cam', n: 12, at: 'deck' }, cunn: { handler: 'cam', n: 4, size: 'micro', at: 'deck' },
-    outhaul: { handler: 'cam', n: 4, size: 'micro', at: 'deck' }, backstay: { handler: 'cam', n: 16, at: 'deck' }, jibHalyard: { handler: 'cam', n: 2, at: 'deck' }, tackLine: { handler: 'cam', at: 'deck' } },
+    outhaul: { handler: 'cam', n: 4, size: 'micro', at: 'deck' }, backstay: { handler: 'cam', n: 16, at: 'deck' }, jibHalyard: { handler: 'clutch', n: 2, at: 'deck' }, tackLine: { handler: 'cam', at: 'deck' } },
   sails: [
     { key: 'main', kind: 'boom', area: 179.9 * SQFT, luff: 28.9 * FT, foot: 12.45 * FT, head: 0.5, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
       cd0: 0.06, ARe: 4.8, min: 1.5 * DEG, max: 78 * DEG, trav: [-6 * DEG, 12 * DEG], Iboom: 40, boomMass: 12, reefs: 0,
