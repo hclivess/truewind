@@ -904,7 +904,10 @@ export class RigStructure {
     if (this.ready && this.count % every !== 0) return;
     // (while a cloth-sailed boat is set aside at L2 for a moment, the strip model sailing, the rig stays as the cloth
     // left it: the cloth flies on from there when it comes back)
-    if (this.ready && ((b.sailSys && !b.sailSys.active(b)) || (b.lod >= 2 && b.sailModel && b.sailModel !== 'strip'))) return;
+    // (for a moment only: a boat that stays on the strip model, a slow device's, has its rig solved from the strips)
+    const aside = (b.sailSys && !b.sailSys.active(b)) || (b.lod >= 2 && b.sailModel && b.sailModel !== 'strip');
+    this.asideT = aside ? (this.asideT || 0) + dt * every : 0;
+    if (this.ready && aside && this.asideT < 3) return;
     const C = this.C;
     // the rotating mast turns toward where the luff pulls it (over ~0.3 s)
     if (this.spec.rotating) this.rot += (this.rotTarget - this.rot) * clamp(dt * every / 0.3, 0, 1);
@@ -952,12 +955,10 @@ export class RigStructure {
       this.F.set(F0);
     } else if (this.converged) uGood.set(this.u);
     this.failed = bad; this.loadFrac = frac;
-    // (while the cloth is set aside, the strip model sailing at L2, its luff stays where it was: it flies on from there)
-    const frozen = (b.sailSys && !b.sailSys.active(b)) || (b.lod >= 2 && b.sailModel && b.sailModel !== 'strip');
     // the shape the sails' luffs follow: eased toward the solution (~0.3 s, at most ~0.3 m/s). A cloth whose pinned luff
     // is jerked answers with a jerk in its pins' loads: moved at once, the luff and the rig would feed each other.
     const us = this.us || (this.us = Float64Array.from(this.u)), ku = clamp(dt * every / 0.3, 0, 1), cap = 0.3 * dt * every;
-    if (!frozen) for (let i = 0; i < us.length; i++) us[i] += clamp((this.u[i] - us[i]) * ku, -cap, cap);
+    for (let i = 0; i < us.length; i++) us[i] += clamp((this.u[i] - us[i]) * ku, -cap, cap);
     for (const st of Object.values(this.stays)) st.Ts = st.Ts === undefined ? st.T : st.Ts + (st.T - st.Ts) * ku;
     // the shapes the sails and the drawing follow are the rig's deflection from its dock tune: the sails were cut for
     // the rig as tuned (its rake and pre-bend), and the model is drawn as it stands at the dock
