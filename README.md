@@ -22,7 +22,7 @@ It runs in any modern browser with WebGL, with no install and no build step.
 | **J/122** | A 40 ft cruiser-racer (Alan Johnstone, 2007): LOA 12.20 m, LWL 10.55 m, beam 3.64 m, draft 2.24 m, 7,450 kg, a carbon fractional rig with two swept spreaders, main 50.1 m², 106% jib 42.8 m², a 155.9 m² asymmetric on a retractable bowsprit, bulb keel, spade rudder, wheel steering, nine crew, two reefs. |
 | **470** | The Olympic two-person dinghy: LOA 4.70 m, LWL 4.40 m, beam 1.69 m, 120 kg hull, main 9.12 m², jib 3.58 m², a 13 m² symmetric spinnaker on a pole, a pivoting centreboard; the crew on trapeze, the helm hiking. It capsizes. |
 | **49er** | The Olympic skiff: LOA 4.88 m, beam 1.75 m (2.74 m over the wings), 94 kg hull, 20 m² of square-top main and self-tacking jib, a 37 m² gennaker off a retractable pole, both crew on trapeze from the wings. It planes upwind in 12 kn and capsizes, often. |
-| **Mariner's trimaran (Waterworld)** | The film's 60 ft ocean-racing trimaran (VPLP, built by Jeanneau Techniques Avancées in the moulds of the ORMA 60 *Pierre 1er*): LOA 18.28 m, beam 15 m, draft 1.54/2.88 m, about 6 t, a 27.5 m mast that folds on a tabernacle and is raised by a geared winch, a patched, fully battened 205 m² main and a 95 m² jib. Weathered: rust, scrap plate, lashed drums. Its floats fly from about 10 kn. |
+| **Mariner's trimaran (Waterworld)** | The film's 60 ft ocean-racing trimaran (VPLP, built by Jeanneau Techniques Avancées in the moulds of the ORMA 60 *Pierre 1er*): LOA 18.28 m, beam 15 m, draft 1.54/2.88 m, about 6 t, a 27.5 m mast that folds on a tabernacle and is raised by a geared winch, a patched, fully battened 205 m² main on a heavy boom and a 95 m² jib on the forestay. Built as in the film: fat round-ended tube floats (1.4 m diameter) on thick tube crossbeams, riveted and patched metal plating with rust bleeding from the fittings, and a deck cluttered with salvage (winch drums with crank handles, pipes, a cage, a crane post, a railed platform over the bow, lashed drums). Its floats fly from about 10 kn. |
 | **Catalina 22** | Frank Butler's 1969 trailer sailer, the most built in its size: 6.55 m, 1,129 kg, masthead sloop with a 110% jib, a cast iron swing keel you can wind up, a kick-up rudder on the transom and a 6 hp outboard. |
 | **Catalina 30** | The classic 30 (1972–2008, over 6,000 built): 9.12 m, 4,627 kg, iron fin keel, spade rudder, wheel steering, masthead rig with a 135% genoa. |
 | **Beneteau Oceanis 38.1** | A modern production cruiser (Finot-Conq, 2016): plumb bow with an anchor sprit, hard chine aft, hull windows, twin wheels, a drop-down swim platform, in-mast furling main and a 103% genoa. |
@@ -219,7 +219,7 @@ Polars from `node test/vpp.mjs` in 12 kn of true wind (boat speed in knots, `g` 
 | J/122 | 44°, 6.99, 5.03 | 8.93 g | 9.06 g | 7.65 g | 6.63 at 150° |
 | 470 | 40°, 5.92, 4.53 | 10.01 g | 8.47 g | 5.96 g | 5.32 at 165° |
 | 49er | 48°, 9.52, 6.37 | 14.71 | 13.41 g | 10.69 g | 10.15 at 135° |
-| Mariner's trimaran | 48°, 12.61, 8.44 | 20.95 | 16.44 | 9.35 | 8.28 at 135° |
+| Mariner's trimaran | 48°, 12.85, 8.60 | 21.94 | 18.26 | 9.31 | 9.13 at 120° |
 
 The production and famous boats (`js/classes/`, baked at 8, 12 and 16 kn with the crew's own trim, their engines aboard):
 
@@ -284,7 +284,7 @@ The classes without ORC certificates are checked against their Portsmouth number
 - **470:** 7% fast, most of it reaching and running under the spinnaker, where it planes (10 kn at 90°).
 - **Star:** within 3%; it points highest of all the boats (36°), as Stars do.
 - **49er:** 23% over its Portsmouth ratio. Portsmouth numbers average a club season's winds, and a skiff gains most on a Laser in the planing range: in 12 kn the 49er is upwind at 9.5 kn and downwind at 14 kn (VMG 10 kn at 135°). No published 49er polar was found to check that against, so this class is not validated to 10%.
-- **Mariner's trimaran:** no certificate or handicap exists. It reaches at 21 kn (1.75 x the wind) and does 12.6 kn upwind in 12 kn: ORMA 60 speeds cut by the heavier, salvaged build, as intended.
+- **Mariner's trimaran:** no certificate or handicap exists. It reaches at 22 kn (1.8 x the wind) and does 12.9 kn upwind in 12 kn: ORMA 60 speeds cut by the heavier, salvaged build, as intended.
 
 In 20 kn the sportboat reaches at 13.5 kn and does 14.7 kn at 120° under gennaker, and the cat reaches at 18.8 kn. The Blackwatch sails upwind with 6° of leeway (a long keel) and cannot pass its 5.6 kn hull speed.
 
