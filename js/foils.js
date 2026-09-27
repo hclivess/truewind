@@ -86,6 +86,11 @@ export function foilSpec(C, which) {
   if (which === 'rudder' && Md.rudder && Md.rudder.kind) Object.assign(fromModel, Md.rudder.kind === 'spade' ? { root: 'hull', balance: 0.2 } : Md.rudder.kind === 'skeg' ? { root: 'hull', balance: 0.02 } : { root: 'surface', balance: 0.02 });
   if (which === 'keel' && Md.keel && Md.keel.bulb) fromModel.bulb = { len: Md.keel.bulb.len, dia: 2 * Md.keel.bulb.r };
   if (which === 'keel' && Md.keel && Md.keel.kind === 'dagger') fromModel.board = 'dagger';
+  // (the race classes' own fields: a bulb described on the class (keelBulb { len, r }), a pivoting centreboard
+  // (keel.pivot), a lifting rudder blade (rudder.lifting))
+  if (which === 'keel' && C.keelBulb && typeof C.keelBulb === 'object' && !fromModel.bulb) fromModel.bulb = { len: C.keelBulb.len, dia: 2 * C.keelBulb.r };
+  if (which === 'keel' && F.board && F.pivot) { const ch = F.chord ?? 0.4; fromModel.board = 'pivot'; fromModel.pivot = { x: F.x + 0.6 * ch, z: -(C.canoeDraft || 0.15) }; }
+  if (which === 'rudder' && F.lifting) fromModel.kickUp = true;
   const D = { ...fromModel, ...((FOIL_DATA[C.id] || {})[which] || {}), ...(F.foil || {}) };
   const chord = F.chord ?? Math.sqrt(F.area / Math.max(0.5, F.ARe || 3)), span = F.span ?? F.area / chord;
   const spade = which === 'rudder' && !F.transom && !F.hung && !F.twin && !D.root;

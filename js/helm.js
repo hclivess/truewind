@@ -30,7 +30,7 @@ const HELM_DATA = {
 export function helmSpec(C) {
   // (a class described for the drawing (C.model.steering: 'tiller' with its length and extension, 'wheel' or 'twin'
   // wheels with their radius) steers as drawn)
-  const St = (C.model && C.model.steering) || null;
+  const St = (C.model && C.model.steering) || (C.wheel ? { kind: 'wheel', r: C.wheel.r } : null);
   const fromModel = St ? (St.kind === 'wheel' || St.kind === 'twin' ? { type: 'wheel', wheelR: St.r } : { type: 'tiller', tiller: St.len, extension: St.extension ?? 0 }) : {};
   const D = { ...fromModel, ...(HELM_DATA[C.id] || {}), ...(C.helm || {}) };
   const type = D.type || 'tiller';

@@ -131,6 +131,43 @@ export const RIG_DATA = {
   },
 };
 
+// Star (Star class rules; spar est.): a tapered aluminium mast, famously bendy, stepped on deck; one set of spreaders,
+// uppers to the hounds and lowers, the forestay to the hounds, no backstay: running backstays from the hounds to the
+// quarters (the windward one set up, the leeward one off). Section est. 100 x 76 mm, 2.4 mm wall, tapering above the
+// hounds; 4 mm wire, 3.5 mm runners. Its bend (the class's main depth control) comes from the runners, the vang and the
+// leech.
+RIG_DATA.star = {
+  step: { type: 'deck', z: 0.42 },
+  spans: [{ z0: 0.42, z1: 7.66, a: 0.1, b: 0.076, t: 0.0024, mat: 'alu6061' }, { z0: 7.66, z1: 9.95, a: 0.066, b: 0.054, t: 0.0018, mat: 'alu6061' }],
+  spreaders: [{ z: 4.2, len: 0.5, sweep: 0.15, EA: 1e7, EI: 800 }],
+  chainX: -0.15, chainIn: 0.93,
+  wires: [
+    { key: 'capShroud', to: 'hounds', via: 0, d: 4, pre: 800 },
+    // (the lowers led well aft of the mast: they hold its middle back, the Star's control of its bend low down)
+    { key: 'lowerShroud', to: 4.2, dx: -0.35, d: 3.5, pre: 500 },
+    { key: 'forestay', stay: 'jib', d: 4 },
+    { key: 'runner', to: 'hounds', runner: true, d: 3.5, pre: 700 },
+  ],
+  houndsZ: 7.66, prebend: 0.03, lineMax: 2400,
+};
+// The Mariner's trimaran (a 60 ft racing trimaran's rig, est.): a rotating aluminium wing mast (0.9 m chord) on a ball
+// in its tabernacle, turned by the luff up to its limiter as the Hobie's is; shrouds to the floats at the forward
+// beam, runners to the floats aft, diamonds over spreaders at mid-height, the forestay to the bow. 12 mm caps, 10 mm
+// runners, 8 mm diamonds.
+RIG_DATA.mariner = {
+  step: { type: 'ball', z: 1.6 },
+  spans: [{ z0: 1.6, z1: 27.3, a: 0.9, b: 0.32, t: 0.007, mat: 'alu6061' }],
+  spreaders: [{ z: 13.2, len: 1.1, sweep: 0.1, EA: 5e7, EI: 2e5, diamond: true }],
+  wires: [
+    { key: 'capShroud', to: 'hounds', at: [2.9, 6.7, 1.7], d: 12, pre: 9000 },
+    { key: 'runner', to: 'hounds', at: [-3.6, 6.7, 1.7], runner: true, d: 10, pre: 6000 },
+    { key: 'diamond', diamond: [24.0, 2.8], via: 0, d: 8, pre: 5000 },
+    { key: 'forestay', stay: 'jib', d: 12 },
+  ],
+  rotating: { limit: 45 * DEG, track: 0.05 },
+  houndsZ: 24.7, prebend: 0.03, lineMax: 22000,
+};
+
 // A rig for a class with no entry, sized as a rig designer would from its righting moment at 30 deg (Nordic Boat
 // Standard / Skene order): cap shroud breaking load ~2.8 RM30 / chainplate half-beam, lowers 0.85 of its size, dock
 // tune ~12% of break; the mast (aluminium, an ellipse 1.55:1, wall 1/45 of the chord) stiff enough that its compression
@@ -142,7 +179,17 @@ export function genericRig(C) {
   const disp = C.massHull + (C.crewN || 0) * (C.crewEach || 80), hb = C.beam / 2 * 0.9;
   const RM30 = disp * G * (C.gm || 1) * Math.sin(30 * DEG) * 0.8, Tsh = RM30 / hb;
   const d = clamp(Math.sqrt(2.8 * Tsh / 800), 3, 16);
-  const MD = (C.model && C.model.masts && C.model.masts.main) || {};
+  // (the drawing's description: C.model.masts.main for the detailed boats, or the race classes' own fields: mastR,
+  // carbonMast, spreaders { n, sweep } with spreader (length), houndsF (the hounds' distance from the top, a fraction
+  // of the mast), runners)
+  const M0 = (C.model && C.model.masts && C.model.masts.main) || {};
+  const deck0 = C.freeboard + (C.cabin ? 0.35 : 0.08), mastL0 = C.mastHeight - deck0;
+  const MD = { ...M0, r: M0.r ?? C.mastR, mat: M0.mat ?? (C.carbonMast ? 'carbon' : undefined),
+    hounds: M0.hounds ?? (C.houndsF ? C.mastHeight - C.houndsF * mastL0 : undefined) };
+  if (!M0.spreaders && C.spreaders && C.spreaders.n) {
+    const n = C.spreaders.n, L1 = C.spreader ?? C.beam * 0.36, hz = MD.hounds ?? C.mastHeight - 0.25;
+    MD.spreaders = Array.from({ length: n }, (_, i) => ({ f: n === 1 ? 0.5 : ((deck0 + (hz - deck0) * (i + 1) / (n + 0.6)) - deck0) / mastL0, len: L1 * (1 - 0.28 * i), sweep: C.spreaders.sweep ?? 0 }));
+  }
   const mat = MD.mat === 'wood' ? 'spruce' : MD.mat === 'carbon' || MD.mat === 'black' ? 'carbon' : 'alu6061';
   const deck = C.freeboard + (C.cabin ? 0.35 : 0.08);
   const unstayed = MD.shrouds === false || (!C.hasBackstay && !C.multihull && C.sails.length === 1 && C.massHull < 250 && !(MD.spreaders && MD.spreaders.length));
@@ -185,12 +232,13 @@ export function genericRig(C) {
   ];
   if (C.sails.some((s) => s.key === 'jib')) wires.push({ key: 'forestay', stay: 'jib', d });
   if (C.sails.some((s) => s.key === 'stay')) wires.push({ key: 'innerForestay', stay: 'stay', d: d * 0.85 });
+  if (C.runners) wires.push({ key: 'runner', to: 'hounds', runner: true, d: d * 0.85, pre: 0.1 * wireBreak(d * 0.85) });
   // (a backstay where the class has one: adjustable where it has the control, fixed where only its drawing has one)
   const fixedBs = !C.hasBackstay && C.model && C.model.backstay;
   if (C.hasBackstay || fixedBs) wires.push({ key: 'backstay', to: 'top', off: -0.05, low: 'transom', d, pre: (fixedBs ? 0.14 : 0.1) * wireBreak(d), adjust: fixedBs ? 0 : 0.0025 * L });
   return { step: { type: keelStep ? 'keel' : 'deck', z: zStep, partners: keelStep ? deck : undefined }, spans: [{ z0: zStep, z1: C.mastHeight, a: A, b: B, t: T, mat }],
     spreaders, chainX: -0.1, chainIn: 0.93, wires, prebend: 0.002 * L, generic: true, lineMax: 2.5 * (C.sheetPower || 1000),
-    houndsZ: MD.hounds, noHalyard: !!(C.sails.find((x) => x.key === 'main') || {}).rig };
+    houndsZ: MD.hounds, noHalyard: !!(C.sails.find((x) => x.key === 'main') || {}).rig, trapeze: !!C.trapeze };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -397,7 +445,9 @@ export class RigStructure {
       }
       const zTo = w.to === 'hounds' ? houndsZ : w.to === 'top' ? zTop : w.to;
       for (const s of [-1, 1]) {
-        const cp = chain(s, w.dx || 0);
+        // (a running backstay to the quarter; a wire to a given point, mirrored each side: a trimaran's float)
+        const xq = C.sternX + 0.6, tq = tAt(xq);
+        const cp = w.at ? [w.at[0], s * w.at[1], w.at[2]] : w.runner ? [xq, s * Lx.bDeck(tq) * 0.92, Lx.sheer(tq) + 0.03] : chain(s, w.dx || 0);
         if (w.via !== undefined && this.tips[w.via] && !this.tips[w.via][0].sp.diamond) {
           const tip = this.tips[w.via][(s + 1) / 2];
           W(w.key, fixed(cp), nodeAt(tip.node), w.d, w.pre, { side: s, seg: 'lower' });
@@ -718,9 +768,10 @@ export class RigStructure {
     }
     // trapeze: each crewmember out on the wire hangs ~0.9 of their weight from the hounds, toward where they are
     if (this.spec.trapeze && C.crewEach) {
-      const out = clamp((Math.abs(b.crewY) - C.hullSpacing / 2) / Math.max(0.1, C.crewMaxOut - C.hullSpacing / 2), 0, 1);
+      const rail = C.hullSpacing ? C.hullSpacing / 2 : C.beam / 2, nT = typeof C.trapeze === 'number' ? C.trapeze : C.crewN;
+      const out = clamp((Math.abs(b.crewY) - rail) / Math.max(0.1, C.crewMaxOut - rail), 0, 1);
       if (out > 0) {
-        const T = 0.9 * C.crewN * C.crewEach * G * out, zz = C.freeboard + 0.9;
+        const T = 0.9 * nT * C.crewEach * G * out, zz = C.freeboard + 0.9;
         this.pull({ kind: 'mast', i: this.node(this.houndsZ - 0.05), ox: 0, oy: 0 }, { kind: 'fixed', p: [C.mastX - 0.3, b.crewY, zz] }, T);
         L.trapeze = T;
       } else L.trapeze = 0;
@@ -973,7 +1024,9 @@ export class RigStructure {
     if (this.spec.rotating) this.rot += (this.rotTarget - this.rot) * clamp(dt * every / 0.3, 0, 1);
     this.gatherLoads(b);
     // the backstay adjuster
-    for (const w of this.wires) w.Lrest = w.Lrest0 - (w.adjust ? w.adjust * clamp(b.ctrl.backstay ?? 0, 0, 1) : 0);
+    // (the backstay adjuster; the running backstays: the windward one set up, the leeward one let off)
+    const wsd = Math.sign(b.diag.awaMid || 0) || 1;
+    for (const w of this.wires) w.Lrest = w.runner && w.side !== wsd ? w.Lrest0 * 1.03 : w.Lrest0 - (w.adjust ? w.adjust * clamp(b.ctrl.backstay ?? 0, 0, 1) : 0);
     for (const st of Object.values(this.stays)) this.stayPrep(st);
     // the loads, low-passed over ~0.15 s (a quasi-static rig does not follow the cloth's every flutter)
     const k = this.ready ? clamp(dt * every / 0.15, 0, 1) : 1, F = this.F, Fs = this.Fs || (this.Fs = Float64Array.from(F));
