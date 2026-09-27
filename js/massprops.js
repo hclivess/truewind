@@ -140,8 +140,12 @@ export function massProps(C, rig = null) {
     const dx = x - xG, dz = z - zG;
     IxxB += w * (y * y + dz * dz); IyyB += w * (dx * dx + dz * dz); IzzB += w * (dx * dx + y * y);
   }
+  // the crew's own share (about the boat's centre of gravity), for classes whose hull inertias come from their own data
+  let IxxC = 0, IzzC = 0;
+  for (const [x, y, z, w] of crewPts) { IxxC += w * (y * y + (z - zG) ** 2); IzzC += w * ((x - xG) ** 2 + y * y); }
   return {
-    boatMass: boatM, shell, shellLow: low, xG, zG, Ixx, Iyy, Izz, IxxBoat: IxxB, IyyBoat: IyyB, IzzBoat: IzzB,
+    boatMass: boatM, shell, shellLow: low, xG, zG, Ixx, Iyy, Izz, IxxBoat: IxxB, IyyBoat: IyyB, IzzBoat: IzzB, IxxCrew: IxxC, IzzCrew: IzzC,
+    ownData: !!(C.massItems || MASS_DATA[C.id]),
     kxx: Math.sqrt(Ixx / M), kyy: Math.sqrt(Iyy / M), kzz: Math.sqrt(Izz / M), total: M,
     items: [...items, ...extra].reduce((o, it) => { o[it.name] = (o[it.name] || 0) + it.m; return o; }, { shell }),
   };

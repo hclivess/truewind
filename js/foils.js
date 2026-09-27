@@ -80,7 +80,13 @@ export const FOIL_DATA = {
 // resolved foil spec: the class foil (C.keel / C.rudder) with its section data and defaults
 export function foilSpec(C, which) {
   const F = which === 'keel' ? C.keel : C.rudder;
-  const D = { ...((FOIL_DATA[C.id] || {})[which] || {}), ...(F.foil || {}) };
+  // (a class described for the drawing: its rudder's kind ('spade' balanced, hung on the transom otherwise) and its
+  // keel's bulb)
+  const Md = C.model || {}, fromModel = {};
+  if (which === 'rudder' && Md.rudder && Md.rudder.kind) Object.assign(fromModel, Md.rudder.kind === 'spade' ? { root: 'hull', balance: 0.2 } : Md.rudder.kind === 'skeg' ? { root: 'hull', balance: 0.02 } : { root: 'surface', balance: 0.02 });
+  if (which === 'keel' && Md.keel && Md.keel.bulb) fromModel.bulb = { len: Md.keel.bulb.len, dia: 2 * Md.keel.bulb.r };
+  if (which === 'keel' && Md.keel && Md.keel.kind === 'dagger') fromModel.board = 'dagger';
+  const D = { ...fromModel, ...((FOIL_DATA[C.id] || {})[which] || {}), ...(F.foil || {}) };
   const chord = F.chord ?? Math.sqrt(F.area / Math.max(0.5, F.ARe || 3)), span = F.span ?? F.area / chord;
   const spade = which === 'rudder' && !F.transom && !F.hung && !F.twin && !D.root;
   return {

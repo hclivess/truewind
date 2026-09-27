@@ -136,18 +136,48 @@ export const RIG_DATA = {
 // tune ~12% of break; the mast (aluminium, an ellipse 1.55:1, wall 1/45 of the chord) stiff enough that its compression
 // (twice the shroud load RM30 / half-beam, plus the tune) is a third of the Euler load of its longest panel; one
 // spreader set under 13 m of mast, two above; keel-stepped over 9 m LOA, masthead or fractional as the jib's head says.
+// What the class's drawing (C.model.masts.main: its radius, round or not, material, spreaders as fractions of the mast
+// above the deck, shrouds: false for an unstayed spar) says is used; the rest is sized.
 export function genericRig(C) {
   const disp = C.massHull + (C.crewN || 0) * (C.crewEach || 80), hb = C.beam / 2 * 0.9;
   const RM30 = disp * G * (C.gm || 1) * Math.sin(30 * DEG) * 0.8, Tsh = RM30 / hb;
   const d = clamp(Math.sqrt(2.8 * Tsh / 800), 3, 16);
-  const deck = C.freeboard + (C.cabin ? 0.35 : 0.08), keelStep = C.loa > 9;
+  const MD = (C.model && C.model.masts && C.model.masts.main) || {};
+  const mat = MD.mat === 'wood' ? 'spruce' : MD.mat === 'carbon' || MD.mat === 'black' ? 'carbon' : 'alu6061';
+  const deck = C.freeboard + (C.cabin ? 0.35 : 0.08);
+  const unstayed = MD.shrouds === false || (!C.hasBackstay && !C.multihull && C.sails.length === 1 && C.massHull < 250 && !(MD.spreaders && MD.spreaders.length));
+  if (unstayed) {
+    // an unstayed spar in its deck tube (Optimist, Sunfish, Finn): heel ~0.3 m under the deck, held at the deck; a tube
+    // of the drawn radius with the wall that makes its tip bend ~L/12 under the sail's load at its centre of effort
+    const r = MD.r || 0.03, L = C.mastHeight - deck, F = 0.5 * 1.225 * 8 * 8 * C.sails[0].area * 1.1, zc = 0.45 * L;
+    const EIneed = F * zc * zc * (3 * L - zc) / 6 / (L / 12);
+    const t = clamp(EIneed / (SPAR_MATERIALS[mat].E * Math.PI * r ** 3), r / 40, r / (mat === 'spruce' ? 1.5 : 8));
+    return { step: { type: 'tube', z: Math.max(0.02, deck - 0.3), collar: deck }, spans: [{ z0: Math.max(0.02, deck - 0.3), z1: C.mastHeight, dia: 2 * r, t, mat }],
+      spreaders: [], wires: [], prebend: 0, generic: true, lineMax: 2.5 * (C.sheetPower || 300), noHalyard: true };
+  }
+  const keelStep = C.loa > 9;
   const zStep = keelStep ? Math.max(-0.2, -0.5 * (C.canoeDraft || 0.4)) : deck, L = C.mastHeight - zStep;
-  const nSpr = L > 13 ? 2 : 1, panel = 1.1 * (C.mastHeight - deck) / (nSpr + 1);
+  const drawn = MD.spreaders && MD.spreaders.length ? MD.spreaders : null;
+  const nSpr = drawn ? drawn.length : L > 13 ? 2 : 1, panel = 1.1 * (C.mastHeight - deck) / (nSpr + 1);
   const Pd = 2 * Tsh + 0.3 * wireBreak(d), EIneed = 3 * Pd * panel * panel / (Math.PI ** 2);
-  let lo = 0.05, hi = 0.5;
-  for (let k = 0; k < 40; k++) { const A = 0.5 * (lo + hi), sc = section({ a: A, b: A / 1.55, t: A / 45, mat: 'alu6061' }); if (Math.min(sc.EIx, sc.EIy) > EIneed) hi = A; else lo = A; }
-  const A = hi, spreaders = [];
-  for (let k = 0; k < nSpr; k++) spreaders.push({ z: deck + (C.mastHeight - deck) * (k + 1) / (nSpr + 1.3), len: C.beam * 0.36 / (1 + 0.4 * k), sweep: 0.12, EA: 3e7, EI: 5e3 * (A / 0.1) ** 4 });
+  let A, B, T;
+  if (MD.r) {
+    // the drawn section (deeper fore-and-aft unless round), its wall what the Euler requirement asks (a solid wooden spar
+    // at most)
+    A = 2 * MD.r * (MD.round ? 1 : 1.25); B = 2 * MD.r;
+    let lo = A / 120, hi = mat === 'spruce' ? A / 2.2 : A / 12;
+    for (let k = 0; k < 40; k++) { const t = 0.5 * (lo + hi), sc = section({ a: A, b: B, t, mat }); if (Math.min(sc.EIx, sc.EIy) > EIneed) hi = t; else lo = t; }
+    T = hi;
+  } else {
+    let lo = 0.05, hi = 0.5;
+    for (let k = 0; k < 40; k++) { const a = 0.5 * (lo + hi), sc = section({ a, b: a / 1.55, t: a / 45, mat }); if (Math.min(sc.EIx, sc.EIy) > EIneed) hi = a; else lo = a; }
+    A = hi; B = A / 1.55; T = A / 45;
+  }
+  const spreaders = [];
+  for (let k = 0; k < nSpr; k++) {
+    const sd = drawn ? drawn[k] : null, z = deck + (C.mastHeight - deck) * (sd ? sd.f : (k + 1) / (nSpr + 1.3)), len = sd ? sd.len : C.beam * 0.36 / (1 + 0.4 * k);
+    spreaders.push({ z, len, sweep: sd ? len * Math.sin(sd.sweep || 0) : 0.12, EA: 3e7, EI: 5e3 * (A / 0.1) ** 4 });
+  }
   const wires = [
     { key: 'capShroud', to: 'hounds', via: 0, d, pre: 0.12 * wireBreak(d) },
     { key: 'lowerFwd', to: spreaders[0].z, dx: 0.3, d: d * 0.85, pre: 0.08 * wireBreak(d * 0.85) },
@@ -156,8 +186,9 @@ export function genericRig(C) {
   if (C.sails.some((s) => s.key === 'jib')) wires.push({ key: 'forestay', stay: 'jib', d });
   if (C.sails.some((s) => s.key === 'stay')) wires.push({ key: 'innerForestay', stay: 'stay', d: d * 0.85 });
   if (C.hasBackstay) wires.push({ key: 'backstay', to: 'top', off: -0.05, low: 'transom', d, pre: 0.1 * wireBreak(d), adjust: 0.0025 * L });
-  return { step: { type: keelStep ? 'keel' : 'deck', z: zStep, partners: keelStep ? deck : undefined }, spans: [{ z0: zStep, z1: C.mastHeight, a: A, b: A / 1.55, t: A / 45, mat: 'alu6061' }],
-    spreaders, chainX: -0.1, chainIn: 0.93, wires, prebend: 0.002 * L, generic: true, lineMax: 2.5 * (C.sheetPower || 1000) };
+  return { step: { type: keelStep ? 'keel' : 'deck', z: zStep, partners: keelStep ? deck : undefined }, spans: [{ z0: zStep, z1: C.mastHeight, a: A, b: B, t: T, mat }],
+    spreaders, chainX: -0.1, chainIn: 0.93, wires, prebend: 0.002 * L, generic: true, lineMax: 2.5 * (C.sheetPower || 1000),
+    houndsZ: MD.hounds, noHalyard: !!(C.sails.find((x) => x.key === 'main') || {}).rig };
 }
 
 // ---------------------------------------------------------------------------------------------------------------

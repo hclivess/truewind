@@ -75,12 +75,12 @@ export const HANDLERS = {
   // plain winch + horn cleat (traditional): the tail is held by hand round the drum until it is made fast
   winchHorn: { name: 'Winch + horn cleat', icon: 'winchHorn', slip: Infinity, wraps: 3, lockT: 3.0, releaseT: 1.5, release: 'ease', oneWay: false, winch: true, op: 'figure-eights on the horn / cast off and ease round the drum' },
 };
-export const LINE_NAMES = { main: 'Mainsheet', jib: 'Jib sheet', lazy: 'Lazy jib sheet', gen: 'Gennaker sheet', stay: 'Staysail sheet', trav: 'Traveller', vang: 'Vang', cunn: 'Cunningham', outhaul: 'Outhaul', backstay: 'Backstay', jibHalyard: 'Jib halyard', tackLine: 'Tack line' };
+export const LINE_NAMES = { main: 'Mainsheet', jib: 'Jib sheet', lazy: 'Lazy jib sheet', gen: 'Gennaker sheet', stay: 'Staysail sheet', trav: 'Traveller', vang: 'Vang', cunn: 'Cunningham', outhaul: 'Outhaul', backstay: 'Backstay', jibHalyard: 'Jib halyard', tackLine: 'Tack line', mizzen: 'Mizzen sheet' };
 export const lineName = (b, k) => (k === 'jib' || k === 'lazy') && b.genDeploy > 0.5 && b.sailBy && b.sailBy.gennaker ? (k === 'jib' ? 'Gennaker sheet' : 'Lazy gennaker sheet') : LINE_NAMES[k] || k;
 // lines that are held by something, and which way each runs when it gets away
-export const LOCKABLE = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibHalyard', 'tackLine'];
-export const RUNS_UP = new Set(['main', 'jib', 'lazy', 'stay', 'trav', 'tackLine']);
-const SHEETS = new Set(['main', 'jib', 'lazy', 'stay']);
+export const LOCKABLE = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibHalyard', 'tackLine', 'mizzen'];
+export const RUNS_UP = new Set(['main', 'jib', 'lazy', 'stay', 'trav', 'tackLine', 'mizzen']);
+const SHEETS = new Set(['main', 'jib', 'lazy', 'stay', 'mizzen']);
 
 // what holds each line on a class without its own list (so any new class works): cams and a mainsheet
 // block with a cam, self-tailers where there are winches, clutches on a cabin top, a ratchet for a gennaker
@@ -90,6 +90,7 @@ export function defaultLines(C) {
     main: { handler: C.noWinches ? 'ratchetCam' : 'cam', n: 4, at: 'car' },
     jib: { handler: W ? 'selfTailer' : 'cam', n: W ? 1 : 2, at: W ? 'winch' : 'deck' },
     stay: { handler: 'cam', n: 2, at: 'cabin' },
+    mizzen: { handler: 'cam', n: 2, at: 'deck' },
     gen: { handler: 'ratchet', n: 1, at: 'quarter' },
     trav: { handler: 'cam', n: 2, at: 'deck' },
     vang: { handler: 'cam', n: 8, at: 'deck', size: 'micro' },
@@ -127,13 +128,14 @@ export function handlerOf(b, k) { return HANDLERS[specOf(b, k).handler]; }
 // part carrying load / n, so at the load the tackle is a spring of stiffness n^2 EA / lengthInTackle.
 const SHEAVE = { ball: { e: 0.975, f0: 1.5 }, plain: { e: 0.935, f0: 4 } };
 const FIBRE_E = { polyester: 2.1e3, dyneema: 2.0e4 };                 // N/mm^2: rope EA / area at working loads
-const ROPE_D = { main: 8, jib: 8, lazy: 8, gen: 7, stay: 8, trav: 6, vang: 6, cunn: 5, outhaul: 5, backstay: 5, jibHalyard: 6, tackLine: 6 };
+const ROPE_D = { main: 8, jib: 8, lazy: 8, gen: 7, stay: 8, mizzen: 8, trav: 6, vang: 6, cunn: 5, outhaul: 5, backstay: 5, jibHalyard: 6, tackLine: 6 };
 // metres of line at the load over the control's range (the boom end's travel for the mainsheet)
 export function lineTravel(C, k) {
   const M = C.sails.find((s) => s.key === 'main'), J = C.sails.find((s) => s.key === 'jib' || s.key === 'stay');
   switch (k) {
     case 'main': return M.foot * 2 * Math.sin(M.max / 2) * 0.8;
     case 'jib': case 'lazy': case 'stay': return J ? J.foot * 0.9 : 1;
+    case 'mizzen': { const Z = C.sails.find((s) => s.key === 'mizzen'); return Z ? Z.foot * 2 * Math.sin(Z.max / 2) * 0.8 : 1; }
     case 'gen': return 3;
     case 'trav': return 1.1;
     case 'vang': return 0.15;
@@ -147,7 +149,7 @@ export function lineTravel(C, k) {
 }
 // the length of rope in the tackle and its lead (m): parts x the distance between the blocks + the lead
 function tackleLength(C, k, n) {
-  const gap = { main: Math.max(0.4, C.boomZ - C.freeboard + 0.2), vang: 0.55, cunn: 0.3, outhaul: 0.3, backstay: 0.9, trav: C.beam * 0.4, stay: 1.2, tackLine: 1.5 }[k];
+  const gap = { main: Math.max(0.4, C.boomZ - C.freeboard + 0.2), vang: 0.55, cunn: 0.3, outhaul: 0.3, backstay: 0.9, trav: C.beam * 0.4, stay: 1.2, mizzen: 1.0, tackLine: 1.5 }[k];
   const lead = { main: 1.2, vang: 1.5, cunn: 1.6, outhaul: 3.5, backstay: 1.2, trav: 0.6, stay: 3, tackLine: 3, jibHalyard: 2 }[k] ?? 1.5;
   if (k === 'jibHalyard') return C.mastHeight * 1.05 + lead + (n - 1) * 0.4;            // the halyard up the mast, a fine-tune purchase
   if (k === 'jib' || k === 'lazy' || k === 'gen') { const J = C.sails.find((s) => s.key === 'jib'); return (J ? J.foot : 2) * 1.3 * n + lead; }
@@ -205,7 +207,7 @@ export function lineLoad(b, k) {
   const r = b.diag.rig, c = b.ctrl, C = b.cls, sp = C.sheetPower || 800, spec = specOf(b, k);
   const max = spec.max, v = c[k] || 0;
   switch (k) {
-    case 'main': case 'jib': case 'stay': return r[k + 'Load'] || 0;
+    case 'main': case 'jib': case 'stay': case 'mizzen': return r[k + 'Load'] || 0;
     case 'lazy': return r.lazyLoad || 0;
     case 'trav': return 0.35 * (r.mainLoad || 0);                     // the boom's pull across the track
     case 'backstay': return r.backstayLoad || 0;
@@ -341,6 +343,7 @@ export const ROPES = {
   genS: { base: '#1e8f43', fleck: '#2a2a2a', pattern: 'fleck', name: 'green (starboard)' },
   gen: { base: '#d8342a', fleck: '#1e8f43', pattern: 'fleck', name: 'red port / green starboard' },
   stay: { base: '#1f8f9e', fleck: '#f4f1ea', pattern: 'fleck', name: 'teal / white fleck' },
+  mizzen: { base: '#5a2d82', fleck: '#f4f1ea', pattern: 'fleck', name: 'plum / white fleck' },
   halMain: { base: '#f1f0ea', fleck: '#2456b8', pattern: 'tracer', name: 'white / blue tracer' },
   jibHalyard: { base: '#f1f0ea', fleck: '#cc2a2a', pattern: 'tracer', name: 'white / red tracer' },
   halGen: { base: '#f1f0ea', fleck: '#1e8f43', pattern: 'tracer', name: 'white / green tracer' },

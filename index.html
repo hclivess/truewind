@@ -16,6 +16,7 @@
 <canvas id="view"></canvas>
 
 <div id="hud" hidden>
+  <canvas id="rules-cv" aria-hidden="true"></canvas>
   <section id="race-card" class="panel">
     <div class="rc-top"><span id="rc-mode" class="eyebrow">Free sail</span><span id="rc-venue" class="muted"></span></div>
     <div id="rc-clock" class="big">--:--</div>
@@ -102,6 +103,7 @@
     <div class="eyebrow" id="res-sub">Race</div>
     <h2 id="res-title">Results</h2>
     <ol id="res-list"></ol>
+    <div id="res-rules" hidden><div class="eyebrow">Umpire · protests and penalties</div><ul id="res-inc"></ul></div>
     <div class="row">
       <button id="res-again" class="btn primary">Race again</button>
       <button id="res-keep" class="btn ghost">Keep sailing</button>
@@ -148,6 +150,12 @@
           <button class="seg-b on" data-weather="changing" role="radio" aria-checked="true">Changing</button>
           <button class="seg-b" data-weather="squally" role="radio" aria-checked="false">Squalls</button>
         </div>
+        <div class="seg wseg trseg" role="radiogroup" aria-label="Harbour traffic" title="Moored boats, ferries on their routes, fishing and motor boats, other yachts">
+          <button class="seg-b" data-traffic="off" role="radio" aria-checked="false">Traffic off</button>
+          <button class="seg-b" data-traffic="light" role="radio" aria-checked="false">Light</button>
+          <button class="seg-b on" data-traffic="normal" role="radio" aria-checked="true">Normal</button>
+          <button class="seg-b" data-traffic="busy" role="radio" aria-checked="false">Busy</button>
+        </div>
         <div class="seg tseg" role="radiogroup" aria-label="Time of day">
           <button class="seg-b" data-tod="dawn" role="radio">Dawn</button>
           <button class="seg-b" data-tod="morning" role="radio">Morning</button>
@@ -165,7 +173,7 @@
         <div class="field"><label for="shift">Oscillating shifts <b id="shift-v"></b></label><input type="range" id="shift" min="0" max="20" step="1" value="7"></div>
         <div class="field"><label for="swell">Ocean swell <b id="swell-v"></b></label><input type="range" id="swell" min="0" max="16" step="0.1" value="0"></div>
         <div class="field"><label for="current">Tidal current <b id="current-v"></b></label><input type="range" id="current" min="0" max="3" step="0.1" value="0.4"></div>
-        <div class="field race-only"><label for="fleet">AI boats <b id="fleet-v"></b></label><input type="range" id="fleet" min="0" max="9" step="1" value="5"></div>
+        <div class="field race-only"><label for="fleet">AI boats <b id="fleet-v"></b></label><input type="range" id="fleet" min="0" max="29" step="1" value="5"></div>
         <div class="field race-only"><label for="countdown">Start sequence <b id="countdown-v"></b></label><input type="range" id="countdown" min="30" max="300" step="30" value="120"></div>
         <div class="field race-only"><label for="laps">Laps <b id="laps-v"></b></label><input type="range" id="laps" min="1" max="3" step="1" value="1"></div>
         <div class="checks">
@@ -173,6 +181,7 @@
           <label><input type="checkbox" id="opt-hike" checked> Automatic weight placement (hiking)</label>
           <label><input type="checkbox" id="opt-tiller"> Tiller steering (push the tiller, bow goes the other way)</label>
           <label><input type="checkbox" id="opt-laylines" checked> Show laylines</label>
+          <label class="race-only"><input type="checkbox" id="opt-rules" checked> Racing rules, umpired (right of way, penalties)</label>
           <label><input type="checkbox" id="opt-sound" checked> Sound</label>
         </div>
       </section>
@@ -216,6 +225,8 @@
       <div><kbd>1</kbd>–<kbd>7</kbd><span>Chase · Helm · Bow · Masthead · Overhead · Orbit · On deck</span></div>
       <div>On deck<span>Point at a rope, car, winch or the tiller: pull ropes up/down, slide cars along their tracks, wind winch handles round either way (clockwise = fast gear, anticlockwise = slow powerful gear; the drum only turns one way — drag a sheet tail down to ease), push the tiller sideways, click the reef line or gennaker halyard.</span></div>
       <div><kbd>L</kbd> <kbd>K</kbd> <kbd>I</kbd><span>Laylines · force vectors · physics readout</span></div>
+      <div><kbd>Shift</kbd>+<kbd>B</kbd><span>Racing: “Protest!” — a boat that did not keep clear of you (the umpire rules at once; contact and mark touches it penalises by itself). A ring on each boat near you: green, you have right of way; red, keep clear of her; amber, she is owed room or mark-room</span></div>
+      <div><kbd>Shift</kbd>+<kbd>U</kbd><span>Racing: hail “Room to tack!” at an obstruction to the boat to windward (rule 20); hailed yourself, tack, or answer “You tack”. A penalty: turn the same way round, each turn a tack and a gybe, before the countdown ends</span></div>
       <div><kbd>Tab</kbd><span>Chart: seamarks and lights, depths, your track; click or tap to set a waypoint (a mark: steer for it)</span></div>
       <div><kbd>U</kbd> <kbd>9</kbd> <kbd>0</kbd><span>Anchor down / weigh (keelboats) · lines: make fast alongside a pier or to a mooring, cast off · MOB: mark the spot on the plotter</span></div>
       <div>Damage<span>Loads break gear: shrouds part, sails tear or blow out, collisions and groundings hole the hull and she takes water (pump, or she sinks), a rudder bends, a keel can go. The Boat section of the rig panel shows it all, with the crew's strength (hiking and grinding tire them) — and Damage: off.</span></div>

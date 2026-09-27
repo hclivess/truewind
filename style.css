@@ -210,6 +210,7 @@ body.online .online-only { display: block; }
 .sl2 { display: flex; justify-content: space-between; align-items: center; font: 500 12px var(--cond); color: var(--muted); padding: 1px 0; }
 .wseg { margin-top: 10px; }
 .wseg .seg-b { font-size: 13px; padding: 7px; }
+.trseg { grid-template-columns: repeat(4, 1fr); margin-top: 6px; }
 .tseg { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
 .tseg .seg-b { font-size: 12px; padding: 6px 8px; flex: 1 1 22%; }
 .lk { display: inline-flex; align-items: center; gap: 3px; font: 600 9px/1 "Barlow Condensed", sans-serif; letter-spacing: .04em; padding: 2px 4px; margin-right: 4px; border-radius: 3px; border: 1px solid var(--line); background: rgba(255,255,255,.06); color: #cfd8df; cursor: pointer; min-width: 54px; }
@@ -246,6 +247,14 @@ body.online .online-only { display: block; }
 #res-list li { display: grid; grid-template-columns: 28px 1fr auto; gap: 8px; padding: 4px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
 #res-list li.me { color: var(--accent); font-weight: 700; }
 #res-list li .muted { font-weight: 500; }
+#res-list li.dsq span:last-child { color: var(--port); }
+#res-rules { margin: -4px 0 14px; }
+#res-inc { margin: 4px 0 0; padding: 0; list-style: none; font: 500 14px var(--cond); max-height: 22vh; overflow: auto; }
+#res-inc li { display: grid; grid-template-columns: 40px 1fr; gap: 8px; padding: 3px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+#res-inc li.me { color: var(--text); }
+#res-inc li:not(.me) { color: var(--muted); }
+#res-inc b { color: var(--amber); font-weight: 700; }
+#rules-cv { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
 #touch { display: none; }
 body.touch #touch { display: flex; position: absolute; left: 12px; right: 12px; bottom: calc(130px + env(safe-area-inset-bottom, 0px)); justify-content: space-between; align-items: flex-end; gap: 10px; pointer-events: none; }
