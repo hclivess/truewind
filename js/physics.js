@@ -245,9 +245,12 @@ export const CLASSES = {
       { key: 'main', kind: 'boom', area: 13.7, luff: 7.2, foot: 2.6, head: 1.1, depth: [0.11, 0.13, 0.12], twistMax: 15 * DEG,
         cd0: 0.06, ARe: 4.6, min: 1 * DEG, max: 75 * DEG, trav: [-4 * DEG, 24 * DEG], Iboom: 16, boomMass: 6, reefs: 0,
         vangBend: 0.2, sheetBend: 0.25, color: 0xf2f4f6,
-        // Hobie 16: the mainsheet to a car on the rear beam's track, nearly hull to hull; no vang (the fully battened
-        // main is held by the sheet alone)
-        track: { x: -2.07, z: 0.57, half: 0.85, s: 2.5 }, boomEI: 3e4, boomMmax: 2000, vang: 'none', vangMax: 0 },
+        // Hobie 16: the mainsheet to a car on the rear beam's track, nearly hull to hull. The real boat has no vang (its
+        // fully battened main is held by the sheet alone: vang 'none', which the rig, the trim and the VPP support);
+        // sailed so, the cloth leech and the solved mast's bend (js/rig-structure.js, lagging the sheet's load) chase
+        // each other upwind and the cat loses a quarter of its speed, so until the bend is solved without the lag the
+        // cat keeps a light rope vang standing in for the 6:1 sheet's downward pull
+        track: { x: -2.07, z: 0.57, half: 0.85, s: 2.5 }, boomEI: 3e4, boomMmax: 2000, vang: 'rope', vangMax: 1500 },
       { key: 'jib', kind: 'loose', area: 5.2, tackX: 2.3, tackZ: 0.55, luff: 6.2, foot: 1.7, head: 0.06, rake: 0.4,
         depth: [0.12, 0.13, 0.11], cd0: 0.04, ARe: 4.5, min: 9 * DEG, max: 40 * DEG, sagK: 0.8, color: 0xf2f4f6 },
       { key: 'gennaker', kind: 'spin', replaces: 'jib', area: 17.5, tackX: 3.35, tackZ: 0.5, luff: 7.4, foot: 3.3, head: 0.4, rake: 0.4,

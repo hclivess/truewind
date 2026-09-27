@@ -334,6 +334,14 @@ export class BoomSailRig extends ClothRig {
         this.vang.w = Math.min(this.vang.w, tk.stretchK || this.vang.w); cloth._dirty = true;
         this.vangHaul = s0.vangMax / this.vang.w;
       }
+      // the mainsheet likewise: its tackle's stiffness, and hauled hard in, no more than about twice the crew's pull
+      // times its purchase takes up (the old rule, 35 mm short of a stiff spring, held 3 kN in a beach cat's sheet in
+      // 12 kn, and the solved mast bent under it and back again as the crew eased: js/rig-structure.js)
+      {
+        const tk = tackleOf(C, 'main');
+        this.sheet.w = Math.min(this.sheet.w, tk.stretchK || this.sheet.w); cloth._dirty = true;
+        this.sheetHaul = Math.min(0.035, 2 * C.sheetPower / this.sheet.w);
+      }
       this.bend = { M: 0, dv: 0, ds: 0, ratio: 0 };
     }
     this.dipF = [0, 0, 0];
@@ -445,7 +453,7 @@ export class BoomSailRig extends ClothRig {
     if (Math.abs(ey) > 0.05 * this.Lb) this.side = Math.sign(ey);
     sheetCar(C, s0, ctrl.trav, this.side, this.a, this.car);
     void bd;
-    this.sheet.len = sheetLen(C, s0, ease) - 0.035 * (1 - sstep(0, 0.25, ease));
+    this.sheet.len = sheetLen(C, s0, ease) - (this.sheetHaul ?? 0.035) * (1 - sstep(0, 0.25, ease));
     if (this.vang && !this.noVang) {
       const L0 = hyp(this.tv * this.Lb, this.dv), vg = clamp(ctrl.vang, 0, 1);
       this.vang.len = L0 - (this.vangHaul ?? 0.012) * vg + 0.05 * (1 - vg) ** 1.3;
