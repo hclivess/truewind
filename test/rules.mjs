@@ -203,7 +203,7 @@ const at = (id, x, z, hdg, u, T, cls) => mk(id, x - Math.sin(hdg * DEG) * u * T,
   const race = new Race(course, [A, B], { countdown: 0 });
   race.racers.forEach(r => { r.leg = 1; r.started = true; }); race.t = 60;
   let turned = 0;
-  const e = run([A, B], 150, (t, eng) => {
+  const e = run([A, B], 200, (t, eng) => {
     if (!turned && !eng.penaltyOf(A)) eng.penalize(A, { rule: '10', turns: 2 });
     if (turned < 360 * DEG) { A.turn = -24 * DEG; turned += 24 * DEG / 60; } else A.turn = 0;
   }, { race, course });

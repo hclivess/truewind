@@ -506,12 +506,17 @@ export class RuleEngine {
       }
       if (inc.kind === 'mark') continue;
       // the boat infringed against protests: an AI crew at once, a person within 12 s (B)
-      if (inc.vic && !this.human(inc.vic) && age > 0.8) { this.events.push({ type: 'protest', by: inc.vic, inc }); this.decide(inc, inc.vic); continue; }
+      // (a crew lets a boat busy with her turns off when it came to nothing: no protest under 22 without contact)
+      if (inc.vic && !this.human(inc.vic) && age > 0.8) {
+        if (inc.rule === '22') { inc.status = 'noprotest'; continue; }
+        this.events.push({ type: 'protest', by: inc.vic, inc }); this.decide(inc, inc.vic); continue;
+      }
       if (age > 12) inc.status = 'noprotest';
     }
     for (const [b, s] of this.st) {
       const p = s.pen; if (!p || p.done) continue;
       const r = this.racerOf(b);
+      if (p.dir && t > p.deadline && t < p.deadline + 30) continue;    // (turning when time is up: she may finish them)
       if ((r && r.finished) || t > p.deadline) this.dsq(b, s, r && r.finished ? 'finished with the penalty not taken' : 'penalty not taken');
     }
   }
@@ -525,8 +530,8 @@ export class RuleEngine {
   }
   penalize(b, inc) {
     const s = this.S(b), turns = inc.turns;
-    if (s.pen && !s.pen.done) { s.pen.turns += turns; s.pen.deadline += 40 * turns; s.pen.incs.push(inc); }
-    else s.pen = { turns, rule: inc.rule, t0: this.t, deadline: this.t + 40 + 45 * turns, acc: 0, dir: 0, max: 0, tk: 0, gy: 0, idle: 0, made: 0, incs: [inc], done: false };
+    if (s.pen && !s.pen.done) { s.pen.turns += turns; s.pen.deadline += 50 * turns; s.pen.incs.push(inc); }
+    else s.pen = { turns, rule: inc.rule, t0: this.t, deadline: this.t + 60 + 50 * turns, acc: 0, dir: 0, max: 0, tk: 0, gy: 0, idle: 0, made: 0, incs: [inc], done: false };
     const r = this.racerOf(b); if (r && !r.remote) r.pens = (r.pens || 0) + 1;
     this.events.push({ type: 'penalty', boat: b, inc, pen: s.pen });
   }
@@ -684,8 +689,8 @@ export function aiRules(ai, sim, desired, mode, t, up) {
     }
     if (hh !== null) h = hh;
     // no clear heading (boxed in, or clear astern with nowhere to go): slow down as well
-    // (not beside a mark: stopped, she drifts down onto it)
-    if ((ok < 0 || give.some(([o, pr]) => pr.rule === '12' && pr.astern === b && pr.d < 2 * b.cls.loa && o.u < b.u)) && !marks.some(m => Math.hypot(m.x - b.x, m.z - b.z) < 3 * b.cls.loa)) plan.ease = true;
+    // (not beside a mark: stopped, she drifts down onto it; nor once slow: she would lose steerage and stall)
+    if (b.u > 1.2 && (ok < 0 || give.some(([o, pr]) => pr.rule === '12' && pr.astern === b && pr.d < 2 * b.cls.loa && o.u < b.u)) && !marks.some(m => Math.hypot(m.x - b.x, m.z - b.z) < 3 * b.cls.loa)) plan.ease = true;
   }
   // 2. right of way: hold her course while a keep-clear boat is close (16) — but not into contact (14)
   else if (row.length) {

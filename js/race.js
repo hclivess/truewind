@@ -321,8 +321,9 @@ export class AIHelm {
     const R = sim.rules, L = b.cls.loa, up = this.upAngle ?? 40 * DEG;
     // first out of the traffic (22.2: she keeps clear of everyone meanwhile): a reach away from the boats around
     // her and out of the mark's zone; again whenever a boat comes near while she turns (the turn is lost)
-    const crowd = R.relsOf(b).filter(pr => pr.d < 4 * L + 6), inZone = [...R.S(b).zone.values()].some(z => z.d < 5 * L);
-    const near = R.relsOf(b).some(pr => pr.d < 2.5 * L + 3 || (pr.clr < 3 && pr.when <= 2));
+    const crowd = R.relsOf(b).filter(pr => pr.d < 4 * L + 6);
+    const C = sim.course, inZone = C && [...C.marks(), C.committee].some(m => Math.hypot(m.x - b.x, m.z - b.z) < 5 * L + 4);
+    const near = R.relsOf(b).some(pr => pr.clr < 2 && pr.when <= 2) || (C && [...C.marks(), C.committee].some(m => Math.hypot(m.x - b.x, m.z - b.z) < 2 * L + 3));
     if (((crowd.length || inZone) && !pen.dir && R.t - pen.t0 < 45) || near) {
       if (!this.awayT || t > this.awayT) {       // (the side with fewer boats, decided every few seconds)
         let lft = 0, rgt = 0;
