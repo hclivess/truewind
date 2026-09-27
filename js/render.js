@@ -560,7 +560,7 @@ export class Renderer {
           }
           foam = max(foam, pers);
           #ifdef HWKELVIN
-          foam = max(foam, smoothstep(0.14, 0.32, length(kwv.yz)) * step(0.0, kwv.x) * 0.55 * lace);   // the steep crests of the wake, whitened
+          foam = max(foam, smoothstep(0.07, 0.2, length(kwv.yz)) * smoothstep(0.0, 0.03, kwv.x) * 0.5 * lace);   // the steep crests of the wake, whitened
           #endif
           // up close foam is bubbles and holes, not paint (faded out before the bubbles shrink to a pixel)
           #ifndef LOWQ
@@ -1431,7 +1431,7 @@ class Wake {
     const across = new Float32Array(this.N * 2); for (let i = 0; i < this.N; i++) { across[2 * i] = 0; across[2 * i + 1] = 1; }
     g.setAttribute('across', new THREE.BufferAttribute(across, 1));
     const m = new THREE.ShaderMaterial({
-      transparent: true, depthWrite: false, uniforms: { uT: { value: 0 } },
+      transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, uniforms: { uT: { value: 0 } },
       vertexShader: `attribute float alpha; attribute float across; varying float vA; varying float vX; varying vec2 vW;
         void main(){ vA = alpha; vX = across; vW = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
       // the splash foam's gradient noise on an integer-style hash (the old sin() hash lost its precision at
@@ -1469,7 +1469,7 @@ class Wake {
       const w = C.beam * 0.35 + age * 0.35 * (0.5 + p.sp * 0.3);
       const h = env.wavesOn ? env.waves.sample(p.x, p.z, t, this._s).h : 0;
       const a = i >= n ? 0 : clamp(p.sp / 4, 0, 1) * Math.exp(-age / 6) * 0.55;
-      this.pos.set([p.x + p.px * w, h + 0.04, p.z + p.pz * w, p.x - p.px * w, h + 0.04, p.z - p.pz * w], i * 6);
+      this.pos.set([p.x + p.px * w, h + 0.12, p.z + p.pz * w, p.x - p.px * w, h + 0.12, p.z - p.pz * w], i * 6);   // (over the Kelvin pattern's crests too)
       this.alpha[2 * i] = a; this.alpha[2 * i + 1] = a;
     }
     this.mesh.geometry.attributes.position.needsUpdate = true;
