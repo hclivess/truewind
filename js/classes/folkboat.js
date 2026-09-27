@@ -32,7 +32,7 @@ export default {
   // (the long keel is faired into the drawn hull, whose wetted surface already carries its skin friction: its own
   // profile drag here is the form part only)
   keel: { x: 0.7, z: -0.45, area: 1.9, ARe: 1.1, stall: 24 * DEG, cd0: 0.005, span: 0.65, chord: 3.2, long: true },
-  rudder: { x: -3.15, z: -0.45, area: 0.42, ARe: 2.2, stall: 21 * DEG, cd0: 0.013, max: 35 * DEG, span: 0.95, chord: 0.5, transom: true, loadRef: 900, wood: true },
+  rudder: { x: -3.15, z: -0.45, area: 0.42, ARe: 2.2, stall: 21 * DEG, cd0: 0.013, max: 35 * DEG, span: 0.95, chord: 0.5, transom: true, loadRef: 900, wood: true, through: true },
   hullLat: { area: 1.2, cd: 0.9, z: -0.12 },
   windage: { area: 2.8, z: 1.5, cd: 0.95 },
   mastX: 1.8, mastHeight: 9.7, boomZ: 1.8, keelBulb: false, houndsF: 0.33,
@@ -42,15 +42,16 @@ export default {
     { key: 'main', kind: 'boom', area: 16.24, luff: 7.9, foot: 3.38, head: 0.1, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
       cd0: 0.07, ARe: 4.0, min: 2 * DEG, max: 80 * DEG, trav: [-3 * DEG, 10 * DEG], Iboom: 40, boomMass: 12, reefs: 2,
       vangBend: 0.08, sheetBend: 0.05, color: 0xf3efe2 },
-    { key: 'jib', kind: 'loose', area: 8.91, tackX: 3.9, tackZ: 0.98, luff: 5.8, foot: 2.9, head: 0.05, footRise: 0.1,
-      depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 3.8, min: 10 * DEG, max: 50 * DEG, sagK: 1.4, color: 0xf3efe2 },
+    { key: 'jib', kind: 'loose', area: 8.91, tackX: 3.9, tackZ: 0.98, luff: 5.8, foot: 2.6, head: 0.05, footRise: 0.1,
+      depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 3.8, min: 10 * DEG, max: 50 * DEG, sagK: 2.2, color: 0xf3efe2 },
   ],
   // the hull, in the parametric form (js/hull.js)
   offsets: { tm: 0.52, tr: 0.36, be: 0.75, sheerBow: 0.42, sheerStern: 0.28, stemRake: 0.95, transomRake: 0.55, flare: 0.3, flat: 0.15, sternDepth: 0.06, crown: 0.07 },
   insignia: 'F',
   // the sails' look (js/models.js): cloth colour and kind, number and insignia colours, translucency, gloss
   sailcloth: { cloth: 0xf1ead8, kind: 'dacron', num: '#1c2a3a', logo: '#b3261e', trans: 0.3, rough: 0.64 },
-  hull: { color: 0xf1ede0, stripe: 0x1f3d2c, deck: 0xcdbf9f, boot: 0x7a1f1f, sectionN: 1.8, transom: 0.36, bowRake: 0.95, sheer: 0.2,
+  // (most Folkboats are varnished mahogany clinker, or GRP moulded to look it: Wikimedia Commons, Nordic folkboats (14775215050))
+  hull: { color: 0x7a4424, stripe: 0x7a4424, deck: 0xcdbf9f, boot: 0x2a2d31, sectionN: 1.8, transom: 0.36, bowRake: 0.95, sheer: 0.2,
     clinker: 9, wood: true, lifelines: false, benches: true, deckTint: '#e6dcc4',
     cockpit: { t0: 0.06, t1: 0.42, w: 0.55, sole: 0.3 }, cabin: { t0: 0.44, t1: 0.7, h: 0.3, w: 0.62, wood: true } },
   // deck hardware (js/rigging.js): traveller [x, half length, z], primary winches [x, y], jib tracks [aft.. fwd, y]

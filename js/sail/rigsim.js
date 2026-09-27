@@ -77,7 +77,7 @@ class ClothRig {
       for (let i = 0; i < nu; i++) {
         const u = i / (nu - 1), k = 3 * (j * nu + i);
         rest[k] = this.px - this.rake * v + lr * (1 - u) - c * u;
-        rest[k + 1] = d * c * camb(u, 0.45);
+        rest[k + 1] = d * c * camb(u, s.draftCut ?? 0.45);      // (s.draftCut: where the sailmaker put the draft)
         rest[k + 2] = this.pz + v * s.luff + this.footRise * u * (1 - v) + this.headRise * u * v;
       }
     }

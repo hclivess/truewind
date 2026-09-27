@@ -155,7 +155,7 @@ export function hullOffsets(C) { return C.multihull ? [-C.hullSpacing / 2, C.hul
 export function hullParts(C) {
   if (C.amas) {
     const A = C.amas;
-    return [{ y: 0, sy: 1, sz: 1, szTop: 1, dz: 0, t0: 0, t1: 1 }, ...[-1, 1].map((s) => ({ y: s * A.y, sy: A.sy, sz: A.sz, szTop: A.szTop ?? A.sz, dz: A.dz, t0: A.t0, t1: A.t1 }))];
+    return [{ y: 0, sy: 1, sz: 1, szTop: 1, dz: 0, t0: 0, t1: 1 }, ...[-1, 1].map((s) => ({ y: s * A.y, sy: A.sy, sz: A.sz, szTop: A.szTop ?? A.sz, dz: A.dz, t0: A.t0, t1: A.t1, tumble: A.tumble ?? 0 }))];
   }
   return hullOffsets(C).map((y) => ({ y, sy: 1, sz: 1, szTop: 1, dz: 0, t0: 0, t1: 1 }));
 }
@@ -164,7 +164,9 @@ export function partSection(C, Lx, t, P) {
   if (t < P.t0 - 1e-9 || t > P.t1 + 1e-9) return null;
   const whole = P.t0 === 0 && P.t1 === 1, h = hullSection(C, Lx, whole ? t : (t - P.t0) / (P.t1 - P.t0));
   if (whole && P.sy === 1 && P.sz === 1 && P.szTop === 1 && !P.dz) return h;
-  return h.map(([y, z]) => [y * P.sy, z * (z < 0 ? P.sz : P.szTop) + P.dz]);
+  // (tumble: the float's topsides curve in toward its deck, so it is a round-topped tube rather than a scaled hull)
+  const zt = h[0][1] > 0 ? h[0][1] : 1;
+  return h.map(([y, z]) => [y * P.sy * (1 - (P.tumble || 0) * (z > 0 ? Math.pow(z / zt, 2.2) : 0)), z * (z < 0 ? P.sz : P.szTop) + P.dz]);
 }
 
 // ---------------------------------------------------------------------------------------------

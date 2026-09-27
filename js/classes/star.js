@@ -14,7 +14,7 @@ export default {
   blurb: "The Olympic keelboat of a century: a narrow hard-chined hull with long overhangs, a lead bulb on a steel fin, a huge main on a bendy mast held by running backstays, and a small jib. No spinnaker. Fast upwind, and heeled it sails on its overhangs.",
   specs: 'LOA 6.92 m · LWL 4.72 m · Beam 1.73 m · Draft 1.02 m · 671 kg (401 kg bulb) · Main 20.5 m² · Jib 6.0 m² · Crew 2',
   lwl: 4.72, loa: 6.92, beam: 1.73, bowX: 2.55, sternX: -2.45, freeboard: 0.36, canoeDraft: 0.2, wetted: 6.0, draft: 1.02,
-  runners: true, mastR: 0.042,
+  runners: true, mastR: 0.042, mastBend: 0.18,   // (the Star's famously bendy mast, drawn bent)
   engine: null,
   lines: { main: { handler: 'ratchetCam', n: 4, at: 'sole' }, trav: { handler: 'cam', n: 2, at: 'sole' }, jib: { handler: 'cam', n: 2, at: 'deck' },
     vang: { handler: 'cam', n: 8, at: 'deck' }, cunn: { handler: 'cam', n: 4, size: 'micro', at: 'mast' }, outhaul: { handler: 'cam', n: 4, size: 'micro', at: 'boom' },
@@ -48,7 +48,7 @@ export default {
   },
   // the sails' look (js/models.js): cloth colour and kind, number and insignia colours, translucency, gloss
   sailcloth: { cloth: 0xf3f2ec, kind: 'dacron', num: '#1d2a44', logo: '#d61f26', trans: 0.32, rough: 0.58 },
-  hull: { color: 0xd8e4ec, stripe: 0x14305a, deck: 0xe6e3da, boot: 0x14305a, sectionN: 2.4, transom: 0.4, bowRake: 1.2, sheer: 0.08,
+  hull: { color: 0xf1f2ef, stripe: 0x14305a, deck: 0xe6e3da, boot: 0x14305a, sectionN: 2.4, transom: 0.4, bowRake: 1.2, sheer: 0.08,
     lifelines: false, deckTint: '#e4dfd2', cockpit: { t0: 0.18, t1: 0.62, w: 0.62, sole: 0.2 } },
   // deck hardware (js/rigging.js): traveller [x, half length, z], primary winches [x, y], jib tracks [aft.. fwd, y]
   hw: { trav: [-1.3, 0.5, 0.26], winch: [0.3, 0.3], jibTrack: [1.0, 0.45, 0.42], boomS: 0.6, clutchX: 0.6 },

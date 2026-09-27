@@ -85,10 +85,10 @@ function weatherTex() {
   return canvasTex('weather', 256, 256, (g, w, h) => {
     const r = rnd(23);
     g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h);
-    for (let i = 0; i < 40; i++) { const x = r() * w, y = r() * h * 0.5, L = 30 + r() * 160, wd = 1 + r() * 5;
+    for (let i = 0; i < 22; i++) { const x = r() * w, y = r() * h * 0.5, L = 30 + r() * 160, wd = 1 + r() * 4;
       const grd = g.createLinearGradient(0, y, 0, y + L); grd.addColorStop(0, `rgba(120,55,20,${0.35 + r() * 0.4})`); grd.addColorStop(1, 'rgba(120,55,20,0)');
       g.fillStyle = grd; g.fillRect(x, y, wd, L); }
-    for (let i = 0; i < 14; i++) { g.fillStyle = `rgba(${90 + r() * 60},${80 + r() * 50},${60 + r() * 40},0.35)`; g.fillRect(r() * w, r() * h, 12 + r() * 40, 8 + r() * 30); }
+    for (let i = 0; i < 6; i++) { const x = r() * w, y = r() * h, rad = 20 + r() * 50, grd = g.createRadialGradient(x, y, 0, x, y, rad); grd.addColorStop(0, `rgba(${90 + r() * 60},${70 + r() * 40},${50 + r() * 30},0.3)`); grd.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = grd; g.fillRect(x - rad, y - rad, 2 * rad, 2 * rad); }
     for (let i = 0; i < 60; i++) { g.strokeStyle = `rgba(40,35,30,${0.15 + r() * 0.2})`; g.lineWidth = 1; g.beginPath(); const x = r() * w, y = r() * h; g.moveTo(x, y); g.lineTo(x + (r() - 0.5) * 40, y + (r() - 0.5) * 8); g.stroke(); }
   }, 1);
 }
@@ -722,7 +722,8 @@ export function buildBoatModel(boat, opts = {}) {
     const main = !C.multihull && P.y === 0;
     const g = deckGeometry(C, Lx, partStations[i], main ? ck : null);
     g.translate(P.y, 0, 0);
-    const m = new THREE.Mesh(g, M.deck(deckTint));
+    // (a trimaran's floats: their decks are the same weathered skin as their topsides, round into them)
+    const m = new THREE.Mesh(g, C.amas && P.y !== 0 ? mat('floatdeck', () => new THREE.MeshStandardMaterial({ color: C.hull.color, map: weatherTex(), roughness: 0.8, side: THREE.DoubleSide })) : M.deck(deckTint));
     m.receiveShadow = true; m.castShadow = true; inner.add(m);
     if (!deck || main) deck = m;
   });
@@ -949,7 +950,8 @@ export function buildBoatModel(boat, opts = {}) {
     tillerEnd.set(0, C.freeboard + 0.08, -armL);
   } else if (Rd.transom) {
     // barn-door rudder hung on the transom with bronze pintles, wooden tiller over the transom
-    const topZ = Lx.sheer(0) + 0.05, botZ = C.keel.long ? -C.draft + 0.05 : -C.canoeDraft - Rd.span;
+    // (Rd.through: the rudder head comes up inside the transom and the tiller out through a slot in it, as on a Folkboat)
+    const topZ = Lx.sheer(0) + (Rd.through ? -0.12 : 0.05), botZ = C.keel.long ? -C.draft + 0.05 : -C.canoeDraft - Rd.span;
     const tx = C.sternX - Lx.H.transomRake * 0.5;
     rudderPivot.position.copy(V(tx - 0.02, 0, 0));
     const sh = new THREE.Shape();
@@ -1027,14 +1029,21 @@ export function buildBoatModel(boat, opts = {}) {
   // J/70: Southern Spars carbon, satin black with white bands; Laser: two-part aluminium (63.5 mm bottom section
   // to a 2.865 m joint, a slimmer tapered top section) inside the sail's luff sleeve; Hobie 16 and Blackwatch:
   // anodised aluminium
-  const mastMat = C.id === 'sportboat' ? M.satin() : C.carbonMast ? M.carbon() : M.alu();
+  const mastMat = C.id === 'sportboat' ? M.satin() : C.carbonMast ? M.carbon() : lookOf(C).weathered ? M.scrap() : M.alu();
   const r0 = C.mastR ?? (C.id === 'dinghy' ? 0.032 : C.id === 'sportboat' ? 0.05 : 0.055);
   const joint = C.id === 'dinghy' ? 2.865 - 0.355 : 0;
   const mprof = C.id === 'dinghy'
     ? [[r0, 0], [r0, joint], [0.0254, joint + 0.01], [0.0254, joint + 1.4], [0.02, mastLen - 0.3], [0.016, mastLen], [0, mastLen]]
     : [[r0, 0], [r0, mastLen * 0.6], [r0 * 0.9, mastLen * 0.8], [r0 * 0.6, mastLen], [0, mastLen]];
   const mast = new THREE.Mesh(lathe(mprof, 14), mastMat);
-  if (C.id !== 'dinghy') mast.scale.set(1, 1, 1.25); // pear-shaped section, deeper fore-aft (the Laser's is round)
+  if (C.id !== 'dinghy') mast.scale.set(1, 1, C.wingMast ? 2.8 : 1.25); // pear-shaped section, deeper fore-aft (the Laser's is round; a wing mast's a deep aerofoil)
+  if (C.wingMast) mast.geometry.translate(0, 0, 0.35 * r0);                // (its thicker leading edge forward: the section pivots near its front)
+  if (C.mastBend) {
+    // a bendy mast (the Star's) drawn with its bend: the top sagging aft, the middle forward of the ends
+    const pa = mast.geometry.attributes.position;
+    for (let i = 0; i < pa.count; i++) { const f = pa.getY(i) / mastLen; pa.setZ(i, pa.getZ(i) + C.mastBend * (f * f * 1.6 - f * 0.6) / (C.wingMast ? 2.8 : 1.25)); }
+    mast.geometry.computeVertexNormals();
+  }
   mast.position.copy(V(C.mastX, 0, mastBase)); mast.castShadow = true; rig.add(mast);
   if (C.id === 'dinghy') {
     rigKit.add(M.alu(), new THREE.CylinderGeometry(0.034, 0.034, 0.05, 14).translate(0, mastBase + joint, -C.mastX)); // joint collar
@@ -1220,7 +1229,7 @@ export function buildBoatModel(boat, opts = {}) {
     pole.userData = { L, base: V(C.mastX + 0.07, 0, S.gennaker.tackZ) };
     rig.add(pole);
   }
-  return { root, inner, hull, deck, booms, sailMeshes, rudderPivot, rudderPivots, keelMesh, telltales, windex, rig, sprit, extension, tillerEnd, wheel, pole,
+  return { root, inner, hull, deck, booms, sailMeshes, rudderPivot, rudderPivots, keelMesh, telltales, windex, rig, sprit, extension, tillerEnd, wheel, pole, mast,
     lines: Lx, deckH, ck, chain, stay, mastBase };
 }
 
@@ -1456,7 +1465,8 @@ export function updateBoatModel(vis, b, t) {
   }
   // retracted, the pole's tip sits just proud of the stem (the rest is in its tube inside the hull)
   if (vis.sprit) vis.sprit.position.z = -(C.bowX + 0.05 - vis.sprit.userData.len) - C.bowsprit * b.genDeploy;
-  if (vis.wheel) vis.wheel.rotation.z = b.rudder * 5;                // (about one and a half turns lock to lock)
+  if (vis.wheel) vis.wheel.rotation.z = b.rudder * 5;
+  if (C.wingMast && vis.mast && b.booms.main) vis.mast.rotation.y = b.booms.main.a * 0.8;   // a rotating wing mast turns with the boom                // (about one and a half turns lock to lock)
   if (vis.pole) {
     // the pole out to the spinnaker's tack: the cloth's own tack, or where the strip model sets it (on the forestay)
     const on = b.genDeploy > 0.3, P = vis.pole;
