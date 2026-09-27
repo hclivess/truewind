@@ -29,6 +29,9 @@ export async function gpuCheck({ venue = 'marseille', tws = '18', twd = '225', s
     const r = await p.evaluate(async () => {
       const THREE = await import('three');
       const g = window.game, R = g.renderer, W = g.env.waves, U = R.waterU, world = g.world;
+      // (the rogue groups off: the GPU draws only the two nearest the player, the physics feels every one; big-seas
+      // checks the groups' formula against the shader's)
+      W.rogue = false; W.rgForced.length = 0; W._rgL = new Map(); R.setRogues(W, U.uTime.value, 0, 0);
       // points on the water: a lattice over the map, kept off the beach's last metres (where the texture's 8-bit
       // chart and the world's own depth differ)
       const pts = [];
@@ -39,7 +42,7 @@ export async function gpuCheck({ venue = 'marseille', tws = '18', twd = '225', s
       let vs = R.water.material.vertexShader;
       const patch = (a, b) => { if (!vs.includes(a)) throw new Error('shader patch: ' + a); vs = vs.replace(a, b); };
       patch('vec2 x0 = position.xz + uOffset;', 'vec2 x0 = position.xz;');
-      patch('float fade = 1.0 - smoothstep(700.0, 3200.0, dist);', 'float fade = 1.0;');
+      vs = vs.replace(/float fade = 1\.0 - smoothstep\([^;]*\);/, 'float fade = 1.0;');
       patch('gl_Position = projectionMatrix * viewMatrix * vec4(P, 1.0);', `vOut = P; gl_PointSize = 1.0; gl_Position = vec4((float(gl_VertexID) + 0.5) / ${n}.0 * 2.0 - 1.0, 0.0, 0.0, 1.0);`);
       vs = 'varying vec3 vOut;\n' + vs;
       const mat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: vs, fragmentShader: 'varying vec3 vOut; void main(){ gl_FragColor = vec4(vOut, 1.0); }' });

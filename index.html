@@ -27,6 +27,7 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <div id="grab-tip" hidden></div>
   <div id="alert" role="alert"></div>
+  <div id="engine-card" hidden aria-live="off"><span class="eyebrow">Engine</span><b id="eng-rpm">0</b><small>rpm</small><span id="eng-gear">NEUTRAL</span><span id="eng-thr">0%</span><span id="eng-fuel" class="muted"></span></div>
 
   <section id="map-card" class="panel">
     <canvas id="minimap" width="480" height="480" aria-label="Tactical map, wind at the top"></canvas>
@@ -88,6 +89,11 @@
       <button class="tbtn tsm tp-sel" id="tp-sel" title="Tap for the next line">Trav ▸</button><button class="tbtn" id="tp-x0" data-k="trav" data-d="-1">Up</button><button class="tbtn" id="tp-x1" data-k="trav" data-d="1">Down</button>
       <button class="tbtn tsm" id="tp-auto">Auto trim</button><button class="tbtn tsm" id="tp-gen" hidden>Hoist</button>
     </div>
+    <div class="tp tp-eng" id="tp-eng" hidden>
+      <span class="tl" id="tp-thr-l">N</span>
+      <input type="range" id="tp-thr" min="-1" max="1" step="0.02" value="0" aria-label="Throttle: astern, neutral, ahead">
+      <button class="tbtn tsm" id="tp-engine">Start</button>
+    </div>
   </div>
 </div>
 
@@ -113,6 +119,8 @@
     <div class="menu-grid">
       <section>
         <h2>Boat</h2>
+        <div class="row boat-id"><input id="boat-name" maxlength="24" placeholder="Boat name" autocomplete="off" aria-label="Boat name (on the transom)"><input id="sail-no" maxlength="8" placeholder="Sail no." autocomplete="off" spellcheck="false" aria-label="Sail number: nation letters and digits, e.g. GBR 1234" title="Nation letters and digits (e.g. GBR 1234), or just the number"></div>
+        <p id="boat-id-msg" class="muted small note" aria-live="polite"></p>
         <div id="boat-list" class="cards"></div>
       </section>
       <section>
@@ -155,7 +163,7 @@
         <div class="row"><button id="live-wind" class="btn ghost">Use live wind here</button><span id="live-status" class="muted small"></span></div>
         <div class="field"><label for="gust">Puffs &amp; lulls <b id="gust-v"></b></label><input type="range" id="gust" min="0" max="1" step="0.05" value="0.5"></div>
         <div class="field"><label for="shift">Oscillating shifts <b id="shift-v"></b></label><input type="range" id="shift" min="0" max="20" step="1" value="7"></div>
-        <div class="field"><label for="swell">Ocean swell <b id="swell-v"></b></label><input type="range" id="swell" min="0" max="8" step="0.1" value="0"></div>
+        <div class="field"><label for="swell">Ocean swell <b id="swell-v"></b></label><input type="range" id="swell" min="0" max="16" step="0.1" value="0"></div>
         <div class="field"><label for="current">Tidal current <b id="current-v"></b></label><input type="range" id="current" min="0" max="3" step="0.1" value="0.4"></div>
         <div class="field race-only"><label for="fleet">AI boats <b id="fleet-v"></b></label><input type="range" id="fleet" min="0" max="9" step="1" value="5"></div>
         <div class="field race-only"><label for="countdown">Start sequence <b id="countdown-v"></b></label><input type="range" id="countdown" min="30" max="300" step="30" value="120"></div>
@@ -196,17 +204,21 @@
       <div><kbd>C</kbd><kbd>V</kbd><span>Vang ease / tension</span></div>
       <div><kbd>N</kbd><kbd>M</kbd><span>Backstay ease / tension (bends mast, tightens forestay)</span></div>
       <div><kbd>Q</kbd><kbd>E</kbd><span>Your weight in / hike out (turns automatic weight off)</span></div>
-      <div><kbd>F</kbd><span>Let the jib sheet fly (take it out of the self-tailer: it runs out under load and the clew can cross)</span></div>
-      <div>Cleats<span>Every line is held by a cam cleat, clutch or self-tailer (LOCK/FREE in the panel, or click the cleat on deck). Released, a loaded line runs out by itself — sheets ease, vang and cunningham go slack, the traveler car slides to leeward. Hauling a line cleats it.</span></div>
+      <div><kbd>F</kbd><span>Let the jib sheet fly (the turns off its winch or cleat: it runs out under load and the clew can cross)</span></div>
+      <div>Cleats<span>Every line is held by what the real boat has: cam or clam cleat, V-jammer, horn cleat, clutch, ratchet block, car lock or winch. Its button in the panel (or the part on deck) makes it fast or casts it off, each in its own time — a cam at once, a horn cleat's figure-eights in seconds. Released, a loaded line dumps (cam, clutch) or surges round the drum (winch, horn); a ratchet leaves it in your hand. Hauling goes through a cam, clutch or ratchet; easing, or hauling off a horn cleat, takes the line off first. Overloaded, a cleat slips.</span></div>
       <div><kbd>J</kbd><kbd>⇧J</kbd><span>Haul / ease the lazy jib sheet on the windward winch — backs the jib (una-rig: push the boom out)</span></div>
       <div><kbd>G</kbd><span>Hoist / douse gennaker</span></div>
       <div><kbd>R</kbd><span>Reef (cycles 0 → 1 → 2) · rights a capsized dinghy</span></div>
       <div><kbd>Y</kbd><span>Daggerboard up / down</span></div>
       <div><kbd>T</kbd> <kbd>H</kbd><span>Automatic trim / automatic weight</span></div>
+      <div><kbd>B</kbd><span>Start / stop the engine (keelboats: the Blackwatch's outboard, the sportboat's outboard outside races). Racing, using it after the preparatory signal retires you</span></div>
+      <div><kbd>PgUp</kbd><kbd>PgDn</kbd> / <kbd>]</kbd><kbd>[</kbd><span>Throttle ahead / astern — one lever through a neutral detent; the gear shifts once the engine is back at idle</span></div>
       <div><kbd>1</kbd>–<kbd>7</kbd><span>Chase · Helm · Bow · Masthead · Overhead · Orbit · On deck</span></div>
       <div>On deck<span>Point at a rope, car, winch or the tiller: pull ropes up/down, slide cars along their tracks, wind winch handles round either way (clockwise = fast gear, anticlockwise = slow powerful gear; the drum only turns one way — drag a sheet tail down to ease), push the tiller sideways, click the reef line or gennaker halyard.</span></div>
       <div><kbd>L</kbd> <kbd>K</kbd> <kbd>I</kbd><span>Laylines · force vectors · physics readout</span></div>
       <div><kbd>Tab</kbd><span>Chart: seamarks and lights, depths, your track; click or tap to set a waypoint (a mark: steer for it)</span></div>
+      <div><kbd>U</kbd> <kbd>9</kbd> <kbd>0</kbd><span>Anchor down / weigh (keelboats) · lines: make fast alongside a pier or to a mooring, cast off · MOB: mark the spot on the plotter</span></div>
+      <div>Damage<span>Loads break gear: shrouds part, sails tear or blow out, collisions and groundings hole the hull and she takes water (pump, or she sinks), a rudder bends, a keel can go. The Boat section of the rig panel shows it all, with the crew's strength (hiking and grinding tire them) — and Damage: off.</span></div>
       <div><kbd>-</kbd> <kbd>=</kbd><span>Time warp (free sail)</span></div>
       <div><kbd>P</kbd> <kbd>Esc</kbd><span>Pause · menu</span></div>
       <div><kbd>O</kbd> <kbd>?</kbd><span>Sound on / off · this help</span></div>

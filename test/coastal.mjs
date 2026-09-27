@@ -130,24 +130,35 @@ env.waves.setCoastal(cf);
   check(hp < 0.25 * ho, `the hull feels it: max |eta| ${hp.toFixed(2)} m in the port against ${ho.toFixed(2)} m outside`);
 }
 
-// ---- 7. sample() is the drawn surface: the vertex displacement the shader computes from the same texture data
-// (a transcription of the GLSL in render.js), pushed back through sample() at the displaced point
+// ---- 7. sample() is the drawn surface: the vertex the shader computes from the same texture data (a transcription
+// of the GLSL in render.js: every local wave, the limits, the lean, the second order, the shore's fade), pushed
+// back through sample() at the displaced point. Also a steep storm sea with a rogue group focused on the coast.
 {
   const W = env.waves; let worst = 0;
-  const pts = [[-4500, 1500], [-800, -1750], [1500, -1300], [2300, 200], [3240, -2775], [-1200, 2500]];
-  for (const [x0, z0] of pts) for (let t = 3; t < 60; t += 7.7) {
-    const L = W._local(x0, z0), h = W.depthFn(x0, z0);
-    let X = 0, Z = 0, Y = 0, eH = 0, sK = 0, s2 = 0;
-    for (let i = 0; i < L.n; i++) {
-      const th = L.p[i] + L.gx[i] * x0 + L.gz[i] * z0 - L.we[i] * t, C = Math.cos(th), S = Math.sin(th), A = L.A[i];
-      X += L.Q[i] * A * L.ux[i] * C; Z += L.Q[i] * A * L.uz[i] * C; Y += A * S; eH += A * C; sK += L.Q[i] * L.k[i] * A; s2 += L.Q[i] * A * A * (C * C - S * S);
+  const vertex = (x0, z0, t) => {
+    const L = W._local(x0, z0), h = W.depthFn(x0, z0), ev = W._rgPre(x0, z0, t), nE = ev.length ? W._rgWins(ev, x0, z0, t) : 0;
+    let Y = 0, eH = 0, sK = 0, s2 = 0, a2 = 0;
+    for (let n = 0; n < L.n; n++) {
+      const ci = L.ci[n], c = W.comps[ci], base = c.A * (c.curAmp ?? 1), K = L.K[n];
+      let rs = 0, rc = 0; for (let m = 0; m < nE; m++) { rs += W._rw[m] * W._ra[m].rs[ci]; rc += W._rw[m] * W._ra[m].rc[ci]; }
+      const th = L.p[n] + L.gx[n] * x0 + L.gz[n] * z0 - L.we[n] * t, C = Math.cos(th), S = Math.sin(th);
+      const P = (base + rs) * K, Qc = rc * K, y = P * S + Qc * C, hh = P * C - Qc * S;
+      Y += y; eH += hh; s2 += c.Q * (hh * hh - y * y); sK += c.Q * L.k[n] * base * K; a2 += (base * K) ** 2;
     }
-    W._limits(h, Y, eH, sK);
-    const cap = W._cap, qs = W._qs, py = cap * Y + W.k2 * cap * cap * (Y * Y - eH * eH + qs * s2);
-    const s = W.sample(x0 + cap * qs * X, z0 + cap * qs * Z, t, {});
-    worst = Math.max(worst, Math.abs(s.h - py));
+    W._limits(h, Y, eH, sK, a2);
+    const cap = W._cap, qs = W._qs, sc = W.scaleFn ? W.scaleFn(x0, z0) : 1, d = W._disp(x0, z0, t, {}, ev, L);
+    return [x0 + d.x, sc * (cap * Y + W.k2 * cap * cap * (Y * Y - eH * eH + qs * s2)), z0 + d.z];
+  };
+  const pts = [[-4500, 1500], [-800, -1750], [1500, -1300], [2300, 200], [3240, -2775], [-1200, 2500], [3500, 1100]];
+  for (const [x0, z0] of pts) for (let t = 3; t < 60; t += 7.7) {
+    const [x, y, z] = vertex(x0, z0, t), s = W.sample(x, z, t, {});
+    worst = Math.max(worst, Math.abs(s.h - y));
   }
   check(worst < 2e-3, `sample() at the displaced point returns the drawn vertex height (worst ${(worst * 1000).toFixed(2)} mm)`);
+  W.forceEvent({ x: -3000, z: 800, t: 30, crestHs: 1.3 });
+  worst = 0;
+  for (let q = 0; q < 40; q++) { const x0 = -3000 + (q % 8) * 20 - 70, z0 = 800 + Math.floor(q / 8) * 20 - 40, [x, y, z] = vertex(x0, z0, 30), s = W.sample(x, z, 30, {}); worst = Math.max(worst, Math.abs(s.h - y)); }
+  check(worst < 5e-3, `...and through a rogue group's focus on the coastal field (worst ${(worst * 1000).toFixed(2)} mm)`);
 }
 
 if (process.argv.includes('--gpu')) {
