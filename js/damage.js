@@ -222,12 +222,17 @@ export function hash01(a, b = 0, c = 0) {
 }
 
 // the boat's mass properties from what is aboard: hull (less a lost keel), crew still aboard, water in her
+// (captured once, from the boat as built, before anything changes her mass: extra is whatever she carries that the
+// class mass leaves out, e.g. an outboard: js/engine.js)
+export function massBase(b) {
+  return b._base || (b._base = { m11k: b.m11 / b.mass, m22k: b.m22 / b.mass, m33k: b.m33 / b.mass, Iyyk: b.Iyy / b.mass, Ixx: b.Ixx, m0: b.mass, extra: b.mass - b.cls.massHull - b.crewMass });
+}
 export function recomputeMass(b) {
-  const C = b.cls, base = b._base || (b._base = { m11k: b.m11 / b.mass, m22k: b.m22 / b.mass, m33k: b.m33 / b.mass, Iyyk: b.Iyy / b.mass, Ixx: b.Ixx, crew: b.crewMass });
+  const C = b.cls, base = massBase(b);
   const mh = b.mHull ?? C.massHull;
-  b.mass = mh + b.crewMass + (b.water || 0);
+  b.mass = mh + b.crewMass + base.extra + (b.water || 0);
   b.m11 = b.mass * base.m11k; b.m22 = b.mass * base.m22k; b.m33 = b.mass * base.m33k; b.Iyy = b.mass * base.Iyyk;
-  b.Ixx = base.Ixx * (b.mass / (C.massHull + base.crew));
+  b.Ixx = base.Ixx * (b.mass / base.m0);
 }
 
 // peak membrane tension (N/m) of a cloth sail: the larger of warp and fill tension per triangle, taken at the
@@ -277,6 +282,7 @@ sailHooks.boomOverload = boomOverload;
 export class Damage {
   constructor(boat, opts = {}) {
     this.b = boat; this.C = boat.cls;
+    massBase(boat);
     this.R = rigSpec(this.C); this.H = hullSpec(this.C);
     this.seed = opts.seed ?? 1;
     this.mode = opts.mode ?? 'realistic';
@@ -705,7 +711,7 @@ export class Damage {
       if (H.bailer && b.u > 1.5) out += 0.25e-3 * clamp((b.u - 1.5) / 1.5, 0, 1);
     }
     this.pumpOut = out;
-    const cap = this.Vfull * RHO_W - (b.mHull ?? C.massHull) - b.crewMass;
+    const cap = this.Vfull * RHO_W - (b.mass - this.water);
     // foam / sealed tanks: that share of the volume never floods
     const maxW = (this.Vfull * (1 - H.flot)) * RHO_W * 0.95;
     this.water = clamp(this.water + (Q - out) * RHO_W * dt, 0, maxW);

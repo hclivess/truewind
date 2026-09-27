@@ -5,6 +5,7 @@ import { Boat, CLASSES, CLASS_ORDER, autoTrim, solvePolarAngle, POLAR_TWAS, vmgT
 import { VENUES, World, makeProjection, fetchVenueGeo, fetchLiveWind } from './world.js';
 import { fetchSeamarks } from './seamarks.js';
 import { Nav } from './nav.js';
+import { cleanSailNo, validateSailNo, cleanBoatName, validateBoatName, fleetIdentities, VENUE_NATION } from './boatid.js';
 import { Course, Race, AIHelm, aiRandom, applyWindShadow, resolveCollisions } from './race.js';
 import { Renderer } from './render.js';
 import { HUD, pref } from './hud.js';
@@ -31,7 +32,6 @@ const C_RIGHT = (b) => (b.cls.multihull ? 8 : 4); // grab radius on screen, also
 // the touch pad's third line (in order of use), with the labels for its two buttons (d = -1, +1)
 const TOUCH_LINES = { stay: ['Stay', 'Trim', 'Ease', 'Staysail sheet'], trav: ['Trav', 'Up', 'Down', 'Traveler'], hike: ['Hike', 'In', 'Out', 'Crew weight'],
   vang: ['Vang', '−', '+', 'Vang'], tackLine: ['Tack', 'Down', 'Ease', 'Gennaker tack line'], backstay: ['Bstay', '−', '+', 'Backstay'], board: ['Board', 'Up', 'Down', 'Daggerboard'], pushBoom: ['Boom', 'Port', 'Stbd', 'Push the boom out'] };
-const NAMES = ['Tern', 'Petrel', 'Skua', 'Gannet', 'Fulmar', 'Shearwater', 'Kittiwake', 'Albatross', 'Puffin', 'Cormorant'];
 
 // reefs the crew ties in at the dock for this much wind (the same rule the AI crews use)
 function startReef(C, kn) {
@@ -54,7 +54,7 @@ class Game {
     this.keys = new Set();
     this.settings = {
       cls: 'blackwatch', venue: 'progreso', mode: 'free', tws: 14, twd: 70, gust: 0.5, shift: 7, swell: 0, current: 0.4,
-      fleet: 5, countdown: 120, laps: 1, weather: 'changing', tod: 'afternoon', autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true,
+      fleet: 5, sailNo: '', boatName: '', countdown: 120, laps: 1, weather: 'changing', tod: 'afternoon', autoTrim: false, autoHike: true, tiller: false, laylines: true, sound: true,
       damage: 'realistic',    // or 'off' (the Boat section of the rig panel)
     };
     this.venueTouched = false;
@@ -125,6 +125,7 @@ class Game {
     $('#live-wind').addEventListener('click', () => this.liveWind());
     $('#custom-go').addEventListener('click', () => this.customVenue());
     $('#custom-latlon').addEventListener('keydown', (e) => { if (e.key === 'Enter') this.customVenue(); });
+    this.bindBoatId();
     try { $('#net-name').value = localStorage.getItem('tw-name') || ''; $('#net-room').value = localStorage.getItem('tw-room') || ''; } catch (e) {}
     this.pickVenue(this.settings.venue, false, this.restored);
     this.refreshMenu();
@@ -132,7 +133,7 @@ class Game {
   pickVenue(id, fromUser, keepWind = false) {
     this.settings.venue = id;
     const v = VENUES.find(x => x.id === id) || this.customV;
-    if (v && !v.open && !keepWind) { this.setSlider('twd', v.wind); this.setSlider('tws', v.windKt); this.setSlider('current', v.current?.kt ?? 0); }
+    if (v && (!v.open || v.preset) && !keepWind) { this.setSlider('twd', v.wind); this.setSlider('tws', v.windKt); this.setSlider('current', v.current?.kt ?? 0); if (v.swell !== undefined) this.setSlider('swell', v.swell); }
     this.refreshMenu();
   }
   setSlider(k, v) { const el = $('#' + k); el.value = v; el.dispatchEvent(new Event('input')); }
@@ -192,7 +193,7 @@ class Game {
     } catch (e) { st.textContent = 'Could not reach OpenStreetMap (offline or blocked). Try a built-in venue.'; }
   }
   // where on Earth we are (for the sun and moon); open water is somewhere in the North Atlantic
-  skyPlace() { const v = this.currentVenueDef(); return !v || v.open ? { lat: 32, lon: -40 } : { lat: v.lat, lon: v.lon }; }
+  skyPlace() { const v = this.currentVenueDef(); return !v || (v.open && !v.preset) ? { lat: 32, lon: -40 } : { lat: v.lat, lon: v.lon }; }
   // UTC time for the chosen time of day, today, in local solar time at the venue (Live = now)
   clockFor() {
     const tod = this.settings.tod || 'afternoon';
@@ -240,6 +241,24 @@ class Game {
     this.audio.on = this.settings.sound; this.syncTools();
     this.audio.start();
     document.activeElement && document.activeElement.blur();
+  }
+  // the boat's name and sail number: cleaned while typing, validated (RRS Appendix G for the number), kept
+  // in the settings only when valid; empty means the class default
+  bindBoatId() {
+    const nm = $('#boat-name'), sn = $('#sail-no'), msg = $('#boat-id-msg'); if (!nm || !sn) return;
+    nm.value = this.settings.boatName || ''; sn.value = this.settings.sailNo || '';
+    const check = () => {
+      const a = validateBoatName(nm.value), b = validateSailNo(sn.value);
+      nm.classList.toggle('bad', !a.ok); sn.classList.toggle('bad', !b.ok);
+      msg.textContent = !a.ok ? a.msg : !b.ok ? b.msg : ''; msg.classList.toggle('bad', !a.ok || !b.ok);
+      if (a.ok) this.settings.boatName = a.value;
+      if (b.ok) this.settings.sailNo = b.value;
+    };
+    nm.addEventListener('input', () => { const v = cleanBoatName(nm.value); if (v !== nm.value) nm.value = v; check(); });
+    sn.addEventListener('input', () => { const v = cleanSailNo(sn.value); if (v !== sn.value) sn.value = v; check(); });
+    sn.addEventListener('change', () => { const b = validateSailNo(sn.value); if (b.ok) sn.value = b.value; });
+    nm.addEventListener('change', () => { const a = validateBoatName(nm.value); if (a.ok) nm.value = a.value; });
+    check();
   }
   async castOff() {
     this.audio.on = this.settings.sound;
@@ -348,7 +367,7 @@ class Game {
     this.race = null; this.course = null; this.waypoint = null;
     $('#results').hidden = true;
     const cls = CLASSES[S.cls];
-    const player = new Boat(cls, { id: 0, name: 'You', sailModel: SAIL_MODEL, lod: SAIL_MODEL === 'strip' ? 2 : this.sailLevelFor(cls) });
+    const player = new Boat(cls, { id: 0, name: this.settings.boatName || 'You', sailModel: SAIL_MODEL, lod: SAIL_MODEL === 'strip' ? 2 : this.sailLevelFor(cls) });
     if (SAIL_MODEL !== 'strip') await loadBakedPolars(cls.id);      // (the cloth sails' polar: data/sails/<class>.json)
     player.auto.trim = S.autoTrim; player.auto.hike = S.autoHike;
     // in a blow the crew ties in the reefs before leaving (shaking one out is a keypress away)
@@ -378,8 +397,10 @@ class Game {
       }
       player.reset(spots[0][0], spots[0][1], twd + Math.PI / 2);
       this.presetTrim(player);
+      const ids = fleetIdentities(cond.seed, n, VENUE_NATION[v.id] || '');
       for (let i = 1; i <= n; i++) {
-        const b = new Boat(cls, { id: i, name: NAMES[(i - 1) % NAMES.length], sailModel: SAIL_MODEL, lod: this.fleetSailLevel() });
+        const b = new Boat(cls, { id: i, name: ids[i - 1].name, sailModel: SAIL_MODEL, lod: this.fleetSailLevel() });
+        b.sailNo = ids[i - 1].number;
         b.reset(spots[i][0], spots[i][1], twd + Math.PI / 2);
         b.auto.hike = true;
         this.boats.push(b);
@@ -400,7 +421,9 @@ class Game {
       this.renderer.setMarks([], null);
       if (idle) { player.auto.trim = true; }
     }
-    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (cls.id === 'blackwatch' ? '79' : '7') : String(100 + b.id * 7), hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9] });
+    // engines: on the bracket for free sailing, stowed below for racing where the class rules say so (the sportboat's)
+    for (const b of this.boats) if (b.engine) b.engine.setStowed(S.mode === 'race' && !idle);
+    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (this.settings.sailNo || (cls.id === 'blackwatch' ? '79' : '7')) : (b.sailNo || String(100 + b.id * 7)), name: b === player ? this.settings.boatName : b.name, hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9] });
     this.hud.buildRig(player);
     this.gear.setSession();
     this.gear.buildPanel(player);
@@ -423,13 +446,19 @@ class Game {
       try { localStorage.setItem('tw-name', name); localStorage.setItem('tw-room', room); } catch (e) {}
       this.netEpoch = cond.epoch;
       this.net.since = Date.now();
-      this.net.connect({ venueId: v.id === 'custom' ? `c${v.lat.toFixed(2)},${v.lon.toFixed(2)}` : v.id, room, name, cls: cls.id, cond })
+      this.net.connect({ venueId: v.id === 'custom' ? `c${v.lat.toFixed(2)},${v.lon.toFixed(2)}` : v.id, room, name, cls: cls.id, cond, sailNo: this.settings.sailNo, boatName: this.settings.boatName })
         .then(() => this.hud.toast(`Online in room “${room}” at ${v.name}`, 3))
         .catch(() => { this.hud.toast('Could not reach the relays — sailing offline', 4); });
     }
     this.showLaylines = S.laylines;
     this.polar = null; this.targets = null;
     this.computePolar(cls, env.wind.mean(0).speed);
+    // ?rogue (offline only: a room's sea is the seed's): a rogue group brought to the boat, focusing a
+    // minute and a half from now where it will be
+    if (!idle && !online && /[?&]rogue\b/.test(location.search)) {
+      const E = env.waves.forceEvent({ x: player.x + Math.sin(player.psi) * 90 * player.u, z: player.z - Math.cos(player.psi) * 90 * player.u, t: 90, crestHs: 1.3 });
+      if (E) setTimeout(() => this.hud.toast(`A rogue group is gathering: ${E.crest.toFixed(0)} m crest in 90 s`, 4), 4000);
+    }
     $('#loading').hidden = true;
     if (!idle) {
       $('#hud').hidden = false;
@@ -452,11 +481,14 @@ class Game {
     const fetchM = world.open ? 60000 : world.fetchAt(0, 0, twd, 6000);
     // open ocean: effectively unlimited fetch, the sea grows to fully developed (Pierson-Moskowitz)
     const fetchKm = world.open ? 2000 : fetchM >= 6000 ? 25 : Math.max(0.4, fetchM / 1000);
+    // an open-ocean gale brings its own swell, raised in its earlier hours and its other sectors, running
+    // under the local sea and crossing it (0.4 of the fully developed sea by 50 kn); the slider's if bigger
+    const U = cond.tws * KT, sw = world.open ? Math.max(cond.swell, 0.4 * 0.21 * U * U / 9.81 * clamp((cond.tws - 30) / 20, 0, 1)) : cond.swell;
     const env = new Environment({
       tws: cond.tws * KT, twd: cond.twd, gust: cond.gust, shift: cond.shift, seed: cond.seed, weather: cond.weather ?? 'changing',
-      fetchKm, swellH: cond.swell, swellT: 5 + 3.2 * Math.sqrt(Math.max(0.1, cond.swell)),   // longer swell for bigger swell
+      fetchKm, swellH: sw, swellT: 6 + 3.4 * Math.sqrt(Math.max(0.1, sw)),   // longer swell for bigger swell: 1 m 9 s, 8 m 16 s, 16 m 20 s
       currentKt: cond.current, currentDir: cond.currentDir,
-      hemi: v && !v.open && v.lat < 0 ? -1 : 1,     // puffs and squalls veer north of the equator, back south of it
+      hemi: v && v.lat < 0 ? -1 : 1,     // puffs and squalls veer north of the equator, back south of it
       // sea/lake and land breezes by the real sun at the venue. clock0 = UTC ms at t = 0: online it is the
       // room's shared epoch (every peer's clock is epoch + t), offline the chosen time of day
       thermal: world.open || !v ? null : { lat: v.lat, lon: v.lon, land: world, regional: v.regional,
@@ -488,7 +520,7 @@ class Game {
   addRemoteBoat(b) {
     this.boats.push(b);
     const idx = this.boats.length;
-    this.renderer.addBoat(b, { number: String(200 + (idx * 37) % 700), hullColor: [0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc][idx % 7], label: b.name });
+    this.renderer.addBoat(b, { number: b.sailNo || String(200 + (idx * 37) % 700), name: b.boatName || '', hullColor: [0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc][idx % 7], label: b.name });
     this.gear.attach(b, { remote: true });
   }
   removeRemoteBoat(b) {
@@ -519,7 +551,7 @@ class Game {
   raceStandings() {
     if (!this.race) return [];
     const C = this.course;
-    const list = this.race.standings().map(r => ({ name: r.boat === this.player ? 'You' : r.boat.name, me: r.boat === this.player, finished: r.finished, time: r.finishTime, leg: r.leg, boat: r.boat }));
+    const list = this.race.standings().map(r => ({ name: r.boat === this.player ? (this.settings.boatName ? `${this.settings.boatName} (you)` : 'You') : `${r.boat.name}${r.boat.sailNo ? ' · ' + r.boat.sailNo : ''}`, me: r.boat === this.player, finished: r.finished, retired: r.retired, time: r.finishTime, leg: r.leg, boat: r.boat }));
     if (this.sharedRace) {
       for (const b of this.boats) {
         if (!b.remote || !b.netRace || b.netRace.id !== this.sharedRace.id) continue;
@@ -580,7 +612,7 @@ class Game {
   navTarget() {
     if (this.race) {
       const r = this.race.racers[0];
-      if (r.finished) return null;
+      if (r.finished || r.retired) return null;
       return this.course.target(this.course.legs[r.leg], this.player);
     }
     return this.waypoint;
@@ -635,6 +667,26 @@ class Game {
     b.ctrl.gen = !b.ctrl.gen; this.hud.toast(b.ctrl.gen ? 'Gennaker going up' : 'Dousing the gennaker');
     this.syncTouch();
   }
+  // the engine (B / the touch pad's Start): the crew lowers an outboard, puts the lever in neutral and starts it
+  toggleEngine() {
+    const e = this.player.engine;
+    if (!e) { this.hud.toast(`The ${this.player.cls.name} has no engine`, 1.5); return; }
+    const r = e.toggle();
+    this.hud.toast(r === 'stowed' ? 'The outboard is stowed below for racing' : r === 'starting' ? (e.spec.tilts ? 'Lowering the outboard — starting' : 'Starting the engine') : r === 'stopped' ? 'Engine stopped' + (e.spec.tilts ? ' — outboard tilted up' : '') : '', 1.8);
+    if (r === 'starting' && this.race && this.race.clock >= -240) this.hud.toast('Engine on after the preparatory signal: you retire (RRS 42)', 3);
+    this.syncEngineTouch();
+  }
+  syncEngineTouch() {
+    const e = this.player && this.player.engine, pad = $('#tp-eng');
+    if (!pad) return;
+    pad.hidden = !e || e.stowed;
+    if (!e) return;
+    const thr = $('#tp-thr');
+    if (!this._thrDrag && Math.abs(+thr.value - e.throttle) > 0.01) thr.value = e.throttle;
+    $('#tp-thr-l').textContent = e.gear > 0 ? 'F' : e.gear < 0 ? 'R' : 'N';
+    $('#tp-engine').textContent = e.active ? 'Stop' : 'Start';
+    $('#tp-engine').classList.toggle('on', e.active);
+  }
   // touch pad: helm, main and jib, plus one more line of the class, picked by tapping its name
   buildTouch(b) {
     const rows = this.hud.rows || [];
@@ -642,7 +694,7 @@ class Game {
     this.touchSel = 0;
     $('#tp-gen').hidden = !b.sailBy.gennaker;
     $('#touch .tp-trim').classList.toggle('has-gen', !!b.sailBy.gennaker);
-    this.syncTouch();
+    this.syncTouch(); this.syncEngineTouch();
   }
   syncTouch() {
     const b = this.player; if (!b || !this.touchLines) return;
@@ -870,6 +922,7 @@ class Game {
       else if (b.sailBy.main.reefs) this.setReef(((b.ctrl.reef | 0) + 1) % (b.sailBy.main.reefs + 1));
     }
     else if (k === 'f' && b.sailBy.jib) this.letFly();
+    else if (k === 'b') this.toggleEngine();
     else if (k === ' ') b.ctrl.helm = 0;
     else if (k === '=' || k === '+') this.warp(2);
     else if (k === '-') this.warp(0.5);
@@ -904,6 +957,13 @@ class Game {
     tap('#tp-auto', () => this.toggleAutoTrim());
     tap('#tp-sel', () => { this.touchSel = (this.touchSel + 1) % Math.max(1, this.touchLines.length); this.syncTouch(); this.hud.toast(TOUCH_LINES[this.touchLines[this.touchSel]]?.[3] || '', 1); });
     tap('#tp-gen', () => this.toggleGen());
+    tap('#tp-engine', () => this.toggleEngine());
+    { // the throttle lever: neutral detent in the middle
+      const thr = $('#tp-thr');
+      thr.addEventListener('input', () => { const e = this.player && this.player.engine; if (!e) return; this._thrDrag = true; const v = +thr.value; e.throttle = Math.abs(v) < 0.1 ? 0 : v; });
+      thr.addEventListener('change', () => { this._thrDrag = false; });
+      thr.addEventListener('pointerup', () => { this._thrDrag = false; });
+    }
     // press and hold: the helm / sheet keeps moving while the finger stays down
     document.querySelectorAll('#touch .tbtn[data-k]').forEach(bt => {
       let timer = null;
@@ -950,6 +1010,10 @@ class Game {
       if (b.sailBy.jib) { this.userTouched('lazy'); const load = (b.diag.rig.jibLoad || 0) / (C.sheetPower * (b.crewPower ?? 1)); c.lazy = clamp(c.lazy + (shift ? 1 : -1 / (1 + load * load)) * rate, 0, 1); }
       else c.pushBoom = shift ? 1 : -1;
     } else if (!this.pushHeld) c.pushBoom = 0;
+    // throttle lever (PgUp / ] ahead, PgDn / [ astern): it stops in the neutral detent until the key is let go
+    if (b.engine) {
+      if (has('PageUp', ']')) b.engine.nudge(1, dt); else if (has('PageDown', '[')) b.engine.nudge(-1, dt); else b.engine.release();
+    }
   }
 
   // ------------------------------------------------------------ loop
@@ -1014,6 +1078,7 @@ class Game {
       this.gear.update(dt);
       this.nav.update(dt);
       this.audio.update(p, dt, this.renderer.rainNow || 0);
+      this.audio.engines && this.audio.engines(this.boats, this.renderer.camera, dt);
       this.checkAlerts();
     }
   }
@@ -1072,6 +1137,12 @@ class Game {
       this.gear.onContact(boat, other, v, nx, nz);
       if (boat === this.player && v > 0.6) { this.hud.toast(other && other.cls ? `Collision with ${other.name}!` : other && other.kind === 'pier' || other?.pts ? 'You hit the pier!' : 'Mark touched!', 2); this.audio.thump(Math.min(1, v / 2)); }
     });
+    // racing rules: motoring after the preparatory signal (4 minutes before the gun, at once in a shorter sequence) is
+    // not sailing the course (RRS 42): the boat retires. The AI never motors.
+    if (this.race && b.engine && b.engine.active && this.race.clock >= -240) {
+      const r0 = this.race.racers[0];
+      if (this.race.retire(b, 'engine used after the preparatory signal (RRS 42)')) { this._retT = this.t; this.audio.horn(false); }
+    }
     if (this.race) {
       this.race.update(dt);
       if (this.timeWarp > 1 && !this.canWarp()) { this.timeWarp = 1; this.hud.toast('Time ×1 — 20 seconds to the gun', 2); }
@@ -1110,11 +1181,13 @@ class Game {
 
   checkAlerts() {
     const b = this.player, C = b.cls;
+    if (b.engine && b.engine.stalled) { b.engine.stalled = false; this.hud.toast('The engine stalled', 2); this.syncEngineTouch(); }
     if (b.capsized && b.righting) this.hud.alert(`Righting… ${Math.round(Math.abs(b.phi) * 57.3)}° — keep your weight out`, true);
     else if (b.capsized && !b.unmanned) this.hud.alert('Capsized — press R to stand on the board and right her', true);
     else if (this.gear.alert()) { const a = this.gear.alert(); this.hud.alert(a.msg, a.bad); }
     else if (b.reefing) this.hud.alert(`${(b.ctrl.reef | 0) > b.reefPos ? 'Reefing' : 'Shaking out'} · ${Math.round(b.diag.reefProgress * 100)}% · main depowered`);
     else if (b.aground > 0.02) this.hud.alert(`Aground — ${this.world.depthAt(b.x, b.z).toFixed(1)} m of water`, true);
+    else if (this.race && this.race.racers[0].retired && this.t - (this._retT ?? 0) < 10) this.hud.alert(`Retired — ${this.race.racers[0].retiredWhy || 'RET'}`, true);
     else if (this.race && this.race.racers[0].ocs) this.hud.alert('OCS — dip back below the line', true);
     else if (Math.abs(b.phi) > C.targetHeel + 14 * 0.01745) this.hud.alert(b.sailBy.main.reefs ? 'Overpowered — ease, depower or reef' : 'Overpowered — ease the main');
     else if (b.u < 0.3 && Math.abs(b.diag.twa || 0) < 35 * DEG) this.hud.alert(b.sailBy.jib ? 'In irons — ease the main, let the jib sheet fly (F) and haul the lazy sheet (J) to back the jib, reverse the tiller while going astern' : 'In irons — ease the main, push the boom out (J / Shift+J), reverse the tiller while going astern');

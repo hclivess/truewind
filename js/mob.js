@@ -18,13 +18,14 @@
 //    sheets as they were (she rounds up and stops, as they do) — or drifts away faster than a swimmer.
 import { DEG } from './env.js';
 import { clamp } from './physics.js';
-import { hash01, recomputeMass } from './damage.js';
+import { hash01, recomputeMass, massBase } from './damage.js';
 
 export const PIW_LEEWAY = 0.011, SWIM = 0.5;
 
 export class MOB {
   constructor(boat, opts = {}) {
     this.b = boat; this.C = boat.cls;
+    massBase(boat);
     this.seed = opts.seed ?? 1;
     this.n = 0;                   // violent events so far (the hash's counter)
     this.people = [];             // { x, z, mx, mz (marker), t, since (alongside), id }

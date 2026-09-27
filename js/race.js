@@ -90,7 +90,7 @@ export class Race {
       const cur = { x: b.x, z: b.z };
       if (!r.prev) { r.prev = cur; continue; }
       const leg = C.legs[r.leg];
-      if (r.finished) { r.prev = cur; continue; }
+      if (r.finished || r.retired) { r.prev = cur; continue; }   // (retired: e.g. motored after the preparatory signal)
       if (leg.type === 'start') {
         const [a] = C.frame(b.x, b.z, C.pin.x, C.pin.z);
         const [aC] = C.frame(b.x, b.z, C.committee.x, C.committee.z);
@@ -136,11 +136,20 @@ export class Race {
     }
   }
 
+  // one way out of a race for every reason (RRS 42 motoring, damage): RET in the standings, why in the race card
+  retire(boat, why) {
+    const r = this.racers.find((x) => x.boat === boat);
+    if (!r || r.retired || r.finished) return false;
+    r.retired = true; r.retiredWhy = why;
+    this.events.push({ type: 'retired', boat, why });
+    return true;
+  }
+
   standings() {
     const C = this.course;
     const score = (r) => {
       if (r.finished) return 1e9 - r.finishTime;
-      if (r.retired) return -1e9;                   // (RET: dismasted, sinking, keel or rudder gone: js/gear.js)
+      if (r.retired) return -1e9;                   // (RET: RRS 42, or dismasted, sinking, keel or rudder gone: js/gear.js)
       const tgt = C.target(C.legs[r.leg], r.boat);
       return r.leg * 1e5 - Math.hypot(r.boat.x - tgt.x, r.boat.z - tgt.z);
     };

@@ -29,10 +29,13 @@
 
 import { G, DEG, KT } from './env.js';
 import { HullHydro } from './hull.js';
+import { Engine } from './engine.js';
 // (Math.hypot allocates when V8 does not inline it: these do not)
 const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
 export const RHO_A = 1.225, RHO_W = 1025, NU_W = 1.19e-6;
+const BRK_CS = 2.5;                      // slamming coefficient of a breaking crest's jet on the hull (see step)
+const D0 = Object.freeze({ x: 0, z: 0 });
 
 export const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 export const lerp = (a, b, t) => a + (b - a) * t;
@@ -72,6 +75,13 @@ export const CLASSES = {
     // mast stepped on the cabin top 2.1 m aft of the stem (photos of hull #66: 37% of LOD from the bow)
     mastX: 0.72, mastHeight: 8.4, boomZ: 1.5, keelBulb: false,
     targetHeel: 18 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 900,
+    // auxiliary (js/engine.js): a long-shaft outboard on a transom bracket to port of the barn-door rudder — what the
+    // boats carry (Blue Water Boatworks fitted no inboard; owners' listings: Tohatsu 4 hp long shaft, Mercury 5,
+    // British Seagull 5). Tohatsu MFS4: 4 hp at 5000 rpm, 123 cc single, 2.15:1, 7.8 x 6 in three-blade, 26 kg (not in
+    // the designer's 1,021 kg). Steered by the rudder; tilted clear of the water when stopped.
+    engine: { type: 'outboard', model: 'Tohatsu MFS4 long shaft', kW: 2.94, rpmMax: 5000, rpmIdle: 1100, cyl: 1, fuel: 'petrol', gear: 2.15,
+      prop: { D: 0.198, P: 0.152, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-3.3, -0.45, -0.28], mount: [-3.1, -0.45, 0.36],
+      mass: 26, inMass: false, tilts: true, steers: false, exhaust: [-3.3, -0.45, 0.12] },
     sails: [
       { key: 'main', kind: 'boom', area: 10.4, luff: 6.5, foot: 3.0, head: 0.15, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
         cd0: 0.07, ARe: 3.2, min: 2 * DEG, max: 80 * DEG, trav: [-4 * DEG, 12 * DEG], Iboom: 42, boomMass: 18, reefs: 2,
@@ -105,6 +115,13 @@ export const CLASSES = {
     // masthead, gooseneck 1.7 m above the waterline
     mastX: 1.03, mastHeight: 10.0, boomZ: 1.7, keelBulb: true,
     targetHeel: 17 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 1400,
+    // auxiliary: J/70 class rule C.5.3 — one functioning outboard of at least 12 kg aboard, NOT FOR USE while racing
+    // (stowed below, secured at the mast step: it is inside the class weight). A 3.5 hp four-stroke short shaft
+    // (Tohatsu MFS3.5: 85 cc single, 5500 rpm, 2.08:1, 7.2 x 5 in three-blade, 17.4 kg) on the transom bracket for
+    // getting to and from the course; tilted up when stopped.
+    engine: { type: 'outboard', model: '3.5 hp four-stroke short shaft', kW: 2.57, rpmMax: 5500, rpmIdle: 1150, cyl: 1, fuel: 'petrol', gear: 2.08,
+      prop: { D: 0.183, P: 0.127, Z: 3, BAR: 0.5, folding: false, rh: 1 }, pos: [-3.78, -0.42, -0.27], mount: [-3.58, -0.42, 0.24],
+      mass: 17.4, inMass: true, stow: [0.55, 0, -0.12], tilts: true, steers: false, exhaust: [-3.78, -0.42, 0.1] },
     sails: [
       { key: 'main', kind: 'boom', area: 16.7, luff: 7.97, foot: 2.88, head: 0.45, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
         cd0: 0.06, ARe: 4.8, min: 1.5 * DEG, max: 78 * DEG, trav: [-6 * DEG, 12 * DEG], Iboom: 38, boomMass: 14, reefs: 0,
@@ -133,6 +150,7 @@ export const CLASSES = {
     // the deck tube: the gooseneck is ~0.6 m above the deck, the masthead ~6.2 m above the waterline
     mastX: 1.15, mastHeight: 6.24, boomZ: 1.0, keelBulb: false,
     targetHeel: 6 * DEG, canCapsize: true, hasBackstay: false, hasBoard: true, sheetPower: 420,
+    engine: null,                       // a dinghy is paddled, not motored
     sails: [
       { key: 'main', kind: 'boom', area: 7.06, luff: 5.1, foot: 2.75, head: 0.25, depth: [0.12, 0.14, 0.12], twistMax: 24 * DEG,
         cd0: 0.06, ARe: 3.9, min: 3 * DEG, max: 88 * DEG, trav: null, Iboom: 12, boomMass: 6, reefs: 0,
@@ -164,6 +182,7 @@ export const CLASSES = {
     // 8.07 m (26' 6") rotating mast stepped on the front beam
     mastX: 0.6, mastHeight: 8.6, boomZ: 1.25, keelBulb: false,
     targetHeel: 7 * DEG, canCapsize: true, hasBackstay: false, hasBoard: false, sheetPower: 700,
+    engine: null,
     sails: [
       { key: 'main', kind: 'boom', area: 13.7, luff: 7.2, foot: 2.6, head: 1.1, depth: [0.1, 0.12, 0.11], twistMax: 15 * DEG,
         cd0: 0.06, ARe: 4.6, min: 1 * DEG, max: 75 * DEG, trav: [-4 * DEG, 24 * DEG], Iboom: 16, boomMass: 6, reefs: 0,
@@ -277,7 +296,8 @@ export class Boat {
   constructor(cls, opts = {}) {
     this.cls = typeof cls === 'string' ? CLASSES[cls] : cls;
     const C = this.cls;
-    this.mass = C.massHull + C.crewN * C.crewEach;
+    this.engine = C.engine ? new Engine(this, C.engine) : null;          // auxiliary engine (js/engine.js)
+    this.mass = C.massHull + C.crewN * C.crewEach + (this.engine ? this.engine.addedMass : 0);
     this.crewMass = C.crewN * C.crewEach;
     this.m11 = this.mass * (1 + C.amX); this.m22 = this.mass * (1 + C.amY);
     this.Izz = C.Izz * (1 + C.amYaw); this.Ixx = C.Ixx * (1 + C.amRoll);
@@ -338,6 +358,7 @@ export class Boat {
     this.log = 0; this.t = 0; this.slam = 0;
     this._clHead = 0; this._clMain = 0;
     if (this.sailSys) this.sailSys.reset(this);
+    if (this.engine) this.engine.reset();
   }
 
   GZ(phi) {
@@ -598,7 +619,14 @@ export class Boat {
       waveH = wv.h;
       slopeAlong = wv.sx * fx + wv.sz * fz;
       slopeLat = wv.sx * sx + wv.sz * sz;
-      orbU = wv.vx * fx + wv.vz * fz; orbV = wv.vx * sx + wv.vz * sz;
+      // the water the hull moves through: the orbital velocity averaged over its length (a hull does not feel
+      // waves shorter than itself as a current) at its mid-body depth, u ~ e^{kz} with k the velocity
+      // spectrum's mean (WaveField.kv), and the Stokes drift of the surface layer, sum w k a^2 e^{2kz}
+      const Wv = env.waves, dr = Wv.drift || D0, e1 = Math.exp((Wv.kv || 0) * -0.5 * C.canoeDraft), e2 = Math.exp(2 * (Wv.kd || 0) * -0.5 * C.canoeDraft);
+      let ox = 0, oz = 0;
+      for (let i = 0; i < 7; i++) { const wt = i === 0 || i === 6 ? 1 / 12 : 1 / 6; ox += W7[i].vx * wt; oz += W7[i].vz * wt; }
+      ox = ox * e1 + dr.x * e2; oz = oz * e1 + dr.z * e2;
+      orbU = ox * fx + oz * fz; orbV = ox * sx + oz * sz;
     } else for (let i = 0; i < 7; i++) { W7[i].h = 0; W7[i].sx = 0; W7[i].sz = 0; W7[i].vy = 0; }
 
     const vgx = this.u * fx + this.v * sx + cur.x, vgz = this.u * fz + this.v * sz + cur.z;
@@ -733,14 +761,24 @@ export class Boat {
     }
 
     // ---- hydrodynamics ----
-    const uw = this.u - 0.6 * orbU, vw = this.v - 0.6 * orbV;
+    const uw = this.u - orbU, vw = this.v - orbV;
     // immersion of the real hull in the local sea (heave, pitch and heel included)
     const hy = this.hydro;
     const interp7 = (arr, key, x) => { const f = clamp((x - C.sternX) / (C.bowX - C.sternX) * 6, 0, 5.999), i = Math.floor(f), w = f - i; return arr[i][key] * (1 - w) + arr[i + 1][key] * w; };
     const etaAt = (x) => interp7(W7, 'h', x);
     const slLat = (x) => (interp7(W7, 'sx', x) * sx + interp7(W7, 'sz', x) * sz);
     const slAl = (x) => (interp7(W7, 'sx', x) * fx + interp7(W7, 'sz', x) * fz);
-    const imm = hy.immerse(this.heave, this.pitch, this.phi, etaAt, slLat, this._hy, slAl);
+    // the orbital acceleration along the hull (body axes): the diffraction (added-mass) wave loads
+    const accAt = wv ? (x, o) => { const ax = interp7(W7, 'ax', x), az = interp7(W7, 'az', x); o.a = ax * fx + az * fz; o.l = ax * sx + az * sz; o.v = interp7(W7, 'ay', x); } : null;
+    const imm = hy.immerse(this.heave, this.pitch, this.phi, etaAt, slLat, this._hy, slAl, accAt, wv ? env.waves.ka || 0 : 0);
+    // the water at a foil (body station xb, depth zb < 0): the local orbital velocity there and the drift
+    const wo = this._wo || (this._wo = { u: 0, v: 0 });
+    const waterAt = (xb, zb) => {
+      if (!wv) { wo.u = 0; wo.v = 0; return wo; }
+      const Wv = env.waves, dr = Wv.drift || D0, e1 = Math.exp((Wv.kv || 0) * Math.min(0, zb)), e2 = Math.exp(2 * (Wv.kd || 0) * Math.min(0, zb));
+      const vx = interp7(W7, 'vx', xb) * e1 + dr.x * e2, vz = interp7(W7, 'vz', xb) * e1 + dr.z * e2;
+      wo.u = vx * fx + vz * fz; wo.v = vx * sx + vz * sz; return wo;
+    };
     if (C.multihull) {
       const vh = imm.Vh || [imm.V / 2, imm.V / 2];
       this.flyIn = clamp(Math.min(vh[0], vh[1]) / Math.max(1e-6, Math.max(vh[0], vh[1])), 0, 1);
@@ -759,8 +797,9 @@ export class Boat {
       let board = F.board ? clamp(ctrl.board, 0.05, 1) : 1;
       if (F.twin) board *= 0.5 + 0.5 * this.flyIn;           // the windward board lifts out with its hull
       const area = F.area * board * (this.keelEff ?? 1), ARe = F.ARe * Math.max(0.3, board), zk = F.z * (0.4 + 0.6 * board);
-      const ul = this.u - 0.3 * orbU;
-      const vl = (this.v - 0.3 * orbV + this.r * F.x + this.p * zk) * cphi;
+      const ww = waterAt(F.x, zk * cphi);
+      const ul = this.u - ww.u;
+      const vl = (this.v - ww.v + this.r * F.x + this.p * zk) * cphi;
       const V2 = ul * ul + vl * vl, V = Math.sqrt(V2) + 1e-9;
       foilCoef(Math.atan2(vl, ul), F, ARe, fc);
       keelCl = fc.cl;
@@ -771,10 +810,15 @@ export class Boat {
       d.keelX = kx; d.keelY = kn * cphi; d.keelStall = fc.stalled; d.leeway = Math.atan2(this.v, Math.max(0.05, this.u));
       d.keelARe = ARe;
     }
+    // ---- auxiliary engine: propeller thrust, prop walk, a stopped prop's drag, the outboard's leg and weight, propwash
+    if (this.engine) { const e = this.engine.step(this, dt, uw, vw, cphi, sphi); X += e.X; Y += e.Y; K += e.K; N += e.N; }
     {
       const F = C.rudder;
-      const ul = this.u - 0.5 * orbU;
-      const vl = (this.v - 0.5 * orbV + this.r * F.x + this.p * F.z) * cphi;
+      // (the local water at the stern: surfing on a crest, the water there runs with the boat and the rudder
+      // loses its grip — how a broach starts)
+      const ww = waterAt(F.x, F.z * cphi);
+      const ul = this.u - ww.u + (this.engine ? this.engine.washU : 0);   // (+ the propwash over the blade)
+      const vl = (this.v - ww.v + this.r * F.x + this.p * F.z) * cphi;
       const V2 = ul * ul + vl * vl, V = Math.sqrt(V2) + 1e-9;
       // keel downwash at the rudder; a rudder hung on the keel's trailing edge acts more like a flap
       const eps = 1.2 * keelCl / (Math.PI * d.keelARe) * (ul > 0 ? 1 : 0) * (F.transom ? 0.35 : 1);
@@ -801,8 +845,17 @@ export class Boat {
       const Rr = disp * G * interp(C.rr, Fn) * (C.multihull ? 1 + 0.3 * (1 - this.flyIn) : 1 + 0.5 * this.phi * this.phi) * trimPen;
       let Raw = 0;
       if (wv) {
-        const enc = Math.max(0, -(fx * env.waves.comps[0].dx + fz * env.waves.comps[0].dz));
-        Raw = 0.12 * RHO_W * G * (env.waves.Hs / 2) ** 2 * C.beam * (0.3 + enc) * clamp(Math.abs(uw) / 2, 0, 1);
+        // added resistance in waves comes from the waves about the boat's own length (it rides the long ones
+        // up and down and meets no more resistance): each component's energy through a response peaked at
+        // lambda ~ 1.3 L (Gerritsma & Beukelman's peak), falling to nothing for waves several times longer
+        // (a 5 m hull in a 300 m ocean wave). (Hs/2)^2 = 2 sum A^2 where every wave counts.
+        let z2 = 0, en = 0;
+        for (const c of env.waves.comps) {
+          const lq = Math.log(2 * Math.PI / (c.kRef ?? c.k) / (1.3 * C.lwl)), a = c.A * (c.curAmp ?? 1), a2 = a * a * Math.exp(-lq * lq / 0.5);
+          z2 += a2; en += a2 * Math.max(0, -(fx * c.dx + fz * c.dz));
+        }
+        const enc = z2 > 0 ? en / z2 : 0;                                 // head seas cost the most
+        Raw = 0.12 * RHO_W * G * 2 * z2 * C.beam * (0.3 + enc) * clamp(Math.abs(uw) / 2, 0, 1);
       }
       // going astern the flat transom leads: separated flow, several times the forward drag
       const astern = uw < 0 ? 1 + 3.5 + 0.5 * RHO_W * uw * uw * C.beam * C.freeboard * 0.5 / Math.max(1, Rf + Rr) : 1;
@@ -859,7 +912,53 @@ export class Boat {
     } else K += this.crewMass * G * (this.crewY * cphi + C.crewZ * sphi);
     // Froude-Krylov wave forces on the immersed volume (surfing, wave roll/yaw)
     d.fkX = wv ? RHO_W * G * imm.FKx : 0;
-    if (wv) { X += RHO_W * G * imm.FKx; Y += RHO_W * G * imm.FKy * cphi; N += RHO_W * G * imm.FKn * cphi; }
+    d.diffX = 0; d.diffY = 0; d.brkF = 0;
+    if (wv) {
+      X += RHO_W * G * imm.FKx; Y += RHO_W * G * imm.FKy * cphi; N += RHO_W * G * imm.FKn * cphi;
+      // diffraction: a body in accelerating water feels (rho V + m_a) a (G. I. Taylor 1928); Froude-Krylov
+      // above is the rho V a (at the surface -grad p / rho = g grad eta), this is the added mass's m_a a,
+      // section by section with its depth decay, at the class's added-mass coefficients (sway, surge); the
+      // heave part goes to the heave equation below. Big waves heave, surge and roll the boat by the
+      // inertia of their water, not only by where their surface is.
+      const Dx = C.amX * RHO_W * imm.FAx, Dy = C.amY * RHO_W * imm.FAy;
+      X += Dx; Y += Dy * cphi; N += C.amY * RHO_W * imm.FAn * cphi; K += C.amY * RHO_W * imm.FAk;
+      d.diffX = Dx; d.diffY = Dy;
+      // ---- a breaking crest (WaveField.sample: brk on the upper front quarter of a steep crest). Its top is a
+      // jet of water moving at about the crest's phase speed c = g / w (the lip of a plunger, the roller of a
+      // spilling breaker), a sheet ~0.3 of the local wave height thick. Where it meets the hull's exposed
+      // side it stops against it: impact pressure 1/2 rho C_s v^2 on the area it strikes (v relative to the
+      // hull, C_s = BRK_CS averaged over the slam; peaks are several times it), above the waterline, while the
+      // keel holds the bottom of the boat in the slower water beneath: the trip that knocks a boat down or
+      // rolls it past 90 deg (a transom struck from astern: surge and bow-down pitch, the start of a
+      // pitchpole). The energy behind it: E = rho g H^2 / 8 per m^2 of sea (a 4 m breaker 20 kJ/m^2),
+      // carried at the group speed (~6 m/s: 120 kW per metre of crest); the jet's momentum flux rho c^2 t
+      // (c = 11 m/s, t = 0.5 m) is ~60 kN per metre of crest, so beam-on a small yacht takes far more
+      // than its own weight in thrust for a fraction of a second. How much of that it takes is capped
+      // below by what stops the relative flow within the step (implicit: the boat is carried at most up to
+      // the jet's speed). Model tests after the 1979 Fastnet (Wolfson Unit, SNAME/USYRU 1985): beam-on,
+      // a breaker ~30 % of LOA high knocks a yacht down, ~55 % rolls most of them over; here (C_s set to
+      // that order) 30 % rolls it ~55 deg, 50 % lays it flat past 90 deg (test/knockdown.mjs).
+      let Fy = 0, Fx = 0, Kb = 0, Nb = 0, Mb = 0, Dl = 0, Dr = 0, Da = 0;
+      const dxs = (C.bowX - C.sternX) / 6;
+      for (let i = 0; i < 7; i++) {
+        const s = W7[i]; if (!(s.brk > 0.02)) continue;
+        const xb = xs7[i], L = (i === 0 || i === 6 ? 0.5 : 1) * dxs;
+        // struck height (the topsides, and the deck as the boat lies over), its centre above the waterline
+        const he = Math.min(0.6 * s.Ea, C.freeboard + 0.3 + 0.5 * C.beam * Math.abs(sphi)), zi = 0.5 * he;
+        const jx = 0.9 * s.cbx, jz = 0.9 * s.cbz;                               // the jet, in the water's frame
+        const rl = jx * sx + jz * sz - this.v - this.r * xb - this.p * zi, ra = jx * fx + jz * fz - this.u;
+        const q = 0.5 * RHO_W * BRK_CS * s.brk;
+        const Dy = q * Math.abs(rl) * L * he;
+        Fy += Dy * rl; Kb += Dy * rl * zi * cphi; Nb += Dy * rl * xb; Dl += Dy; Dr += Dy * zi * zi;
+        // the transom from astern, the bow from ahead
+        if ((i === 0 && ra > 0) || (i === 6 && ra < 0)) { const Dxx = q * Math.abs(ra) * C.beam * 0.7 * he; Fx += Dxx * ra; Mb -= Dxx * ra * zi; Da += Dxx; }
+      }
+      if (Dl > 0 || Da > 0) {
+        const sl = Math.min(1, 0.5 * this.m22 / Math.max(1e-9, Dl * dt), 0.5 * this.Ixx / Math.max(1e-9, Dr * dt)), sa = Math.min(1, 0.5 * this.m11 / Math.max(1e-9, Da * dt));
+        Y += Fy * sl; K += Kb * sl; N += Nb * sl; X += Fx * sa; this._brkMy = Mb * sa;
+        d.brkF = Math.hypot(Fx * sa, Fy * sl);
+      } else this._brkMy = 0;
+    } else this._brkMy = 0;
     d.Fb = Fb;
 
     // ---- mast in the water: a sealed spar floats, which is what holds a capsized boat on its side ----
@@ -953,13 +1052,17 @@ export class Boat {
       const cz = 2 * 0.35 * Math.sqrt(kz * this.m33) * Math.min(1, imf);
       // relative to the water surface moving under the hull (wave vertical velocity)
       const wz = wv ? (wv.vy || 0) : 0;
-      this.heaveV += (Fz - cz * (this.heaveV - wz)) / mEff * dt;
+      // (and the added mass the water's vertical acceleration carries: the relative-motion form, m_a (a_w - a))
+      const Fd = wv ? 0.8 * RHO_W * (imm.FAz || 0) : 0;
+      this.heaveV += (Fz + Fd - cz * (this.heaveV - wz)) / mEff * dt;
       this.heave += this.heaveV * dt;
       const crewXm = this.crewX * 0.8 + (C.crewX0 ?? 0);
       let My = RHO_W * G * imm.Mx - W * this.xG - this.crewMass * G * crewXm;
       // bow driven under: green water on the foredeck pushes it down (moment = x * Fz)
       if (imm.deckSub > 0 && uw > 0) { const Fz = -0.5 * RHO_W * uw * uw * C.beam * 0.4 * imm.deckSub; My += C.bowX * 0.6 * Fz; X -= 0.5 * RHO_W * uw * uw * C.beam * 0.15 * imm.deckSub; }
       My -= sailX * (C.boomZ + 2.3);                                            // drive high, drag low: bow down
+      if (this.engine) My += this.engine.My;                                     // thrust low (bow up), the engine's weight
+      if (wv) My += 0.8 * RHO_W * (imm.FAm || 0) + (this._brkMy || 0);         // the water's vertical inertia; a breaker's jet
       My += (this.u > 0 ? 1 : 0) * 0.5 * RHO_W * uw * uw * C.beam * C.lwl * 0.004 * sstep(0.35, 0.6, Fn); // bow lift near planing
       const kp = RHO_W * G * this.Awp * C.lwl * C.lwl / 16;
       const cp2 = 2 * 0.3 * Math.sqrt(kp * this.Iyy) * Math.min(1, imf);

@@ -2,7 +2,7 @@
 // overboard (mob.js) and crew fatigue (fatigue.js) into the loop, the keys, the rig panel's "Boat" section, the
 // alerts, the chart's MOB mark and a race's retirements. Every boat gets damage and fatigue (the AI fleet too:
 // deterministic, seeded by the race); the player's boat also gets the anchor, the lines and the MOB drill.
-// Keys: U anchor (drop / weigh), B lines (make fast alongside or to a mooring buoy / cast off), 0 MOB (the plotter's
+// Keys: U anchor (drop / weigh), 9 lines (make fast alongside or to a mooring buoy / cast off), 0 MOB (the plotter's
 // man-overboard button: marks the spot and steers for it).
 import { DEG, KT } from './env.js';
 import { Damage, makeSeabed, contactImpact, impactPair, recomputeMass } from './damage.js';
@@ -123,10 +123,10 @@ export class Gear {
           } else if (ev.type === 'dismast' || ev.type === 'sunk') g.hud.toast(`${b.name}: ${ev.msg.split(' —')[0].toLowerCase()}`, 2.5);
         }
       }
-      // a race: dismasted, sinking, keel or rudder gone -> retired
-      if (g.race && b.dmg && !b._retired && b.dmg.retire()) {
-        const r = g.race.racers.find((x) => x.boat === b);
-        if (r && !r.finished) { r.retired = true; b._retired = true; if (mine) g.hud.toast('Retired from the race (RET)', 4); }
+      // a race: dismasted, sinking, keel or rudder gone -> retired (the race's one retirement: RET, as for RRS 42)
+      if (g.race && b.dmg && b.dmg.retire()) {
+        const D = b.dmg, why = D.hull.sunk ? 'sunk' : D.rig.down ? 'dismasted' : D.hull.keelLost ? 'keel lost' : D.hull.rudderLost ? 'rudder lost' : 'sinking';
+        if (g.race.retire(b, why) && mine) { g._retT = g.t; g.hud.toast(`Retired from the race (RET: ${why})`, 4); }
       }
     }
   }
@@ -144,14 +144,14 @@ export class Gear {
     if (D.hull.keelLost) return { msg: 'Keel gone — she is on her side', bad: true };
     if (b.anchor && b.anchor.dragging) return { msg: `Anchor dragging in ${b.anchor.bed} — let out more scope or re-anchor`, bad: true };
     if (b.anchor && b.anchor.state !== 'up') return { msg: b.anchor.state === 'weighing' ? 'Weighing anchor' : `At anchor in ${b.anchor.bed} — U to weigh`, bad: false };
-    if (b.moor && b.moor.tied) return { msg: b.moor.kind === 'buoy' ? 'On the mooring — B to slip it' : 'Alongside — B to cast off', bad: false };
+    if (b.moor && b.moor.tied) return { msg: b.moor.kind === 'buoy' ? 'On the mooring — 9 to slip it' : 'Alongside — 9 to cast off', bad: false };
     return null;
   }
 
   // ------------------------------------------------------------------ keys and actions
   onKey(k, e) {
     if (k === 'u') { this.anchorAction(); return true; }
-    if (k === 'b') { this.linesAction(); return true; }
+    if (k === '9') { this.linesAction(); return true; }
     if (k === '0') { this.mobButton(); return true; }
     return false;
   }
@@ -163,7 +163,7 @@ export class Gear {
       if (sog > 1.2 * KT) { g.hud.toast(`${(sog / KT).toFixed(1)} kn is too fast to anchor — head up, stop, then drop it and fall back`, 2.2); return; }
       const depth = g.world.depthAt(b.x, b.z);
       if (depth > A.spec.chain.L + A.spec.rope.L - 2) { g.hud.toast(`${depth.toFixed(0)} m is too deep for ${A.spec.chain.L + A.spec.rope.L} m of rode`, 2.2); return; }
-      if (b.moor && b.moor.tied) { g.hud.toast('Alongside — cast off first (B)', 1.6); return; }
+      if (b.moor && b.moor.tied) { g.hud.toast('Alongside — cast off first (9)', 1.6); return; }
       A.drop(g.world);
     } else if (A.state === 'weighing') { A.state = 'down'; g.hud.toast('Stopped hauling', 1.4); }
     else A.weigh();
@@ -224,7 +224,7 @@ export class Gear {
     const hasA = b.anchor && b.anchor.has;
     el.innerHTML = `<h3>Boat <span class="muted" style="font-weight:500;letter-spacing:.02em;text-transform:none">damage · crew</span><button class="chip" id="g-mode" title="Damage: realistic (loads break gear) or off">Damage</button></h3>
       <div class="dmg" id="g-rows"></div>
-      <div class="toggles acts">${hasA ? '<button class="chip" id="g-anchor" title="Drop / weigh the anchor (U)">Anchor</button>' : ''}<button class="chip" id="g-lines" title="Make fast alongside or to a mooring / cast off (B)">Lines</button><button class="chip mob" id="g-mob" title="Man overboard: mark the spot on the plotter (0)">MOB</button><button class="chip" id="g-pump" hidden>Pump</button><button class="chip" id="g-cut" hidden>Cut away rig</button></div>`;
+      <div class="toggles acts">${hasA ? '<button class="chip" id="g-anchor" title="Drop / weigh the anchor (U)">Anchor</button>' : ''}<button class="chip" id="g-lines" title="Make fast alongside or to a mooring / cast off (9)">Lines</button><button class="chip mob" id="g-mob" title="Man overboard: mark the spot on the plotter (0)">MOB</button><button class="chip" id="g-pump" hidden>Pump</button><button class="chip" id="g-cut" hidden>Cut away rig</button></div>`;
     body.appendChild(el);
     $('#g-mode').addEventListener('click', () => this.setMode(this.mode === 'off' ? 'realistic' : 'off'));
     if (hasA) $('#g-anchor').addEventListener('click', () => this.anchorAction());

@@ -7,6 +7,7 @@ import { buildBoatModel, updateBoatModel } from './models.js';
 import { Rigging, tickGlow } from './rigging.js';
 import { buildStructures, indexFeatures, structureMask } from './structures.js';
 import { HullSplash, SeaSpray, NOISE as FOAM_NOISE } from './splash.js';
+import { buildEngineModel, updateEngineModel } from './engine-model.js';
 import { loadLand, buildTerrain, buildScenery, setSceneryNight, tickScenery } from './scenery.js';
 import { SkySystem, SKY_LUT_GLSL, CLOUD_GLSL, withCloudShadows, sunPosition, MIST_U } from './sky.js';
 import { strikes, flashAt, thunderDue, thunderBearing, boltSegments, convection, heatFromSun, mist, mistTau } from './wx.js';
@@ -24,6 +25,42 @@ uniform vec4 uWb[${MAXW}];
 uniform int uWn;
 uniform float uTime;
 uniform float uK2;   // second-order (Tayfun) coefficient k_m / 2: WaveField.update
+// rogue groups (WaveField.rogueUniforms): per component (rs, rc) of groups 0 and 1; per group the focus and
+// horizontal factor (A), direction and group speed (B), inverse window radii and on (C)
+uniform vec4 uRg[${MAXW}]; uniform vec4 uRgA[2]; uniform vec4 uRgB[2]; uniform vec4 uRgC[2];
+uniform vec4 uBrk; uniform vec2 uDm;   // breaking: (k-bar, S0, S1, lean), the sea's mean direction (WaveField.brk)
+// a group's window here and now: (1 - u^2)^3 along its direction, across it and in time (env.js rgWin)
+float rgWin(int e, vec2 x0) {
+  vec4 C = uRgC[e]; if (C.w < 0.5) return 0.0;
+  vec4 A = uRgA[e], B = uRgB[e];
+  float dt = uTime - A.z, ut = dt * C.z;
+  if (abs(ut) >= 1.0) return 0.0;
+  vec2 r = x0 - A.xy - B.xy * (B.z * dt);
+  vec3 u = vec3(dot(r, B.xy) * C.x, (r.y * B.x - r.x * B.y) * C.y, ut), q = 1.0 - u * u;
+  if (q.x <= 0.0 || q.y <= 0.0) return 0.0;
+  q = q * q * q; return q.x * q.y * q.z;
+}
+// component i with the rogue groups' share (rw: their windows here, rq: times their horizontal factor), per
+// unit of its amplitude factor: (elevation, Hilbert partner, horizontal displacement, compression / k) — a
+// group only changes each component's complex amplitude (WaveField._disp, sample)
+vec4 wcomp(int i, float C, float S, vec2 rw, vec2 rq) {
+  vec4 g = uRg[i]; vec4 b = uWb[i];
+  float P = b.x + rw.x * g.x + rw.y * g.z, Qc = rw.x * g.y + rw.y * g.w;
+  float Ph = b.y * (b.x + rq.x * g.x + rq.y * g.z), Qh = b.y * (rq.x * g.y + rq.y * g.w);
+  return vec4(P * S + Qc * C, P * C - Qc * S, Ph * C - Qh * S, Ph * S + Qh * C);
+}
+// the forward lean of a breaking crest (WaveField._lean): (shift along uDm, d shift / d eta, compression it
+// adds, breaking intensity B). e, hc: first-order height and Hilbert partner; g: grad e; T: Gerstner
+// compression tensor (xx, xz, zz); Bd: depth-limited breaking
+vec4 leanB(float e, float hc, vec2 g, vec3 T, float Bd) {
+  float Ea = sqrt(e * e + hc * hc), B = max(smoothstep(uBrk.y, uBrk.z, uBrk.x * Ea), Bd);
+  if (B <= 0.0 || e <= 0.0) return vec4(0.0, 0.0, 0.0, B);
+  float ie = 1.0 / (Ea + 1e-3);
+  float jd = 1.0 - (uDm.x * uDm.x * T.x + 2.0 * uDm.x * uDm.y * T.y + uDm.y * uDm.y * T.z);
+  float c0 = uBrk.w * B * 2.0 * e * ie, Dl = c0 * dot(uDm, g);
+  float f = Dl < 0.0 ? clamp((jd - 0.25) / -Dl, 0.0, 1.0) : 1.0;
+  return vec4(uBrk.w * B * e * e * ie * f, c0 * f, Dl * f, B);
+}
 // the whitecap measure shared by the water and the persistent-foam pass: a z-score of crest compression
 // (1 - Jacobian, long waves) plus the short waves riding them (which bits break). Scaled by the spread of
 // every wave (T) though a pixel may resolve only some of them (R): the drawn part keeps its place in the
@@ -173,6 +210,9 @@ export class Renderer {
       uPF: { value: this.pfTex }, uHasPF: { value: 0 }, uPFN: { value: 96 },
       uFlow: { value: new THREE.Vector2(0, 1) }, uWind: { value: 6 }, uK2: { value: 0 },
       uHs: { value: 0 }, uJSig: { value: 0.1 }, uLmin: { value: 4 },
+      uRg: { value: Array.from({ length: MAXW }, () => new THREE.Vector4()) }, uRgA: { value: [new THREE.Vector4(), new THREE.Vector4()] },
+      uRgB: { value: [new THREE.Vector4(), new THREE.Vector4()] }, uRgC: { value: [new THREE.Vector4(), new THREE.Vector4()] },
+      uBrk: { value: new THREE.Vector4(0, 0.2, 0.34, 0) }, uDm: { value: new THREE.Vector2(0, 1) },
       uFoam: { value: null }, uFoamC: { value: new THREE.Vector2() }, uFoamS: { value: 320 }, uFoamOff: { value: new THREE.Vector2() }, uFoamOn: { value: 0 },
       uDeep: { value: new THREE.Color(0x0a2f40) }, uShallow: { value: new THREE.Color(0x2e9c9a) },
       fogColor: { value: new THREE.Color(0xb7c8d4) }, fogDensity: { value: 0.00011 },
@@ -185,12 +225,13 @@ export class Renderer {
       uniforms, fog: false,
       vertexShader: /* glsl */`
         ${WAVE_GLSL}
-        uniform vec2 uOffset; uniform vec3 uCam; attribute float spc;
+        uniform vec2 uOffset; uniform vec3 uCam; uniform float uHs; attribute float spc;
         varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore; varying float vBreak;
         void main(){
           vec2 x0 = position.xz + uOffset;
           float dist = length(x0 - uCam.xz);
-          float fade = 1.0 - smoothstep(700.0, 3200.0, dist);
+          // (a giant sea keeps its long waves out to where the grid still draws them: no flat far sea in a storm)
+          float fade = 1.0 - smoothstep(700.0 + 60.0 * uHs, 3200.0 + 250.0 * uHs, dist);
           float h = depthAt(x0);
           float shore = 1.0;
           if (uHasMap > 0.5) {
@@ -205,14 +246,18 @@ export class Renderer {
           vBreak = clamp(Hs / (0.78 * h) - 0.7, 0.0, 1.0);
           vec3 P = vec3(x0.x, 0.0, x0.y);
           float eH = 0.0, s2 = 0.0;                       // Hilbert partner, trochoid self terms (WaveField.sample)
+          vec2 rw = vec2(rgWin(0, x0), rgWin(1, x0)), rq = rw * vec2(uRgA[0].w, uRgA[1].w), ge = vec2(0.0);
+          vec3 Tj = vec3(0.0);                             // grad of the height, compression tensor: the lean
           for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break;
             vec4 a = uWa[i]; vec4 b = uWb[i];
             float th = a.z * dot(a.xy, x0) + phaseOff(i, x0) - a.w * uTime + b.z;
-            float A = b.x * shoal(b.w, h) * cap * fade * shore * smoothstep(3.0 * spc, 6.0 * spc, 6.2832 / a.z);
-            float C = cos(th), S = sin(th);
-            P.x += b.y * A * a.x * C; P.z += b.y * A * a.y * C; P.y += A * S;
-            eH += A * C; s2 += b.y * A * A * (C * C - S * S);
+            float f = shoal(b.w, h) * cap * fade * shore * smoothstep(3.0 * spc, 6.0 * spc, 6.2832 / a.z);
+            vec4 w = wcomp(i, cos(th), sin(th), rw, rq) * f;
+            P.x += a.x * w.z; P.z += a.y * w.z; P.y += w.x;
+            eH += w.y; s2 += b.y * (w.y * w.y - w.x * w.x);
+            ge += a.z * a.xy * w.y; Tj += a.z * w.w * vec3(a.x * a.x, a.x * a.y, a.y * a.y);
           }
+          P.xz += uDm * leanB(P.y, eH, ge, Tj, vBreak).x;  // a breaking crest leans forward
           P.y += uK2 * (P.y * P.y - eH * eH + s2);          // second order: sharper crests, flatter troughs
           vPos = P; vX0 = x0; vFade = fade; vShore = shore;
           gl_Position = projectionMatrix * viewMatrix * vec4(P, 1.0);
@@ -252,24 +297,33 @@ export class Renderer {
           // (R), and the spread of all of them (T) for the rest, which it can only show as a mean
           vec3 n = vec3(0.0, 1.0, 0.0); float J = 1.0, sJ2 = 0.0, Cs = 0.0, sS2 = 0.0, sC = 0.0, sJ2T = 0.0, sS2T = 0.0, sCT = 0.0, lostF = 0.0;
           float e1 = 0.0, eH = 0.0; vec2 gH = vec2(0.0), g2 = vec2(0.0);    // second order: height, Hilbert partner, slopes
+          vec2 rw = vec2(rgWin(0, x0), rgWin(1, x0)), rq = rw * vec2(uRgA[0].w, uRgA[1].w);
+          vec3 Tj = vec3(0.0);
           for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break;
             vec4 a = uWa[i]; vec4 b = uWb[i];
             float th = a.z * dot(a.xy, x0) + phaseOff(i, x0) - a.w * uTime + b.z;
-            float kw = kDepth(b.w, hd);
-            float WAt = kw * b.x * shoal(b.w, hd) * vShore, WA0 = WAt * vFade;
+            float kw = kDepth(b.w, hd), sh = shoal(b.w, hd) * vShore;
+            float WAt = kw * b.x * sh, WA0 = WAt * vFade;
             float att = smoothstep(fp * 2.0, fp * 6.0, 6.2832 / kw);
             lost += (1.0 - att) * WA0 * WA0 * 0.5;
-            float WA = WA0 * att, C = cos(th), S = sin(th), A = WA / kw;
-            n.x -= a.x * WA * C; n.z -= a.y * WA * C; n.y -= b.y * WA * S;
+            // (with the rogue groups' share: elevation, Hilbert partner, -, compression; the statistics below
+            // stay the sea's own, so a group's crest stands out of them as the rare crest it is)
+            vec4 w = wcomp(i, cos(th), sin(th), rw, rq);
+            float fa = sh * vFade * att, kfa = kw * fa;
+            n.x -= a.x * kfa * w.y; n.z -= a.y * kfa * w.y; n.y -= kfa * w.w;
+            Tj += kfa * w.w * vec3(a.x * a.x, a.x * a.y, a.y * a.y);
             // resolved along its own direction (a crest seen end-on survives foreshortening) and only where
             // the geometry still draws it: no whitecap bands on a sea gone flat
-            float fw = fpAlong(a.xy, eRf, eT), WF = WA0 * smoothstep(2.0 * fw, 6.0 * fw, 6.2832 / kw);
-            float jR = b.y * WF, jT = b.y * WAt;
-            J -= jR * S; sJ2 += jR * jR * 0.5; sJ2T += jT * jT * 0.5; lostF += (WAt * WAt - WF * WF) * 0.5;
+            float fw = fpAlong(a.xy, eRf, eT), sF = smoothstep(2.0 * fw, 6.0 * fw, 6.2832 / kw), WF = WA0 * sF;
+            float jR = b.y * WF, jT = b.y * WAt, jS = kw * sh * vFade * sF * w.w;
+            J -= jS; sJ2 += jR * jR * 0.5; sJ2T += jT * jT * 0.5; lostF += (WAt * WAt - WF * WF) * 0.5;
             float ws = smoothstep(80.0, 20.0, 6.2832 / kw);                  // the short waves break on the long crests
-            Cs += ws * jR * S; sS2 += ws * ws * jR * jR * 0.5; sS2T += ws * ws * jT * jT * 0.5; sC += ws * jR * jR * 0.5; sCT += ws * jT * jT * 0.5;
-            e1 += A * S; eH += A * C; gH += a.xy * WA * S; g2 -= a.xy * 4.0 * b.y * A * WA * S * C;
+            Cs += ws * jS; sS2 += ws * ws * jR * jR * 0.5; sS2T += ws * ws * jT * jT * 0.5; sC += ws * jR * jR * 0.5; sCT += ws * jT * jT * 0.5;
+            e1 += fa * w.x; eH += fa * w.y; gH += a.xy * kfa * w.x; g2 -= a.xy * 4.0 * b.y * kfa * fa * w.x * w.y;
           }
+          // a breaking crest: its lean steepens the front face (WaveField._lean); lb.w, its intensity
+          vec4 lb = leanB(e1, eH, -n.xz, Tj, vBreak);
+          n.y = max(n.y + lb.z, 0.05);
           // slope of eta2 = K2 (eta^2 - H^2 + Q-self): n.xz here is minus the first-order slope
           n.xz -= uK2 * (-2.0 * e1 * n.xz + 2.0 * eH * gH + g2);
           // local wind (puffs + land shelter): the short waves answer it within seconds, so puffs read dark
@@ -374,7 +428,8 @@ export class Renderer {
           vec3 col = mix(body + sss, refl, F) + uSunCol * spec * 1.5;
           // ---- whitecaps and foam, Beaufort coverage from the wind (Monahan: W = 3.84e-6 U^3.41), placed
           // on the steepest crests: a z-score of crest compression (1 - Jacobian) against its local spread
-          float Wc = clamp(3.84e-6 * pow(max(lw, 0.0), 3.41), 0.0, 0.3);
+          // (past storm force Monahan's fit is beyond its data; at hurricane force the sea is white: Beaufort 12)
+          float Wc = clamp(3.84e-6 * pow(max(lw, 0.0), 3.41), 0.0, mix(0.3, 0.55, smoothstep(25.0, 34.0, lw)));
           // long waves say where (their crests), the short waves riding them say exactly which bits break
           vec2 zv = crestZV(J, Cs + 0.4 * Cd, vec3(sJ2, sS2 + 0.16 * sdR, sC), vec3(sJ2T, sS2T + 0.16 * sdT, sCT));
           float zc = zv.x;
@@ -423,7 +478,8 @@ export class Renderer {
             float zA = invTail(0.4 * Wc);                                      // active breaking crests
             // (the crests a pixel cannot resolve still break: their variance zv.y widens the threshold, so a
             // far crest carries its share of the whitecaps and the flat far sea the mean of them all)
-            float act = ssV(zA + 0.125, 0.275, zc + (f1 - 0.5) * 1.1, zv.y + 1.21 * v1) * (0.5 + 0.5 * lace);
+            // (a crest far past the threshold, a rogue's, is still torn foam and not paint: its excess is capped)
+            float act = ssV(zA + 0.125, 0.275, min(zc, zA + 0.55) + (f1 - 0.5) * 1.1, zv.y + 1.21 * v1) * (0.5 + 0.5 * lace);
             // residual foam: thinning lace around the crests, and (beyond the foam pass) patches of old foam
             float vb, big = sfbmV(sw * vec2(0.02, 0.05) + vec2(0.0, 3.3), fpQ(vec2(0.02, 0.05), eRf, eT, fl, pr), vb);
             float thrB = 0.5 + 0.12 * invTail(clamp(0.6 * Wc, 1e-4, 0.5));
@@ -435,15 +491,16 @@ export class Renderer {
             float row = floor(ya / 9.0), fy = ya - 9.0 * (row + 0.3 + 0.4 * hash(vec2(row, 3.7)));
             float rh = hash(vec2(row, 1.9)) * 97.0 + 0.5;                      // this row's own noise (off the lattice)
             float fx = fpAlong(fl, eRf, eT), k1 = smoothstep(0.8, 0.3, fx * 0.03), k2 = smoothstep(0.8, 0.3, fx * 0.02), k3 = smoothstep(0.8, 0.3, fx * 0.08);
-            float wdt = 0.3 + 1.2 * mix(0.5, qn(vec2(sw.x * 0.03, rh)), k1);   // half-width, m
+            float hur = smoothstep(25.0, 34.0, lw);                            // hurricane: streaks broaden and merge
+            float wdt = (0.3 + 1.2 * mix(0.5, qn(vec2(sw.x * 0.03, rh)), k1)) * (1.0 + 0.3 * hur);   // half-width, m
             // runs tens of metres long with gaps, beaded with thicker clots every 10-20 m (filtered along the wind)
             float run = ssV(0.575, 0.125, mix(0.5, qn(vec2(sw.x * 0.02, rh + 0.5)), k2), 0.053 * (1.0 - k2 * k2))
                       * (0.35 + 0.65 * ssV(0.5, 0.2, mix(0.5, qn(vec2(sw.x * 0.08, rh + 0.25)), k3), 0.053 * (1.0 - k3 * k3)));
-            float fw = fwY + 0.4 * wdt;                                        // plus a soft edge
+            float fw = fwY + (0.4 + 0.6 * hur) * wdt;                          // plus a soft edge
             // once the footprint spans rows the neighbours' streaks fall in it too: their mean cover
             float line = mix(clamp((min(fy + 0.5 * fw, wdt) - max(fy - 0.5 * fw, -wdt)) / fw, 0.0, 1.0), 2.0 * wdt / 9.0, smoothstep(3.0, 9.0, fwY)) * run;
             float streak = st * line * ssV(0.55, 0.25, f2, v2) * (0.4 + 0.6 * lace);
-            foam = max(act * (0.7 + 0.3 * f2), max(resid, streak * 0.55));
+            foam = max(act * (0.7 + 0.3 * f2), max(resid, streak * (0.55 + 0.1 * hur)));
           }
           foam = max(foam, pers);
           // up close foam is bubbles and holes, not paint (faded out before the bubbles shrink to a pixel)
@@ -454,6 +511,23 @@ export class Renderer {
           #endif
           // depth-limited breaking on real bathymetry
           foam = max(foam, ssV(1.125 - vBreak * 0.9, 0.125, f1 * 0.7 + f2 * 0.3, 0.49 * v1 + 0.09 * v2) * vBreak);
+          // ---- a breaking crest: the roller of whitewater over its top and a little ahead, and white water
+          // cascading down its front face in streaks, sliding down as the crest runs on. Placed by the wave's
+          // phase from the analytic signal (ph: pi/2 at the crest, 0 halfway down the front face, < 0 ahead of
+          // it), so the pattern rides the crest rather than the water; across it, streaks a few % of a wavelength
+          float Ea = sqrt(e1 * e1 + eH * eH);
+          if (lb.w > 0.01 && Ea > 1e-3) {
+            float ph = atan(e1, -eH), kb = max(uBrk.x, 1e-3), acr = dot(x0, vec2(-uDm.y, uDm.x)) * kb * 30.0;
+            float wq = fpAlong(vec2(-uDm.y, uDm.x), eRf, eT) * kb * 30.0, vs;
+            float st = sfbmV(vec2(acr, ph * 1.2 - uTime * 0.5), wq, vs);                  // streaks down the face
+            float rol = smoothstep(0.85, 1.25, ph) * (1.0 - smoothstep(1.7, 2.0, ph));   // the crest's top, a little ahead
+            // (broken along their length, thinning toward the foot of the face)
+            float st2 = st * 0.7 + 0.3 * qn(vec2(acr * 0.4 + 3.1, ph * 4.0 - uTime * 1.3));
+            float cas = smoothstep(-0.3, 0.3, ph) * (1.0 - smoothstep(0.85, 1.25, ph)) * ssV(0.55 + 0.12 * (1.0 - smoothstep(0.0, 1.1, ph)), 0.08, st2, vs);
+            float bk = smoothstep(1.7, 1.9, ph) * (1.0 - smoothstep(1.9, 2.5, ph)) * lace * 0.35;   // torn foam left behind
+            float rt = ssV(0.42, 0.14, st2 * 0.6 + f1 * 0.4, vs + 0.36 * v1);                 // the roller torn into clots
+            foam = max(foam, lb.w * lb.w * min(1.0, max(rol * (0.12 + 0.88 * rt), max(cas * 0.9, bk))));
+          }
           // at a grazing angle the waves no pixel draws hide their own troughs (Smith masking, from the slope
           // variance lostF + mssSub) but not the crests that carry the foam: a sight line skims 1/G1 = 1 + L
           // of surface for each unit it sees, and sees white where any crest it grazes is white (at most 4
@@ -494,7 +568,7 @@ export class Renderer {
     this.foamRT = [mk(), mk()]; this.foamI = 0; this.foamT = null;
     const U = this.waterU, v4 = () => [0, 1, 2, 3].map(() => new THREE.Vector4());
     const fu = { uPrev: { value: null }, uCp: { value: new THREE.Vector2() }, uDt: { value: 0 }, uDrift: { value: new THREE.Vector2() }, uLang: { value: 0 }, uKeep: { value: 0 }, uWake: { value: v4() }, uWakeW: { value: v4() } };
-    for (const k of ['uWa', 'uWb', 'uWn', 'uTime', 'uK2', 'uSdf', 'uWorldR', 'uHasMap', 'uPF', 'uHasPF', 'uPFN', 'uGust', 'uGustO', 'uGustS', 'uFlow', 'uWind', 'uFoamC', 'uFoamS', 'uFoamOff']) fu[k] = U[k];
+    for (const k of ['uWa', 'uWb', 'uWn', 'uTime', 'uK2', 'uRg', 'uRgA', 'uRgB', 'uRgC', 'uBrk', 'uDm', 'uSdf', 'uWorldR', 'uHasMap', 'uPF', 'uHasPF', 'uPFN', 'uGust', 'uGustO', 'uGustS', 'uFlow', 'uWind', 'uFoamC', 'uFoamS', 'uFoamOff']) fu[k] = U[k];
     this.foamU = fu;
     const mat = new THREE.ShaderMaterial({
       uniforms: fu, depthTest: false, depthWrite: false,
@@ -512,18 +586,25 @@ export class Renderer {
           float hd = depthAt(p), shore = 1.0;
           if (uHasMap > 0.5) shore = clamp((texture2D(uSdf, (p + uWorldR) / (2.0 * uWorldR)).r * 255.0 - 128.0) / 60.0, 0.08, 1.0);
           // crest compression as the water shader measures it (waves shorter than the map resolves left out)
-          float J = 1.0, sJ2 = 0.0, Cs = 0.0, sS2 = 0.0;
+          float J = 1.0, sJ2 = 0.0, Cs = 0.0, sS2 = 0.0, e1 = 0.0, eH = 0.0;
+          vec2 rw = vec2(rgWin(0, p), rgWin(1, p)), rq = rw * vec2(uRgA[0].w, uRgA[1].w);
           for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break;
             vec4 a = uWa[i]; vec4 b = uWb[i];
             float th = a.z * dot(a.xy, p) + phaseOff(i, p) - a.w * uTime + b.z;
-            float kw = kDepth(b.w, hd);
-            float WA = kw * b.x * shoal(b.w, hd) * shore * smoothstep(2.0 * cell.x, 4.0 * cell.x, 6.2832 / kw), S = sin(th);
-            J -= b.y * WA * S; sJ2 += b.y * b.y * WA * WA * 0.5;
+            float kw = kDepth(b.w, hd), sh = shoal(b.w, hd) * shore;
+            float fa = sh * smoothstep(2.0 * cell.x, 4.0 * cell.x, 6.2832 / kw), WA = kw * b.x * fa;
+            vec4 w = wcomp(i, cos(th), sin(th), rw, rq);
+            J -= kw * fa * w.w; sJ2 += b.y * b.y * WA * WA * 0.5;
             float ws = smoothstep(80.0, 20.0, 6.2832 / kw);
-            Cs += ws * b.y * WA * S; sS2 += ws * ws * b.y * b.y * WA * WA * 0.5;
+            Cs += ws * kw * fa * w.w; sS2 += ws * ws * b.y * b.y * WA * WA * 0.5;
+            e1 += sh * w.x; eH += sh * w.y;
           }
+          // a breaking crest (WaveField._lean's B) leaves a sheet of foam on the water it has run over
+          float Ea = sqrt(e1 * e1 + eH * eH), ph = atan(e1, -eH);
+          float brk = smoothstep(uBrk.y, uBrk.z, uBrk.x * Ea); brk *= brk * smoothstep(0.6, 1.0, ph) * (1.0 - smoothstep(1.7, 2.1, ph));
           float lw = uWind * texture2D(uGust, (p - uGustO) / uGustS + 0.5).r * 2.0;
-          float Wc = clamp(3.84e-6 * pow(max(lw, 0.0), 3.41), 0.0, 0.3);
+          // (past storm force Monahan's fit is beyond its data; at hurricane force the sea is white: Beaufort 12)
+          float Wc = clamp(3.84e-6 * pow(max(lw, 0.0), 3.41), 0.0, mix(0.3, 0.55, smoothstep(25.0, 34.0, lw)));
           vec2 xd = p - uFoamOff, pr = vec2(-uFlow.y, uFlow.x);
           vec2 sw = vec2(dot(xd, uFlow), dot(xd, pr));
           float f1 = sfbmA(vec2(sw.x * 0.28, sw.y * 0.6), cell.x * 0.28);
@@ -544,7 +625,7 @@ export class Renderer {
           }
           float tau = 3.0 + 6.0 * qn(xd * 0.04 + 1.3);                   // e-folding, patchy: gone in ~5-15 s
           old *= exp(-uDt / vec2(tau, 12.0)) * (1.0 + conv * uDt);
-          float src = act * 2.0 * uDt, wake = 0.0;                       // ~0.5 s of breaking to full cover
+          float src = (act * 2.0 + brk * 2.0) * uDt, wake = 0.0;         // ~0.5 s of breaking to full cover
           for (int i = 0; i < 4; i++) {
             vec4 w = uWake[i]; vec4 ww = uWakeW[i];
             if (ww.y <= 0.0) continue;
@@ -620,6 +701,15 @@ export class Renderer {
     let lmin = 1e9; for (let i = 0; i < n; i++) lmin = Math.min(lmin, 2 * Math.PI / (waves.comps[i].kRef ?? waves.comps[i].k));
     U.uHs.value = waves.Hs || 0; U.uJSig.value = Math.max(0.02, waves.jSigma || 0.1); U.uLmin.value = Math.min(lmin, 12);
     U.uK2.value = waves.k2 || 0;
+    const br = waves.brk;
+    if (br) { U.uBrk.value.set(br.kb, br.S0, br.S1, br.L); U.uDm.value.set(br.dx, br.dz); } else U.uBrk.value.set(0, 0.2, 0.34, 0);
+  }
+  // the rogue groups the water draws this frame: the two nearest the camera (WaveField.rogueUniforms)
+  setRogues(waves, t, cx, cz) {
+    const U = this.waterU, o = waves.rogueUniforms(t, cx, cz, this._rgo || (this._rgo = { sticky: true }));
+    for (let i = 0; i < MAXW; i++) U.uRg.value[i].fromArray(o.rg, i * 4);
+    for (let e = 0; e < 2; e++) { U.uRgA.value[e].fromArray(o.A, 4 * e); U.uRgB.value[e].fromArray(o.B, 4 * e); U.uRgC.value[e].fromArray(o.C, 4 * e); }
+    this.rogues = o.list;
   }
   // spindrift blown off breaking crests around the camera (gale force only)
   _updateSeaSpray(dt, t, env) {
@@ -725,7 +815,8 @@ export class Renderer {
     this.convState = conv;
     this.skySys.setWeather(Math.min(1, 0.95 * oc + conv.cover), cells, drift, t, kts, conv);
     // visibility: heavy rain closes it to ~1-2 km, and the haze turns rain-grey (applied to the fog colour in update)
-    this.scene.fog.density = 0.00011 + 0.0012 * sky.rain;
+    // (and from storm force the air fills with spray: Beaufort 12 "visibility very seriously affected")
+    this.scene.fog.density = 0.00011 + 0.0012 * sky.rain + 0.0006 * clamp((kts - 48) / 22, 0, 1);
     this.waterU.fogDensity.value = this.scene.fog.density;
     this._rainFog = this.rainNow = sky.rain;     // (rainNow: what the listener hears, audio.js)
     // mist and sea fog (wx.mist): a layer at the surface, eased like the clouds
@@ -869,6 +960,7 @@ export class Renderer {
     vis.rigging = new Rigging(boat, vis, { player: !!opts.player });
     vis.player = !!opts.player;
     vis.splash = new HullSplash(this.scene, vis, boat, this.skySys);
+    vis.engineVis = buildEngineModel(boat, vis);        // outboard on its bracket / inboard exhaust (js/engine-model.js)
     this.scene.add(vis.root);
     this.boats.set(boat, vis);
     const wake = new Wake(); this.scene.add(wake.mesh); this.wakes.set(boat, wake);
@@ -959,6 +1051,7 @@ export class Renderer {
     const snap = 4;
     this.waterU.uOffset.value.set(Math.round(cam.x / snap) * snap, Math.round(cam.z / snap) * snap);
     this.waterU.uTime.value = t;
+    if (env.wavesOn && env.waves.rogueUniforms) this.setRogues(env.waves, t, player ? player.x : cam.x, player ? player.z : cam.z);
     tickGlow(performance.now() / 1000);
     // sky, sun or moon light, exposure, reflections; the shadow-casting light follows the player
     if (player) { this.skySys._px = player.x; this.skySys._pz = player.z; }
@@ -998,6 +1091,7 @@ export class Renderer {
     }
     for (const [b, vis] of this.boats) {
       updateBoatModel(vis, b, t);
+      if (vis.engineVis) updateEngineModel(vis, b, t, dt);
       // detail near the camera: ropes only where they can be seen
       const dist = Math.hypot(b.x - cam.x, b.z - cam.z);
       const near = vis.player || dist < 150;
@@ -1052,7 +1146,15 @@ export class Renderer {
       const px = c.tx - Math.sin(yaw) * Math.cos(c.pitch) * d, pz = c.tz + Math.cos(yaw) * Math.cos(c.pitch) * d;
       let py = Math.max(1.2, c.hs + 2 + Math.sin(c.pitch) * d);
       if (env && env.waves && env.waves.height) {
-        const floor = env.waves.height(px, pz, t) + 1.1 + 0.03 * d;   // rises at once, settles slowly
+        let floor = env.waves.height(px, pz, t) + 1.1 + 0.03 * d;   // rises at once, settles slowly
+        // a big sea: no crest between the lens and the boat (the line of sight clears each by a metre or two)
+        if (env.wavesOn && (env.waves.Hs || 0) > 1.5) {
+          const ty = lerp(c.hs, bh, 0.4) + C0.freeboard + 0.6;
+          for (const f of [0.3, 0.55, 0.8]) {
+            const need = env.waves.height(lerp(px, c.tx, f), lerp(pz, c.tz, f), t) + 1 + 0.05 * env.waves.Hs;
+            floor = Math.max(floor, ty + (need - ty) / (1 - f));
+          }
+        }
         c.floor = c.floor === undefined ? floor : Math.max(floor, c.floor + (floor - c.floor) * (1 - Math.exp(-dt * 3)));
         py = Math.max(py, c.floor);
       }
