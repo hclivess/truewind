@@ -5,7 +5,7 @@
 import { noise2 } from './env.js';
 
 export const VENUES = [
-  { id: 'progreso', name: 'Puerto Progreso', place: 'Progreso, Yucatán, Mexico', lat: 21.315, lon: -89.668, R: 8000, wind: 70, windKt: 14, depth: 6.5, shelf: 1400,
+  { id: 'progreso', features: true, name: 'Puerto Progreso', place: 'Progreso, Yucatán, Mexico', lat: 21.315, lon: -89.668, R: 8000, wind: 70, windKt: 14, depth: 6.5, shelf: 1400,
     current: { kt: 0.4, dir: 270 }, spawn: { lat: 21.2925, lon: -89.6635, heading: 330 },
     note: 'Gulf of Mexico trade-wind sea breeze over the shallow Yucatán shelf, beside the 6.5 km Progreso pier — the longest in the world.' },
   { id: 'solent', name: 'The Solent', place: 'Cowes, Isle of Wight, UK', lat: 50.772, lon: -1.285, wind: 225, windKt: 13, depth: 14, current: { kt: 1.2, dir: 90 }, note: 'Home of Cowes Week. Strong tides along the shore, Bramble Bank shallows.' },
@@ -22,6 +22,8 @@ export const VENUES = [
   { id: 'auckland', name: 'Hauraki Gulf', place: 'Auckland, New Zealand', lat: -36.83, lon: 174.82, wind: 230, windKt: 15, depth: 18, note: 'Waitematā Harbour entrance, Rangitoto to the north.' },
   { id: 'marseille', name: 'Rade de Marseille', place: 'Marseille, France', lat: 43.27, lon: 5.33, wind: 315, windKt: 20, depth: 40, note: 'Mistral country. Frioul islands offshore.' },
   { id: 'meredith', name: 'Lake Meredith', place: 'near Amarillo, Texas, USA', lat: 35.69, lon: -101.565, wind: 200, windKt: 14, depth: 25, note: 'Panhandle lake near Amarillo, where Blue Water Boatworks built the Blackwatch 19/24.' },
+  { id: 'southern', name: 'Southern Ocean', place: 'Drake Passage, south of Cape Horn', lat: -57.5, lon: -66.5, wind: 285, windKt: 45, swell: 7, depth: 4000, open: true, preset: true,
+    note: 'The Furious Fifties: a westerly gale with nothing to stop it, a big swell from the west under the local sea, and now and then a rogue.' },
   { id: 'open', name: 'Open Water', place: 'No land in sight', lat: 0, lon: 0, wind: 0, windKt: 12, depth: 200, open: true, note: 'Just you, the wind and the waves.' },
 ];
 

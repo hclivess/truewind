@@ -22,10 +22,11 @@ export function catmull(pts, n) {
 }
 
 const HULL_PARAMS = {
-  blackwatch: { tm: 0.5, tr: 0.62, be: 0.72, sheerBow: 0.3, sheerStern: 0.12, stemRake: 0.55, transomRake: 0.35, flare: 0.5, flat: 0.25, sternDepth: 0.05, crown: 0.07 },
-  sportboat: { tm: 0.42, tr: 0.84, be: 0.8, sheerBow: 0.1, sheerStern: 0.02, stemRake: 0.02, transomRake: -0.06, flare: 0.25, flat: 0.8, sternDepth: 0.35, crown: 0.05 },
+  blackwatch: { tm: 0.5, tr: 0.62, be: 0.72, sheerBow: 0.25, sheerStern: -0.04, stemRake: 0.38, transomRake: 0.2, flare: 0.5, flat: 0.25, sternDepth: 0.05, crown: 0.07 },
+  sportboat: { tm: 0.42, tr: 0.84, be: 0.8, sheerBow: 0.14, sheerStern: -0.18, stemRake: 0.02, transomRake: -0.02, flare: 0.25, flat: 0.8, sternDepth: 0.35, crown: 0.05 },
   dinghy: { tm: 0.45, tr: 0.72, be: 0.7, sheerBow: 0.18, sheerStern: 0.0, stemRake: 0.2, transomRake: 0.0, flare: 0.3, flat: 0.75, sternDepth: 0.35, crown: 0.06 },
-  cat: { tm: 0.5, tr: 0.35, be: 0.9, sheerBow: 0.25, sheerStern: 0.05, stemRake: 0.05, transomRake: 0.0, flare: 0.1, flat: 0.15, sternDepth: 0.4, crown: 0.12 },
+  // Hobie 16: banana hulls, the keel line one long curve (rocker) from the upswept stern to the bow
+  cat: { tm: 0.5, tr: 0.35, be: 0.9, sheerBow: 0.25, sheerStern: 0.14, stemRake: 0.05, transomRake: 0.0, flare: 0.1, flat: 0.15, sternDepth: 0.4, crown: 0.12, rocker: 0.55 },
 };
 
 // Lines of one hull. depthScale lets the hydrostatic calibration match the real displacement.
@@ -34,7 +35,8 @@ export function linesFor(C, depthScale = C._depthScale ?? 1) {
   const B = (C.hullBeam ?? C.beam) / 2, F = C.freeboard, D = C.canoeDraft * depthScale;
   const bDeck = (t) => B * (t < H.tm ? lerp(H.tr, 1, Math.sin(t / H.tm * Math.PI / 2) ** 0.85) : Math.pow(Math.max(0, Math.cos(Math.min(1, (t - H.tm) / (1 - H.tm)) * Math.PI / 2)), H.be));
   const sheer = (t) => F * (1 + H.sheerBow * sstep(0.45, 1, t) ** 1.6 + H.sheerStern * sstep(0.45, 0, t) ** 1.5 - 0.05 * Math.sin(Math.PI * t));
-  const keelZ = (t) => -D * (t < 0.12 ? lerp(H.sternDepth, 1, sstep(0, 0.12, t)) : t > 0.7 ? lerp(1, 0, sstep(0.7, 1.0, t)) : 1);
+  const keelZ = H.rocker ? (t) => -D * Math.max(0, 1 - H.rocker * ((t - 0.46) / 0.54) ** 2) * (1 - sstep(0.8, 1.0, t) ** 2)
+    : (t) => -D * (t < 0.12 ? lerp(H.sternDepth, 1, sstep(0, 0.12, t)) : t > 0.7 ? lerp(1, 0, sstep(0.7, 1.0, t)) : 1);
   const flareAt = (t) => H.flare * sstep(0.55, 0.95, t);
   const flatAt = (t) => lerp(0.15, H.flat, sstep(0.95, 0.35, t));
   const longKeel = C.keel && C.keel.long ? (t) => {
@@ -95,10 +97,15 @@ function buildStations(C, nStations) {
 //   heave: boat origin height (m, + up); pitch: bow-up (rad); phi: heel (+ starboard down)
 //   etaAt(x): water height at body station x; slopeLatAt(x): d(eta)/d(starboard); slopeAlongAt(x): d(eta)/d(forward)
 // Returns immersed volume and its moments, Froude-Krylov wave forces, wetted girth-length and
-// the dynamic waterline length.
-function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt) {
-  const cp = Math.cos(phi), sp = Math.sin(phi);
+// the dynamic waterline length. Strip theory for the wave loads: each section's immersed volume times the
+// water's pressure gradient there, -grad p / rho = g grad eta at the surface (Froude-Krylov), and times the
+// orbital acceleration (accAt(x, o): o.a along, o.l to starboard, o.v up) for the diffraction (added-mass)
+// part, both decaying as e^{k z} to the section's centroid depth (k = ka, the acceleration spectrum's mean).
+// (FA*: sum vol a; FAn, FAm: its moments about x = 0 (yaw, pitch); FAk: the lateral part's roll moment arm.)
+function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt, accAt, ka = 0) {
+  const cp = Math.cos(phi), sp = Math.sin(phi), ac = ACC;
   let V = 0, My = 0, Mx = 0, girthLen = 0, xmin = 1e9, xmax = -1e9, FKx = 0, FKy = 0, FKn = 0;
+  let FAx = 0, FAy = 0, FAn = 0, FAz = 0, FAm = 0, FAk = 0;
   const Vh = out.Vh || (out.Vh = [0, 0]); Vh[0] = 0; Vh[1] = 0;
   let deckSub = 0;
   for (const st of stations) {
@@ -119,13 +126,20 @@ function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, sl
     Mx += vol * st.x;
     girthLen += girth * st.dx;
     xmin = Math.min(xmin, st.x - st.dx / 2); xmax = Math.max(xmax, st.x + st.dx / 2);
-    if (slopeAlongAt) { const sa = slopeAlongAt(st.x); FKx -= vol * sa; FKy -= vol * sl; FKn -= vol * sl * st.x; }
+    const dec = ka > 0 ? Math.exp(ka * Math.min(0, -yc * sp + zc * cp - zw)) : 1;   // e^{k z} at the centroid
+    if (slopeAlongAt) { const sa = slopeAlongAt(st.x), vd = vol * dec; FKx -= vd * sa; FKy -= vd * sl; FKn -= vd * sl * st.x; }
+    if (accAt) {
+      accAt(st.x, ac); const vd = vol * dec;
+      FAx += vd * ac.a; FAy += vd * ac.l; FAn += vd * ac.l * st.x; FAz += vd * ac.v; FAm += vd * ac.v * st.x; FAk += vd * ac.l * zc;
+    }
   }
   out.V = V; out.My = My; out.Mx = Mx; out.girthLen = girthLen; out.lwl = xmax > xmin ? xmax - xmin : 0;
   out.FKx = FKx; out.FKy = FKy; out.FKn = FKn; out.deckSub = deckSub;
+  out.FAx = FAx; out.FAy = FAy; out.FAn = FAn; out.FAz = FAz; out.FAm = FAm; out.FAk = FAk;
   return out;
 }
 
+const ACC = { a: 0, l: 0, v: 0 };
 // Where the local water surface cuts each station's section: [x, y1, z1, y2, z2, ...] per station
 function waterlineStations(stations, heave, pitch, phi, etaAt, slopeLatAt) {
   const cp = Math.cos(phi), sp = Math.sin(phi), out = [];
@@ -155,8 +169,8 @@ export class HullHydro {
     const r = this.immerse(0, 0, 0, () => 0, () => 0, {});
     this.restWetted = r.girthLen; this.restLwl = Math.max(0.5, r.lwl); this.restV = r.V;
   }
-  immerse(heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt = null) {
-    return immerseStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt);
+  immerse(heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt = null, accAt = null, ka = 0) {
+    return immerseStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt, accAt, ka);
   }
   waterline(heave, pitch, phi, etaAt, slopeLatAt) { return waterlineStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt); }
 }
