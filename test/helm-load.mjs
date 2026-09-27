@@ -20,7 +20,7 @@ const check = (ok, msg) => { console.log((ok ? 'ok   ' : 'FAIL ') + msg); if (!o
   const cs = foilCoef(R, st, 25 * DEG, V, g, 1, {}), Qs = stockTorque(cs.cn, q, g.area, R.chord, cs.xcp, 0.2);
   check(cs.xcp > 0.35 && Qs < 2 * Qb, `stalled, the centre of pressure goes aft (x_cp ${cs.xcp.toFixed(2)} c) and the balanced blade loads up again: ${Qs.toFixed(1)} N m`);
 }
-// 2. the J/70 upwind in 12 kn: the tiller force (with the extension held a third of its length out), at the helm that
+// 2. the J/70 upwind in 12 kn: the tiller force (the extension pushes the tiller's end), at the helm that
 // holds the course in this model and at the 3 deg of weather helm J/70 tuning guides aim for
 {
   const run = (fixed) => {

@@ -262,12 +262,15 @@ export class RigStructure {
       this.u0[5 * i] = (R.prebend || 0) * Math.sin(Math.PI * s); this.u0[5 * i + 1] = (R.prebend || 0) * Math.PI / L * Math.cos(Math.PI * s);
     }
     this.count = 0; this.every = 4; this.ready = false;
+    // the cloth's luffs follow the solved mast and stays (off: the old parametric bow and sag, for comparison)
+    this.feedLuff = RigStructure.feedLuff ?? true; this.feedStay = RigStructure.feedStay ?? true;
     this.loads = {};
     this.bendN = 0; this.sagN = 0; this.bendMM = 0; this.sagMM = 0;
     // (the dock tune depends only on the class: found once, shared by every boat of it)
     const tc = TUNE.get(C);
     if (tc && tc.spec === R) { this.wires.forEach((w, k) => { w.L0 = tc.L0[k]; w.Lrest0 = w.Lrest = tc.Lrest0[k]; w.T = tc.T[k]; }); this.u.set(tc.u); }
     else { this.tune(); TUNE.set(C, { spec: R, L0: this.wires.map((w) => w.L0), Lrest0: this.wires.map((w) => w.Lrest0), T: this.wires.map((w) => w.T), u: Float64Array.from(this.u) }); }
+    this.u0dock = Float64Array.from(this.u);
     this.luffRound = TUNE.get(C).luffRound ?? (TUNE.get(C).luffRound = this.designLuffRound());
   }
 
@@ -593,17 +596,17 @@ export class RigStructure {
   }
 
   // The luff round a sailmaker cuts into the main: the mast's bend (mid-luff, against the luff's chord) sailing upwind
-  // in its design breeze (~12 kn true, 50 Pa apparent), moderate vang: the sail sets at its moulded depth there, and
+  // in its design breeze (~12 kn true, 50 Pa apparent), backstay and vang half on: the sail sets at its moulded depth there, and
   // flattens as the mast bends more. Never less than the 0.6% of the luff the cloth was cut with before.
   designLuffRound() {
     const C = this.C, M = C.sails.find((s) => s.key === 'main');
     if (!M) return 0;
     const q = 50, W = 1.05 * q * M.area, zs = [0.17, 0.5, 0.82].map((f) => C.boomZ + f * M.luff), wts = [0.43, 0.34, 0.23];
     const fake = { diag: { strips: { main: wts.map((w, i) => ({ Fx: 0.1 * W * w, Fn: W * w, zs: zs[i] })) }, shape: { main: wts.map(() => ({ ang: 0.1, d: 0.12 })) },
-      rig: { mainLoad: 0.6 * W }, qMid: q }, ctrl: { vang: 0.5, backstay: 0.3 }, reefPos: 0, side: {}, sailBy: { main: M }, booms: {} };
+      rig: { mainLoad: 0.6 * W }, qMid: q }, ctrl: { vang: 0.5, backstay: 0.5 }, reefPos: 0, side: {}, sailBy: { main: M }, booms: {} };
     this.F.fill(0); this.gravityLoads(1, 0); this.loads.halyard = {};
     this.sailLoads(fake, M, null);
-    for (const w of this.wires) w.Lrest = w.Lrest0 - (w.adjust ? w.adjust * 0.3 : 0);
+    for (const w of this.wires) w.Lrest = w.Lrest0 - (w.adjust ? w.adjust * 0.5 : 0);
     const u0 = Float64Array.from(this.u);
     for (let r = 0; r < 4; r++) this.solve(8);
     const us = this.us; this.us = null;
@@ -897,6 +900,9 @@ export class RigStructure {
     this.count++;
     const every = b.lod >= 2 || !b.sailSys ? 12 : b.lod >= 1 ? 8 : 4;
     if (this.ready && this.count % every !== 0) return;
+    // (while a cloth-sailed boat is set aside at L2 for a moment, the strip model sailing, the rig stays as the cloth
+    // left it: the cloth flies on from there when it comes back)
+    if (this.ready && ((b.sailSys && !b.sailSys.active(b)) || (b.lod >= 2 && b.sailModel && b.sailModel !== 'strip'))) return;
     const C = this.C;
     // the rotating mast turns toward where the luff pulls it (over ~0.3 s)
     if (this.spec.rotating) this.rot += (this.rotTarget - this.rot) * clamp(dt * every / 0.3, 0, 1);
@@ -945,19 +951,23 @@ export class RigStructure {
     } else if (this.converged) uGood.set(this.u);
     this.failed = bad; this.loadFrac = frac;
     // (while the cloth is set aside, the strip model sailing at L2, its luff stays where it was: it flies on from there)
-    const frozen = b.sailSys && !b.sailSys.active(b);
+    const frozen = (b.sailSys && !b.sailSys.active(b)) || (b.lod >= 2 && b.sailModel && b.sailModel !== 'strip');
     // the shape the sails' luffs follow: eased toward the solution (~0.3 s, at most ~0.3 m/s). A cloth whose pinned luff
     // is jerked answers with a jerk in its pins' loads: moved at once, the luff and the rig would feed each other.
     const us = this.us || (this.us = Float64Array.from(this.u)), ku = clamp(dt * every / 0.3, 0, 1), cap = 0.3 * dt * every;
     if (!frozen) for (let i = 0; i < us.length; i++) us[i] += clamp((this.u[i] - us[i]) * ku, -cap, cap);
     for (const st of Object.values(this.stays)) st.Ts = st.Ts === undefined ? st.T : st.Ts + (st.T - st.Ts) * ku;
+    // the shapes the sails and the drawing follow are the rig's deflection from its dock tune: the sails were cut for
+    // the rig as tuned (its rake and pre-bend), and the model is drawn as it stands at the dock
+    const ur = this.ur || (this.ur = new Float64Array(us.length));
+    for (let i = 0; i < us.length; i++) ur[i] = us[i] - this.u0dock[i];
     this.ready = true;
     this.outputs(b);
   }
 
   // mast displacement (x, y) at height z (Hermite between nodes) -> out; + the track's offset for rotation
   mastDisp(z, out) {
-    const zz = this.z, u = this.us || this.u; let i = 0;
+    const zz = this.z, u = this.ur || this.us || this.u; let i = 0;
     while (i < this.nm - 2 && zz[i + 1] < z) i++;
     const L = zz[i + 1] - zz[i], t = clamp((z - zz[i]) / L, 0, 1);
     const h1 = 1 - 3 * t * t + 2 * t * t * t, h2 = (t - 2 * t * t + t * t * t) * L, h3 = 3 * t * t - 2 * t * t * t, h4 = (-t * t + t * t * t) * L;
@@ -969,8 +979,14 @@ export class RigStructure {
   }
   // where the main's luff is at height z (rig frame): the mast's axis displaced, the track aft of it, turned with a
   // rotating mast
+  // (the luff takes the mast's bend between its tack and its head: its bow against the chord from gooseneck to head;
+  // the whole spar leaning, which moves the head and the boom together, leaves the sail's cut as it is)
   luffAt(z, out) {
-    this.mastDisp(z, out);
+    const C = this.C, M = this._M || (this._M = C.sails.find((s) => s.key === 'main')), z0 = C.boomZ, z1 = Math.min(this.zTop, z0 + (M ? M.luff : 5));
+    const a = this._la || (this._la = [0, 0, 0]), b = this._lb || (this._lb = [0, 0, 0]);
+    this.mastDisp(z0, a); this.mastDisp(z1, b); this.mastDisp(z, out);
+    const f = clamp((z - z0) / (z1 - z0), 0, 1);
+    out[0] -= a[0] + (b[0] - a[0]) * f; out[1] -= a[1] + (b[1] - a[1]) * f;
     const c = Math.cos(this.rot), s = Math.sin(this.rot);
     out[0] += this.axisX - this.track * c; out[1] += this.track * s;
     return out;
@@ -980,10 +996,19 @@ export class RigStructure {
   stayAt(key, v, out) {
     const st = this.stays[key]; if (!st || !st.M) return null;
     const pa = this._pa || (this._pa = [0, 0, 0]), pb = this._pb || (this._pb = [0, 0, 0]);
-    this.pos(st.a, this.us || this.u, pa); this.pos(st.b, this.us || this.u, pb);
+    const uu = this.ur || this.us || this.u;
+    this.pos(st.a, uu, pa); this.pos(st.b, uu, pb);
     const Ns = 16, f = clamp(v, 0, 1) * Ns, k = Math.min(Ns - 1, Math.floor(f)), w = f - k, M = st.M, T = Math.max(50, st.Ts ?? st.T);
     for (let c = 0; c < 3; c++) out[c] = pa[c] + (pb[c] - pa[c]) * v + ((1 - w) * M[3 * k + c] + w * M[3 * k + 3 + c]) / T;
     return out;
+  }
+
+  // a stay's largest sag (m), eased: what its sail's luff takes
+  staySag(key) {
+    const st = this.stays[key]; if (!st || !st.M) return 0;
+    let mx = 0; const T = Math.max(50, st.Ts ?? st.T);
+    for (let k = 0; k <= 16; k++) mx = Math.max(mx, hyp3(st.M[3 * k], st.M[3 * k + 1], st.M[3 * k + 2]) / T);
+    return mx;
   }
 
   outputs(b) {

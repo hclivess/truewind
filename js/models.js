@@ -859,11 +859,14 @@ export function buildBoatModel(boat, opts = {}) {
   const mast = new THREE.Mesh(mg, mastMat);
   mast.position.copy(V(C.mastX, 0, mastBase)); mast.castShadow = true; rig.add(mast);
   mast.userData.base = Float32Array.from(mg.attributes.position.array);
+  let sleeve = null;
   if (C.id === 'dinghy') {
     rigKit.add(M.alu(), new THREE.CylinderGeometry(0.034, 0.034, 0.05, 14).translate(0, mastBase + joint, -C.mastX)); // joint collar
     // the sail's luff sleeve round the mast from the tack to the head
     const ML = boat.sailBy.main.luff;
-    rigKit.add(M.cream(), new THREE.CylinderGeometry(0.043, 0.047, ML * 0.97, 14, 1, true).translate(0, C.boomZ + ML * 0.485 + 0.03, -(C.mastX + 0.004)));
+    // (its own mesh, many rings: it bends with the mast)
+    const slg = new THREE.CylinderGeometry(0.043, 0.047, ML * 0.97, 14, 24, true).translate(0, C.boomZ + ML * 0.485 + 0.03, -(C.mastX + 0.004));
+    sleeve = new THREE.Mesh(slg, M.cream()); sleeve.castShadow = true; rig.add(sleeve); sleeve.userData.base = Float32Array.from(slg.attributes.position.array);
   } else rigKit.box(M.black(), 0.012, mastLen * 0.95, 0.012, V(C.mastX - r0 * 1.2, 0, mastBase + mastLen * 0.5)); // luff track
   if (C.id === 'sportboat') { // white bands: at the gooseneck, at the top of the mainsail hoist and at the mast foot
     for (const [z, h] of [[C.boomZ + 0.05, 0.03], [C.boomZ + boat.sailBy.main.luff + 0.05, 0.03], [mastBase + 0.15, 0.02]])
@@ -976,7 +979,7 @@ export function buildBoatModel(boat, opts = {}) {
     root.add(sp);
   }
   return { root, inner, hull, deck, booms, sailMeshes, rudderPivot, rudderPivots, keelMesh, telltales, windex, rig, sprit, extension, tillerEnd,
-    lines: Lx, deckH, ck, chain, stay, mastBase, mast, standing };
+    lines: Lx, deckH, ck, chain, stay, mastBase, mast, sleeve, standing };
 }
 
 function buildCatStructure(kit, inner, C, Lx, deckH) {
@@ -1114,7 +1117,7 @@ function placeRod(m, a, b, r) {
   m.visible = true; m.position.copy(_sa); m.quaternion.setFromUnitVectors(_up, _sd.multiplyScalar(1 / L)); m.scale.set(r, L, r);
 }
 function updateStanding(st, b) {
-  const rs = b.rigStruct, u = rs.us || rs.u, a = st.a, c = st.b;
+  const rs = b.rigStruct, u = rs.ur || rs.us || rs.u, a = st.a, c = st.b;
   for (const { w, m, r } of st.wires) { rs.pos(w.a, u, a); rs.pos(w.b, u, c); placeRod(m, a, c, r); }
   for (const { tp, m } of st.sprs) {
     const k = tp.node, d = k.dof, base = [0, 0, 0]; rs.mastDisp(tp.sp.z, base);
@@ -1154,6 +1157,18 @@ function bendMast(vis, b) {
   }
   pos.needsUpdate = true;
   m.geometry.computeVertexNormals();
+  // the Laser's luff sleeve round it (rig-group coordinates: y is the height above the waterline)
+  const sl = vis.sleeve;
+  if (sl && sl.userData.base) {
+    const sb = sl.userData.base, sa = sl.geometry.attributes.position.array;
+    lastY = NaN;
+    for (let i = 0; i < sb.length; i += 3) {
+      const Y = sb[i + 1];
+      if (Y !== lastY) { rs.mastDisp(Y, P); dx = P[0]; dy = P[1]; lastY = Y; }
+      sa[i] = sb[i] + dy; sa[i + 1] = Y; sa[i + 2] = sb[i + 2] - dx;
+    }
+    sl.geometry.attributes.position.needsUpdate = true; sl.geometry.computeVertexNormals();
+  }
 }
 
 // ================================================================== per-frame

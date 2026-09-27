@@ -63,8 +63,8 @@ function clCav(sigma, tc) {
 // an entry gets defaults from its CLASSES geometry. (sources in the comments; 'est.' = estimated from photos/drawings)
 export const FOIL_DATA = {
   // J/70: cast-iron fin under a lead torpedo bulb (ballast 285 kg, J/Boats), NACA 00-series fin ~10%; transom-hung
-  // high-aspect moulded blade on gudgeons, its axis a few percent of the chord behind the leading edge (est.)
-  sportboat: { keel: { tc: 0.1, root: 'hull', bulb: { len: 1.3, dia: 0.26 } }, rudder: { tc: 0.12, root: 'surface', balance: 0.04 } },
+  // high-aspect moulded blade on gudgeons, its axis just behind the leading edge (est.)
+  sportboat: { keel: { tc: 0.1, root: 'hull', bulb: { len: 1.3, dia: 0.26 } }, rudder: { tc: 0.12, root: 'surface', balance: 0.02 } },
   // Laser/ILCA: parallel daggerboard ~9%, slides in its trunk; kick-up blade in the aluminium stock, raked forward
   // when down so its axis sits ~12% behind the leading edge (est. from the class drawings)
   dinghy: { keel: { tc: 0.09, root: 'hull', board: 'dagger' }, rudder: { tc: 0.1, root: 'surface', balance: 0.12, kickUp: true } },

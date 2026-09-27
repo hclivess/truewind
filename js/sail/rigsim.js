@@ -219,6 +219,7 @@ class ClothRig {
   }
 }
 const wrapA = (a) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
+const nu1 = (r) => r.nu - 1;
 
 // A sail set on a boom: the main (luff on the mast, boom on the gooseneck, sheet to the traveller car, vang,
 // topping lift) or the Blackwatch's self-tacking staysail (luff on the inner forestay, club on the tack).
@@ -289,11 +290,11 @@ export class BoomSailRig extends ClothRig {
     const luff = this.luff0 * (1 + 0.006 * ((this.isMain ? ctrl.cunn : 0.3) - 0.3) - 0.06 * slack);
     const bend = this.lroundK * bendRig;
     // (with the rig's structure solved, the luff follows the mast's solved shape, or the stay's sag: js/rig-structure.js)
-    const rs = b.rigStruct && b.rigStruct.ready ? b.rigStruct : null, P = this._q, onStay = rs && !this.isMain && rs.stays[s.key] && rs.stays[s.key].M;
+    const rs = b.rigStruct && b.rigStruct.ready && b.rigStruct.feedLuff ? b.rigStruct : null, P = this._q, onStay = rs && !this.isMain && rs.stays[s.key] && rs.stays[s.key].M;
     for (let j = 0; j < nv; j++) {
       const v = j / (nv - 1), n = c.node(0, j), z = this.pz + v * luff;
       if (rs && this.isMain) { rs.luffAt(z, P); c.pin(n, P[0], P[1], z); }
-      else if (onStay) { rs.stayAt(s.key, v, P); c.pin(n, P[0], P[1], z); }
+      else if (onStay) { const sg = rs.staySag(s.key) * 4 * v * (1 - v), sd = Math.sign(c.x[1 + 3 * c.node(nu1(this), 0)] || 1); c.pin(n, this.px - this.rake * v - 0.3 * sg, 0.95 * sd * sg, z); }
       else c.pin(n, this.px - this.rake * v + bend * Math.sin(Math.PI * v), 0, z);
     }
     // outhaul: the clew's place on the boom
@@ -372,12 +373,14 @@ export class JibRig extends ClothRig {
     // the luff on the stay, sagging to leeward and a little aft under load (less with backstay tension)
     const cl = 3 * this.clew, side = Math.sign(c.x[cl + 1]) || this.side;
     const dx = -0.3, dy = 0.95 * side;
-    // (with the rig's structure solved: the stay between its displaced ends, sagging where its load puts it)
-    const rs = b.rigStruct && b.rigStruct.ready && b.rigStruct.stays[s.key] && b.rigStruct.stays[s.key].M ? b.rigStruct : null, P = this._p;
+    // (with the rig's structure solved, the stay sags as far as its tension and its load make it: js/rig-structure.js.
+    // The cloth takes that sag to leeward and a little aft, where the hanks' load puts it: fed the load's own direction
+    // too, the luff and its load chase each other through the level switches' fresh cloths)
+    const rs = b.rigStruct && b.rigStruct.ready && b.rigStruct.feedStay && b.rigStruct.stays[s.key] && b.rigStruct.stays[s.key].M ? b.rigStruct : null;
+    if (rs) sagM = rs.staySag(s.key);
     for (let j = 0; j < nv; j++) {
       const v = j / (nv - 1), sg = (sagM || 0) * 4 * v * (1 - v);
-      if (rs) { rs.stayAt(s.key, v, P); c.pin(c.node(0, j), P[0], P[1], this.pz + v * this.luff0); }
-      else c.pin(c.node(0, j), this.px - this.rake * v + dx * sg, dy * sg, this.pz + v * this.luff0);
+      c.pin(c.node(0, j), this.px - this.rake * v + dx * sg, dy * sg, this.pz + v * this.luff0);
     }
     // leads: the car forward (0) closes the leech and deepens the foot, aft (1) opens the leech, flattens the foot
     const lead = clamp(ctrl.jibLead, 0, 1), cx = this.px - this.footLen * Math.cos(s.min), dz = this.pz + this.footRise - this.leadZ;

@@ -7,7 +7,7 @@
 //    felt), 0.17-0.22 on a balanced spade (little is felt, and past a few degrees of rudder the centre of pressure
 //    goes aft of the axis again). Q > 0 turns the blade toward more rudder angle; a blade with its centre of pressure
 //    aft of the axis weathervanes back toward the flow, and the helm holds it there.
-//  * Tiller: hand force F = Q / lever, the lever being the tiller (plus a third of the extension, held at an angle);
+//  * Tiller: hand force F = Q / lever, the lever being the tiller (the extension's joint is at its end);
 //    Wheel: rim force F = Q / (G R) with G the steering gear ratio (wheel turns lock to lock x 2 pi / rudder travel)
 //    and R the wheel radius, plus the cable/quadrant friction.
 //  * Putting the rudder over: the helm moves it at the rate a hand can move the tiller or the rim (tiller ~1.5 rad/s,
@@ -38,7 +38,8 @@ export function helmSpec(C) {
       friction: D.friction ?? 4 + 0.6 * C.loa, tiller: 0, extension: 0 };
   }
   const tiller = D.tiller ?? clamp(0.19 * C.loa, 0.6, 1.6), extension = D.extension ?? (C.loa < 8 ? 1.0 : 0);
-  return { type, tiller, extension, lever: tiller + extension / 3, handMax: D.handMax ?? 300, rate: D.rate ?? 1.5, friction: D.friction ?? 0.5, gear: 1, R: 0 };
+  // (the extension's joint is at the tiller's end: whatever the angle it is held at, it pushes the tiller there)
+  return { type, tiller, extension, lever: tiller, handMax: D.handMax ?? 300, rate: D.rate ?? 1.5, friction: D.friction ?? 0.5, gear: 1, R: 0 };
 }
 
 // hydrodynamic torque about the stock (N m, + = toward more rudder angle) of a blade with normal force coefficient cn

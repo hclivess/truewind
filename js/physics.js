@@ -819,16 +819,22 @@ export class Boat {
     if (this.engine) { const e = this.engine.step(this, dt, uw, vw, cphi, sphi); X += e.X; Y += e.Y; K += e.K; N += e.N; }
     {
       const F = C.rudder, S = this.rudS, H = this.helmS;
-      const ul = this.u - 0.5 * orbU + (this.engine ? this.engine.washU : 0);   // (+ the propwash over the blade)
-      // keel downwash at the rudder; a rudder hung on the keel's trailing edge acts more like a flap
-      const eps = 1.2 * keelCl / (Math.PI * d.keelARe) * (ul > 0 ? 1 : 0) * (F.transom ? 0.35 : 1);
+      // the rudder works in the hull's and keel's wake: the water reaches it ~8% slower (DSYHS-type effective rudder
+      // inflow) (+ the propwash over the blade)
+      const ul = (this.u - 0.5 * orbU) * (1 - (F.wake ?? 0.08)) + (this.engine ? this.engine.washU : 0);
+      // keel downwash at the rudder: the keel's trailing vortices a distance dx behind it turn the flow by
+      // CL / (pi AR_e) (1 + dx / sqrt(dx^2 + s^2)) (s: its span with its image in the hull), nearly twice the lifting-line
+      // value by the time it reaches the rudder (the old 1.2 CL / pi AR_e undercut it, and the rudder carried a fifth of
+      // the lateral force at zero helm: lee helm); a rudder hung on the keel's trailing edge acts more like a flap
+      const dxk = Math.max(0, C.keel.x - F.x), sk = 2 * (this.keelS.span || 1);
+      const eps = keelCl / (Math.PI * d.keelARe) * (1 + dxk / Math.sqrt(dxk * dxk + sk * sk)) * (ul > 0 ? 1 : 0) * (F.transom ? 0.35 : 1);
       // one blade, or two on a catamaran (each on its own hull: the weather one lifts out as the hull flies)
       const nb = F.twin ? 2 : 1;
       let rx = 0, rn = 0, K0 = 0, N0 = 0, Q = 0, vent = 0, cav = 0, stall = false, imm = 0, a0 = 0;
       for (let k = 0; k < nb; k++) {
         const yb = F.twin ? (k ? 1 : -1) * C.hullSpacing / 2 : 0, g = this._rg2[k], st = this.rudSt[k];
         foilGeom(S, 1, st.kick, zwAt, cphi, sphi, yb, ul, g);
-        const vl = (this.v - 0.5 * orbV + this.r * g.x + this.p * g.z) * cphi;
+        const vl = (this.v - 0.5 * orbV + this.r * g.x + this.p * g.z) * cphi * (1 - (F.wake ?? 0.08));
         const V2 = ul * ul + vl * vl, V = Math.sqrt(V2) + 1e-9;
         const al = wrap(Math.atan2(vl, ul) - eps + this.rudder);
         foilCoefR(S, st, al, V, g, dt, fc);
