@@ -478,9 +478,10 @@ export class Thermal {
 // energy follows the wind with a lag that grows with wavelength (short chop answers in a minute,
 // the long waves in many), so the sea builds after the wind does, decays slower, and a wind
 // shift raises a new sea across the old one. The same components drive the GPU water.
-// Finite depth: waves shorten and slow over the bottom (dispersion w^2 = g k tanh kh, integrated
-// along each component's direction into a phase field), grow as they shoal (Ks = sqrt(cg0/cg))
-// and break when H > 0.78 h. Current: Doppler-shifted frequency, steepening against the tide.
+// Coast and bottom (coastal.js, precomputed per venue): each component's local phase, wavevector and
+// amplitude — refraction and shortening over the bottom (w^2 = g k tanh kh), shoaling, the shelter and
+// diffraction of land and breakwaters, fetch-limited growth in the lee, and the waves the walls reflect.
+// Waves break where their height reaches 0.78 h. Current: Doppler-shifted frequency, steepening against the tide.
 // Discretisation: every wind-sea component has its OWN frequency (log-spaced bins, jittered inside the
 // bin) and its own direction (a low-discrepancy spread about the wind), so no two components share a
 // wavelength: the sea has no repeat pattern, no moire bands and long irregular crests in groups.
@@ -500,7 +501,18 @@ const JS_INT = (() => { let s = 0; for (let x = 0.3; x < 12; x += 0.0005) s += j
 // cos^8(θ/2) spreading, normalised over the circle; spreadP(w) = the share of energy within ±w
 const spreadD = (dth) => Math.pow(Math.max(0, Math.cos(dth / 2)), 8) / 1.718;
 const spreadP = (w) => { let s = 0; const n = 64; for (let i = 0; i < n; i++) s += spreadD(-w + (i + 0.5) * 2 * w / n) * 2 * w / n; return s; };
+// energy (m^2) of the frequency bin [fa, fb] of the fetch-limited JONSWAP spectrum for wind U over fetch F
+// (the spectrum normalised to Hs^2/16, integrated over the bin so the narrow peak is not missed)
+export function binEnergy(fa, fb, U, F) {
+  const [Hs, Tp] = hsTp(Math.max(U, 0.5), F);
+  const fp = 1 / Math.max(Tp, 0.3);
+  const n = 8, xa = fa / fp, xb = fb / fp, r = Math.pow(xb / xa, 1 / n);
+  let E = 0;
+  for (let i = 0, x = xa; i < n; i++, x *= r) E += jonswapShape(x * Math.sqrt(r)) * x * (r - 1);
+  return E * Hs * Hs / 16 / JS_INT;
+}
 const QMAX = 0.8;   // sum of k·A·Q over the sea: crests sharpen as far as they can without ever looping
+export const BREAK_G = 0.78;   // depth-limited breaking: wave height / depth (McCowan)
 // Rogue waves. A freak wave is the sea's own components arriving in phase at one place and time (dispersive
 // focusing); its expected shape is the NewWave of Lindgren and Tromans, the spectrum's autocorrelation. Each
 // group adds to every wind-sea component i a term w a_i (c1 cos(th_i - psi_i) + c2 sin(th_i - psi_i)), psi_i
@@ -585,7 +597,7 @@ export class WaveField {
     }
     this.comps = comps;
     this.cur = { x: 0, z: 0 };
-    this.depthFn = null; this.phaseField = null;
+    this.depthFn = null; this.coastal = null;       // (a new layout: the old coastal field no longer fits)
     this.rogue = opts.rogue ?? true; this.rgForced = []; this._rgE = new Map(); this._rgL = new Map();
     // the rogue groups' lattice, scaled to the session's nominal sea (see RG_PMAX)
     { const [, Tp0] = hsTp(U0, this.F), Lp0 = G * Tp0 * Tp0 / (2 * Math.PI); this.rgCell = Math.min(2500, Math.max(400, 10 * Lp0)); this.rgSlot = Math.min(240, Math.max(60, 12 * Tp0)); }
@@ -620,13 +632,8 @@ export class WaveField {
 
   // target spectral amplitude of a component for mean wind (U, from-direction dir)
   _amp(c, U, dir) {
-    const [Hs, Tp] = hsTp(Math.max(U, 0.5), this.F);
-    const fp = 1 / Math.max(Tp, 0.3);
     // energy of the component's frequency bin: the JONSWAP spectrum (normalised to Hs^2/16) integrated
-    const n = 8, xa = c.fa / fp, xb = c.fb / fp, r = Math.pow(xb / xa, 1 / n);
-    let E = 0;
-    for (let i = 0, x = xa; i < n; i++, x *= r) E += jonswapShape(x * Math.sqrt(r)) * x * (r - 1);
-    E *= Hs * Hs / 16 / JS_INT;
+    const E = binEnergy(c.fa, c.fb, U, this.F);
     // cos^2s spreading about the downwind direction: the component stands for directions within ±w
     let dth = c.travel - (dir + Math.PI); while (dth > Math.PI) dth -= 2 * Math.PI; while (dth < -Math.PI) dth += 2 * Math.PI;
     return Math.sqrt(Math.max(0, 2 * E * spreadD(dth) * c.wSpread)) * this.seaScale;
@@ -700,60 +707,59 @@ export class WaveField {
     this._rgE = new Map(); this._rgL = new Map();   // the groups' phases moved with the frequencies
   }
 
-  // Finite-depth phase field: integrate (k(h) - k_deep) along each component's direction.
+  // The venue's water depth (breaking, orbital velocity) and each component's base wavenumber at its typical
+  // depth (the wave's phase until a coastal field arrives). Cheap: the coastal field (coastal.js, built in a
+  // worker) carries refraction, shoaling, shelter and reflection.
   buildDepthField(world) {
     this._world = world;
     this._rgE = new Map(); this._rgL = new Map();
     for (const c of this.comps) c.kRef = c.k;
-    if (!world || world.open) { this.depthFn = null; this.phaseField = null; return; }
+    if (!world || world.open) { this.depthFn = null; return; }
     this.depthFn = (x, z) => Math.max(0.05, world.depthAt(x, z));
-    const Nn = 96, R = world.R, cs = 2 * R / Nn;
-    this.pfN = Nn; this.pfR = R;
-    const depth = new Float32Array(Nn * Nn);
-    for (let j = 0; j < Nn; j++) for (let i = 0; i < Nn; i++) { const x = -R + (i + 0.5) * cs, z = -R + (j + 0.5) * cs; depth[j * Nn + i] = world.sdfAt(x, z) > 0 ? Math.max(0.05, world.depthAt(x, z)) : -1; }
-    this.depthGrid = depth;
-    // each component takes the wavenumber of the venue's typical water depth as its base; the field
-    // only stores the (small, smooth) residual where the depth departs from it
-    const wet = Array.from(depth).filter(h => h > 0.05).sort((a, b) => a - b);
-    const hTyp = wet.length ? wet[Math.floor(wet.length / 2)] : 99;
-    for (const c of this.comps) c.kRef = kOfDepth(c.omega, hTyp);
-    this.hTyp = hTyp;
-    const fields = [];
-    const dg = (x, z) => { const i = Math.floor((x + R) / cs), j = Math.floor((z + R) / cs); return (i < 0 || j < 0 || i >= Nn || j >= Nn) ? 99 : depth[j * Nn + i]; };
-    for (const c of this.comps) {
-      const phi = new Float32Array(Nn * Nn);
-      const kd = c.kRef;
-      // march each cell back along the wave direction to the upwave map edge
-      for (let j = 0; j < Nn; j++) for (let i = 0; i < Nn; i++) {
-        let x = -R + (i + 0.5) * cs, z = -R + (j + 0.5) * cs, acc = 0;
-        for (let s = 0; s < 2 * R; s += cs) {
-          const h = dg(x, z);
-          if (h < 0) break;                           // waves do not cross land: this sea starts at the shore
-          acc += (kOfDepth(c.omega, Math.max(0.3, h)) - kd) * cs;
-          x -= c.dx * cs; z -= c.dz * cs;
-          if (Math.abs(x) > R || Math.abs(z) > R) break;
-        }
-        phi[j * Nn + i] = acc;
+    const wet = [], n = 48, R = world.R;
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x = -R + (i + 0.5) * 2 * R / n, z = -R + (j + 0.5) * 2 * R / n; if (world.sdfAt(x, z) > 0) wet.push(Math.max(0.05, world.depthAt(x, z))); }
+    wet.sort((a, b) => a - b);
+    this.hTyp = wet.length ? wet[wet.length >> 1] : 99;
+    for (const c of this.comps) c.kRef = kOfDepth(c.omega, this.hTyp);
+  }
+  // the coastal field for this layout of components (coastal.js CoastalField), or null
+  setCoastal(f) { this.coastal = f && f.n === this.comps.length ? f : null; this._rgE = new Map(); this._rgL = new Map(); }   // (the groups' phases at their foci moved)
+
+  // Every wave near the (undisplaced) point x0: the components, and where a wall reflects them their reflected
+  // waves. Each is a local plane wave, phase p + g.x at t = 0 (g its wavevector: direction (ux, uz), wavenumber
+  // k), amplitude factor K on its component's amplitude: from the coastal field when there is one, else a plane
+  // wave at the component's base wavenumber. slot 0: the query point's (Newton's iterations), 1: the water's own.
+  _local(x0, z0, slot = 1) {
+    const L = this._L || (this._L = [0, 1].map(() => { const f = () => new Float64Array(2 * MAXW); return { n: 0, ci: new Int32Array(2 * MAXW), p: f(), gx: f(), gz: f(), ux: f(), uz: f(), k: f(), K: f(), we: f() }; }));
+    const W = L[slot], cf = this.coastal;
+    if (cf) cf.at(x0, z0);
+    let n = 0;
+    for (let i = 0, nc = this.comps.length; i < nc; i++) {
+      const c = this.comps[i], we = c.omegaEff ?? c.omega;
+      for (let r = 0; r < 2; r++) {
+        let P, gx, gz, K;
+        if (cf) {
+          if (r === 0) cf.inc(i); else if (!cf.ref(i)) break;
+          P = cf.P; gx = cf.gx; gz = cf.gz; K = cf.k;
+        } else { if (r) break; const kb = c.kRef ?? c.k; P = 0; gx = kb * c.dx; gz = kb * c.dz; K = 1; }
+        const k = Math.sqrt(gx * gx + gz * gz) || 1e-9;
+        W.ci[n] = i; W.p[n] = P + c.phase; W.gx[n] = gx; W.gz[n] = gz; W.ux[n] = gx / k; W.uz[n] = gz / k; W.k[n] = k; W.K[n] = K; W.we[n] = we; n++;
       }
-      fields.push(phi);
     }
-    this.phaseField = fields;
+    W.n = n;
+    return W;
   }
-  _pf(ci, x, z) {
-    const F = this.phaseField; if (!F) return 0;
-    const Nn = this.pfN, R = this.pfR, cs = 2 * R / Nn;
-    let fx = (x + R) / cs - 0.5, fz = (z + R) / cs - 0.5;
-    fx = Math.max(0, Math.min(Nn - 1.001, fx)); fz = Math.max(0, Math.min(Nn - 1.001, fz));
-    const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j, a = F[ci], k = j * Nn + i;
-    return (a[k] * (1 - u) + a[k + 1] * u) * (1 - v) + (a[k + Nn] * (1 - u) + a[k + Nn + 1] * u) * v;
-  }
-  // local amplitude factor for component c at depth h: shoaling, and nothing in the dry
-  _ampFactor(c, h) {
-    if (h === null || h > 30) return 1;                  // (as kOfDepth and the shader: deep beyond 30 m)
-    const kh = kOfDepth(c.omega, h) * h;
-    const n = 0.5 * (1 + 2 * kh / Math.sinh(Math.min(2 * kh, 40)));
-    const cgRatio = n * Math.tanh(kh) / 0.5;            // cg(h) / cg(deep)
-    return Math.min(2.2, 1 / Math.sqrt(Math.max(0.2, cgRatio)));
+  // Local limits on the summed waves at depth h (null: deep water): the trochoids' steepness (sum Q k A no more
+  // than QMAX, where shoaling and reflection pile the waves up) and depth-limited breaking — the height of the
+  // wave passing, twice its envelope sqrt(eta^2 + H[eta]^2), held to 0.78 h (McCowan) by a soft cap. Leaves
+  // _cap, _qs and _bd, the depth-limited breaking: this crest spilling, and the surf zone's share of broken water.
+  _limits(h, e, eH, sK, a2) {
+    let cap = 1, bd = 0;
+    if (h !== null) {
+      const r = 2 * Math.sqrt(e * e + eH * eH) / (BREAK_G * h); if (r > 0.3) cap = 1 / Math.pow(1 + Math.pow(r, 8), 1 / 8);
+      bd = Math.max(sstep(0.85, 1.05, r), 0.6 * clamp01(4 * Math.sqrt(a2 / 2) / (BREAK_G * h) - 0.7));
+    }
+    this._cap = cap; this._qs = Math.min(1, QMAX / Math.max(1e-9, sK * cap)); this._bd = bd;
   }
 
   // ---- rogue waves: focused wave groups (see RG_* above) ----
@@ -798,13 +804,16 @@ export class WaveField {
   }
   // A group focused at (xf, zf) at time tf. u: its draw from the crest distribution; crest (m) to force one.
   _mkEvent(xf, zf, tf, u, crest) {
-    const comps = this.comps, N = comps.length, h = this.depthFn ? this.depthFn(xf, zf) : null;
+    const comps = this.comps, N = comps.length, h = this.depthFn ? this.depthFn(xf, zf) : null, cf = this.coastal;
     const A = new Float64Array(N), psi = new Float64Array(N), af = new Float64Array(N);
+    if (cf) cf.at(xf, zf);
     let m0 = 0, m0s = 0, m1 = 0, m1a = 0, ex = 0, ez = 0, kp = 0, best = 0, er = 0, hr = 0;
     for (let q = 0; q < N; q++) {
       const c = comps[q], a = this._ampOf(c, tf) * (c.curAmp ?? 1);
-      af[q] = this._ampFactor(c, h); A[q] = a;
-      psi[q] = (c.kRef ?? c.k) * (c.dx * xf + c.dz * zf) + this._pf(q, xf, zf) - (c.omegaEff ?? c.omega) * tf + c.phase;
+      // (each component as the coast has made it at the focus: its local phase and amplitude factor)
+      let ph; if (cf) { cf.inc(q); af[q] = cf.k; ph = cf.p; } else { af[q] = 1; ph = (c.kRef ?? c.k) * (c.dx * xf + c.dz * zf); }
+      A[q] = a;
+      psi[q] = ph - (c.omegaEff ?? c.omega) * tf + c.phase;
       er += a * af[q] * Math.sin(psi[q]); hr += a * af[q] * Math.cos(psi[q]);   // the sea already there (and its Hilbert part)
       m0 += a * a; m1a += a * a * c.omega;
       if (c.kind !== 'sea') continue;
@@ -829,6 +838,8 @@ export class WaveField {
     let F = 0, Sk = 0;
     const a = new Float64Array(N);
     for (let q = 0; q < N; q++) if (comps[q].kind === 'sea') { a[q] = A[q] * A[q] / m0s; F += a[q] * af[q]; Sk += a[q] * af[q] * comps[q].k; }
+    // (no group where the coast has taken the wind sea away: on land, in a harbour's lee)
+    if (!(F > 0.05)) return null;
     let c1 = (al - er) / F, c2 = -hr / F;
     // no group steeper than a crest can stand (S = sum a_i k_i ~ 0.45, well into plunging)
     const S = Sk * Math.hypot(c1, c2);
@@ -930,99 +941,104 @@ export class WaveField {
   }
 
   // the water at undisplaced (x0, z0): horizontal displacement (Gerstner, rogue groups, breaking lean), first-
-  // order height, and the Jacobian of the map minus the identity (o.a = dX/dx0, o.b = dX/dz0, o.c = dZ/dx0, o.d)
-  _disp(x0, z0, t, o, ev) {
+  // order height, and the Jacobian of the map minus the identity (o.a = dX/dx0, o.b = dX/dz0, o.c = dZ/dx0, o.d).
+  // W: the local waves (_local). The limits, the lean and the shore's fade as the water shader applies them.
+  _disp(x0, z0, t, o, ev, W = this._local(x0, z0)) {
     const h = this.depthFn ? this.depthFn(x0, z0) : null;
     const nE = ev.length ? this._rgWins(ev, x0, z0, t) : 0, ra = this._ra, rw = this._rw, rq = this._rq, comps = this.comps;
-    let X = 0, Z = 0, xx = 0, xz = 0, zz = 0, e = 0, hc = 0, gx = 0, gz = 0, a2 = 0;
-    for (let ci = 0; ci < comps.length; ci++) {
-      const c = comps[ci], af = this._ampFactor(c, h), base = c.A * (c.curAmp ?? 1), Q = c.Q;
+    let X = 0, Z = 0, xx = 0, xz = 0, zz = 0, e = 0, hc = 0, gx = 0, gz = 0, a2 = 0, sK = 0;
+    for (let n = 0; n < W.n; n++) {
+      const ci = W.ci[n], c = comps[ci], K = W.K[n], base = c.A * (c.curAmp ?? 1), Q = c.Q, k = W.k[n], ux = W.ux[n], uz = W.uz[n];
       let rs = 0, rc = 0, qs = 0, qc = 0;
       for (let m = 0; m < nE; m++) { const r1 = ra[m].rs[ci], r2 = ra[m].rc[ci]; rs += rw[m] * r1; rc += rw[m] * r2; qs += rq[m] * r1; qc += rq[m] * r2; }
-      const P = (base + rs) * af, Qc = rc * af, Ph = Q * (base + qs) * af, Qh = Q * qc * af, k = c.kRef ?? c.k;
-      const th = k * (c.dx * x0 + c.dz * z0) + this._pf(ci, x0, z0) - (c.omegaEff ?? c.omega) * t + c.phase;
-      const C = Math.cos(th), S = Math.sin(th);
+      const P = (base + rs) * K, Qc = rc * K, Ph = Q * (base + qs) * K, Qh = Q * qc * K;
+      const th = W.p[n] + W.gx[n] * x0 + W.gz[n] * z0 - W.we[n] * t, C = Math.cos(th), S = Math.sin(th);
       const Y = P * S + Qc * C, H = P * C - Qc * S, Xh = Ph * C - Qh * S, Jh = k * (Ph * S + Qh * C);
-      X += Xh * c.dx; Z += Xh * c.dz;
-      xx += Jh * c.dx * c.dx; xz += Jh * c.dx * c.dz; zz += Jh * c.dz * c.dz;
-      e += Y; hc += H; gx += k * H * c.dx; gz += k * H * c.dz; a2 += base * af * base * af;
+      X += Xh * ux; Z += Xh * uz;
+      xx += Jh * ux * ux; xz += Jh * ux * uz; zz += Jh * uz * uz;
+      e += Y; hc += H; gx += k * H * ux; gz += k * H * uz; a2 += base * K * base * K; sK += Q * k * base * K;
     }
-    const L = this._lean(e, hc, gx, gz, xx, xz, zz, h === null ? 0 : clamp01(4 * Math.sqrt(a2 / 2) / (0.78 * h) - 0.7), this._lo);
-    const bx = this.brk ? this.brk.dx : 0, bz = this.brk ? this.brk.dz : 0;
-    o.x = X + bx * L.lam; o.z = Z + bz * L.lam; o.y = e;
-    o.a = -xx + bx * L.c0 * gx; o.b = -xz + bx * L.c0 * gz; o.c = -xz + bz * L.c0 * gx; o.d = -zz + bz * L.c0 * gz;
+    this._limits(h, e, hc, sK, a2);
+    const cap = this._cap, cq = cap * this._qs;
+    const L = this._lean(cap * e, cap * hc, cap * gx, cap * gz, cq * xx, cq * xz, cq * zz, this._bd, this._lo);
+    const bx = this.brk ? this.brk.dx : 0, bz = this.brk ? this.brk.dz : 0, sc = this.scaleFn ? this.scaleFn(x0, z0) : 1;
+    o.x = sc * (cq * X + bx * L.lam); o.z = sc * (cq * Z + bz * L.lam); o.y = sc * cap * e;
+    const lx = L.c0 * cap * gx, lz = L.c0 * cap * gz;
+    o.a = sc * (-cq * xx + bx * lx); o.b = sc * (-cq * xz + bx * lz); o.c = sc * (-cq * xz + bz * lx); o.d = sc * (-cq * zz + bz * lz);
     return o;
   }
 
   // Full sample at world (x, z): surface height, slopes, orbital velocity and acceleration, breaking.
-  // Inverts the horizontal displacement; applies shoaling and the depth-limited breaking cap.
+  // Inverts the horizontal displacement; the coast's local waves (coastal.js), their limits and the lean.
   sample(x, z, t, out = {}) {
     const d = this._d, ev = this._rgPre(x, z, t);
-    // Newton on x0 + D(x0) = x (sharp crests make the plain fixed-point iteration converge slowly)
+    // Newton on x0 + D(x0) = x (sharp crests make the plain fixed-point iteration converge slowly), with the
+    // local waves of the query point (the water is a few metres off at most: its tangent planes hold)
     let x0 = x, z0 = z;
+    const Wq = this._local(x, z, 0);
     for (let i = 0; i < 4; i++) {
-      this._disp(x0, z0, t, d, ev);
+      this._disp(x0, z0, t, d, ev, Wq);
       const fx = x0 + d.x - x, fz = z0 + d.z - z;
       const a = 1 + d.a, b = d.b, c = d.c, e = 1 + d.d, det = a * e - b * c;
       if (det > 0.05) { x0 -= (e * fx - b * fz) / det; z0 -= (a * fz - c * fx) / det; }
       else { x0 -= fx; z0 -= fz; }
       if (fx * fx + fz * fz < 1e-4) break;
     }
-    const h = this.depthFn ? this.depthFn(x0, z0) : null;
+    const W = this._local(x0, z0), h = this.depthFn ? this.depthFn(x0, z0) : null;
     const nE = ev.length ? this._rgWins(ev, x0, z0, t) : 0, ra = this._ra, rw = this._rw, rq = this._rq, comps = this.comps;
-    let hsum = 0, nx = 0, nz = 0, ny = 1, vx = 0, vz = 0, vy = 0, ax = 0, az = 0, ay = 0, a2 = 0, jxx = 0, jxz = 0, jzz = 0;
+    let hsum = 0, nx = 0, nz = 0, nyJ = 0, vx = 0, vz = 0, vy = 0, ax = 0, az = 0, ay = 0, a2 = 0, sK = 0, jxx = 0, jxz = 0, jzz = 0;
     let hc = 0, hx = 0, hz = 0, ht = 0, s2 = 0, s2x = 0, s2z = 0, s2t = 0;   // Hilbert partner and trochoid self terms
-    for (let ci = 0; ci < comps.length; ci++) {
-      const c = comps[ci], af = this._ampFactor(c, h), base = c.A * (c.curAmp ?? 1), Q = c.Q;
+    for (let n = 0; n < W.n; n++) {
+      const ci = W.ci[n], c = comps[ci], K = W.K[n], base = c.A * (c.curAmp ?? 1), Q = c.Q, kk = W.k[n], ux = W.ux[n], uz = W.uz[n], w = c.omega;
       let rs = 0, rc = 0, qs = 0, qc = 0;
       for (let m = 0; m < nE; m++) { const r1 = ra[m].rs[ci], r2 = ra[m].rc[ci]; rs += rw[m] * r1; rc += rw[m] * r2; qs += rq[m] * r1; qc += rq[m] * r2; }
-      const P = (base + rs) * af, Qc = rc * af, Ph = Q * (base + qs) * af, Qh = Q * qc * af;
-      a2 += base * af * base * af;
-      const kk = h === null ? c.k : kOfDepth(c.omega, h), w = c.omega;
-      const th = (c.kRef ?? c.k) * (c.dx * x0 + c.dz * z0) + this._pf(ci, x0, z0) - (c.omegaEff ?? c.omega) * t + c.phase;
-      const C = Math.cos(th), S = Math.sin(th);
-      // this component's elevation, its Hilbert partner and its horizontal compression (Gerstner)
+      const P = (base + rs) * K, Qc = rc * K, Ph = Q * (base + qs) * K, Qh = Q * qc * K;
+      a2 += base * K * base * K; sK += Q * kk * base * K;
+      const th = W.p[n] + W.gx[n] * x0 + W.gz[n] * z0 - W.we[n] * t, C = Math.cos(th), S = Math.sin(th);
+      // this wave's elevation, its Hilbert partner and its horizontal compression (Gerstner)
       const Y = P * S + Qc * C, H = P * C - Qc * S, Jh = kk * (Ph * S + Qh * C);
       hsum += Y;
-      nx -= c.dx * kk * H; nz -= c.dz * kk * H; ny -= Jh;
-      jxx += Jh * c.dx * c.dx; jxz += Jh * c.dx * c.dz; jzz += Jh * c.dz * c.dz;
+      nx -= ux * kk * H; nz -= uz * kk * H; nyJ += Jh;
+      jxx += Jh * ux * ux; jxz += Jh * ux * uz; jzz += Jh * uz * uz;
       const orb = h === null ? 1 : 1 / Math.max(0.3, Math.tanh(kk * h)); // orbital velocity grows in shallow water
-      vx += w * c.dx * Y * orb; vz += w * c.dz * Y * orb; vy -= w * H;
-      ax -= w * w * c.dx * H * orb; az -= w * w * c.dz * H * orb; ay -= w * w * Y;
-      hc += H; hx += c.dx * kk * Y; hz += c.dz * kk * Y; ht += w * Y;
+      vx += w * ux * Y * orb; vz += w * uz * Y * orb; vy -= w * H;
+      ax -= w * w * ux * H * orb; az -= w * w * uz * H * orb; ay -= w * w * Y;
+      hc += H; hx += ux * kk * Y; hz += uz * kk * Y; ht += w * Y;
       const sc4 = 4 * Q * Y * H;
-      s2 += Q * (H * H - Y * Y); s2x -= sc4 * kk * c.dx; s2z -= sc4 * kk * c.dz; s2t += sc4 * w;
+      s2 += Q * (H * H - Y * Y); s2x -= sc4 * kk * ux; s2z -= sc4 * kk * uz; s2t += sc4 * w;
     }
-    const e1 = hsum, gx = -nx, gz = -nz;
+    this._limits(h, hsum, hc, sK, a2);
+    const cap = this._cap, qs = this._qs, cq = cap * qs, c2 = cap * cap, bD = this._bd;
+    // a breaking crest's forward lean steepens its front face (the compression it adds)
+    const L = this._lean(cap * hsum, cap * hc, -cap * nx, -cap * nz, cq * jxx, cq * jxz, cq * jzz, bD, this._lo);
+    const ny = Math.max(0.05, 1 - cq * nyJ + L.dl);
     // second-order crest/trough asymmetry (see update): height, slope and vertical velocity
     const K2 = this.k2 || 0;
+    let H2 = 0, n2x = 0, n2z = 0, v2 = 0;
     if (K2 > 0) {
       const e = hsum;
-      hsum += K2 * (e * e - hc * hc + s2);
-      nx -= K2 * (-2 * e * nx + 2 * hc * hx + s2x);
-      nz -= K2 * (-2 * e * nz + 2 * hc * hz + s2z);
-      vy += K2 * (2 * e * vy - 2 * hc * ht + s2t);
+      H2 = K2 * (e * e - hc * hc + qs * s2);
+      n2x = K2 * (-2 * e * nx + 2 * hc * hx + qs * s2x);
+      n2z = K2 * (-2 * e * nz + 2 * hc * hz + qs * s2z);
+      v2 = K2 * (2 * e * vy - 2 * hc * ht + qs * s2t);
     }
-    // depth-limited breaking: significant height cannot exceed 0.78 h
-    const Hl = 4 * Math.sqrt(a2 / 2), bD = h !== null ? clamp01(Hl / (0.78 * h) - 0.7) : 0;
-    // a breaking crest's forward lean steepens its front face (the compression it adds)
-    const L = this._lean(e1, hc, gx, gz, jxx, jxz, jzz, bD, this._lo);
-    ny = Math.max(0.05, ny + L.dl);
-    let k = this.scaleFn ? this.scaleFn(x, z) : 1;
-    if (h !== null && Hl > 0.78 * h) k *= 0.78 * h / Hl;
-    out.h = hsum * k; out.sx = -nx / ny * k; out.sz = -nz / ny * k; out.vx = vx * k; out.vz = vz * k; out.vy = vy * k;
-    out.ax = ax * k; out.az = az * k; out.ay = ay * k;
+    const k = this.scaleFn ? this.scaleFn(x0, z0) : 1;
+    const Nx = cap * nx - c2 * n2x, Nz = cap * nz - c2 * n2z;
+    out.h = (cap * hsum + c2 * H2) * k; out.sx = -Nx / ny * k; out.sz = -Nz / ny * k;
+    out.vx = cap * vx * k; out.vz = cap * vz * k; out.vy = (cap * vy + c2 * v2) * k;
+    out.ax = cap * ax * k; out.az = cap * az * k; out.ay = cap * ay * k;
     out.breaking = bD;
     out.j = ny;                    // crest compression (Gerstner Jacobian): the water shader's whitecap measure
     out.x0 = x0; out.z0 = z0;      // the undisplaced (Lagrangian) position of the water here: the foam map's frame
     // A breaking crest here: its intensity on the upper front quarter of the wave (phase from the analytic
     // signal: eta > 0.25-0.7 |a| and rising, H[eta] < 0), where the jet of a spilling or plunging crest falls, and
     // the crest's velocity, the phase speed of the local wavenumber |k| = |H grad eta - eta grad H| / |a|^2
-    const Ea = Math.sqrt(e1 * e1 + hc * hc);
+    const e1 = cap * hsum, hc1 = cap * hc, gx = -cap * nx, gz = -cap * nz, hx1 = cap * hx, hz1 = cap * hz;
+    const Ea = Math.sqrt(e1 * e1 + hc1 * hc1);
     out.Ea = Ea * k; out.brk = 0; out.cbx = 0; out.cbz = 0;
     if (L.B > 0 && Ea > 1e-3) {
-      out.brk = L.B * sstep(0.25, 0.7, e1 / Ea) * sstep(0, 0.35, -hc / Ea) * k;
-      const klx = (hc * gx + e1 * hx) / (Ea * Ea), klz = (hc * gz + e1 * hz) / (Ea * Ea), kl = Math.hypot(klx, klz);
+      out.brk = L.B * sstep(0.25, 0.7, e1 / Ea) * sstep(0, 0.35, -hc1 / Ea) * k;
+      const klx = (hc1 * gx + e1 * hx1) / (Ea * Ea), klz = (hc1 * gz + e1 * hz1) / (Ea * Ea), kl = Math.hypot(klx, klz);
       if (kl > 1e-5) {
         const cph = Math.sqrt(G / kl * (h === null ? 1 : Math.tanh(Math.min(kl * h, 20))));
         out.cbx = cph * klx / kl; out.cbz = cph * klz / kl;
@@ -1076,6 +1092,7 @@ export class Environment {
     const W = this.waves, cur = W.cur, world = W._world;
     W.set(W.opts); W.setCurrent(cur.x, cur.z); if (world) W.buildDepthField(world); W.update(t);
     this._lastWaveT = t;
+    if (this.onSeaLayout) this.onSeaLayout(t);       // (the coast's effect on the new components: coastal.js)
   }
   // advance the slowly-changing sea state (cheap; call every frame)
   tick(t) {

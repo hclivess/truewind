@@ -8,6 +8,8 @@ import { Nav } from './nav.js';
 import { cleanSailNo, validateSailNo, cleanBoatName, validateBoatName, fleetIdentities, VENUE_NATION } from './boatid.js';
 import { Course, Race, AIHelm, aiRandom, applyWindShadow, resolveCollisions } from './race.js';
 import { Renderer } from './render.js';
+import { coastalInput, coastalTransfer, buildCoastal, CoastalField } from './coastal.js';
+import { indexFeatures } from './structures.js';
 import { HUD, pref } from './hud.js';
 import { Audio } from './audio.js';
 import { Net } from './net.js';
@@ -229,7 +231,7 @@ class Game {
     if (!this.env || this.netEpoch !== null || this.settings.mode === 'online') return;
     this.clockBase = this.clockFor() - this.t * 1000;
     this.env.setClock(this.clockBase, this.t);
-    this.renderer.setPhaseField(this.env.waves);
+    this.renderer.setCoastal(this.env.waves);
     this.renderer.setWaves(this.env.waves);
     this.world.updateShelter(this.env.wind.mean(this.t).dir);
     if (this.player) this.computePolar(this.player.cls, this.env.wind.mean(this.t).speed);
@@ -531,12 +533,53 @@ class Game {
     // sheltering by land slows the wind near a weather shore
     const base = env.wind.sample.bind(env.wind);
     env.wind.sample = (x, z, t, o = {}) => { base(x, z, t, o); o.speed *= world.shelterAt(x, z); return o; };
-    if (!world.open) env.waves.scaleFn = (x, z) => clamp(world.sdfAt(x, z) / 60, 0.08, 1);
-    env.waves.buildDepthField(world);              // finite-depth dispersion over the real bottom
+    // the sea fades into the beach (over the surf zone's last metres once the coast is modelled)
+    if (!world.open) env.waves.scaleFn = (x, z) => clamp(world.sdfAt(x, z) / (env.waves.coastal ? 12 : 60), 0.08, 1);
+    env.waves.buildDepthField(world);              // the real bottom's depth (breaking, orbital velocity)
     env.tick(0);
     this.env = env;
-    if (this.renderer) this.renderer.setPhaseField(env.waves);
+    if (this.renderer) this.renderer.setCoastal(env.waves);
+    env.onSeaLayout = () => this.requestCoastal(env);
+    this.requestCoastal(env);
     return env;
+  }
+  // The coast's effect on the sea (coastal.js: refraction, shoaling, shelter, diffraction, reflection, fetch):
+  // built in a worker from the venue's grid, applied when it lands. Built again when the water level (the tide,
+  // read through world.depthAt) moves 0.3 m or the day's wind 25%, and when the sea's components are laid out anew.
+  requestCoastal(env) {
+    const world = this.world;
+    if (!env || !world || world.open) return;
+    const W = env.waves, id = (this.cstId = (this.cstId || 0) + 1), U = env.wind.mean(this.t || 0).speed;
+    if (!this.cstById || this.cstGeo !== this.geo) { this.cstGeo = this.geo; this.cstById = indexFeatures(this.geo, this.manifest); this.cstProbe = null; }
+    const inp = coastalInput(world, this.geo, W, { U, byId: this.cstById });
+    this.cstBuilt = { U, level: this.waterLevel(), env };
+    const apply = (out) => {
+      if (id !== this.cstId || this.env !== env || W.comps.length !== out.n) return;
+      W.setCoastal(new CoastalField(out));
+      this.renderer.setCoastal(W);
+    };
+    const sync = () => setTimeout(() => apply(buildCoastal(inp)), 0);
+    if (typeof Worker === 'undefined') return sync();
+    try {
+      if (!this.cstWorker) {
+        this.cstWorker = new Worker(new URL('./coastal-worker.js', import.meta.url), { type: 'module' });
+        this.cstWorker.onmessage = (e) => { const r = this.cstPending; if (r && e.data.id === r.id) { if (e.data.out) r.apply(e.data.out); else console.error('coastal', e.data.error); } };
+        this.cstWorker.onerror = (e) => { console.error('coastal worker', e.message); this.cstWorker = null; const r = this.cstPending; if (r) r.sync(); };
+      }
+      this.cstPending = { id, apply, sync };
+      this.cstWorker.postMessage({ id, inp }, coastalTransfer(inp));
+    } catch (e) { sync(); }
+  }
+  // the water level as the bottom sees it: the mean depth at a few fixed wet points (tide-aware when depthAt is)
+  waterLevel() {
+    const world = this.world; if (!world || world.open) return 0;
+    if (!this.cstProbe) {
+      const P = [], R = world.R;
+      for (let j = 1; j < 8 && P.length < 24; j++) for (let i = 1; i < 8; i++) { const x = -R + i * R / 4, z = -R + j * R / 4; if (world.sdfAt(x, z) > 50) P.push([x, z]); }
+      this.cstProbe = P;
+    }
+    let s = 0; for (const [x, z] of this.cstProbe) s += world.depthAt(x, z);
+    return this.cstProbe.length ? s / this.cstProbe.length : 0;
   }
 
   // another sailor in the room arrived first: take their wind, sea and clock
@@ -1103,6 +1146,12 @@ class Game {
         heave: lerp(p.heave, b.heave, alpha), pitch: lerp(p.pitch, b.pitch, alpha), phi: lerp(p.phi, b.phi, alpha) };
     }
     if (this.env.tick(this.t)) this.renderer.setWaves(this.env.waves);
+    this.cstAcc = (this.cstAcc || 0) + dt;
+    if (this.cstAcc > 5 && this.cstBuilt && this.cstBuilt.env === this.env) {
+      this.cstAcc = 0;
+      const B = this.cstBuilt, U = this.env.wind.mean(this.t).speed;
+      if (Math.abs(this.waterLevel() - B.level) > 0.3 || Math.abs(U / Math.max(0.5, B.U) - 1) > 0.25) this.requestCoastal(this.env);
+    }
     this.shelterAcc = (this.shelterAcc || 0) + dt;
     if (this.shelterAcc > 10) { this.shelterAcc = 0; const mw = this.env.wind.mean(this.t); if (this.world.updateShelter(mw.dir)) {} }
     this.renderer.updateWeather(this.env, this.t, this.renderer.camera.position);
