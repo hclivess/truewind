@@ -54,6 +54,7 @@ export class Autopilot {
   update(dt, t, sim, o = {}) {
     if (!this.engaged) return;
     const b = this.b;
+    if (b.diag.twd === undefined) return;     // (not a step sailed yet: no wind felt to steer by)
     // the helm moved by anyone else (a key, the tiller, the touch pad): like a real autopilot, it lets go at once
     if (this.helmOut !== null && Math.abs(b.ctrl.helm - this.helmOut) > 0.02) { this.disengage(); this.say('override', 'Autopilot off: manual helm — she is yours.', t); return; }
     this.targets = o.targets || this.targets;
@@ -243,7 +244,10 @@ export class Autopilot {
     const first = this.keySaid === null;
     if (key !== this.keySaid && (t - this.keyT > (first ? 0.6 : 3) || ['penalty', 'capsized'].includes(m))) {
       const prevTw = this.keyTw; this.keySaid = key; this.keyTw = tw;
-      this.sayMode(key.split(':')[0], tw, prevTw, first, t, brg, twd);
+      // (rounding a mark the point of sailing changes by the second: the rounding's own line says it)
+      const rr = this.o && this.o.racer, CC = this.o && this.o.course, lg = rr && CC && CC.legs[rr.leg];
+      const atMark = lg && lg.type === 'mark' && this.markSaid === rr.leg && Math.hypot(lg.mark.x - b.x, lg.mark.z - b.z) < 6 * b.cls.loa + 30;
+      if (!atMark) this.sayMode(key.split(':')[0], tw, prevTw, first, t, brg, twd);
     }
     // mark rounding (racing)
     const r = this.o && this.o.racer, C = this.o && this.o.course;
@@ -264,10 +268,10 @@ export class Autopilot {
     if (m === 'beat' && this.keySaid === 'beat' && t - this.keyT > 10 && h.twdMean !== null && !turned) {
       const tack = Math.sign(wrap(twd - b.psi)) || 1, sh = tack > 0 ? wrap(twd - h.twdMean) : -wrap(twd - h.twdMean);
       if (Math.abs(sh) < 3 * DEG) this.shiftArm = 0;
-      else if (Math.abs(sh) > 6 * DEG && Math.abs(sh) < 30 * DEG && this.shiftArm !== Math.sign(sh)) {
+      else if (Math.abs(sh) > 7 * DEG && Math.abs(sh) < 30 * DEG && this.shiftArm !== Math.sign(sh)) {
         this.shiftArm = Math.sign(sh);
-        if (sh > 0) this.say('shift', `Lifted ${dg(sh)}°: the wind has swung aft on this tack, so we head up with it and point closer to ${this.tn()}.`, t, 10);
-        else this.say('shift', `Headed ${dg(sh)}°: the wind has swung toward the bow, so we bear away with it${Math.abs(sh) > 8 * DEG ? ' — the other tack is lifted now' : ''}.`, t, 10);
+        if (sh > 0) this.say('shift', `Lifted ${dg(sh)}°: the wind has swung aft on this tack, so we head up with it and point closer to ${this.tn()}.`, t, 20);
+        else this.say('shift', `Headed ${dg(sh)}°: the wind has swung toward the bow, so we bear away with it${Math.abs(sh) > 8 * DEG ? ' — the other tack is lifted now' : ''}.`, t, 20);
       }
     }
   }
@@ -286,8 +290,10 @@ export class Autopilot {
 
   // ---------------------------------------------------------------- what she plans: numbers for the HUD, lines for the chart
   plan(sim) {
-    const b = this.b, h = this.helm, twd = waterTwd(b), m = this.mode, up = this.up, dn = this.dn;
+    const b = this.b, h = this.helm, twd = waterTwd(b), up = this.up, dn = this.dn;
     const desired = h.desired ?? b.psi, twa = Math.abs(wrap(twd - desired));
+    // (as the coach has it: a reach held close-hauled is the beat, one at the run's angle the run)
+    const m = this.mode === 'reach' ? (twa < up + 10 * DEG ? 'beat' : twa > dn - 8 * DEG ? 'run' : 'reach') : this.mode;
     const info = { mode: m, twa, desired, next: '', track: null, lay: null };
     info.label = { beat: 'Beat', reach: 'Reach', run: 'Run', prestart: 'Pre-start', penalty: 'Penalty', 'hove-to': 'Hove to', shoot: 'Shooting up', vane: 'Wind vane', capsized: 'Capsized' }[m] || m || '';
     if (m === 'vane') { info.twa = Math.abs(this.vaneTwa ?? twa); info.next = `holding ${dg(info.twa)}° ${this.vaneTwa > 0 ? 'stbd' : 'port'}`; info.track = [[b.x, b.z], [b.x + Math.sin(desired) * 600, b.z - Math.cos(desired) * 600]]; return info; }

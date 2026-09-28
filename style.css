@@ -387,7 +387,7 @@ body.touch .tp-eng #tp-thr { writing-mode: vertical-lr; direction: rtl; width: 4
 .tp-eng .tl { font: 700 14px var(--cond); letter-spacing: .08em; }
 
 /* ---------------- autopilot: the coach line, the toolbar button ---------------- */
-#coach { position: absolute; left: 50%; transform: translateX(-50%); top: calc(92px + env(safe-area-inset-top, 0px)); width: min(460px, calc(100% - 530px)); min-width: 280px; padding: 6px 10px 7px; border-left: 3px solid var(--stbd); }
+#coach { position: absolute; left: 50%; transform: translateX(-50%); top: calc(92px + env(safe-area-inset-top, 0px)); width: min(460px, calc(100% - 700px)); min-width: 300px; padding: 6px 10px 7px; border-left: 3px solid var(--stbd); }
 #coach .co-top { display: flex; align-items: baseline; gap: 10px; font: 600 13px var(--cond); letter-spacing: .05em; font-variant-numeric: tabular-nums; white-space: nowrap; }
 #coach .co-top .eyebrow { color: var(--stbd); }
 #co-mode { color: #5fe39a; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; }
