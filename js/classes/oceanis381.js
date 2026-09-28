@@ -45,6 +45,7 @@ export default {
       depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 3.9, min: 10 * DEG, max: 50 * DEG, sagK: 1.2, color: 0xf1f1ec, window: false },
   ],
   hull: { color: 0xf5f6f4, stripe: 0x3b4450, deck: 0xdcdcd6, boot: 0x2c3036, bootTop: 0x3b4450, levels: [0.05, 0.12, 0.1, 0.06] },
+  cloth: 'dacronCruise',   // (the cloth solver's stiffness and weight: Dacron, as the renderer and js/damage.js have it)
   sailcloth: { cloth: 0xf1f1ec, kind: 'dacron', num: '#1d2a44', logo: '#1d2a44', trans: 0.28, rough: 0.55 },
   insignia: '38.1',
   offsets: {

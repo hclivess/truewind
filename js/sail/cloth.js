@@ -360,7 +360,10 @@ export class Cloth {
           if (gap >= r) continue;
           const wp = kin[E[e]] ? 0 : 1 - u, wq = kin[E[e + 1]] ? 0 : u, ww = wp * wp + wq * wq;
           if (ww < 1e-9) continue;
-          const lam = (r - gap) / ww; w.hits++;
+          // (half the way out each substep: a compliant contact. Projected all the way, an edge caught between two of the
+          // wire's segments, or held where the cloth's own shape cannot follow, took 30-280 kN/m of strain there on a
+          // running main lying on its shrouds, against ~1 kN/m in the rest of the sail)
+          const lam = 0.5 * (r - gap) / ww; w.hits++;
           x[p] += nx * lam * wp; x[p + 1] += ny * lam * wp; x[p + 2] += nz * lam * wp;
           x[q] += nx * lam * wq; x[q + 1] += ny * lam * wq; x[q + 2] += nz * lam * wq;
         }

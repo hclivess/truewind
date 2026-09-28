@@ -6,7 +6,7 @@
 // All positions are in the boat's rig frame (x forward, y starboard, z up along the mast, from the centre of
 // gravity at the waterline), as physics.js uses.
 import { clamp, lerp, sstep, STRIP_F, reefAt, mastXAt } from '../physics.js';
-import { rigWires, sheetCar, sheetLen, boomBend } from '../boom.js';
+import { rigWires, sheetCar, sheetLen, boomBend, boomContactAngle } from '../boom.js';
 import { tackleOf } from '../linehandlers.js';
 import { G as GRAV } from '../env.js';
 import { Cloth } from './cloth.js';
@@ -351,6 +351,15 @@ export class BoomSailRig extends ClothRig {
         this.sheetHaul = Math.min(0.035, 2 * C.sheetPower / this.sheet.w);
       }
       this.bend = { M: 0, dv: 0, ds: 0, ratio: 0 };
+    } else if (isMain && !lateen && boat.sailBy.main === s0) {
+      // (a main without a track stops on its shroud too, where that comes before its sheet's reach: past it the cloth
+      // lay pressed round the wire, strained at 30-80 kN/m on a Catalina 30 running, against ~1 kN/m in the sail)
+      const amax = boomContactAngle(C, boat.sailBy);
+      if (amax < (s0.max ?? 1.4)) {
+        this.stopQ = [this.px - 1, 0, this.pz];
+        const ea = [this.px - this.Lb * Math.cos(amax), this.Lb * Math.sin(amax), this.pz];
+        this.stop = cloth.addRope(this.E, 1, this.Gp, this.stopQ, hyp3(ea[0] - this.stopQ[0], ea[1], 0), 4e5);
+      }
     }
     this.dipF = [0, 0, 0];
     const peak = cloth.node(nu - 1, nv - 1), pk = 3 * (nv * nu - 1);
@@ -562,7 +571,13 @@ export class BoomSailRig extends ClothRig {
     this.rate = wrapA(a - this.a) / dt; this.a = a;
     this.elev = Math.atan2(ez, hyp(ex, ey));
     // a slam: the sheet snatching a swinging boom
-    if (this.sheet.taut && !wasTaut && Math.abs(rate0) > 1.2 && this.isMain) { b.slam = Math.max(b.slam, Math.abs(rate0)); b.slamEvents++; }
+    // (its angular impulse, as the strip model's boom reports it, for the rig's shock loads: js/damage.js, js/mob.js)
+    const stopTaut = this.stop ? this.stop.taut : false, snatched = (this.sheet.taut && !wasTaut) || (stopTaut && !this._stopTaut);
+    this._stopTaut = stopTaut;
+    if (snatched && Math.abs(rate0) > 1.2 && this.isMain) {
+      b.slam = Math.max(b.slam, Math.abs(rate0)); b.slamEvents++;
+      b.slamJ = Math.max(b.slamJ || 0, (this.s0.Iboom || 0) * Math.abs(rate0) * 1.2);
+    }
   }
   sheetLoad() { return this.sheet.force; }
 }

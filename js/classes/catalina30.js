@@ -44,6 +44,7 @@ export default {
       depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 3.8, min: 10 * DEG, max: 50 * DEG, sagK: 1.3, color: 0xf2f0e8, window: false },
   ],
   hull: { color: 0xf3f2ec, stripe: 0xb3262a, deck: 0xe9e3d3, boot: 0x1b2f52, bootTop: 0x6b3f22, levels: [0.03, 0.09, 0.2, 0.12] },
+  cloth: 'dacronCruise',   // (the cloth solver's stiffness and weight: Dacron, as the renderer and js/damage.js have it)
   sailcloth: { cloth: 0xf2f0e8, kind: 'dacron', num: '#1d2a44', logo: '#8a2a1e', trans: 0.3, rough: 0.62 },
   // the class insignia: Catalina's bold open 'C' round the class number
   // the Catalina insignia (as on the class's mains): a red diamond with a white sail in it, the class number below
