@@ -32,6 +32,26 @@ function propeller(D, Z, material) {
   return g;
 }
 
+// a ray at the boat's hull (physics coords): (from, dir) -> { p: the point, n: the surface's normal there, d: the
+// distance } or null
+function hullHit(vis) {
+  const rc = new THREE.Raycaster(), hulls = [];
+  vis.inner.traverse((o) => { if (o.isMesh && o.geometry.attributes.sheerZ) hulls.push(o); });
+  if (!hulls.length && vis.hull) hulls.push(vis.hull);
+  vis.root.updateMatrixWorld(true);
+  const Mw = vis.inner.matrixWorld, Mi = Mw.clone().invert(), nm = new THREE.Matrix3();
+  return (from, dir) => {
+    const o = V(from[0], from[1], from[2]).applyMatrix4(Mw), e = V(from[0] + dir[0], from[1] + dir[1], from[2] + dir[2]).applyMatrix4(Mw);
+    rc.set(o, e.sub(o).normalize()); rc.far = 20;
+    const h = rc.intersectObjects(hulls, false)[0];
+    if (!h) return null;
+    const p = h.point.clone().applyMatrix4(Mi), n = h.face.normal.clone().applyMatrix3(nm.getNormalMatrix(h.object.matrixWorld)).applyMatrix3(new THREE.Matrix3().setFromMatrix4(Mi)).normalize();
+    // (the face may be wound either way: the normal faces back along the ray)
+    if (n.dot(rc.ray.direction.clone().applyMatrix3(new THREE.Matrix3().setFromMatrix4(Mi))) > 0) n.negate();
+    return { p: [-p.z, p.x, p.y], n: [-n.z, n.x, n.y], d: h.distance };
+  };
+}
+
 export function buildEngineModel(boat, vis) {
   const e = boat.engine; if (!e) return null;
   const S = e.spec, C = boat.cls, Lx = vis.lines;
@@ -80,16 +100,38 @@ export function buildEngineModel(boat, vis) {
     slide.add(pivot);
     Object.assign(out, { pivot, motor, prop, legLen, slide, dxdz: tr.dxdz, bracket: root });
   } else {
-    // inboard / saildrive: an exhaust outlet on the transom (or topsides), the shaft and prop out of sight below
+    // inboard / saildrive: an exhaust outlet on the transom (or topsides), the shaft and prop out of sight below.
+    // The outlet sits on the hull's own surface nearest the spec's point (the transom, or the quarter's topsides),
+    // found by casting at the hull, and points out along the surface there; the shaft runs from the prop up into
+    // the hull, and a saildrive's leg from the hull down to its pod
+    const hit = hullHit(vis);
     const ex = S.exhaust || [C.sternX, 0.3, 0.2];
+    const onT = hit([C.sternX - 1.5, ex[1], ex[2]], [1, 0, 0]), onS = hit([ex[0], Math.sign(ex[1] || 1) * (C.beam + 1), ex[2]], [0, -Math.sign(ex[1] || 1), 0]);
+    const d = (h) => h ? Math.hypot(h.p[0] - ex[0], h.p[1] - ex[1], h.p[2] - ex[2]) : Infinity;
+    const at = d(onT) <= d(onS) ? onT : onS;
+    const P = at ? at.p : ex, N = at ? at.n : [-1, 0, 0], n3 = V(N[0], N[1], N[2]).normalize();
     const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.034, 0.05, 12, 1, true), M.alu());
-    pipe.rotation.x = Math.PI / 2; pipe.position.copy(V(ex[0], ex[1], ex[2])); root.add(pipe);
-    const hole = new THREE.Mesh(new THREE.CircleGeometry(0.026, 12), M.black()); hole.position.copy(V(ex[0] - 0.026, ex[1], ex[2])); root.add(hole);
-    const prop = propeller(S.prop.D, S.prop.Z, M.bronze()); prop.position.copy(V(px, py, pz)); prop.rotation.x = -(S.shaftAngle || 0); root.add(prop);
+    pipe.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n3); pipe.position.copy(V(P[0], P[1], P[2])).addScaledVector(n3, 0.015); root.add(pipe);
+    const hole = new THREE.Mesh(new THREE.CircleGeometry(0.026, 12), M.black());
+    hole.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n3); hole.position.copy(V(P[0], P[1], P[2])).addScaledVector(n3, 0.039); root.add(hole);
+    const prop = propeller(S.prop.D, S.prop.Z, M.bronze()); prop.position.copy(V(px, py, pz)); prop.rotation.x = S.shaftAngle || 0; root.add(prop);   // (its disc square to the shaft, which rises forward)
     if (S.type === 'inboard') {
-      const L = 0.9, a = S.shaftAngle || 0;
+      // (up the shaft line from the prop until it enters the hull, or the keel ahead of an aperture)
+      // (the rays a hair off the centreline, where the hull's two sides meet in an edge a ray can slip through)
+      const a = S.shaftAngle || 0, h = hit([px, py + 0.003, pz], [Math.cos(a), 0, Math.sin(a)]), L = h ? Math.max(0.3, h.d + 0.06) : 0.9;
       const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, L, 8), M.alu());
-      shaft.rotation.x = Math.PI / 2 - a; shaft.position.copy(V(px + L / 2 * Math.cos(a), py, pz + L / 2 * Math.sin(a))); root.add(shaft);
+      shaft.rotation.x = a - Math.PI / 2; shaft.position.copy(V(px + L / 2 * Math.cos(a), py, pz + L / 2 * Math.sin(a))); root.add(shaft);
+      // a long run in open water carries a P-bracket just ahead of the prop, up to the hull
+      const bx = px + 0.22 * Math.cos(a), bz = pz + 0.22 * Math.sin(a), hb = L > 0.6 ? hit([bx, py + 0.003, bz], [0, 0, 1]) : null;
+      if (hb && hb.d > 0.08) {
+        const st = new THREE.Mesh(new THREE.BoxGeometry(0.025, hb.d + 0.04, 0.09), M.bronze()); st.position.copy(V(bx, py, bz + hb.d / 2)); root.add(st);
+        const boss = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.1, 10), M.bronze()); boss.rotation.x = a - Math.PI / 2; boss.position.copy(V(bx, py, bz)); root.add(boss);
+      }
+    } else if (S.type === 'saildrive') {
+      // the leg: a faired strut from the hull bottom down to the pod, the prop on the pod's aft end
+      const xl = px + 0.2, h = hit([xl, py + 0.003, pz], [0, 0, 1]), top = h ? h.p[2] + 0.05 : pz + 0.5, legM = M.leg();
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.07, top - pz, 0.3), legM); leg.position.copy(V(xl, py, (top + pz) / 2)); root.add(leg);
+      const pod = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.28, 4, 10), legM); pod.rotation.x = Math.PI / 2; pod.position.copy(V(xl - 0.02, py, pz)); root.add(pod);
     }
     out.prop = prop;
   }

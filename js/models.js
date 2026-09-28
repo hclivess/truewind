@@ -48,14 +48,15 @@ const M = {
   teak: () => mat('teak', () => new THREE.MeshStandardMaterial({ map: teakTex(), roughness: 0.75, side: THREE.DoubleSide })),
   varnish: () => mat('varnish', () => new THREE.MeshStandardMaterial({ map: teakTex(), roughness: 0.25, color: 0xd9b48a })),
   deck: (tint) => mat('deck' + tint, () => new THREE.MeshStandardMaterial({ map: nonskidTex(tint), roughness: 0.85, side: THREE.DoubleSide })),
-  steel: () => mat('steel', () => new THREE.MeshStandardMaterial({ color: 0xd4d8dc, roughness: 0.22, metalness: 0.9 })),
+  // (wire and stainless tube: lifelines, rails, stays; nothing is seated on them: js/rigging.js seat())
+  steel: () => mat('steel', () => Object.assign(new THREE.MeshStandardMaterial({ color: 0xd4d8dc, roughness: 0.22, metalness: 0.9 }), { userData: { noSeat: true } })),
   alu: () => mat('alu', () => new THREE.MeshStandardMaterial({ color: 0xc3c7cb, roughness: 0.38, metalness: 0.55 })),   // anodised: silver, not a mirror
   black: () => mat('black', () => new THREE.MeshStandardMaterial({ color: 0x1c1e22, roughness: 0.5, metalness: 0.2 })),
   rubber: () => mat('rubber', () => new THREE.MeshStandardMaterial({ color: 0x111214, roughness: 0.9 })),
   bronze: () => mat('bronze', () => new THREE.MeshStandardMaterial({ color: 0xb08d57, roughness: 0.3, metalness: 0.85 })),
   carbon: () => mat('carbon', () => new THREE.MeshStandardMaterial({ map: carbonTex(), roughness: 0.3, metalness: 0.3 })),
   glass: () => mat('glass', () => new THREE.MeshStandardMaterial({ color: 0x18242c, roughness: 0.05, metalness: 0.6 })),
-  wire: () => mat('wire', () => new THREE.MeshStandardMaterial({ color: 0xc8ccd0, roughness: 0.3, metalness: 0.9 })),
+  wire: () => mat('wire', () => Object.assign(new THREE.MeshStandardMaterial({ color: 0xc8ccd0, roughness: 0.3, metalness: 0.9 }), { userData: { noSeat: true } })),
   red: () => mat('navred', () => new THREE.MeshStandardMaterial({ color: 0xc81e1e, emissive: 0x400000, roughness: 0.3 })),
   green: () => mat('navgreen', () => new THREE.MeshStandardMaterial({ color: 0x1e9c3c, emissive: 0x003010, roughness: 0.3 })),
   cream: () => mat('cream', () => new THREE.MeshStandardMaterial({ color: 0xece4d2, roughness: 0.4, side: THREE.DoubleSide })),
@@ -245,6 +246,97 @@ class Kit {
   }
 }
 
+// A flat part laid onto a side (a portlight on a cabin trunk's side or in the topsides): geom is built in its own
+// frame, x forward along the side, y up, z out of it; each vertex goes to physics (x0 + x, side y, z0 + y), out from
+// the surface there by its z (+ off), so the part follows the side's lean and its curve in plan (s: -1 port, 1 stbd;
+// sideY(x, z): the side's half-breadth there)
+function onSide(geom, x0, z0, s, sideY, off = 0) {
+  const p = geom.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = x0 + p.getX(i), z = z0 + p.getY(i);
+    p.setXYZ(i, s * (sideY(x, z) + off + p.getZ(i)), z, -x);
+  }
+  if (s < 0 && geom.index) { const a = geom.index.array; for (let i = 0; i < a.length; i += 3) { const t = a[i + 1]; a[i + 1] = a[i + 2]; a[i + 2] = t; } }
+  geom.computeVertexNormals();
+  return geom;
+}
+
+// A transom-hung rudder's gudgeons: for each pintle (physics x, height z on the centreline) a strap from the pintle
+// forward to the hull's own surface there (the transom or sternpost, found by a ray at the hull meshes), so the blade
+// hangs from the hull and not beside it; none where the hull is out of reach (below the transom's foot)
+// The deck mesh's own height under a point (a ray down at the deck and hull meshes), or null off them: where a deck
+// fitting is bolted (the height functions follow the mesh, but between its rows and in a cockpit well's rounded edge
+// they part from it by a centimetre or two)
+function deckRay(meshes) {
+  const rc = new THREE.Raycaster(), dn = new THREE.Vector3(0, -1, 0);
+  for (const m of meshes) m.updateMatrixWorld(true);
+  return (x, y) => { rc.set(V(x, y, 8), dn); rc.far = 20; const h = rc.intersectObjects(meshes, false)[0]; return h ? h.point.y : null; };
+}
+// (x: the pintles' x, or a function of their height)
+function gudgeons(kit, hulls, x0, zs, material) {
+  const rc = new THREE.Raycaster(), fwd = new THREE.Vector3(0, 0, -1);
+  for (const m of hulls) m.updateMatrixWorld(true);
+  for (const z of zs) {
+    const x = typeof x0 === 'function' ? x0(z) : x0;
+    rc.set(V(x - 0.4, 0.002, z), fwd); rc.far = 0.8;
+    const h = rc.intersectObjects(hulls, false)[0]; if (!h) continue;
+    const xh = -h.point.z;
+    if (xh <= x || xh - x > 0.3) continue;
+    kit.box(material, 0.05, 0.022, xh - x + 0.02, V((x + xh + 0.02) / 2, 0, z));
+  }
+}
+
+// The name on the transom, laid onto it: the stern station st (the hull's section there, sheer to keel, [x, y, z]) is
+// the transom's outline and its rake (a counter's small transom stands well clear of the water; a curved one leans
+// more at its foot); the plate fits inside it, clear of the water, reading from astern, its text's 4:1 kept. null
+// where the transom is too small to carry it
+function transomPlate(st, wMax, yc = 0) {
+  const at = (z, k) => { for (let i = 1; i < st.length; i++) { const za = st[i - 1][2], zb = st[i][2]; if ((za - z) * (zb - z) <= 0 && za !== zb) return st[i - 1][k] + (st[i][k] - st[i - 1][k]) * (z - za) / (zb - za); } return st[z > st[0][2] ? 0 : st.length - 1][k]; };
+  const zTop = st[0][2], zLow = Math.max(st[st.length - 1][2], 0.12);
+  if (zTop - zLow < 0.08) return null;
+  let h = Math.min(wMax / 4, 0.6 * (zTop - zLow));
+  const zc = zLow + 0.55 * (zTop - zLow), wFit = 2 * (at(zc - h / 2, 1) - Math.abs(yc)) * 0.92;
+  if (4 * h > wFit) h = wFit / 4;
+  if (h < 0.02) return null;
+  const g = new THREE.PlaneGeometry(4 * h, h, 16, 4), p = g.attributes.position;
+  // (4 mm out along the transom's normal: on a flat counter a step aft alone put the plate hardly off the surface)
+  for (let i = 0; i < p.count; i++) {
+    const z = zc + p.getY(i), s = (at(z + 0.01, 0) - at(z - 0.01, 0)) / 0.02, n = 0.004 / Math.hypot(1, s);
+    p.setXYZ(i, yc + p.getX(i), z + s * n, -(at(z, 0) - n));
+  }
+  g.computeVertexNormals();
+  return g;
+}
+// a hull part's outboard side (hull.js hullParts: a catamaran's hull, a trimaran's float): (x, z) -> |y| of its
+// topsides there, for onSide
+function partSideY(C, Lx, P) {
+  const off = Math.abs(P.y);
+  return (x, z) => {
+    const sec = partSection(C, Lx, clamp((x - C.sternX) / (C.bowX - C.sternX), P.t0, P.t1), P);
+    if (!sec) return off;
+    for (let i = 1; i < sec.length; i++) { const [y0, z0] = sec[i - 1], [y1, z1] = sec[i]; if ((z0 - z) * (z1 - z) <= 0 && z0 !== z1) return off + y0 + (y1 - y0) * (z - z0) / (z1 - z0); }
+    return off + sec[0][0];
+  };
+}
+// a name plate for onSide, w long: it reads from aft to fore on the port side (s < 0) as well as to starboard
+function nameStrip(w, s) {
+  const g = new THREE.PlaneGeometry(w, w / 4, 16, 2);
+  if (s < 0) { g.scale(-1, 1, 1); const a = g.index.array; for (let i = 0; i < a.length; i += 3) { const q = a[i + 1]; a[i + 1] = a[i + 2]; a[i + 2] = q; } }
+  return g;
+}
+
+// The transom (or sternpost) a rudder hangs on, as a line: rays from astern at the hull at two heights on the
+// centreline -> { x0: its x at the waterline, slope: how far aft it runs per metre up } (a vertical line where the
+// rays miss)
+function transomLine(hulls, x, zLo, zHi) {
+  const rc = new THREE.Raycaster(), fwd = new THREE.Vector3(0, 0, -1), at = (z) => { rc.set(V(x - 1, 0.002, z), fwd); rc.far = 2; const h = rc.intersectObjects(hulls, false)[0]; return h ? -h.point.z : null; };
+  for (const m of hulls) m.updateMatrixWorld(true);
+  const a = at(zLo), b = at(zHi);
+  if (a === null || b === null || zHi - zLo < 0.1) return { x0: a ?? b ?? x, slope: 0 };
+  const slope = clamp((a - b) / (zHi - zLo), 0, 1.2);
+  return { x0: a + slope * zLo, slope };
+}
+
 // ------------------------------------------------------------------ hull lines (shared with the physics)
 import { linesFor, hullSection, hullOffsets, hullParts, partSection, calibrate } from './hull.js';
 export { linesFor };
@@ -376,19 +468,35 @@ function deckGeometry(C, Lx, stations, ck) {
 }
 
 // deck height at (x fwd, y stbd) — used to seat fittings
-function deckHeightFn(C, Lx, ck) {
+// (stations: the hull's, as deckGeometry lays the deck over them: its edge is each station's sheer point, which a
+// raked stem or transom moves fore and aft of the station's own x, so the deck at an x is found between the stations
+// whose sheer points straddle it — taken at the station's own x, a fitting near the bow sat on the deck further
+// forward, centimetres above the deck there)
+function deckHeightFn(C, Lx, ck, stations = null) {
   if (C.multihull) return (x, y) => {
     const t = clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1), half = C.hullSpacing / 2;
     const dy = Math.abs(Math.abs(y) - half), b = Math.max(0.05, Lx.bDeck(t));
     return dy < b ? Lx.sheer(t) + 0.03 * (1 - (dy / b) ** 2) : C.freeboard + 0.05;
   };
   const hb = (C.amas ? C.hullBeam : C.beam) / 2;
+  const NS = stations ? stations.length - 1 : 0;
+  const edgeAt = (x) => {                                   // the deck's edge at x: [t, half breadth, sheer height]
+    if (!stations) { const t = clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1); return [t, Lx.bDeck(t), Lx.sheer(t)]; }
+    let lo = 0, hi = NS;
+    if (x <= stations[0][0][0]) hi = 1; else if (x >= stations[NS][0][0]) lo = NS - 1;
+    else while (hi - lo > 1) { const m = (lo + hi) >> 1; if (stations[m][0][0] <= x) lo = m; else hi = m; }
+    const [xa, ba, za] = stations[lo][0], [xb, bb, zb] = stations[hi][0], f = clamp((x - xa) / Math.max(1e-6, xb - xa), 0, 1);
+    return [(lo + f) / NS, ba + (bb - ba) * f, za + (zb - za) * f];
+  };
   const mono = (x, y) => {
-    const t = clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1);
-    const b = Math.max(0.05, Lx.bDeck(t)), sh = Lx.sheer(t);
-    const u = clamp(y / b, -1, 1);
+    const [t, b0, sh] = edgeAt(x), b = Math.max(0.05, b0);
+    const u = clamp(y / (stations ? b * 0.992 : b), -1, 1);
     let z = sh + Lx.H.crown * (1 - u * u) * Math.min(1, b / hb) * hb * 0.35;
-    if (ck && t > ck.t0 && t < ck.t1 && Math.abs(u) < ck.w) z = ck.sole;
+    // (the well as deckGeometry lowers it: its floor, and its sides sloping up over one column of the deck mesh)
+    if (ck) {
+      if (stations) { const e = 1.2 / NS, eu = 2.4 / 26, m = sstep(ck.t0 - e, ck.t0, t) * (1 - sstep(ck.t1, ck.t1 + e, t)) * (1 - sstep(ck.w, ck.w + eu, Math.abs(u))); z = lerp(z, ck.sole, m); }
+      else if (t > ck.t0 && t < ck.t1 && Math.abs(u) < ck.w) z = ck.sole;
+    }
     return z;
   };;
   if (!C.amas) return mono;
@@ -427,6 +535,11 @@ function foilGeom(chord, span, thick = 0.1, taper = 0.7, sweep = 0.1) {
   g.computeVertexNormals();
   g.rotateY(-Math.PI / 2); // chord runs aft (+z local)
   return g;
+}
+// a lathe profile's radius at height y ([[r, y]] rows, y rising)
+function profR(prof, y) {
+  for (let i = 1; i < prof.length; i++) { const [r0, y0] = prof[i - 1], [r1, y1] = prof[i]; if (y <= y1 && y1 > y0) return r0 + (r1 - r0) * clamp((y - y0) / (y1 - y0), 0, 1); }
+  return prof[prof.length - 1][0];
 }
 function lathe(profile, seg = 16) { return new THREE.LatheGeometry(profile.map(([r, y]) => new THREE.Vector2(Math.max(r, 0.0001), y)), seg); }
 
@@ -703,13 +816,13 @@ function transomDecal(C, name, port) {
 // J/70 (J/Boats deck plan and profile): a low wedge from the cockpit (1.36 m wide, ~0.25 m high at its aft face)
 // tapering to 0.7 m wide at its forward end, 1.6 m aft of the stem, where it fairs into the foredeck.
 const CABIN = {
-  blackwatch: { t0: 0.40, t1: 0.77, h: (t) => 0.4 - 0.03 * (t - 0.4) / 0.37, w: (t) => 0.74 * (1 - 0.5 * sstep(0.5, 1, (t - 0.4) / 0.37) ** 1.5) },
-  sportboat: { t0: 0.515, t1: 0.77, h: (t) => 0.25 * (1 - sstep(0.45, 1.02, (t - 0.515) / 0.255) ** 1.3), w: (t) => lerp(0.68, 0.35, ((t - 0.515) / 0.255) ** 0.9) },
+  blackwatch: { t0: 0.40, t1: 0.77, camber: 0.06, h: (t) => 0.4 - 0.03 * (t - 0.4) / 0.37, w: (t) => 0.74 * (1 - 0.5 * sstep(0.5, 1, (t - 0.4) / 0.37) ** 1.5) },
+  sportboat: { t0: 0.515, t1: 0.77, camber: 0.03, h: (t) => 0.25 * (1 - sstep(0.45, 1.02, (t - 0.515) / 0.255) ** 1.3), w: (t) => lerp(0.68, 0.35, ((t - 0.515) / 0.255) ** 0.9) },
 };
 // ================================================================== assemble
 // classes that carry a model description (C.model) are built by js/boats/detailed.js, which registers here
 export const MODEL_HOOKS = { build: null };
-export { transomDecal, M, Kit, canvasTex, rnd, hullGeometry, deckGeometry, deckHeightFn, foilGeom, lathe, sailMesh, clothOf, hullMaterial, updateSail, teakTex, nonskidTex, sailTexture };
+export { transomDecal, transomPlate, M, Kit, onSide, nameStrip, gudgeons, transomLine, deckRay, canvasTex, rnd, hullGeometry, deckGeometry, deckHeightFn, foilGeom, lathe, profR, sailMesh, clothOf, hullMaterial, updateSail, teakTex, nonskidTex, sailTexture };
 export function buildBoatModel(boat, opts = {}) {
   const C = boat.cls;
   if (C.model && MODEL_HOOKS.build) return MODEL_HOOKS.build(boat, opts);
@@ -723,14 +836,14 @@ export function buildBoatModel(boat, opts = {}) {
   calibrate(C);
   const offs = hullOffsets(C), parts = hullParts(C), LK = lookOf(C);
   let stations, hull;
-  const partStations = [];
+  const partStations = [], hullMeshes = [];
   for (const P of parts) {
     const r = hullGeometry(Chull, Lx, C.amas ? P : P.y);
     partStations.push(r.stations);
     if (!C.amas || P.y === 0) stations = r.stations;               // (a trimaran's main hull sets the deck lines)
     const m = new THREE.Mesh(r.geom, M.hull(C));
     m.castShadow = true; m.receiveShadow = true;
-    inner.add(m);
+    inner.add(m); hullMeshes.push(m);
     if (!C.amas || P.y === 0) hull = m;
   }
   const bx = (t) => lerp(C.sternX, C.bowX, t);
@@ -742,15 +855,16 @@ export function buildBoatModel(boat, opts = {}) {
   const ck = LK.cockpit ? LK.cockpit : C.id === 'blackwatch' ? { t0: 0.07, t1: 0.39, w: 0.5, sole: 0.38 }
     : C.id === 'sportboat' ? { t0: 0.0, t1: 0.515, w: 0.6, sole: 0.3 }
     : { t0: 0.24, t1: 0.635, w: 0.47, sole: 0.14 };
-  const deckH0 = deckHeightFn(C, Lx, ck);
+  const deckH0 = deckHeightFn(C, Lx, ck, C.multihull ? null : stations);
   // top surface: the deck, or the cabin roof where there is a coachroof (fittings sit on whichever is on top)
   // (a class's own coachroof, C.hull.cabin: a plain trunk of its height, narrowing a little forward)
-  const cab = CABIN[C.id] || (LK.cabin ? { t0: LK.cabin.t0, t1: LK.cabin.t1, h: () => LK.cabin.h, w: (t) => LK.cabin.w * (1 - 0.25 * sstep(0.4, 1, (t - LK.cabin.t0) / (LK.cabin.t1 - LK.cabin.t0))) } : null);
+  const cab = CABIN[C.id] || (LK.cabin ? { t0: LK.cabin.t0, t1: LK.cabin.t1, camber: 0.05, h: () => LK.cabin.h, w: (t) => LK.cabin.w * (1 - 0.25 * sstep(0.4, 1, (t - LK.cabin.t0) / (LK.cabin.t1 - LK.cabin.t0))) } : null);
+  // (on the roof: its camber as trunkShell draws it, down from the crown to its edge)
   const deckH = (x, y) => {
     const z = deckH0(x, y);
     if (!cab) return z;
     const t = clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1);
-    return t > cab.t0 && t < cab.t1 && Math.abs(y) < cab.w(t) ? Math.max(z, deckH0(x, 0) + cab.h(t)) : z;
+    return t > cab.t0 && t < cab.t1 && Math.abs(y) < cab.w(t) ? Math.max(z, roofAt(cab, deckH0, x, t, y)) : z;
   };
   const deckTint = LK.deckTint ? LK.deckTint : C.id === 'blackwatch' ? '#e6dcc4' : C.id === 'sportboat' ? '#dfe2e2' : '#eceae3';
   let deck;
@@ -767,13 +881,13 @@ export function buildBoatModel(boat, opts = {}) {
   if (C.multihull) buildCatStructure(kit, inner, C, Lx, deckH);
   if (C.amas) buildTriStructure(kit, inner, C, Lx, deckH, LK);
   if (C.hull.wings) buildWings(kit, inner, C, Lx, deckH0);
-  if (LK.weathered) buildSalvage(kit, C, Lx, deckH);
+  if (LK.weathered) buildSalvage(kit, inner, C, Lx, deckH);
   // toe rails: the Blackwatch's mahogany rubrail the length of the sheer; the Laser's rolled deck-to-hull flange; the
   // J/70's short moulded toe rails on the foredeck only (J/Boats spec: "molded foredeck toe-rails P & S")
   const sheerPts = (side, off = 0) => stations.map(st => { const [x, y, z] = st[0]; return new THREE.Vector3(off + side * y, z + 0.02, -x); });
   if (!C.multihull) for (const side of [-1, 1]) {
     let pts = sheerPts(side).filter((p, i) => i % 2 === 0);
-    if (C.id === 'sportboat') pts = sheerPts(side).filter((p, i) => i / (stations.length - 1) > 0.62 && i / (stations.length - 1) < 0.985).map(p => p.set(p.x * 0.985, p.y + 0.01, p.z));
+    if (C.id === 'sportboat') pts = sheerPts(side).filter((p, i) => i / (stations.length - 1) > 0.62 && i / (stations.length - 1) < 0.985).map(p => p.set(p.x * 0.985, p.y - 0.006, p.z));   // (on the deck)
     else if (C.id === 'dinghy') pts = sheerPts(side).map(p => p.set(p.x * 1.004, p.y - 0.022, p.z));
     const r = C.id === 'dinghy' ? 0.018 : C.id === 'sportboat' ? 0.016 : 0.022;
     const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 60, r, 6);
@@ -781,14 +895,9 @@ export function buildBoatModel(boat, opts = {}) {
   }
   // transom lettering
   {
-    // sit the lettering on the actual transom surface: take its top (sheer) and the point near the
-    // boot top from the hull's own stern section, and lie the plate along that line
+    // the lettering laid onto the transom's own surface, from the hull's stern section (transomPlate)
     const st = stations[0];
     const [xt, , zt] = st[0];
-    let xb = xt, zb = 0.12;
-    for (let k = 1; k < st.length; k++) { const [xa, , za] = st[k - 1], [xc, , zc] = st[k]; if (za >= 0.12 && zc < 0.12) { xb = xa + (xc - xa) * (za - 0.12) / (za - zc); break; } }
-    const tilt = Math.atan2(xb - xt, zt - zb);          // rake: top of the transom further aft
-    const f = 0.55, xm = xb + (xt - xb) * f, zmid = zb + (zt - zb) * f;
     const w = Lx.bDeck(0) * 1.5;
     // the boat's name (the player's, or the fleet's); unnamed boats keep the class default; the home port
     // line only on the player's Blackwatch
@@ -797,28 +906,21 @@ export function buildBoatModel(boat, opts = {}) {
     const mat = new THREE.MeshStandardMaterial({ map: transomDecal(C, name, port), transparent: true, roughness: 0.4 });
     if (C.amas && name) {
       // a trimaran: on the outboard topsides of both floats, aft
-      const A = C.amas, hw = 2.2, xa = lerp(C.sternX, C.bowX, A.t0 + 0.08), ta = 0.08, y = A.tube ? A.y + A.tube.r + 0.02 : A.y + Lx.bDeck(ta) * A.sy + 0.02;
+      // (laid onto the float's topsides, which curve in toward its ends and round over to its deck)
+      const A = C.amas, hw = 2.2, xa = lerp(C.sternX, C.bowX, A.t0 + 0.08), ta = 0.08, floats = hullParts(C).filter((P) => P.y !== 0);
       for (const sd of [-1, 1]) {
-        const dec = new THREE.Mesh(new THREE.PlaneGeometry(hw, hw / 4), mat);
-        dec.position.set(sd * y, A.tube ? A.tube.z : A.dz + Lx.sheer(ta) * A.szTop * 0.62, -(xa + hw * 0.6));
-        dec.rotation.y = sd * Math.PI / 2;
-        inner.add(dec);
+        const P = floats.find((q) => Math.sign(q.y) === sd);
+        inner.add(new THREE.Mesh(onSide(nameStrip(hw, sd), xa + hw * 0.6, A.tube ? A.tube.z : A.dz + Lx.sheer(ta) * A.szTop * 0.62, sd, partSideY(C, Lx, P), 0.008), mat));
       }
     } else if (!C.multihull) {
-      const dec = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), mat);
       // (on the J/70 the name sits to port, clear of the rudder on its centreline gudgeons)
-      dec.position.set(C.id === 'sportboat' ? -w * 0.3 : 0, zmid + Math.sin(tilt) * 0.012, -xm + Math.cos(tilt) * 0.012);
-      dec.rotation.x = tilt;
-      if (name && (C.id !== 'dinghy' || opts.name)) inner.add(dec);
+      const g = transomPlate(st, w, C.id === 'sportboat' ? -w * 0.3 : 0);
+      if (g && name && (C.id !== 'dinghy' || opts.name)) inner.add(new THREE.Mesh(g, mat));
     } else if (name) {
-      // a catamaran carries its name on the outboard topsides of both hulls, aft
-      const hw = 1.1, y = C.hullSpacing / 2 + C.hullBeam / 2 + 0.015;
-      for (const sd of [-1, 1]) {
-        const dec = new THREE.Mesh(new THREE.PlaneGeometry(hw, hw / 4), mat);
-        dec.position.set(sd * y, zt * 0.62, -(xt + 0.95));
-        dec.rotation.y = sd * Math.PI / 2;
-        inner.add(dec);
-      }
+      // a catamaran carries its name on the outboard topsides of both hulls, aft (laid onto them: they curve in to the
+      // transom and tumble in toward the deck)
+      const hw = 1.1, sideY = partSideY(C, Lx, { y: C.hullSpacing / 2, sy: 1, sz: 1, szTop: 1, dz: 0, t0: 0, t1: 1 });
+      for (const sd of [-1, 1]) inner.add(new THREE.Mesh(onSide(nameStrip(hw, sd), xt + 0.95, zt * 0.62, sd, sideY, 0.006), mat));
     }
   }
   // cockpit furniture
@@ -857,7 +959,7 @@ export function buildBoatModel(boat, opts = {}) {
   // cabin trunk
   if (C.id === 'blackwatch') buildCabin(kit, C, Lx, deckH0, bx);
   if (C.id === 'sportboat') {
-    trunkShell(kit, CABIN.sportboat, deckH0, bx, M.deck('#dfe2e2'), 0.03);
+    trunkShell(kit, CABIN.sportboat, deckH0, bx, M.deck('#dfe2e2'));
     const P = CABIN.sportboat, xa = bx(P.t0), zc = deckH0(xa, 0);
     // moulded companionway cover (hinged at its forward end) aft of the mast, drop board in the aft face
     const hx = C.mastX - 0.36;
@@ -879,15 +981,17 @@ export function buildBoatModel(boat, opts = {}) {
   }
   if (LK.cabin && !CABIN[C.id]) {
     // a class's coachroof (C.hull.cabin): the trunk, windows in its sides and front, a hatch, the companionway
-    trunkShell(kit, cab, deckH0, bx, LK.cabin.wood ? M.varnish() : M.deck(deckTint), 0.05);
+    trunkShell(kit, cab, deckH0, bx, LK.cabin.wood ? M.varnish() : M.deck(deckTint));
     const xa = bx(cab.t0), xf = bx(cab.t1), zc = deckH0(xa, 0), hc = LK.cabin.h;
+    // (ports and windows laid onto the trunk's side, which leans in and narrows forward)
+    const sideY = trunkSide(cab, deckH0, C);
     for (const s of [-1, 1]) {
-      const xm = lerp(xa, xf, 0.45), w = cab.w(tAt(xm));
+      const xm = lerp(xa, xf, 0.45);
       if (LK.wood) for (const t of [0.35, 0.6]) {           // round bronze ports on a wooden trunk
-        const x = lerp(xa, xf, t), wy = cab.w(tAt(x)), z = deckH0(x, 0) + hc * 0.5;
-        const ring = new THREE.TorusGeometry(0.06, 0.012, 8, 18); ring.rotateY(Math.PI / 2); ring.translate(s * (wy * 0.99 + 0.004), z, -x); kit.add(M.bronze(), ring);
-        const gl = new THREE.CircleGeometry(0.055, 16); gl.rotateY(s * Math.PI / 2); gl.translate(s * (wy * 0.99 + 0.006), z, -x); kit.add(M.glass(), gl);
-      } else kit.box(M.glass(), 0.02, hc * 0.3, (xf - xa) * 0.55, V(xm, s * (w * 0.985 + 0.004), zc + hc * 0.55));
+        const x = lerp(xa, xf, t), z = deckH0(x, 0) + hc * 0.5;
+        kit.add(M.bronze(), onSide(new THREE.TorusGeometry(0.06, 0.012, 8, 18), x, z, s, sideY, 0.004));
+        kit.add(M.glass(), onSide(new THREE.CircleGeometry(0.055, 16), x, z, s, sideY, 0.006));
+      } else kit.add(M.glass(), onSide(new THREE.BoxGeometry((xf - xa) * 0.55, hc * 0.3, 0.02, 12, 1, 1), xm, deckH0(xm, 0) + hc * 0.55, s, sideY, 0.004));
     }
     kit.box(M.gel(0x1c1e22), 0.55, 0.035, 0.5, V(lerp(xa, xf, 0.6), 0, deckH0(lerp(xa, xf, 0.6), 0) + hc + 0.02));   // hatch
     kit.box(LK.wood ? M.varnish() : M.gel('#c9ccce'), 0.5, hc * 0.8, 0.03, V(xa - 0.005, 0, zc + hc * 0.4));   // washboards
@@ -898,8 +1002,9 @@ export function buildBoatModel(boat, opts = {}) {
   if (C.id === 'sportboat') buildSafetyLines(kit, C, Lx, deckH, bx);
   // mooring cleats, chainplates, nav lights
   const cleatM = LK.wood ? M.bronze() : M.alu();
-  const cleat = (x, y) => { const z = deckH(x, y); kit.box(cleatM, 0.035, 0.03, 0.16, V(x, y, z + 0.035)); kit.box(cleatM, 0.03, 0.035, 0.04, V(x, y, z + 0.015)); };
-  if (!C.multihull) { cleat(C.bowX - 0.35, 0); for (const s of [-1, 1]) cleat(C.sternX + 0.3, s * Lx.bDeck(0.05) * 0.8); }
+  const onDeck = deckRay([deck, ...hullMeshes]);
+  const cleat = (x, y) => { const z = onDeck(x, y) ?? deckH(x, y); kit.box(cleatM, 0.035, 0.03, 0.16, V(x, y, z + 0.035)); kit.box(cleatM, 0.03, 0.035, 0.04, V(x, y, z + 0.015)); };
+  if (!C.multihull) { cleat(C.bowX - 0.35, 0); for (const s of [-1, 1]) cleat(C.sternX + 0.3, s * Math.min(Lx.bDeck(0.05), Lx.bDeck(tAt(C.sternX + 0.3))) * 0.8); }   // (inside the deck there, a canoe stern narrow)
   // shroud chainplates: the J/70's swept-spreader rig takes its shrouds 0.45 m aft of the mast (J/Boats sail plan);
   // the Hobie's side stays go to the outboard deck edge by the front beam
   const shroudX = C.id === 'sportboat' ? C.mastX - 0.45 : C.multihull ? C.mastX - 0.12 : C.mastX - 0.1;
@@ -911,8 +1016,8 @@ export function buildBoatModel(boat, opts = {}) {
   }
   if (C.id === 'blackwatch' || LK.lifelines) {
     const nx = C.bowX - 0.25, ny = Lx.bDeck(tAt(nx)) * 0.8;
-    kit.box(M.red(), 0.05, 0.04, 0.07, V(nx, -ny, deckH(nx, -ny) + 0.05));
-    kit.box(M.green(), 0.05, 0.04, 0.07, V(nx, ny, deckH(nx, ny) + 0.05));
+    kit.box(M.red(), 0.05, 0.04, 0.07, V(nx, -ny, deckH(nx, -ny) + 0.02));
+    kit.box(M.green(), 0.05, 0.04, 0.07, V(nx, ny, deckH(nx, ny) + 0.02));
   }
   // bowsprit
   let sprit = null;
@@ -949,9 +1054,14 @@ export function buildBoatModel(boat, opts = {}) {
     }
   } else if (!K.long) {
     // J/70: a painted lead fin, swept and tapered, under a torpedo bulb; Laser: the white daggerboard, parallel-sided
-    const kg = foilGeom(K.chord, K.span + (K.board ? 0.35 : 0.08), K.board ? 0.08 : 0.11, K.board ? 0.95 : 0.72, K.board ? 0 : 0.18);
+    // (a fixed fin's root reaches up into the canoe body along its whole chord: the hull's keel line rises aft of
+    // the deepest point, and a root cut level at the canoe draft stood clear of it)
+    const xLE = K.x + K.chord * 0.35, top0 = -C.canoeDraft + 0.06;
+    let up = 0;
+    if (!K.board) for (let f = 0; f <= 1; f += 0.1) up = Math.max(up, Lx.keelZ(tAt(xLE - f * K.chord)) + 0.03 - top0);
+    const kg = foilGeom(K.chord, K.span + (K.board ? 0.35 : 0.08) + up, K.board ? 0.08 : 0.11, K.board ? 0.95 : 0.72, K.board ? 0 : 0.18);
     keelMesh = new THREE.Mesh(kg, K.board ? M.foil() : M.paint());
-    keelMesh.position.copy(V(K.x + K.chord * 0.35, 0, -C.canoeDraft + 0.06 + (K.board ? 0.35 : 0)));
+    keelMesh.position.copy(V(xLE, 0, top0 + up + (K.board ? 0.35 : 0)));
     keelMesh.castShadow = true;
     inner.add(keelMesh);
     if (C.keelBulb) {
@@ -959,7 +1069,7 @@ export function buildBoatModel(boat, opts = {}) {
       // (a class can give its bulb's length and radius: keelBulb { len, r, flat }; the default is the J/70's)
       const kb = C.keelBulb, bl = kb.len ?? 1.31, br = kb.r ?? 0.145, ks = bl / 1.31, rs = br / 0.145;
       const bulb = new THREE.Mesh(lathe([[0, 0], [0.06, 0.06], [0.12, 0.22], [0.145, 0.45], [0.14, 0.75], [0.11, 1.0], [0.06, 1.2], [0.015, 1.3], [0, 1.31]].map(([r, y]) => [r * rs, y * ks]), 20), M.paint());
-      bulb.rotation.x = Math.PI / 2; bulb.scale.set(1.15, 1, 0.85 * (kb.flat ?? 1)); bulb.position.set(0, -K.span - 0.02, -0.42 * ks + K.chord * 0.2 * (ks - 1));
+      bulb.rotation.x = Math.PI / 2; bulb.scale.set(1.15, 1, 0.85 * (kb.flat ?? 1)); bulb.position.set(0, -K.span - 0.02 - up, -0.42 * ks + K.chord * 0.2 * (ks - 1));
       bulb.castShadow = true; keelMesh.add(bulb);
     }
     if (K.board) { // handle on top of the daggerboard
@@ -988,34 +1098,51 @@ export function buildBoatModel(boat, opts = {}) {
   } else if (Rd.transom) {
     // barn-door rudder hung on the transom with bronze pintles, wooden tiller over the transom
     // (Rd.through: the rudder head comes up inside the transom and the tiller out through a slot in it, as on a Folkboat)
+    // (hung along the transom's rake: the pivot axis is the line of its pintles, 2.5 cm aft of the transom; a blade
+    // hung plumb stood clear of a raked transom at its foot and ran into it at its head. Lengths up the blade are
+    // measured along that line; the tiller keeps its own lie)
     const topZ = Lx.sheer(0) + (Rd.through ? -0.12 : 0.05), botZ = C.keel.long ? -C.draft + 0.05 : -C.canoeDraft - Rd.span;
-    const tx = C.sternX - Lx.H.transomRake * 0.5;
-    rudderPivot.position.copy(V(tx - 0.02, 0, 0));
+    const TL = transomLine(hullMeshes, C.sternX, 0.12, Math.max(0.3, topZ - 0.15)), tilt = Math.atan(TL.slope), k = 1 / Math.cos(tilt);
+    const px = TL.x0 - 0.025 * k;
+    rudderPivot.position.copy(V(px, 0, 0)); rudderPivot.rotation.x = tilt;
     const sh = new THREE.Shape();
-    const ch = Rd.chord;
-    sh.moveTo(0, topZ); sh.lineTo(0, botZ); sh.quadraticCurveTo(ch * 0.9, botZ - 0.02, ch, botZ + 0.25); sh.lineTo(ch * 0.75, topZ - 0.35); sh.lineTo(0.12, topZ);
+    const ch = Rd.chord, tZ = topZ * k, bZ = botZ * k;
+    sh.moveTo(0, tZ); sh.lineTo(0, bZ); sh.quadraticCurveTo(ch * 0.9, bZ - 0.02, ch, bZ + 0.25); sh.lineTo(ch * 0.75, tZ - 0.35); sh.lineTo(0.12, tZ);
     const bg = new THREE.ExtrudeGeometry(sh, { depth: 0.045, bevelEnabled: true, bevelSize: 0.012, bevelThickness: 0.012, bevelSegments: 2 });
     bg.translate(0, 0, -0.0225); bg.rotateY(-Math.PI / 2); // chord aft along +z
     const blade = new THREE.Mesh(bg, M.varnish()); blade.castShadow = true; rudderPivot.add(blade);
-    for (const z of [0.1, topZ - 0.35, -0.25]) { const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.08, 8), M.bronze()); pin.position.set(0, z, 0.005); rudderPivot.add(pin); }
-    const tpts = [new THREE.Vector3(0, topZ - 0.02, 0.03), new THREE.Vector3(0, topZ + 0.1, -0.2), new THREE.Vector3(0, topZ + 0.14, -0.7), new THREE.Vector3(0, topZ + 0.08, -1.15)];
+    const pins = [0.1, topZ - 0.35, -0.25];
+    for (const z of pins) { const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.08, 8), M.bronze()); pin.position.set(0, z * k, 0.005); rudderPivot.add(pin); }
+    gudgeons(kit, hullMeshes, (z) => px - z * TL.slope - 0.005, pins, M.bronze());
+    // the tiller as it lies (head at the top of the raked stock), taken into the tilted pivot's frame
+    const hz = topZ * TL.slope, un = (y, z) => new THREE.Vector3(0, y * Math.cos(tilt) + z * Math.sin(tilt), -y * Math.sin(tilt) + z * Math.cos(tilt));
+    const tpts = [[topZ - 0.02, hz + 0.03], [topZ + 0.1, hz - 0.2], [topZ + 0.14, hz - 0.7], [topZ + 0.08, hz - 1.15]].map(([y, z]) => un(y, z));
     const tiller = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(tpts), 16, 0.028, 8), M.varnish());
     tiller.castShadow = true; rudderPivot.add(tiller);
     tillerEnd.copy(tpts[3]);
+    rudderPivot.userData.tilt = tilt;
   } else if (Rd.hung) {
     // J/70: a high-aspect moulded blade on transom gudgeons, its head at deck level, the composite tiller running
     // forward over the cockpit
+    // (hung along the transom's rake as the barn-door rudders are: its gudgeons 7 cm aft of it; a plumb blade's upper
+    // gudgeon was sunk inside a raked transom)
     const topZ = Lx.sheer(0) - 0.02, botZ = -C.canoeDraft - Rd.span;
-    rudderPivot.position.copy(V(C.sternX - 0.07, 0, 0));
-    const blade = new THREE.Mesh(foilGeom(Rd.chord * 1.05, topZ - botZ, 0.11, 0.62, 0.12), M.gel(0xf4f4f1));
-    blade.position.set(0, topZ, -0.05); blade.castShadow = true; rudderPivot.add(blade);
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.2, 0.3), M.black()); head.position.set(0, topZ + 0.03, 0.06); rudderPivot.add(head);
-    for (const z of [topZ - 0.12, 0.12]) { const gd = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.03, 0.07), M.alu()); gd.position.set(0, z, -0.03); rudderPivot.add(gd); }
-    const tLen = 1.05;
+    const TL = transomLine(hullMeshes, C.sternX, 0.12, topZ - 0.1), tilt = Math.atan(TL.slope), k = 1 / Math.cos(tilt);
+    const px = TL.slope > 0 ? TL.x0 - 0.07 * k : C.sternX - 0.07;
+    rudderPivot.position.copy(V(px, 0, 0)); rudderPivot.rotation.x = tilt; rudderPivot.userData.tilt = tilt;
+    const blade = new THREE.Mesh(foilGeom(Rd.chord * 1.05, (topZ - botZ) * k, 0.11, 0.62, 0.12), M.gel(0xf4f4f1));
+    blade.position.set(0, topZ * k, -0.05); blade.castShadow = true; rudderPivot.add(blade);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.2, 0.3), M.black()); head.position.set(0, topZ * k + 0.03, 0.06); rudderPivot.add(head);
+    const pins = [topZ - 0.12, 0.12];
+    for (const z of pins) { const gd = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.03, 0.07), M.alu()); gd.position.set(0, z * k, -0.03); rudderPivot.add(gd); }
+    gudgeons(kit, hullMeshes, (z) => px - z * TL.slope + 0.03, pins, M.alu());
+    // the tiller as it lies, from the head: a group at the head turned back upright
+    const tLen = 1.05, hz = topZ * TL.slope, un = (y, z) => new THREE.Vector3(0, y * Math.cos(tilt) + z * Math.sin(tilt), -y * Math.sin(tilt) + z * Math.cos(tilt));
+    const tg = new THREE.Group(); tg.position.copy(un(topZ, hz)); tg.rotation.x = -tilt; rudderPivot.add(tg);
     const tiller = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.028, tLen, 10), M.satin());
-    tiller.rotation.x = Math.PI / 2 - 0.08; tiller.position.set(0, topZ + 0.1, -tLen / 2 + 0.05);
-    tiller.castShadow = true; rudderPivot.add(tiller);
-    tillerEnd.set(0, topZ + 0.14, -tLen + 0.05);
+    tiller.rotation.x = Math.PI / 2 + 0.08; tiller.position.set(0, 0.1, -tLen / 2 + 0.05);   // (rising forward, to its end at tillerEnd)
+    tiller.castShadow = true; tg.add(tiller);
+    tillerEnd.copy(un(topZ + 0.14, hz - tLen + 0.05));
   } else {
     // Laser: the blade drops into an aluminium rudder head on the transom gudgeons; aluminium tiller
     const topZ = LK.liftingRudder ? C.freeboard + 0.05 : -C.canoeDraft + 0.12;
@@ -1039,9 +1166,9 @@ export function buildBoatModel(boat, opts = {}) {
   let extension = null;
   if (LK.extension) {
     const L = C.id === 'dinghy' ? 1.0 : 1.2;
-    const g = new THREE.CylinderGeometry(0.012, 0.012, L, 8); g.translate(0, L / 2, 0); g.rotateX(-Math.PI / 2 + 0.08);
+    const g = new THREE.CylinderGeometry(0.012, 0.012, L + 0.05, 8); g.translate(0, L / 2 - 0.025, 0); g.rotateX(-Math.PI / 2 + 0.08);   // (its universal joint 5 cm into the tiller's end)
     extension = new THREE.Mesh(g, M.black()); extension.castShadow = true;
-    extension.position.copy(tillerEnd);
+    extension.position.copy(tillerEnd); extension.rotation.x = -(rudderPivot.userData.tilt || 0);   // (lying as it would on a plumb rudder)
     rudderPivot.add(extension);
     extension.userData.len = L;
   }
@@ -1070,7 +1197,7 @@ export function buildBoatModel(boat, opts = {}) {
   const r0 = C.mastR ?? (C.id === 'dinghy' ? 0.032 : C.id === 'sportboat' ? 0.05 : 0.055);
   const joint = C.id === 'dinghy' ? 2.865 - 0.355 : 0;
   const mprof = C.id === 'dinghy'
-    ? [[r0, 0], [r0, joint], [0.0254, joint + 0.01], [0.0254, joint + 1.4], [0.02, mastLen - 0.3], [0.016, mastLen], [0, mastLen]]
+    ? [[r0, 0], [r0, joint - 0.025], [0.034, joint - 0.025], [0.034, joint + 0.025], [0.0254, joint + 0.025], [0.0254, joint + 1.4], [0.02, mastLen - 0.3], [0.016, mastLen], [0, mastLen]]   // (the joint's collar turned in: it bends with the mast)
     : [[r0, 0], [r0, mastLen * 0.6], [r0 * 0.9, mastLen * 0.8], [r0 * 0.6, mastLen], [0, mastLen]];
   // (resampled to ~30 rings so it can be drawn along the rig structure's solved bend: js/rig-structure.js)
   const mprofF = [];
@@ -1095,23 +1222,36 @@ export function buildBoatModel(boat, opts = {}) {
   const mx = (z) => mastXAt(C, z);
   mast.position.copy(V(mx(mastBase), 0, mastBase)); mast.rotation.x = Math.atan2(C.mastRake || 0, C.mastHeight - C.boomZ); mast.castShadow = true; rig.add(mast);
   mast.userData.base = Float32Array.from(mg.attributes.position.array);
+  // the mast collar / step at the deck (the mast's foot stands a little above it)
+  if (!C.multihull) { const zd = deckH(C.mastX, 0) - 0.005, h = mastBase + 0.05 - zd; rigKit.add(mastMat, new THREE.CylinderGeometry(r0 * 1.3, r0 * 1.5, h, 14).scale(1, 1, C.id === 'dinghy' ? 1 : 1.2).translate(0, zd + h / 2, -mx(mastBase))); }
   let sleeve = null;
   if (C.id === 'dinghy') {
-    rigKit.add(M.alu(), new THREE.CylinderGeometry(0.034, 0.034, 0.05, 14).translate(0, mastBase + joint, -C.mastX)); // joint collar
     // the sail's luff sleeve round the mast from the tack to the head
     const ML = boat.sailBy.main.luff;
     // (its own mesh, many rings: it bends with the mast)
     const slg = new THREE.CylinderGeometry(0.043, 0.047, ML * 0.97, 14, 24, true).translate(0, C.boomZ + ML * 0.485 + 0.03, -(C.mastX + 0.004));
     sleeve = new THREE.Mesh(slg, M.cream()); sleeve.castShadow = true; rig.add(sleeve); sleeve.userData.base = Float32Array.from(slg.attributes.position.array);
-  } else rigKit.box(M.black(), 0.012, mastLen * 0.95, 0.012, V(C.mastX - r0 * 1.2, 0, mastBase + mastLen * 0.5)); // luff track
+  } else {    // luff track, on the raked mast's aft face as it tapers
+    const at = (f) => { const z = mastBase + mastLen * f; return V(mx(z) - profR(mprof, mastLen * f) * 1.2, 0, z); };
+    for (const [fa, fb] of [[0.025, 0.6], [0.6, 0.8], [0.8, 0.975]]) rigKit.rod(M.black(), at(fa), at(fb), 0.007, 4);
+  }
   if (C.id === 'sportboat') { // white bands: at the gooseneck, at the top of the mainsail hoist and at the mast foot
     for (const [z, h] of [[C.boomZ + 0.05, 0.03], [C.boomZ + boat.sailBy.main.luff + 0.05, 0.03], [mastBase + 0.15, 0.02]])
       rigKit.add(M.band(), new THREE.CylinderGeometry(r0 * 1.02, r0 * 1.02, h, 14).scale(1, 1, 1.25).translate(0, z, -mx(z)));
   }
   if (C.id === 'blackwatch' || C.id === 'sportboat') rigKit.box(mastMat, 0.07, 0.04, C.id === 'sportboat' ? 0.3 : 0.16, V(mx(C.mastHeight) - (C.id === 'sportboat' ? 0.1 : 0.04), 0, C.mastHeight + 0.01)); // masthead crane
   if (C.id === 'blackwatch') rigKit.rod(M.black(), V(mx(C.mastHeight) + 0.02, 0.03, C.mastHeight), V(mx(C.mastHeight + 0.9) + 0.02, 0.03, C.mastHeight + 0.9), 0.004); // VHF whip
-  rigKit.box(M.black(), 0.1, 0.06, 0.08, V(C.mastX - 0.08, 0, C.boomZ)); // gooseneck
+  rigKit.box(M.black(), 0.1, 0.06, 0.08, V(Math.min(C.mastX - 0.08, mx(C.boomZ) - (C.id === 'dinghy' ? 1 : 1.25) * r0 - 0.03), 0, C.boomZ)); // gooseneck (on the mast's aft face)
   const stay = {}, S = boat.sailBy;
+  // a headsail's stay: up its luff from the tack and on along that line into the mast (the luff's head stopped short
+  // of the mast's face on some rigs, the wire's end in the air)
+  const stayTop = (h) => {
+    const zt = h.tackZ + h.luff + 0.05, f = (u) => h.tackX - h.rake * u - mx(h.tackZ + (zt - h.tackZ) * u);
+    let lo = 1, hi = 1.4;
+    if (f(lo) > 0 && f(hi) < 0) for (let i = 0; i < 24; i++) { const m = (lo + hi) / 2; if (f(m) > 0) lo = m; else hi = m; }
+    else hi = 1;
+    return V(h.tackX - h.rake * hi, 0, h.tackZ + (zt - h.tackZ) * hi);
+  };
   // wires, spreaders and stays drawn from the solved rig (updateStanding) for the classes whose rig is described
   // (js/rig-structure.js RIG_DATA); a sized rig (spec.generic) keeps the class's own drawing
   const live = !!boat.rigStruct && !boat.rigStruct.spec.generic;
@@ -1130,19 +1270,19 @@ export function buildBoatModel(boat, opts = {}) {
         rigKit.rod(M.black(), ringP.clone().setY(ringP.y - 0.06), V(C.mastX - 1.2 + dx, s * (C.hullSpacing / 2 + 0.12), C.freeboard + 0.12), 0.003); // shock cord
       }
     }
-    const J = S.jib; if (!live) rigKit.rod(M.wire(), V(J.tackX, 0, J.tackZ), V(J.tackX - J.rake, 0, J.tackZ + J.luff + 0.05), 0.0035);
+    const J = S.jib; if (!live) rigKit.rod(M.wire(), V(J.tackX, 0, J.tackZ), stayTop(J), 0.0035);
     for (const s of [-1, 1]) rigKit.rod(M.wire(), V(J.tackX, 0, J.tackZ), V(C.bowX - 0.2, s * C.hullSpacing / 2, C.freeboard + 0.15), 0.003); // bridle
   } else if (C.amas) {
     // a trimaran's rig: shrouds out to the floats at the forward beam, the forestay to the bow, runners to the floats aft
     const A = C.amas, hounds = C.mastHeight - mastLen * (LK.hounds ?? 0.1), xf = Math.max(...A.beams), xa = Math.min(...A.beams);
     for (const s of live ? [] : [-1, 1]) {
-      rigKit.rod(M.wire(), V(xf, s * A.y, deckH(xf, s * A.y) + 0.1), V(C.mastX, s * 0.03, hounds), 0.006);
-      rigKit.rod(M.wire(), V(xa, s * A.y, deckH(xa, s * A.y) + 0.1), V(C.mastX - 0.05, s * 0.03, hounds), 0.005);
-      const sp = V(C.mastX - 0.1, s * 1.1, mastBase + mastLen * 0.45);                                   // diamond spreaders
-      rigKit.rod(M.alu(), V(C.mastX, 0, mastBase + mastLen * 0.45), sp, 0.03, 6, 0.018);
-      rigKit.rod(M.wire(), V(C.mastX, 0, mastBase + 1.2), sp, 0.005); rigKit.rod(M.wire(), sp, V(C.mastX, 0, hounds - 0.3), 0.005);
+      rigKit.rod(M.wire(), V(xf, s * A.y, deckH(xf, s * A.y) + 0.1), V(mx(hounds), s * 0.03, hounds), 0.006);
+      rigKit.rod(M.wire(), V(xa, s * A.y, deckH(xa, s * A.y) + 0.1), V(mx(hounds) - 0.05, s * 0.03, hounds), 0.005);
+      const zs = mastBase + mastLen * 0.45, sp = V(mx(zs) - 0.1, s * 1.1, zs);                                   // diamond spreaders
+      rigKit.rod(M.alu(), V(mx(zs), 0, zs), sp, 0.03, 6, 0.018);
+      rigKit.rod(M.wire(), V(mx(mastBase + 1.2), 0, mastBase + 1.2), sp, 0.005); rigKit.rod(M.wire(), sp, V(mx(hounds - 0.3), 0, hounds - 0.3), 0.005);
     }
-    const J = S.jib; if (!live) rigKit.rod(M.wire(), V(J.tackX, 0, J.tackZ), V(J.tackX - J.rake, 0, J.tackZ + J.luff + 0.05), 0.007);
+    const J = S.jib; if (!live) rigKit.rod(M.wire(), V(J.tackX, 0, J.tackZ), stayTop(J), 0.007);
   } else if (C.id !== 'dinghy' && C.id !== 'blackwatch' && C.id !== 'sportboat') {
     const sprLen = C.spreader ?? C.beam * 0.36;
     const hounds = LK.hounds ? C.mastHeight - mastLen * LK.hounds : C.mastHeight - 0.25, J = S.jib;
@@ -1156,22 +1296,22 @@ export function buildBoatModel(boat, opts = {}) {
       const tips = [];
       for (let i = 0; i < nSp; i++) {
         const z = sprAt(i), L = sprLen * (1 - 0.28 * i), aft = SP.sweep !== undefined ? L * Math.sin(SP.sweep) : 0.15;
-        const tip = V(C.mastX - aft, s * L * (SP.sweep !== undefined ? Math.cos(SP.sweep) : 1), z + 0.06);
-        rigKit.rod(M.alu(), V(C.mastX, s * 0.03, z), tip, 0.018 * (1 + 0.3 * (nSp - 1)), 6, 0.01);
+        const tip = V(mx(z) - aft, s * L * (SP.sweep !== undefined ? Math.cos(SP.sweep) : 1), z + 0.06);
+        rigKit.rod(M.alu(), V(mx(z), s * 0.03, z), tip, 0.018 * (1 + 0.3 * (nSp - 1)), 6, 0.01);
         tips.push(tip);
       }
       let prev = V(cx, cy, cz + 0.05);
       for (const tip of tips) { rigKit.rod(M.wire(), prev, tip, 0.0035); prev = tip; }    // cap shroud over the tips
-      rigKit.rod(M.wire(), prev, V(C.mastX, s * 0.02, hounds), 0.0035);
-      for (let i = 1; i < nSp; i++) rigKit.rod(M.wire(), tips[i - 1], V(C.mastX, s * 0.03, sprAt(i)), 0.003);   // intermediates
-      rigKit.rod(M.wire(), V(cx + 0.3, cy * 0.97, cz + 0.05), V(C.mastX, s * 0.03, sprAt(0)), 0.003); // forward lower
-      rigKit.rod(M.wire(), V(cx - 0.3, cy * 0.97, cz + 0.05), V(C.mastX, s * 0.03, sprAt(0)), 0.003); // aft lower
+      rigKit.rod(M.wire(), prev, V(mx(hounds), s * 0.02, hounds), 0.0035);
+      for (let i = 1; i < nSp; i++) rigKit.rod(M.wire(), tips[i - 1], V(mx(sprAt(i)), s * 0.03, sprAt(i)), 0.003);   // intermediates
+      rigKit.rod(M.wire(), V(cx + 0.3, cy * 0.97, cz + 0.05), V(mx(sprAt(0)), s * 0.03, sprAt(0)), 0.003); // forward lower
+      rigKit.rod(M.wire(), V(cx - 0.3, cy * 0.97, cz + 0.05), V(mx(sprAt(0)), s * 0.03, sprAt(0)), 0.003); // aft lower
     }
-    if (J && !live) rigKit.rod(M.wire(), V(J.tackX, 0, J.tackZ), V(J.tackX - J.rake, 0, J.tackZ + J.luff + 0.05), 0.004);
-    if (S.stay && !live) rigKit.rod(M.wire(), V(S.stay.tackX, 0, S.stay.tackZ), V(S.stay.tackX - S.stay.rake, 0, S.stay.tackZ + S.stay.luff + 0.05), 0.0035);
+    if (J && !live) rigKit.rod(M.wire(), V(J.tackX, 0, J.tackZ), stayTop(J), 0.004);
+    if (S.stay && !live) rigKit.rod(M.wire(), V(S.stay.tackX, 0, S.stay.tackZ), stayTop(S.stay), 0.0035);
     const bsX = C.sternX + (C.id === 'blackwatch' ? -0.02 : 0.05);
     if (C.hasBackstay && !live) {
-      stay.backstayTop = V(C.mastX - 0.05, 0, C.mastHeight);
+      stay.backstayTop = V(mx(C.mastHeight) - 0.05, 0, C.mastHeight);
       stay.backstayLow = V(bsX + 0.25, 0, Lx.sheer(0.02) + 0.15);
       rigKit.rod(M.wire(), stay.backstayTop, stay.backstayLow, 0.0035);
       for (const s of [-1, 1]) rigKit.rod(M.wire(), stay.backstayLow, V(bsX + 0.02, s * Lx.bDeck(0.02) * 0.6, Lx.sheer(0.0)), 0.003); // bridle
@@ -1179,7 +1319,7 @@ export function buildBoatModel(boat, opts = {}) {
     if (C.runners && !live) for (const s of [-1, 1]) {
       // running backstays from the hounds to the quarters (both drawn set up)
       const x = C.sternX + 0.6, y = s * Lx.bDeck(tAt(x)) * 0.92;
-      rigKit.rod(M.wire(), V(C.mastX - 0.04, s * 0.02, hounds), V(x, y, deckH(x, y) + 0.03), 0.003);
+      rigKit.rod(M.wire(), V(mx(hounds) - 0.04, s * 0.02, hounds), V(x, y, deckH(x, y) + 0.03), 0.003);
     }
   } else if (C.id !== 'dinghy') {
     // J/70: one pair of swept carbon spreaders ~4.3 m above the deck; Blackwatch: aluminium spreaders at mid-height
@@ -1199,8 +1339,8 @@ export function buildBoatModel(boat, opts = {}) {
         rigKit.rod(M.wire(), V(cx - 0.3, cy * 0.97, cz + 0.05), V(mx(sprZ), s * 0.03, sprZ), 0.003); // aft lower
       }
     }
-    if (J && !live) rigKit.rod(M.wire(), V(J.tackX, 0, J.tackZ), V(J.tackX - J.rake, 0, J.tackZ + J.luff + 0.05), 0.004);
-    if (S.stay && !live) rigKit.rod(M.wire(), V(S.stay.tackX, 0, S.stay.tackZ), V(S.stay.tackX - S.stay.rake, 0, S.stay.tackZ + S.stay.luff + 0.05), 0.0035);
+    if (J && !live) rigKit.rod(M.wire(), V(J.tackX, 0, J.tackZ), stayTop(J), 0.004);
+    if (S.stay && !live) rigKit.rod(M.wire(), V(S.stay.tackX, 0, S.stay.tackZ), stayTop(S.stay), 0.0035);
     const bsX = C.sternX + (C.id === 'blackwatch' ? -0.02 : 0.05);
     stay.backstayTop = V(mx(C.mastHeight) - (C.id === 'sportboat' ? 0.22 : 0.05), 0, C.mastHeight);
     stay.backstayLow = V(bsX + 0.25, 0, Lx.sheer(0.02) + 0.15);
@@ -1214,7 +1354,7 @@ export function buildBoatModel(boat, opts = {}) {
     for (const s of [-1, 1]) for (let k = 0; k < nT; k++) {
       const [cx, cy, cz] = chain[(s + 1) / 2];
       const lo = V(cx - 0.12 - 0.12 * k, cy * 0.9, cz + 1.05 + 0.08 * k);
-      rigKit.rod(M.wire(), V(C.mastX - 0.02, s * 0.03, hT - 0.05 * k), lo, 0.0022);
+      rigKit.rod(M.wire(), V(mx(hT - 0.05 * k) - 0.02, s * 0.03, hT - 0.05 * k), lo, 0.0022);
       const ring = new THREE.TorusGeometry(0.03, 0.006, 6, 12); ring.rotateY(Math.PI / 2); ring.translate(lo.x, lo.y - 0.03, lo.z); rigKit.add(M.steel(), ring);
       rigKit.rod(M.black(), lo.clone().add(new THREE.Vector3(0, -0.06, 0.02)), lo.clone().add(new THREE.Vector3(0, -0.2, 0.05)), 0.011, 6);   // handle
     }
@@ -1225,6 +1365,8 @@ export function buildBoatModel(boat, opts = {}) {
   const windex = new THREE.Group(); windex.position.copy(V(mx(C.mastHeight), 0, C.mastHeight + 0.14));
   const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.32, 6), M.black()); arrow.rotation.x = -Math.PI / 2; arrow.position.z = -0.22; windex.add(arrow);
   const vane = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.12, 0.18), M.red()); vane.position.z = 0.15; windex.add(vane);
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.006, 0.16, 6), M.black()); stem.position.y = -0.07; windex.add(stem);   // its spindle, down to the masthead
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.3, 5), M.black()); arm.rotation.x = Math.PI / 2; windex.add(arm);        // the arm from the arrow to the vane
   windex.visible = C.id !== 'dinghy';   // (a Laser's masthead is bare: its wind indicator sits low on the mast)
   rig.add(windex);
   // ---- booms
@@ -1235,22 +1377,27 @@ export function buildBoatModel(boat, opts = {}) {
     const px = s.key === 'main' ? C.mastX - 0.06 : s.tackX, pz = s.key === 'main' ? C.boomZ : s.tackZ + 0.02;
     piv.position.copy(V(px, 0, pz));
     const L = s.foot + 0.08;
-    const bgm = lathe([[0.042, 0], [0.047, L * 0.4], [0.04, L * 0.85], [0.03, L], [0, L]], 10);
+    const bp = [[0.042, 0], [0.047, L * 0.4], [0.04, L * 0.85], [0.03, L], [0, L]], bgm = lathe(bp, 10);
     bgm.rotateX(Math.PI / 2); bgm.scale(1, 1.3, 1);
     const boomMesh = new THREE.Mesh(bgm, C.id === 'sportboat' ? M.satin() : C.carbonMast ? M.carbon() : LK.weathered ? M.scrap() : M.alu());
     boomMesh.position.y = -0.05; boomMesh.castShadow = true; piv.add(boomMesh);
+    piv.userData.top = (d) => boomMesh.position.y + 1.3 * boomMesh.scale.y * profR(bp, d);    // the boom's top and bottom, d aft of the pivot (fittings sit on it, blocks hang under it)
+    piv.userData.bottom = (d) => boomMesh.position.y - 1.3 * boomMesh.scale.y * profR(bp, d);
     if (s.club === false) boomMesh.visible = false;
     if (lookOf(C).weathered && s.key === 'main') { boomMesh.material = M.plate(); boomMesh.scale.set(2.6, 2.6, 1); }   // a heavy tube boom           // (a clubless self-tacker: its clew on a track)
     if (C.id === 'sportboat' && s.key === 'main') { // the white band at the outhaul limit (E)
       const bnd = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.03, 12), M.band()); bnd.rotation.x = Math.PI / 2; bnd.scale.set(1, 1, 1.3); bnd.position.set(0, -0.05, s.foot); piv.add(bnd);
     }
     const cap = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.08, 0.08), M.black()); cap.position.set(0, -0.05, L); piv.add(cap);
+    if (s.club === false) cap.visible = false;                               // (no club: no end fitting in the air where it would be)
     if (s.key === 'main' && s.reefs) { // stowed reef bundle along the boom
       const bundle = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, L * 0.8, 4, 10), new THREE.MeshStandardMaterial({ color: clothOf(C, s).cloth, roughness: 0.85 }));
       bundle.rotation.x = Math.PI / 2; bundle.position.set(0, 0.03, L * 0.48); bundle.visible = false; piv.add(bundle);
       piv.userData.bundle = bundle;
     }
     rig.add(piv); booms[s.key] = piv;
+    // a headsail's club swivels on a pedestal on the deck at its tack
+    if (s.key !== 'main' && s.club !== false) { const zd = deckH(px, 0); if (pz - 0.05 - zd > 0.005) kit.rod(M.black(), V(px, 0, zd - 0.005), V(px, 0, pz - 0.05), 0.014, 8); }
   }
   // ---- sails
   const sailMeshes = {};
@@ -1288,7 +1435,10 @@ export function buildBoatModel(boat, opts = {}) {
     rig.add(pole);
   }
   return { root, inner, hull, deck, booms, sailMeshes, rudderPivot, rudderPivots, keelMesh, telltales, windex, rig, sprit, extension, tillerEnd, wheel, pole, mast,
-    lines: Lx, deckH, ck, chain, stay, mastBase, sleeve, standing };
+    lines: Lx, deckH, ck, chain, stay, mastBase, sleeve, standing,
+    // the mast's surface, for what is fitted to it: its axis (physics x) at height z, its radius and its aft face's
+    // distance from the axis at y off it
+    mastXAt: mx, mastR: r0, mastAft: (y) => (C.id === 'dinghy' ? 1 : C.wingMast ? 2.8 : 1.25) * r0 * Math.sqrt(Math.max(0, 1 - (y / r0) ** 2)) + (C.wingMast ? 0.35 * r0 : 0) };
 }
 
 // A skiff's wings (racks): tube frames out to the crew's rail each side, covered in a non-skid tramp
@@ -1316,8 +1466,12 @@ function buildWings(kit, inner, C, Lx, deckH) {
 
 // A salvaged boat's gear: the hinged mast's tabernacle and the geared drum winch that raises it (its wire led to the mast
 // over a short strut), rusty drums and crates lashed on deck, and scrap plate bolted over old damage
-function buildSalvage(kit, C, Lx, deckH) {
+function buildSalvage(kit, inner, C, Lx, deckH) {
   const r = rnd(7), mx = C.mastX, z0 = deckH(mx, 0);
+  // the surface under a point: the main deck, a float's deck or a net (a ray at what is built so far), or null
+  const rc = new THREE.Raycaster(), solids = inner.children.filter((o) => o.isMesh);
+  inner.updateMatrixWorld(true);
+  const under = (x, y) => { rc.set(V(x, y, 6), new THREE.Vector3(0, -1, 0)); const h = rc.intersectObjects(solids, false)[0]; return h ? h.point.y : null; };
   // tabernacle: two cheek plates either side of the mast foot, the hinge pin through them
   for (const s of [-1, 1]) kit.box(M.scrap(), 0.04, 0.9, 0.7, V(mx - 0.05, s * 0.2, z0 + 0.42));
   kit.rod(M.steel(), V(mx - 0.05, -0.26, z0 + 0.7), V(mx - 0.05, 0.26, z0 + 0.7), 0.045, 10);
@@ -1332,7 +1486,8 @@ function buildSalvage(kit, C, Lx, deckH) {
   // lashed cargo: drums and crates on the main hull's deck and the aft nets; plate patches on the decks
   const spots = [[C.sternX + 2.2, 1.9], [C.sternX + 2.6, -2.2], [C.sternX + 3.4, 2.6], [mx + 3.0, 0.6], [mx + 3.6, -0.5]];
   spots.forEach(([x, y], i) => {
-    const z = (C.amas && Math.abs(y) > Lx.bDeck(clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1)) ? C.amas.netZ : deckH(x, y));
+    const z = under(x, y);
+    if (z === null) return;                                          // (nothing under it: off the nets)
     if (i % 2 === 0) { const g = new THREE.CylinderGeometry(0.29, 0.29, 0.88, 16); g.translate(y, z + 0.44, -x); kit.add(i === 2 ? M.scrap() : M.rust(), g); }
     else kit.box(M.varnish(), 0.7, 0.45, 0.6, V(x, y, z + 0.22), r() * 0.6);
   });
@@ -1341,7 +1496,8 @@ function buildSalvage(kit, C, Lx, deckH) {
   for (const y of [-0.55, 0.62]) {
     const xa = C.sternX + 2.0, xb = mx + 4.5;
     kit.rod(M.rust(), V(xa, y, dk(xa, y) + 0.25), V(xb, y, dk(xb, y) + 0.2), 0.07, 8);
-    for (let x = xa; x < xb; x += 1.6) kit.rod(M.scrap(), V(x, y, dk(x, y)), V(x, y, dk(x, y) + 0.25), 0.03, 6);
+    // (each clamp up to the pipe where it passes: the pipe runs straight, the deck along the sheer)
+    for (let x = xa; x < xb; x += 1.6) kit.rod(M.scrap(), V(x, y, dk(x, y)), V(x, y, lerp(dk(xa, y) + 0.25, dk(xb, y) + 0.2, (x - xa) / (xb - xa))), 0.03, 6);
   }
   // more winch drums with crank handles, amidships and aft, each on its own welded frame
   for (const [x, y, rd] of [[mx - 4.6, 0.5, 0.2], [mx - 4.6, -0.5, 0.2], [C.sternX + 3.2, 0.0, 0.26], [mx + 1.6, -0.55, 0.16]]) {
@@ -1349,7 +1505,7 @@ function buildSalvage(kit, C, Lx, deckH) {
     kit.box(M.rust(), 0.5, 0.35, 0.6, V(x, y, z + 0.17));
     const d = new THREE.CylinderGeometry(rd, rd, 0.4, 16); d.rotateZ(Math.PI / 2); d.translate(y, z + 0.35 + rd, -x); kit.add(M.scrap(), d);
     for (const f of [-1, 1]) { const fl = new THREE.CylinderGeometry(rd * 1.35, rd * 1.35, 0.03, 16); fl.rotateZ(Math.PI / 2); fl.translate(y + f * 0.21, z + 0.35 + rd, -x); kit.add(M.rust(), fl); }
-    kit.rod(M.black(), V(x, y + 0.26, z + 0.35 + rd), V(x - 0.25, y + 0.3, z + 0.35 + rd + 0.25), 0.02, 6);       // the crank
+    kit.rod(M.black(), V(x, y + 0.2, z + 0.35 + rd), V(x - 0.25, y + 0.3, z + 0.35 + rd + 0.25), 0.02, 6);       // the crank, out of the drum's end
     kit.rod(M.black(), V(x - 0.25, y + 0.3, z + 0.35 + rd + 0.25), V(x - 0.25, y + 0.45, z + 0.35 + rd + 0.25), 0.025, 6);
   }
   // a cage of welded bar aft (the Mariner's sheltered corner) and a tall crane / pole post with its gearing
@@ -1363,18 +1519,20 @@ function buildSalvage(kit, C, Lx, deckH) {
     kit.rod(M.rust(), V(x, 0.9, z + 2.5), V(x + 1.4, 1.6, z + 2.0), 0.05, 8);
     const gr = new THREE.CylinderGeometry(0.22, 0.22, 0.05, 20); gr.translate(0.9, z + 1.0, -x); kit.add(M.rust(), gr); }
   // a railed platform and pulpit frame over the bow, reaching out ahead of the stem
-  { const xb = C.bowX + 1.0, xa = C.bowX - 1.6, zb = dk(C.bowX - 0.5, 0) + 0.1, yw = 0.55;
+  { const xb = C.bowX + 1.0, xa = C.bowX - 1.6, zb = dk(C.bowX - 0.5, 0) + 0.1, yw = Math.min(0.55, Lx.bDeck(tAt(xa)) * 0.85);   // (its aft end inside the narrow foredeck)
     kit.rod(M.scrap(), V(xa, -yw, zb), V(xb, -0.2, zb + 0.05), 0.05, 8); kit.rod(M.scrap(), V(xa, yw, zb), V(xb, 0.2, zb + 0.05), 0.05, 8);
     kit.rod(M.rust(), V(xb, -0.2, zb + 0.05), V(xb, 0.2, zb + 0.05), 0.05, 8);
-    for (let k = 0; k <= 5; k++) { const f = k / 5, x = lerp(xa, xb, f); for (const sd of [-1, 1]) { const y = sd * lerp(yw, 0.2, f); kit.rod(M.rust(), V(x, y, zb), V(x, y, zb + 0.75), 0.022, 6); } kit.rod(M.rust(), V(x, -lerp(yw, 0.2, f), zb + 0.02), V(x, lerp(yw, 0.2, f), zb + 0.02), 0.02, 5); }
+    // (the uprights over the deck stand on it; ahead of the stem the frame hangs from its rails and the stay)
+    for (let k = 0; k <= 5; k++) { const f = k / 5, x = lerp(xa, xb, f); for (const sd of [-1, 1]) { const y = sd * lerp(yw, 0.2, f), zd = x < C.bowX - 0.1 && Math.abs(y) < Lx.bDeck(tAt(x)) ? Math.min(zb, dk(x, y)) : zb; kit.rod(M.rust(), V(x, y, zd), V(x, y, zb + 0.75), 0.022, 6); } kit.rod(M.rust(), V(x, -lerp(yw, 0.2, f), zb + 0.02), V(x, lerp(yw, 0.2, f), zb + 0.02), 0.02, 5); }
     for (const hh of [0.4, 0.75]) for (const sd of [-1, 1]) kit.rod(M.rust(), V(xa, sd * yw, zb + hh), V(xb, sd * 0.2, zb + hh), 0.022, 6);
     kit.rod(M.rust(), V(xb, -0.2, zb + 0.75), V(xb, 0.2, zb + 0.75), 0.022, 6);
     kit.rod(M.steel(), V(xb, 0, zb + 0.05), V(C.bowX, 0, 0.2), 0.02, 6);                         // a stay down to the stem
   }
   // lashed gear on the nets: drums, a spare float tank, coils
   if (C.amas) for (const [x, y] of [[-2.8, 3.4], [-2.4, -3.9], [2.2, 4.4], [1.8, -3.2]]) {
-    const z = C.amas.netZ, g = new THREE.CylinderGeometry(0.3, 0.3, 0.9, 14); g.translate(y, z + 0.45, -x); kit.add(M.rust(), g);
-    const t = new THREE.TorusGeometry(0.28, 0.06, 6, 16); t.rotateX(Math.PI / 2); t.translate(y + 0.8, z + 0.07, -x - 0.6); kit.add(M.black(), t);
+    const z = under(x, y), zc = under(x + 0.6, y + 0.8);
+    if (z !== null) { const g = new THREE.CylinderGeometry(0.3, 0.3, 0.9, 14); g.translate(y, z + 0.45, -x); kit.add(M.rust(), g); }
+    if (zc !== null) { const t = new THREE.TorusGeometry(0.28, 0.06, 6, 16); t.rotateX(Math.PI / 2); t.translate(y + 0.8, zc + 0.055, -x - 0.6); kit.add(M.black(), t); }
   }
   for (let i = 0; i < 9; i++) {
     const x = lerp(C.sternX + 1, C.bowX - 1.5, r()), y = (r() - 0.5) * Lx.bDeck(clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1)) * 1.2;
@@ -1426,7 +1584,21 @@ function buildCatStructure(kit, inner, C, Lx, deckH) {
 
 // A coachroof shell from a CABIN entry: sides from the deck up to the roof edge (a little tumblehome), a cambered
 // roof, closed at both ends
-function trunkShell(kit, P, deckH, bx, material, camber = 0.06) {
+// the roof's height at (x, |y|) from the centreline deck: the crown, falling by the camber to the edge (flat over the
+// last 2 % to the side's top)
+function roofAt(P, deckH, x, t, y) {
+  const u = Math.min(1, Math.abs(y) / (P.w(t) * 0.94));
+  return deckH(x, 0) + P.h(t) - (P.camber ?? 0.06) * u * u;
+}
+// the half-breadth of a trunkShell's side at (x, z): from the deck edge up to the roof's edge, leaning in 4 %
+function trunkSide(P, deckH, C) {
+  return (x, z) => {
+    const t = tAtX(C, x), w = P.w(t), zd = deckH(x, w * 0.98) - 0.01, zt = Math.max(zd + 0.01, deckH(x, 0) + P.h(t) - (P.camber ?? 0.06));
+    return w * (1 - 0.04 * clamp((z - zd) / (zt - zd), 0, 1));
+  };
+}
+function trunkShell(kit, P, deckH, bx, material) {
+  const camber = P.camber ?? 0.06;
   const N = 20, M2 = 10;
   const pos = [], idx = [], uv = [], rows = [];
   for (let i = 0; i <= N; i++) {
@@ -1465,26 +1637,33 @@ function buildCabin(kit, C, Lx, deckH, bx) {
   // handrails, companionway with washboards, cambered roof, mushroom vents
   const P = CABIN.blackwatch, t0 = P.t0, t1 = P.t1;
   trunkShell(kit, P, deckH, bx, M.cream());
+  // (the ports follow the trunk's side: its tumblehome, and forward where it narrows toward the bow the side runs in
+  // at an angle, which a port set square to the centreline stood proud of at one end and sank into at the other)
+  const sideY = trunkSide(P, deckH, C);
   for (const s of [-1, 1]) {
     for (const t of [0.5, 0.64]) {
-      const x = bx(t), w = P.w(t), z = deckH(x, w) + 0.19;
-      const ring = new THREE.TorusGeometry(0.075, 0.015, 8, 20); ring.scale(1.55, 0.8, 1); ring.rotateY(Math.PI / 2); ring.translate(s * (w * 0.975 + 0.004), z, -x);
-      kit.add(M.bronze(), ring);
-      const gl = new THREE.CircleGeometry(0.072, 18); gl.scale(1.55, 0.8, 1); gl.rotateY(s * Math.PI / 2); gl.translate(s * (w * 0.975 + 0.006), z, -x);
-      kit.add(M.glass(), gl);
+      const x = bx(t), z = deckH(x, P.w(t)) + 0.19;
+      const ring = new THREE.TorusGeometry(0.075, 0.015, 8, 20); ring.scale(1.55, 0.8, 1);
+      kit.add(M.bronze(), onSide(ring, x, z, s, sideY, 0.004));
+      const gl = new THREE.CircleGeometry(0.072, 18); gl.scale(1.55, 0.8, 1);
+      kit.add(M.glass(), onSide(gl, x, z, s, sideY, 0.006));
     }
-    const xa = bx(t0 + 0.04), xf = bx(t1 - 0.08), xm = (xa + xf) / 2;
-    const zr = deckH(xm, 0) + P.h(tAtX(C, xm)) + 0.05;
-    kit.box(M.varnish(), 0.035, 0.04, xf - xa, V(xm, s * 0.42, zr + 0.05));
-    for (let k = 0; k < 4; k++) kit.box(M.varnish(), 0.035, 0.05, 0.035, V(lerp(xa, xf, (k + 0.5) / 4), s * 0.42, zr + 0.02));
+    // teak handrails on the roof, their feet on its camber (the roof rises forward with the sheer)
+    const xa = bx(t0 + 0.04), xf = bx(t1 - 0.08), y = s * 0.42;
+    const za = roofAt(P, deckH, xa, tAtX(C, xa), y), zf = roofAt(P, deckH, xf, tAtX(C, xf), y);
+    const xm = (xa + xf) / 2, L = Math.hypot(xf - xa, zf - za);
+    kit.box(M.varnish(), 0.035, 0.04, L, V(xm, y, (za + zf) / 2 + 0.065), 0, Math.atan2(zf - za, xf - xa));
+    for (let k = 0; k < 4; k++) { const x = lerp(xa, xf, (k + 0.5) / 4); kit.box(M.varnish(), 0.035, 0.05, 0.035, V(x, y, roofAt(P, deckH, x, tAtX(C, x), y) + 0.025)); }
   }
   const xa = bx(t0);
   const zc = deckH(xa, 0), hc = P.h(t0);
   kit.box(M.varnish(), 0.62, hc - 0.06, 0.04, V(xa - 0.005, 0, zc + (hc - 0.06) / 2));   // washboards
-  kit.box(M.cream(), 0.66, 0.05, 0.6, V(xa + 0.25, 0, zc + hc + 0.06));                 // sliding hatch
-  for (const s of [-1, 1]) kit.box(M.varnish(), 0.03, 0.05, 0.62, V(xa + 0.25, s * 0.34, zc + hc + 0.03));
+  // sliding hatch on its runners, the runners on the roof's camber
+  const xh = xa + 0.25, zrun = roofAt(P, deckH, xh, tAtX(C, xh), 0.34);
+  kit.box(M.cream(), 0.66, 0.05, 0.6, V(xh, 0, zrun + 0.07));
+  for (const s of [-1, 1]) kit.box(M.varnish(), 0.03, 0.05, 0.62, V(xh, s * 0.34, zrun + 0.025));
   for (const s of [-1, 1]) { // low mushroom vents: clear of the main boom and staysail club
-    const x = bx(t1 - 0.1), y = s * 0.24, z = deckH(x, 0) + P.h(t1 - 0.1);
+    const x = bx(t1 - 0.1), y = s * 0.24, z = roofAt(P, deckH, x, t1 - 0.1, y);
     const g = new THREE.CylinderGeometry(0.07, 0.08, 0.05, 16); g.translate(y, z + 0.025, -x);
     kit.add(M.bronze(), g);
   }
@@ -1547,7 +1726,8 @@ function buildSafetyLines(kit, C, Lx, deckH, bx) {
     kit.add(M.wire(), new THREE.TubeGeometry(new THREE.CatmullRomCurve3(tops), 24, 0.004, 4));
   }
   // the transom gate: a line across between the stern rails
-  const xs = C.sternX + 0.12, y = Lx.bDeck(tAtX(C, xs)) * 0.94 * 0.86, z = deckH(xs, y) + H + 0.06;
+  // (from the rails' own aft uprights, where they turn down at y * 0.9)
+  const xs = C.sternX + 0.12, ye = Lx.bDeck(tAtX(C, xs)) * 0.94, y = ye * 0.9, z = deckH(xs, ye) + H + 0.06;
   kit.add(M.wire(), new THREE.TubeGeometry(new THREE.CatmullRomCurve3([V(xs, -y, z), V(xs - 0.01, 0, z - 0.03), V(xs, y, z)]), 8, 0.004, 4));
 }
 const tAtX = (C, x) => clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1);
@@ -1572,14 +1752,17 @@ function buildStanding(boat, rig) {
   return { g, wires, stays, sprs, a: [0, 0, 0], b: [0, 0, 0] };
 }
 const _sa = new THREE.Vector3(), _sb = new THREE.Vector3(), _sd = new THREE.Vector3();
-function placeRod(m, a, b, r) {
+// (ext: run on past both ends into the mast, the spreader tip, the chainplate: the solved ends are the fittings'
+// pins, a little off the surfaces they are drawn on)
+function placeRod(m, a, b, r, ext = 0) {
   _sa.copy(V(a[0], a[1], a[2])); _sb.copy(V(b[0], b[1], b[2])); _sd.subVectors(_sb, _sa);
   const L = _sd.length(); if (L < 1e-4) { m.visible = false; return; }
-  m.visible = true; m.position.copy(_sa); m.quaternion.setFromUnitVectors(_up, _sd.multiplyScalar(1 / L)); m.scale.set(r, L, r);
+  _sd.multiplyScalar(1 / L); _sa.addScaledVector(_sd, -ext);
+  m.visible = true; m.position.copy(_sa); m.quaternion.setFromUnitVectors(_up, _sd); m.scale.set(r, L + 2 * ext, r);
 }
 function updateStanding(st, b) {
   const rs = b.rigStruct, u = rs.ur || rs.us || rs.u, a = st.a, c = st.b;
-  for (const { w, m, r } of st.wires) { rs.pos(w.a, u, a); rs.pos(w.b, u, c); placeRod(m, a, c, r); }
+  for (const { w, m, r } of st.wires) { rs.pos(w.a, u, a); rs.pos(w.b, u, c); placeRod(m, a, c, r, 0.03); }
   for (const { tp, m } of st.sprs) {
     const k = tp.node, d = k.dof, base = [0, 0, 0]; rs.mastDisp(tp.sp.z, base);
     placeRod(m, [rs.axisX + base[0], base[1], tp.sp.z], [k.p[0] + u[d], k.p[1] + u[d + 1], k.p[2] + u[d + 2]], 0.012);
@@ -1589,6 +1772,8 @@ function updateStanding(st, b) {
     const pos = m.geometry.attributes.position, nor = m.geometry.attributes.normal, rad = 6;
     const pts = [];
     for (let i = 0; i <= n; i++) { const v = i / n; if (!rs.stayAt(w.stay, v, P)) { rs.pos(w.a, u, a); rs.pos(w.b, u, c); for (let q = 0; q < 3; q++) P[q] = a[q] + (c[q] - a[q]) * v; } pts.push(V(P[0], P[1], P[2])); }
+    // (its ends run on 3 cm into the fittings, as the wires' do)
+    pts[0].addScaledVector(_sd.subVectors(pts[0], pts[1]).normalize(), 0.03); pts[n].addScaledVector(_sd.subVectors(pts[n], pts[n - 1]).normalize(), 0.03);
     // a tube through the points: rings of 'rad' vertices (TubeGeometry's layout: (n+1) rings of (rad+1))
     for (let i = 0; i <= n; i++) {
       const p0 = pts[Math.max(0, i - 1)], p1 = pts[Math.min(n, i + 1)];
@@ -1666,6 +1851,8 @@ export function updateBoatModel(vis, b, t) {
   }
   for (const s of b.sails) updateSail(vis.sailMeshes[s.key], b, s, t);
   if (b.rigStruct && b.rigStruct.ready) { bendMast(vis, b); if (vis.standing) updateStanding(vis.standing, b); }
+  // the windex on the masthead as the mast stands, bent and raked (the lathe's last vertex is its tip)
+  if (vis.mast && vis.windex.parent === vis.rig) { const pa = vis.mast.geometry.attributes.position; vis.mast.updateMatrix(); vis.windex.position.fromBufferAttribute(pa, pa.count - 1).applyMatrix4(vis.mast.matrix); vis.windex.position.y += 0.14; }
   vis.windex.rotation.y = -b.diag.awa + Math.PI;
   updateTelltales(vis, b, t);
   if (vis.update) vis.update(vis, b, t);          // (a detailed model's own moving parts: gaff, yard, sprit, pole, wheel)
@@ -1707,6 +1894,15 @@ function clothToMesh(mesh, rig) {
   mesh.geometry.computeVertexNormals();
 }
 
+// a smooth curve through five knots (x rising): cubic Hermite, each knot's slope the mean of the chords either side
+const _hK = [0, 0, 0, 0, 0], _hA = [0, 0, 0, 0, 0], _hD = [0, 0, 0, 0, 0], _hF = [0, 0, 0, 0, 0];
+function hermite5(X, Y, x) {
+  let i = 0; while (i < 3 && x > X[i + 1]) i++;
+  const h = X[i + 1] - X[i], t = clamp((x - X[i]) / h, 0, 1);
+  const sl = (k) => k <= 0 ? (Y[1] - Y[0]) / (X[1] - X[0]) : k >= 4 ? (Y[4] - Y[3]) / (X[4] - X[3]) : 0.5 * ((Y[k] - Y[k - 1]) / (X[k] - X[k - 1]) + (Y[k + 1] - Y[k]) / (X[k + 1] - X[k]));
+  const t2 = t * t, t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * Y[i] + (t3 - 2 * t2 + t) * h * sl(i) + (-2 * t3 + 3 * t2) * Y[i + 1] + (t3 - t2) * h * sl(i + 1);
+}
 function updateSail(mesh, boat, s, t) {
   const rig = boat.sailSys && boat.sailSys.active(boat) ? boat.sailSys.cloth(s.key) : null;
   if (rig) { if ((boat.diag.strips[s.key].areaF ?? 1) < 0.3) mesh.visible = false; else clothToMesh(mesh, rig); return; }
@@ -1730,14 +1926,17 @@ function updateSail(mesh, boat, s, t) {
   if (s.kind === 'spin' || s.kind === 'loose') luff *= Math.sqrt(areaF);
   const side = Math.sign(st.baseAngle || 1);
   const slack = s.key === 'main' ? boat.reefSlack : 0;
+  // twist, depth and draft up the sail: a smooth curve through the three strips' values (and the foot's and head's),
+  // not straight lines between them, which drew the sail as three flat-kinked panels (the far fleet's sails, on this
+  // model, looked faceted beside the player's cloth); a sail laced to a boom is shallower at its foot
+  const F = STRIP_F, K = _hK, fa = _hA, fd = _hD, ff0 = _hF;
+  K[0] = 0; K[1] = F[0]; K[2] = F[1]; K[3] = F[2]; K[4] = 1;
+  fa[0] = st.baseAngle ?? 0; fd[0] = sh[0].d * (s.kind === 'boom' ? 0.72 : 0.9); ff0[0] = sh[0].f;
+  for (let i = 0; i < 3; i++) { fa[i + 1] = sh[i].ang; fd[i + 1] = sh[i].d; ff0[i + 1] = sh[i].f; }
+  fa[4] = sh[2].ang + (sh[2].ang - sh[1].ang) * 0.5 * (1 - F[2]) / (F[2] - F[1]); fd[4] = sh[2].d * 0.85; ff0[4] = sh[2].f;
   for (let v = 0; v <= NV; v++) {
     const fv = v / NV;
-    let a, dd, ff;
-    const F = STRIP_F;
-    if (fv <= F[0]) { const k = fv / F[0]; a = lerp(st.baseAngle ?? 0, sh[0].ang, k); dd = sh[0].d; ff = sh[0].f; }
-    else if (fv <= F[1]) { const k = (fv - F[0]) / (F[1] - F[0]); a = lerp(sh[0].ang, sh[1].ang, k); dd = lerp(sh[0].d, sh[1].d, k); ff = lerp(sh[0].f, sh[1].f, k); }
-    else if (fv <= F[2]) { const k = (fv - F[1]) / (F[2] - F[1]); a = lerp(sh[1].ang, sh[2].ang, k); dd = lerp(sh[1].d, sh[2].d, k); ff = lerp(sh[1].f, sh[2].f, k); }
-    else { const k = (fv - F[2]) / (1 - F[2]); a = sh[2].ang + (sh[2].ang - sh[1].ang) * k * 0.5; dd = sh[2].d; ff = sh[2].f; }
+    const a = hermite5(K, fa, fv), dd = Math.max(0, hermite5(K, fd, fv)), ff = clamp(hermite5(K, ff0, fv), 0.1, 0.9);
     const si = fv < 0.33 ? 0 : fv < 0.66 ? 1 : 2;
     const flog = st[si].flog || 0, state = st[si].state;
     let chord = s.foot * (1 - fv) + s.head * fv;
