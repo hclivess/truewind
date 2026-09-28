@@ -285,9 +285,14 @@ export class AIHelm {
     } else {
       // reaching to a point: steer up-tide of it so the ground track, not the bow, points at it (aiming the
       // bow at a mark in a cross-tide sets a slow boat down-tide of it, round and round, never laying it)
-      const c = this.curAt(sim, b.x, b.z), V = Math.max(b.u, 1);
+      // (by the speed she should be making, not what she makes: divided by a slowing boat's speed the correction
+      // grew, pointed her higher, slowed her more, until she sat head to wind swinging the helm; and never above
+      // close-hauled, where a reach turns into a beat)
+      const c = this.curAt(sim, b.x, b.z), V = Math.max(b.u, 1.5);
       const cross = c.x * Math.cos(brg) + c.z * Math.sin(brg);        // tide to the right of the bearing
-      desired = brg - Math.asin(clamp(cross / V, -0.7, 0.7));
+      desired = brg - Math.asin(clamp(cross / V, -0.5, 0.5));
+      const off = wrap(twd - desired);
+      if (Math.abs(off) < up + 2 * DEG) desired = twd - (Math.sign(off) || tack) * (up + 2 * DEG);
     }
     // keep off the rocks and banks
     if (sim.world && !sim.world.open) desired = this.avoidShoals(sim, desired, mode, tack, up, twd, t);

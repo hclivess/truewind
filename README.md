@@ -318,7 +318,7 @@ These are the honest limits:
 - **No whisker pole.** Boats without a spinnaker (the Folkboat, the Star, the Blackwatch) do not goose-wing the jib on a run; ORC's non-spinnaker polars do, which is most of the Folkboat's 10% shortfall downwind.
 - **Self-tacking jibs** (the Blackwatch's staysail, the 49er's jib) are sailed on a club, the 49er's drawn without one (its clew runs on a track); the physics holds the clew on the same arc.
 - **A trimaran's floats** are copies of the main hull's lines, narrowed and lifted; they float, fly and bury by the same hydrostatics as the rest. The main hull carries the daggerboard and the only rudder.
-- **AI tactics are simple.** Crews use laylines, header tacks, the tide and starts, and sail by the racing rules, but they do not luff, cover, or fight for the inside at marks; big packs at the start and the windward mark still produce the odd incident.
+- **AI tactics are simple.** Crews use laylines, header tacks, the tide and starts, and sail by the racing rules, but they do not luff, cover, or fight for the inside at marks; big packs at the start and the windward mark still produce the odd incident. After the latest physics round an AI boat occasionally fails to start (one in six in some seeded J/70 races on the Solent) or does not complete its penalty turns in time and is disqualified; this is being worked on.
 - **The umpire sees geometry.** It judges by predicted contact and the rules' definitions; it knows nothing of hails other than rule 20's, of damage (14's exoneration of a right-of-way boat without damage is assumed), or of rule 2 and Part 4 beyond turns, recalls and touching marks.
 
 ## Controls
