@@ -375,9 +375,13 @@ body.menu-open #hud { visibility: hidden; }
 #engine-card small { color: var(--muted); font-size: 11px; margin-left: -4px; }
 #eng-gear { text-transform: uppercase; }
 #eng-gear.ahead { color: var(--stbd); } #eng-gear.astern { color: var(--amber); }
-.tp-eng { grid-template-columns: 54px; justify-items: center; position: absolute; right: 262px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); padding: 8px 6px; background: rgba(11,22,31,.78); border: 1px solid var(--line); border-radius: 8px; z-index: 3; }
-body.touch .tp-eng { right: 12px; bottom: calc(300px + env(safe-area-inset-bottom, 0px)); }
+/* the engine: on a desktop a small horizontal bar under the engine readout at the top (clear of the panels at any
+   window size); on a touch screen the vertical lever beside the touch pad */
+.tp-eng { position: absolute; z-index: 3; top: calc(124px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); grid-template-columns: auto 170px auto; grid-auto-flow: column; align-items: center; gap: 8px; padding: 4px 8px; background: rgba(11,22,31,.72); border: 1px solid rgba(233,238,242,.16); border-radius: 4px; }
+body:not(.touch) .tp-eng #tp-thr { writing-mode: horizontal-tb; direction: ltr; width: 170px; height: 18px; }
+body.touch .tp-eng { top: auto; left: auto; transform: none; grid-template-columns: 54px; grid-auto-flow: row; justify-items: center; right: 12px; bottom: calc(300px + env(safe-area-inset-bottom, 0px)); padding: 8px 6px; }
 .tp-eng[hidden] { display: none; }
-.tp-eng #tp-thr { writing-mode: vertical-lr; direction: rtl; width: 44px; height: 120px; accent-color: var(--accent); touch-action: none; }
+.tp-eng #tp-thr { accent-color: var(--accent); touch-action: none; }
+body.touch .tp-eng #tp-thr { writing-mode: vertical-lr; direction: rtl; width: 44px; height: 120px; }
 .tp-eng #tp-engine.on { background: var(--stbd); color: var(--ink); }
 .tp-eng .tl { font: 700 14px var(--cond); letter-spacing: .08em; }
