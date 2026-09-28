@@ -722,9 +722,9 @@ export class SkySystem {
     this.playerShadeU.value = cs;
     const shade = cs * (1 - 0.7 * overcast);
     if (!useMoon) {
-      const l = lum(sT);
+      const l = Math.max(1e-6, lum(sT));
       light.color.setRGB(sT[0] / l, sT[1] / l, sT[2] / l);
-      light.intensity = E_SUN * l * sunUp * shade;
+      light.intensity = E_SUN * l * sunUp * (Number.isFinite(shade) ? shade : 1);
     } else {
       light.color.setRGB(0.6, 0.7, 1.0);
       light.intensity = E_SUN * MOON_E * (0.1 + this.moonPhase) * 1.5 * mUp * shade;
@@ -732,7 +732,11 @@ export class SkySystem {
     // exposure follows the light like an eye does (a moonlit night reads as a dark blue night)
     const adapt = lum(up) * 3.0 + (useMoon ? light.intensity * 0.5 : light.intensity * Math.max(0.15, L.y)) * 0.35;
     const target = Math.max(0.55, Math.min(16, 0.95 * Math.pow(0.62 / Math.max(1e-5, adapt), 0.72)));
-    this.exposure += (target - this.exposure) * 0.05;
+    // (Math.max/min pass NaN through, and a NaN exposure, once blended in, stays: the whole picture went black
+    // for good with no error; a bad sample is skipped and a poisoned exposure starts again)
+    if (Number.isFinite(target)) this.exposure += (target - this.exposure) * 0.05;
+    else if (!this._badAdapt) { this._badAdapt = 1; console.warn('sky: non-finite exposure target', { adapt, up: [...up], lightI: light.intensity, shade }); }
+    if (!Number.isFinite(this.exposure)) this.exposure = 0.95;
     this.r.toneMappingExposure = this.exposure;
     if (hemi) { hemi.intensity = this.envRT ? 0.0 : 0.5; }
     // passes: half-resolution sky, then (every few frames) the reflection cube and the lighting environment
