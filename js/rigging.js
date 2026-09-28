@@ -730,6 +730,7 @@ export class Rigging {
         const bx = C.bowX - 0.3, by = side * bw(0.9) * 0.8, blk = V(bx, by, vis.deckH(bx, by) + 0.08), ax = C.mastX - 0.8, ay = side * bw(0.45) * 0.85;
         this.preventer.set([end, blk, V(ax, ay, vis.deckH(ax, ay) + 0.05)], [Math.max(20, (L.preventerLoad || 0) / 4), 30], g);
       } else this.preventer.set([], 1, g);
+    }
     // --- mizzen sheet: boom end -> a block on the deck or out on the boomkin, 2:1
     if (this.mizzenSheet) {
       const Z = b.sailBy.mizzen, xb = Z.tackX - Z.foot * 0.92, bk = C.model && C.model.bumpkin ? C.model.bumpkin.len : 0;
