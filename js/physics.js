@@ -28,7 +28,7 @@
 //  * Waves: Froude-Krylov slope forces (surfing), roll/yaw forcing.
 
 import { G, DEG, KT } from './env.js';
-import { HullHydro } from './hull.js';
+import { HullHydro, hullForm, hullParts } from './hull.js';
 import { mastXAt, boomContactAngle, goose, sheetLen, boomAngleForSheet, easeForBoomAngle, sheetDir, boomBend, boomDip, boomLen } from './boom.js';
 export { mastXAt, rigWires } from './boom.js';
 import { LOCKABLE, initLines, stepLines, swapJib } from './linehandlers.js';
@@ -40,6 +40,7 @@ import { helmSpec, stockTorque, helmForce, helmFeel, rudderStep } from './helm.j
 import { massProps } from './massprops.js';
 import { FAMOUS } from './classes/famous.js';
 import { RACE } from './classes/race.js';
+import { rrOverHump } from './classes/util.js';
 // (Math.hypot allocates when V8 does not inline it: these do not)
 const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
@@ -133,6 +134,7 @@ export const CLASSES = {
     // (It used to plateau at 0.05, which let it reach at wind speed in 12 kn — J/70 polars give ~8 kn.)
     rr: [[0.1, 0.0001], [0.15, 0.0004], [0.2, 0.0009], [0.25, 0.0018], [0.3, 0.0035], [0.35, 0.0065], [0.4, 0.013],
          [0.45, 0.027], [0.5, 0.044], [0.55, 0.057], [0.6, 0.066], [0.7, 0.072], [0.8, 0.071], [1.0, 0.066], [1.2, 0.065], [1.5, 0.069]],
+    planing: 1,                                                  // (over its hump it planes: js/classes/util.js rrOverHump)
     // (the fin where the J/70's is: its quarter chord 0.8 m aft of the mast)
     keel: { x: 0.25, z: -0.85, area: 0.58, ARe: 5.0, stall: 14 * DEG, cd0: 0.009, span: 1.17, chord: 0.5 },
     // the rudder hangs on the transom (J/Boats: "high aspect transom mounted molded rudder")
@@ -381,6 +383,24 @@ export function defaultControls() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// the drawn hull's form for the Delft regression, on the class's waterline length (the drawn waterline runs out into
+// the overhangs: the physics scales it back to C.lwl the same way for its Froude number)
+function delftForm(C, hydro) {
+  const f = hullForm(C, hydro), k = C.lwl / f.L;
+  return { L: C.lwl, B: f.B, T: f.T, V: hydro.restV, Aw: f.Aw * k, lcb: f.lcbF, lcf: f.lcfF, Cp: f.Cp, Cm: f.Cm };
+}
+// a trimaran's residuary factor on its table: each hull's share of the displacement at its own slenderness, against the
+// main hull's carrying all of it
+function amaLoad(b, imm) {
+  const C = b.cls, P = b._parts || (b._parts = hullParts(C)), Vh = imm.Vh, V = Math.max(1e-6, imm.V);
+  const s0 = C.lwl / Math.cbrt(b.hydro.restV);
+  let f = 0;
+  for (let i = 0; i < P.length; i++) if (Vh[i] > 1e-6) f += Vh[i] / V * (s0 / (C.lwl * (P[i].t1 - P[i].t0) / Math.cbrt(Vh[i]))) ** 1.3;
+  return f || 1;
+}
+// how far a hull comes over its hump onto a plane (0 a displacement hull .. 1 a planing dinghy or sportboat)
+export const planingOf = (C) => C.planing ?? (C.group === 'dinghy' ? 1 : 0);
+
 export class Boat {
   constructor(cls, opts = {}) {
     this.cls = typeof cls === 'string' ? CLASSES[cls] : cls;
@@ -405,6 +425,9 @@ export class Boat {
     const h1 = this.hydro.immerse(-0.02, 0, 0, () => 0, () => 0, {});
     this.Awp = Math.max(0.2, (h1.V - h0.V) / 0.04);                  // waterplane area
     this.xG = this.hydro.immerse(0, 0, 0, () => 0, () => 0, {}).Mx / this.hydro.restV; // LCG over the LCB at rest
+    // residuary resistance over the hump: the class's table below it, the Delft series on its drawn hull above
+    // (js/classes/util.js rrOverHump; the slender multihulls keep their towing-tank tables)
+    if (!C._rr) C._rr = C.multihull || C.amas ? C.rr : rrOverHump(C.rr, delftForm(C, this.hydro), planingOf(C));
     this.m33 = this.mass * 1.8;                                       // heave incl. added mass
     this.Iyy = MP.Iyy * (1 + (C.amPitch ?? 0.7));                     // pitch incl. added inertia
     this.kRoll = RHO_W * G * this.Awp * (C.beam * C.beam / 12);
@@ -1031,18 +1054,22 @@ export class Boat {
       d.helmForce = helmForce(H, Q); d.helmFeel = helmFeel(d.helmForce);
     }
     {
-      // a planing monohull rises onto its run and dries its forward sections. A multihull's slender,
-      // round-bilged hulls (beam/length ~0.08) carry no planing surface: they stay displacement hulls, and
-      // their residuary table (towing-tank C_R, which is referenced to the static wetted area) already
-      // holds whatever sinkage and trim they take at speed
+      // a planing monohull rises onto its run and dries its forward sections, once it is over its hump (the Delft
+      // resistance it follows to Fn 0.7, like any towing-tank C_R, is referenced to the static wetted area and
+      // already holds the sinkage and trim up to there). A displacement keelboat never gets up there (planing 0), nor
+      // does a multihull's slender, round-bilged hull (beam/length ~0.08): its towing-tank table holds its trim
       const slender = C.multihull || C.amas;                             // (a trimaran's hulls are slender too)
-      const planeLift = slender ? 0 : sstep(0.45, 0.95, Fn);
+      const planeLift = slender ? 0 : planingOf(C) * sstep(0.7, 1.2, Fn);
       const Swet = imm.girthLen * (1 - 0.3 * planeLift);                 // wetted surface of the real hull
       const Rf = 0.5 * RHO_W * Swet * uw * uw * cfITTC(uw, lwlDyn) * 1.08;
       // fore-aft crew weight: forward in light air (bury the bow, lift the transom), aft when planing
       const optTrim = lerp(-0.6, 0.8, sstep(0.3, 0.55, Fn));
       const trimPen = 1 + 0.09 * (this.crewX - optTrim) ** 2;
-      const Rr = disp * G * interp(C.rr, Fn) * (C.multihull ? 1 + 0.3 * (1 - this.flyIn) : C.amas ? 1 : 1 + 0.5 * this.phi * this.phi) * trimPen;
+      // (a trimaran's table is for its main hull carrying her (L/vol^(1/3) ~ 10); flying it, the leeward float carries
+      // it all, a shorter hull at 2-3 times its load: the Southampton series' C_R rises as slenderness falls, Rr/W about
+      // as slenderness^-1.3 (Molland et al. 1994), so each hull's share of the weight is charged at its own slenderness.
+      // (The cat's two equal hulls: one hull flying doubles the other's load, the 1.3 factor below.)
+      const Rr = disp * G * interp(C._rr, Fn) * (C.multihull ? 1 + 0.3 * (1 - this.flyIn) : C.amas ? amaLoad(this, imm) : 1 + 0.5 * this.phi * this.phi) * trimPen;
       let Raw = 0;
       if (wv) {
         // added resistance in waves comes from the waves about the boat's own length (it rides the long ones

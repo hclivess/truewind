@@ -109,6 +109,11 @@ export function foilSpec(C, which) {
     hullProxy: !!D.hullProxy || (!!F.twin && which === 'keel' && !F.board),
     // a long keel is the hull's own lateral plane: its effective aspect ratio is the class's (hull and keel together)
     fixedARe: F.long ? F.ARe : null,
+    // a fin under a deep canoe body: the class's ARe is the fin's with the hull's share of the side force (the canoe
+    // body lifts too, and its draft adds span: the J/24's 0.88 m fin under 0.3 m of hull is ARe 3.0, its bare fin
+    // 1.6). The fin's geometry alone left the J/24, Etchells, Catalina 30, Contessa 32 and Star at 8-12 deg of
+    // leeway upwind in a breeze, twice a real keelboat's, which the heading-locked polar sails as pointing and speed
+    hullShare: which === 'keel' && !F.long && F.ARe && F.span && F.chord ? Math.max(1, F.ARe / (F.span / F.chord * (1 + (D.endPlate ?? 0.9) + (D.bulb ? 0.15 : 0)))) : 1,
     // the class's hand-set stall angle is kept as a floor for very low aspect ratios (a long keel)
     stall0: F.stall ?? 15 * DEG,
   };
@@ -158,10 +163,13 @@ export function foilGeom(S, boardDown, kick, zw, cphi, sphi, y, V, out) {
   // Froude number, free tip at high)
   const Fnc = Math.abs(V) / Math.sqrt(G * S.chord);
   let ep;
-  if (S.root === 'hull' && dRoot > -0.02) ep = S.endPlate * clamp(Math.abs(cphi) * 1.2, 0, 1);
+  // (the hull is a good end plate upright only: heeled, its bottom lifts away from the root and turns, and the
+  // image weakens. Keuning & Sonnenberg's effective draft (Delft keel series) falls to ~0.87 of upright at 10 deg of
+  // heel, 0.8 at 20, 0.75 at 30, as this end plate does with the lift's own 1 / cos heel)
+  if (S.root === 'hull' && dRoot > -0.02) ep = S.endPlate * clamp(1 - 1.1 * Math.abs(sphi), 0, 1);
   else ep = 1 - sstep(1, 3, Fnc);
   if (S.root === 'hull' && dRoot <= -0.02) ep = Math.min(ep, S.endPlate);
-  const ARe = S.fixedARe ? S.fixedARe * Math.max(0.05, imm) : Math.max(0.05, ARg * (1 + ep + S.tipPlate)) * sweepCos;
+  const ARe = S.fixedARe ? S.fixedARe * Math.max(0.05, imm) : Math.max(0.05, ARg * (1 + ep + S.tipPlate)) * sweepCos * S.hullShare;
   // (the class's area: a tapered or long keel is not chord x span)
   out.imm = imm; out.span = spanW; out.area = S.area * spanW / S.span; out.ARe = ARe; out.ARg = ARg;
   out.x = x; out.dRoot = dRoot; out.dTip = dTip; out.Fnc = Fnc; out.sweepCos = sweepCos;

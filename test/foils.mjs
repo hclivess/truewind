@@ -12,8 +12,13 @@ const coefAt = (S, g, a, V, st = foilState(), dt = 1) => foilCoef(S, st, a, V, g
 {
   const S = foilSpec(CLASSES.sportboat, 'keel'), g = foilGeom(S, 1, 0, zw0, 1, 0, 0, 3, {});
   const c = coefAt(S, g, 2 * DEG, 3), ARg = S.span / S.chord, a0 = 0.95 * 2 * Math.PI;
-  const slope = c.cl / (2 * DEG), hb = helmbold(ARg * (1 + 0.9 + 0.15), a0);
-  check(Math.abs(slope / hb - 1) < 0.01, `J/70 keel lift slope ${slope.toFixed(2)} /rad = Helmbold on AR ${ARg.toFixed(2)} x (1 + 0.9 hull end plate + 0.15 bulb) ${hb.toFixed(2)}`);
+  // (x the canoe body's share: the class's ARe 5.0 over the bare fin's 4.8)
+  const slope = c.cl / (2 * DEG), hb = helmbold(ARg * (1 + 0.9 + 0.15) * S.hullShare, a0);
+  check(Math.abs(slope / hb - 1) < 0.01 && S.hullShare > 1 && S.hullShare < 1.1, `J/70 keel lift slope ${slope.toFixed(2)} /rad = Helmbold on AR ${ARg.toFixed(2)} x (1 + 0.9 hull end plate + 0.15 bulb) x ${S.hullShare.toFixed(2)} hull share ${hb.toFixed(2)}`);
+  // a fin under a deep canoe body keeps the class's ARe with the hull's share (J/24: 3.0, its bare fin 1.6), and heeled
+  // the hull's end plate weakens (Keuning & Sonnenberg's effective draft)
+  const J = foilSpec(CLASSES.j24, 'keel'), gJ = foilGeom(J, 1, 0, zw0, 1, 0, 0, 3, {}), gH = foilGeom(J, 1, 0, zw0, Math.cos(25 * DEG), Math.sin(25 * DEG), 0, 3, {});
+  check(Math.abs(gJ.ARe - 3.0) < 0.05 && gH.ARe < 0.85 * gJ.ARe, `J/24 keel AR_e ${gJ.ARe.toFixed(2)} upright (class 3.0), ${gH.ARe.toFixed(2)} at 25 deg of heel`);
   const R = foilSpec(CLASSES.sportboat, 'rudder');
   const lo = foilGeom(R, 1, 0, zw0, 1, 0, 0, 0.5, {}), hi = foilGeom(R, 1, 0, zw0, 1, 0, 0, 8, {});
   check(lo.ARe > 1.6 * hi.ARe, `transom-hung rudder: the surface an end plate at low speed (AR_e ${lo.ARe.toFixed(2)}), a free tip at high speed (${hi.ARe.toFixed(2)})`);

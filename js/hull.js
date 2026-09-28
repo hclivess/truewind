@@ -285,6 +285,36 @@ export class HullHydro {
   waterline(heave, pitch, phi, etaAt, slopeLatAt) { return waterlineStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt); }
 }
 
+// Form parameters of the drawn hull at rest, what a resistance regression needs: waterline length L and beam B,
+// canoe-body draft T, displacement V, midship Cm, prismatic Cp and waterplane Cwp coefficients, waterplane area Aw,
+// LCB (% of L forward of the waterline's middle) and the centres of buoyancy and flotation from the bow (fractions of
+// L: lcbF, lcfF), the half angle of entrance iE and the immersed transom area AT (tools/hull-form.mjs prints them)
+export function hullForm(C, h = new HullHydro(C)) {
+  const Lx = linesFor(C), st = h.stations;
+  const dx = st[1].x - st[0].x;
+  let Ax = 0, Aw = 0, Mx = 0, Mw = 0, AT = 0, Vs = 0;
+  const V = h.restV;
+  const xs = [], ys = [];
+  const wl = h.waterline(0, 0, 0, () => 0, () => 0);
+  for (let i = 0; i < st.length; i++) {
+    const xi = st[i].x;
+    const r = h.immerse(0, 0, 0, (x) => (Math.abs(x - xi) < dx / 2 ? 0 : -1e3), () => 0, {});
+    const A = r.V / dx; if (A > Ax) Ax = A;
+    let yb = 0; const p = wl[i].pts; for (let k = 0; k < p.length; k += 2) yb = Math.max(yb, Math.abs(p[k]));
+    if (A > 1e-5) { xs.push(xi); ys.push(yb); Aw += 2 * yb * dx; Mw += 2 * yb * dx * xi; Mx += A * dx * xi; Vs += A * dx; }
+    if (i === 0) AT = A;
+  }
+  const L = Math.max(0.3, h.restLwl), B = 2 * Math.max(...ys);
+  let T = 0; for (let t = 0; t <= 1; t += 0.01) T = Math.max(T, -Lx.keelZ(t));
+  const xf = Math.max(...xs) + dx / 2, xa = Math.min(...xs) - dx / 2, xm = (xf + xa) / 2;
+  let iE;
+  { const n = xs.length, k = Math.max(1, Math.round(n * 0.1)), yk = ys[n - 1 - k], dxk = xs[n - 1] - xs[n - 1 - k] + dx / 2;
+    iE = Math.atan2(Math.max(1e-3, yk - ys[n - 1] * 0.3), dxk) * 180 / Math.PI; }
+  const Cm = Math.min(0.98, Ax / Math.max(1e-6, B * T)), Cp = Math.min(0.85, V / Math.max(1e-6, Ax * L));
+  return { L, B, T, V, Aw, Cm, Cp, Cwp: Aw / (L * B), lcb: 100 * (Mx / Vs - xm) / L, lcbF: (xf - Mx / Vs) / L, lcfF: (xf - Mw / Aw) / L,
+    iE, AT: AT * (xs[0] <= st[0].x + 1e-6 ? 1 : 0) };
+}
+
 // Area, first moments and wetted girth of the part of a closed section polygon below the water line
 // -y*sin(phi) + z*cos(phi) < zw + sl*(y*cos(phi) + z*sin(phi))   (heeled boat, sloping local surface)
 // (runs for every section of every boat every step: no allocation, the clipped polygon goes to a scratch buffer

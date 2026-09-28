@@ -30,6 +30,7 @@ export default {
   // does not plane
   rr: [[0.1, 0.0001], [0.15, 0.0004], [0.2, 0.0008], [0.25, 0.0016], [0.3, 0.0032], [0.35, 0.006], [0.4, 0.013],
        [0.45, 0.03], [0.5, 0.052], [0.55, 0.066], [0.6, 0.074], [0.7, 0.08], [0.8, 0.08], [1.0, 0.078], [1.2, 0.077], [1.5, 0.08]],
+  planing: 0.3,
   // (the fin is 0.88 m deep under a deep canoe body, which carries part of the side force: the area and aspect ratio
   // here are the fin's plus the hull's share)
   keel: { x: 0.45, z: -0.8, area: 1.1, ARe: 3.0, stall: 17 * DEG, cd0: 0.011, span: 0.88, chord: 1.05, lead: true },

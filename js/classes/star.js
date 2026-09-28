@@ -25,6 +25,7 @@ export default {
   // (4.72 m upright, over 5.5 m heeled: the table is referenced to the upright length)
   rr: [[0.1, 0.0002], [0.15, 0.0005], [0.2, 0.0011], [0.25, 0.0022], [0.3, 0.0042], [0.35, 0.0075], [0.4, 0.0135], [0.45, 0.024],
        [0.5, 0.039], [0.55, 0.054], [0.6, 0.064], [0.7, 0.072], [0.8, 0.076], [1.0, 0.08], [1.5, 0.088]],
+  planing: 0.3,
   keel: { x: 0.32, z: -0.55, area: 0.6, ARe: 3.0, stall: 15 * DEG, cd0: 0.011, span: 0.8, chord: 0.72 },
   rudder: { x: -2.2, z: -0.35, area: 0.2, ARe: 3.0, stall: 16 * DEG, cd0: 0.011, max: 32 * DEG, span: 0.6, chord: 0.34, loadRef: 450 },
   hullLat: { area: 0.7, cd: 0.9, z: -0.08 },
