@@ -235,33 +235,67 @@ console.log('\n6. Grounding by the seabed, a lost keel');
 }
 
 // ---------------------------------------------------------------- 7. sails: overload and flogging
+// Real sails do not tear in use within their wind range: a Dacron main and jib take 30 kn upwind, sheets hard in,
+// and minutes of flogging; they tear from chafe, UV-aged cloth, hours of flogging in a gale, shock loads. A light
+// nylon kite is the exception: overpowered or broached in 25-30 kn it blows out.
 console.log('\n7. Sails');
 {
-  // flogging: a Dacron main left to flog head to wind in 35 kn: Miner damage at dt / T0 (q0 / q)^2.2
-  const env = makeSteadyEnv(35 * KT);
-  const b = new Boat('blackwatch', { sailModel: 'strip' }); b.reset(0, 0, 0); b.u = 0;
-  const D = new Damage(b); D.age = 5;
-  let tTear = null, t = 0;
-  while (t < 1800 && tTear === null) { run(b, D, env, 5, () => { b.ctrl.main = 1; b.ctrl.jib = 1; b.ctrl.stay = 1; b.lines.main = 1; }, null, () => { b.psi = 0; b.r = 0; b.x = 0; b.z = 0; }); t += 5; if (D.sails.main.tear > 0) tTear = t; }
-  const q = 0.5 * 1.225 * (35 * KT) ** 2, Tex = 1200 * Math.pow(145 / q, 2.2);
-  check(tTear !== null && tTear > Tex * 0.8 && tTear < Tex * 4, `Dacron main flogging head to wind in 35 kn (q ${Math.round(q)} Pa): tears after ${tTear ?? '>1800'} s (life at full flog ${Math.round(Tex)} s)`);
-  // overload: a nylon gennaker hard pressed in a 38 kn blast (cloth sails)
-  const e2 = makeSteadyEnv(45 * KT);
-  const g = new Boat('sportboat'); g.reset(0, 0, 110 * DEG); g.u = 6; g.ctrl.gen = true; g.genDeploy = 1; g.genFill = 1;
-  const DG = new Damage(g);
-  // (the rig is kept standing: this checks the sail. Knocked to 60° with its boom end dragging in the sea, the J/70 can
-  // part a lower first, and a dismasting marks every sail blown before the gennaker has torn; the rig's own failures
-  // are checked in sections 1-5)
-  DG.dismast = () => {};
-  run(g, DG, e2, 30, () => autoTrim(g, dt, 0, true), null, () => { g.psi = 110 * DEG; g.r = 0; });
-  const S = DG.sails.gennaker;
-  console.log('     (gennaker state', JSON.stringify({ tear: S.tear, D: S.D, ratio: S.ratio, peak: S.peak, blown: S.blown }), ')');
-  check(S.tear > 0, `gennaker reaching in a 45 kn blast: peak cloth tension ${(S.peak / 1000).toFixed(2)} kN/m (x${3} at the corners vs ${(S.mat.S / 1000).toFixed(0)} kN/m nylon): ${S.blown ? 'BLOWN OUT' : `torn ${Math.round(S.tear * 100)}%`}`);
-  const e3 = makeSteadyEnv(14 * KT);
-  const g2 = new Boat('sportboat'); g2.reset(0, 0, 110 * DEG); g2.u = 6; g2.ctrl.gen = true; g2.genDeploy = 1; g2.genFill = 1;
-  const DG2 = new Damage(g2);
-  run(g2, DG2, e3, 30, () => autoTrim(g2, dt, 0, true), null, () => { g2.psi = 110 * DEG; g2.r = 0; });
-  check(DG2.sails.gennaker.tear === 0, `the same gennaker in 14 kn: ${Math.round(DG2.sails.gennaker.ratio * 100)}% of its strength, sound`);
+  const flogRun = (kn, lim) => {
+    const env = makeSteadyEnv(kn * KT);
+    const b = new Boat('blackwatch', { sailModel: 'strip' }); b.reset(0, 0, 0); b.u = 0;
+    const D = new Damage(b); D.age = 5;
+    let tTear = null, t = 0;
+    while (t < lim && tTear === null) { run(b, D, env, 5, () => { b.ctrl.main = 1; b.ctrl.jib = 1; b.ctrl.stay = 1; b.lines.main = 1; }, null, () => { b.psi = 0; b.r = 0; b.x = 0; b.z = 0; }); t += 5; if (D.sails.main.tear > 0) tTear = t; }
+    return { D, tTear, t };
+  };
+  // flogging: Miner damage at dt / T0 (q0 / q)^3
+  {
+    const { D, t } = flogRun(25, 300);
+    const S = Object.values(D.sails);
+    check(S.every((x) => x.tear === 0) && S.every((x) => x.D < 0.05), `Dacron sails flogging head to wind in 25 kn for ${t / 60} min: sound (fatigue used ${S.map((x) => Math.round(x.D * 1000) / 10 + '%').join(', ')})`);
+  }
+  {
+    const q = 0.5 * 1.225 * (45 * KT) ** 2, Tex = 14400 * Math.pow(145 / q, 3);
+    const { tTear } = flogRun(45, 5400);
+    check(tTear !== null && tTear > Tex * 0.8 && tTear < 4500, `Dacron main flogging head to wind in 45 kn (q ${Math.round(q)} Pa): tears after ${tTear ? Math.round(tTear / 60) + ' min' : '>90 min'} (life at full flog ${Math.round(Tex / 60)} min; within the hour or so)`);
+  }
+  // the cloth sails' own loads: 30 kn close-hauled, sheets as a crew trims them and hauled hard in, and a main
+  // running against its shrouds (the solver's contact there is left out: chafe, not tension)
+  const clothRun = (cls, kn, twa, secs, ctl) => {
+    const env = makeSteadyEnv(kn * KT);
+    const b = new Boat(cls); b.reset(0, 0, twa * DEG); b.u = ctl === 'flog' ? 0 : 3;
+    const D = new Damage(b); let worst = 0, wk = '';
+    run(b, D, env, secs, () => { if (ctl === 'flog') { b.ctrl.main = 1; b.ctrl.jib = 1; b.ctrl.stay = 1; b.lines.main = 1; } else { autoTrim(b, dt, 0, true); if (ctl === 'hard') { b.ctrl.main = 0; b.ctrl.jib = 0; b.ctrl.stay = 0; } } }, null,
+      () => { b.psi = twa * DEG; b.r = 0; if (ctl === 'flog') { b.x = 0; b.z = 0; } for (const k in D.sails) if (D.sails[k].ratio > worst) { worst = D.sails[k].ratio; wk = k; } });
+    const torn = Object.entries(D.sails).filter(([, S]) => S.tear > 0).map(([k]) => k);
+    return { D, worst, wk, torn };
+  };
+  for (const [cls, kn, twa, ctl, what] of [['blackwatch', 30, 45, 'trim', '30 kn close-hauled'], ['catalina30', 30, 45, 'hard', '30 kn close-hauled, sheets hard in'],
+    ['sportboat', 30, 45, 'trim', '30 kn close-hauled'], ['j24', 18, 165, 'trim', '18 kn running, the main on its shrouds'], ['catalina30', 25, 0, 'flog', '25 kn head to wind, flogging']]) {
+    const { worst, wk, torn } = clothRun(cls, kn, twa, 30, ctl);
+    check(torn.length === 0 && worst < 0.6, `${cls.padEnd(10)} cloth sails, ${what}: highest load ${Math.round(worst * 100)}% of the strength (${wk})${torn.length ? ', TORN: ' + torn.join(', ') : ', sound'}`);
+  }
+  // a 0.75 oz nylon gennaker: sound reaching in 14 kn; overpowered in 30 kn she broaches (rounds up 60 degrees in
+  // 2 s, the kite sheeted for the reach, the boat laid over) and the kite blows out
+  const kite = (kn, broach) => {
+    const env = makeSteadyEnv(kn * KT);
+    const g = new Boat('sportboat'); g.reset(0, 0, 110 * DEG); g.u = 6; g.ctrl.gen = true; g.genDeploy = 1; g.genFill = 1;
+    const DG = new Damage(g);
+    // (the rig is kept standing: this checks the sail; the rig's own failures are checked in sections 1-5)
+    DG.dismast = () => {};
+    let psi = 110 * DEG, ctl = null, top = 0;
+    run(g, DG, env, 40, (t) => { if (!broach || t < 15) autoTrim(g, dt, 0, true); else { ctl = ctl || { ...g.ctrl }; Object.assign(g.ctrl, ctl); if (psi > 50 * DEG) psi -= 30 * DEG * dt; } }, null,
+      () => { g.psi = psi; g.r = 0; top = Math.max(top, DG.sails.gennaker.ratio); });
+    return { S: DG.sails.gennaker, top };
+  };
+  {
+    const { S, top } = kite(14, false);
+    check(S.tear === 0, `the gennaker reaching in 14 kn: at most ${Math.round(top * 100)}% of its strength, sound`);
+  }
+  {
+    const { S, top } = kite(30, true);
+    check(S.tear > 0, `the gennaker overpowered in 30 kn and broached: ${Math.round(top * 100)}% of its strength (${(S.Tf / 1000).toFixed(2)} kN/m held, x${(3 / S.mat.plies).toFixed(1)} at its corners, ${(S.mat.S / 1000).toFixed(0)} kN/m nylon less seams and UV): ${S.blown ? 'BLOWN OUT' : `torn ${Math.round(S.tear * 100)}%`}`);
+  }
 }
 
 console.log(`\n${fails ? fails + ' check(s) FAILED' : 'all damage checks passed'}`);

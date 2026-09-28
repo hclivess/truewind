@@ -65,7 +65,7 @@ The harbours are busy the way the real ones are (`js/traffic.js`, drawn by `js/t
 
 ## Modes
 
-- **Free sail.** You sail anywhere. Click the tactical map to drop a waypoint, and the instruments switch to VMC (velocity made good on course) with laylines. Time warp is available up to ×8.
+- **Free sail.** You sail anywhere. Click the tactical map to drop a waypoint, and the instruments switch to VMC (velocity made good on course) with laylines; `Shift`+`O` hands her to the autopilot, which sails there and explains how (see below). Time warp is available up to ×8.
 - **Race.** A windward–leeward course is laid automatically in open water on the real map. It has a start sequence with signals, an OCS (over the line early) call with a dip-back requirement, a windward mark rounded to port, a leeward gate and a finish. The AI fleet (up to 29 boats; the line grows with it) sails the same physics as you do; in a big fleet only as many boats as the frame budget carries sail in cloth, those nearest the camera, and the rest on the strip model (`js/fleet.js`). Harbour traffic keeps clear of the course.
 
 ## Racing rules
@@ -91,6 +91,22 @@ Every venue carries its real seamarks from OpenStreetMap / OpenSeaMap (`data/ven
 - **Nav readout** (under the tactical map): COG, SOG, depth, the stream's set and drift, the height of tide above chart datum (rising or falling), position, and to the waypoint (in a race, the next mark) BRG, DTW, XTE, VMC and ETA. The steering compass above the instruments shows the heading, COG (orange), the bearing to the waypoint (blue) and the wind.
 
 `node test/seamarks.mjs` checks the light timings, sectors, labels, IALA regions and every venue's seamarks; `node tools/fetch-venues.mjs --seamarks [id…]` re-bakes them.
+
+## Autopilot and coach
+
+A learning aid (`js/autopilot.js`): `Shift`+`O`, or **Pilot** on the toolbar or the touch pad, hands the boat to the same tactician and helm that sail the AI crews (`AIHelm` in `js/race.js`), and a coach says what it does and why on the crew's line at the top of the screen (`hud.crew(msg, kind)`: one line for everyone aboard who talks, rate-limited, merged and fading), in plain words, as each decision is taken.
+
+- **Where to.** The chart's waypoint (click or tap the chart, or a seamark on it), or racing, the course itself: the start sequence (holding below the line, then timing the run to it), the marks rounded to port, the gate, the finish. With no waypoint it holds the true wind angle it was given, like a wind vane, and says so. A waypoint on the land or in water too shallow for the keel is moved to the nearest water she floats in.
+- **How.** Beating: close-hauled at the polar's VMG angle, tacking on the laylines, which are ground tracks (leeway and the tide), and back toward the middle before a layline while far from the mark (a shift then costs little); tacks on a big header or for the tide as the AI crews do. Running: at the downwind VMG angle, gybing on the layline. Reaching: straight for it, aimed up-tide so the track points at it. The gennaker or spinnaker goes up with the wind aft and down for the leeward mark; reefs go in when overpowered. It keeps off the shallows and the land along the track it will make (`avoidShoals`), and where a straight line would cross land or a bank it plans a water route (A* over the chart with every cell too shallow for the keel closed, as the harbour traffic plans; `NavGrid`), sailing each leg in turn. Racing, it keeps clear under the racing rules exactly as the AI crews do, gives room and mark-room, holds its course with right of way and takes its penalty turns.
+- **Arriving.** Within two boat lengths of the waypoint it heaves to: luffs to about 50° off the wind with every sheet eased and lies there; dead to windward on the last few metres it shoots up into the wind and coasts in. Drifted off by the wind and the tide, it sails back.
+- **Trim.** While it is engaged the crew trims (automatic trim on); take a sheet yourself and you trim while it steers. Your own automatic-trim setting comes back when it lets go.
+- **It steers with the helm, as you do**: the tiller or wheel moves with it, never the heading set directly.
+- **The helm is yours at a touch.** `A` `D`, the arrow keys, `Space`, the touch pad's helm or Centre, dragging the tiller or wheel: any of them disengages it with a toast, as a real autopilot's override does. It lets go too when you anchor, make fast or go overboard.
+- **The coach.** One line, driven by the tactician's own decisions, never a timer: "Beating to the waypoint: it's 30° off the wind, inside the no-go zone, so we sail close-hauled at 42° and tack on the layline." · "Tacking now: we've reached the port layline (the waypoint bears 88° from our heading)." · "Bearing away to a broad reach: easing the main and jib." · "Gybing: the waypoint is now on the other gybe's side." · "Hoisting the gennaker: apparent wind is aft of the beam." · "Lifted 7°: …" / "Headed 9°: …" · "Reefing: 19 kn and 25° of heel." · "Shallows on our track (2.1 m ahead, we draw 1.5 m): …" · "Giving way: port–starboard, ducking Jolly Roger." · "Standing on: …" · "Routing round the land: 3 legs …" · "Arrived: heaving to …". Beside it: the mode (beat, reach, run, pre-start, hove to, wind vane), the wind angle it steers and its next decision ("tack in 140 m", "gybe in 80 m", "arrive in 1:20"). **Coach** on the line (or in the chart's header) turns the words off and keeps the numbers.
+- **On the chart and the map.** While engaged, the laylines through the target (amber, dashed) and the track it means to sail (green: to the layline, the turn, then the mark; a route's legs) are drawn on the chart and the tactical map, and a green bracket on the steering compass marks the heading it steers.
+- **Racing and online** it is allowed (self-steering is no breach of the racing rules), but a race you used it in shows "autopilot" beside your name in the results.
+
+`node test/autopilot.mjs` sails it (the AI fleet's cloth sails at L1) 800 m dead to windward in 12 kn (arrives with two tacks, within 25% of the time the polar's upwind VMG gives, the coach's layline call where the other tack lays the waypoint), 800 m dead downwind (gybing, the gennaker hoisted with the wind aft), on a reach (straight there, no tack or gybe), to a waypoint behind Alcatraz on the San Francisco chart and depths (a water route round it, never aground), and checks that a hand on the helm lets it go and that with no waypoint it holds the wind angle.
 
 ## Online: a shared world
 
@@ -345,6 +361,7 @@ These are the honest limits:
 | `1`–`7` | Cameras: chase, helm, bow, masthead, overhead, orbit, on deck |
 | `L` `K` `I` | Laylines, force vectors, physics readout |
 | `Tab` | Chart (click or tap it for a waypoint) |
+| `Shift`+`O` | Autopilot on / off (**Pilot** on the toolbar and the touch pad): sails to the waypoint or round the race course, with a coach. Any touch of the helm hands her back |
 | `U` | Anchor: drop / weigh (keelboats) |
 | `9` | Lines: make fast alongside a pier or pontoon, or to a mooring buoy / cast off |
 | `0` | MOB: mark the spot on the plotter and steer back to it |
@@ -359,7 +376,7 @@ With the mouse, drag to look around and use the wheel to zoom; zooming all the w
 
 Every line is also in the rig panel as press-and-hold buttons, with its rope's colour and a button for what holds it: the handler's icon and its state (LOCK, SET or MAKE while it is made fast, OFF while it is cast off, FREE / EASE / HAND, SLIP), click to make fast or cast off. Easing a line (or hauling one off a horn cleat) takes it off its handler first, and it is made fast again when you let go. Menu options include tiller steering (push the tiller and the bow goes the other way).
 
-On a phone or tablet, drag to look around, pinch to zoom, and tap a rope, winch or cleat on deck to grab it. The touch pad holds the helm (◀ ▶ and Centre), the mainsheet and jib sheet, and one more line of the class (traveler, staysail, vang, crew weight, tack line, backstay or daggerboard): tap its name to pick the next. Auto trim and the gennaker hoist sit under it. On a boat with an engine, a throttle lever and a Start button sit beside it. The **Rig** button opens every line.
+On a phone or tablet, drag to look around, pinch to zoom, and tap a rope, winch or cleat on deck to grab it. The touch pad holds the helm (◀ ▶, Centre and Pilot), the mainsheet and jib sheet, and one more line of the class (traveler, staysail, vang, crew weight, tack line, backstay or daggerboard): tap its name to pick the next. Auto trim and the gennaker hoist sit under it. On a boat with an engine, a throttle lever and a Start button sit beside it. The **Rig** button opens every line.
 
 ## Graphics
 

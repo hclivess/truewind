@@ -502,6 +502,24 @@ export class Rigging {
     const piv = this.vis.booms[key].position, a = this.b.booms[key].a, e = this.b.booms[key].elev || 0, h = s * Math.cos(e);
     return new THREE.Vector3(piv.x + Math.sin(a) * h, piv.y + dz + s * Math.sin(e), piv.z + Math.cos(a) * h);
   }
+  // a point on a cloth sail's leech h metres above its clew (the leech column's node nearest that height, and
+  // between the two nodes around it): where a reef cringle is, so a reef line runs to the sail itself and not to a
+  // point in the air above the boom end (the sail's roach, twist, a reef already tied or a cut shorter than the boom
+  // put the leech elsewhere); null without a cloth sail
+  leechAt(key, h) {
+    const b = this.b, rig = b.sailSys && b.sailSys.active(b) && b.sailSys.cloth(key);
+    if (!rig || !rig.cloth || !rig.cloth.node) return null;
+    const c = rig.cloth, x = c.x, i = c.nu - 1, k0 = 3 * c.node(i, 0), z0 = x[k0 + 2];
+    for (let j = 1; j < c.nv; j++) {
+      const k = 3 * c.node(i, j), kp = 3 * c.node(i, j - 1), za = x[kp + 2] - z0, zb = x[k + 2] - z0;
+      if (zb >= h || j === c.nv - 1) {
+        const f = zb > za ? clamp((h - za) / (zb - za), 0, 1) : 0;
+        const X = x[kp] + (x[k] - x[kp]) * f, Y = x[kp + 1] + (x[k + 1] - x[kp + 1]) * f, Z = x[kp + 2] + (x[k + 2] - x[kp + 2]) * f;
+        return Number.isFinite(X + Y + Z) ? V(X, Y, Z) : null;
+      }
+    }
+    return null;
+  }
   clew(key) {
     const b = this.b, s = b.sailBy[key], sh = b.diag.shape[key], st = b.diag.strips[key];
     // a cloth headsail: its clew node
@@ -665,7 +683,7 @@ export class Rigging {
         const rl = this.reefLines[i];
         const hRow = M.luff * (i === 0 ? 0.16 : 0.31);
         const tension = b.reefPos > i + 0.5 ? 500 : b.reefing && b.reefPos > i ? 200 : 4;
-        const cringle = this.boomPt('main', M.foot * 0.9, 0.0).add(_v.set(0, Math.max(0.05, hRow * (1 - clamp(b.reefPos - i, 0, 1))), 0));
+        const cringle = this.leechAt('main', Math.max(0.05, hRow * (1 - clamp(b.reefPos - i, 0, 1)))) || this.boomPt('main', M.foot * 0.9, 0.0).add(_v.set(0, Math.max(0.05, hRow * (1 - clamp(b.reefPos - i, 0, 1))), 0));
         rl.set([cringle, this.boomPt('main', M.foot * 0.98, -0.06), this.boomPt('main', 0.3, -0.08)], tension, g);
       }
     }

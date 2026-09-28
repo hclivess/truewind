@@ -375,8 +375,44 @@ body.menu-open #hud { visibility: hidden; }
 #engine-card small { color: var(--muted); font-size: 11px; margin-left: -4px; }
 #eng-gear { text-transform: uppercase; }
 #eng-gear.ahead { color: var(--stbd); } #eng-gear.astern { color: var(--amber); }
-.tp-eng { grid-template-columns: 54px; justify-items: center; }
+/* the engine: on a desktop a small horizontal bar under the engine readout at the top (clear of the panels at any
+   window size); on a touch screen the vertical lever beside the touch pad */
+/* the engine: on a desktop a row at the foot of the rig panel (Engine · gear · throttle · Start); on a touch screen
+   the vertical lever beside the touch pad */
+.tp-eng { grid-template-columns: auto auto 1fr auto; grid-auto-flow: column; align-items: center; gap: 8px; padding: 6px 10px 8px; border-top: 1px solid var(--line); }
+.tp-eng::before { content: 'Engine'; font: 600 11px var(--cond); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+body:not(.touch) .tp-eng #tp-thr { writing-mode: horizontal-tb; direction: ltr; width: 100%; height: 18px; }
+#rig.collapsed .tp-eng { display: none; }
+body.touch .tp-eng { position: static; grid-template-columns: 54px; grid-auto-flow: row; justify-items: center; right: 12px; bottom: calc(300px + env(safe-area-inset-bottom, 0px)); padding: 8px 6px; background: rgba(11,22,31,.78); border: 1px solid var(--line); border-radius: 8px; }
+body.touch .tp-eng::before { display: none; }
 .tp-eng[hidden] { display: none; }
-.tp-eng #tp-thr { writing-mode: vertical-lr; direction: rtl; width: 44px; height: 120px; accent-color: var(--accent); touch-action: none; }
+.tp-eng #tp-thr { accent-color: var(--accent); touch-action: none; }
+body.touch .tp-eng #tp-thr { writing-mode: vertical-lr; direction: rtl; width: 44px; height: 120px; }
 .tp-eng #tp-engine.on { background: var(--stbd); color: var(--ink); }
 .tp-eng .tl { font: 700 14px var(--cond); letter-spacing: .08em; }
+/* a narrow window: the rig panel stops above the instruments (they span the bottom middle and reach under it) */
+@media (max-width: 1180px) { body:not(.touch) #rig { bottom: calc(126px + env(safe-area-inset-bottom, 0px)); max-height: calc(100% - 300px); } }
+
+/* ---------------- the crew / coach line (under the toast, the alert, the engine readout and throttle); the autopilot's button ---------------- */
+#coach { position: absolute; left: 50%; transform: translateX(-50%); top: calc(124px + env(safe-area-inset-top, 0px)); width: min(460px, calc(100% - 700px)); min-width: 300px; padding: 6px 10px 7px; border-left: 3px solid var(--stbd); }
+#coach .co-top { display: flex; align-items: baseline; gap: 10px; font: 600 13px var(--cond); letter-spacing: .05em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#coach .co-top .eyebrow { color: var(--stbd); }
+#coach:not(.ap) #co-mode, #coach:not(.ap) #co-twa, #coach:not(.ap) #co-next { display: none; }
+#coach:not(.ap) { border-left-color: var(--amber); } #coach:not(.ap) .co-top .eyebrow { color: var(--amber); }
+#co-text { transition: opacity .8s; } #co-text.faded { opacity: 0; }
+#coach.ap #co-text.faded { opacity: .45; }
+#co-mode { color: #5fe39a; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; }
+#co-next { color: #c5d1da; overflow: hidden; text-overflow: ellipsis; }
+#co-txt { margin-left: auto; font-size: 11px; padding: 1px 6px; }
+#co-now { margin: 4px 0 0; font: 500 15px/1.3 var(--body); color: var(--text); }
+#co-prev { margin: 3px 0 0; font: 400 12px/1.3 var(--body); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#co-prev:empty { display: none; }
+#coach.notext #co-text { display: none; }
+#tb-pilot[aria-pressed="false"] { text-decoration: none; }
+#tb-pilot[aria-pressed="true"] { background: var(--stbd); color: var(--ink); border-color: var(--stbd); }
+.tp-helm #tp-pilot { grid-row: 3; grid-column: 1 / 3; }
+@media (max-width: 720px) {
+  #coach { top: auto; bottom: calc(140px + env(safe-area-inset-bottom, 0px)); width: calc(100% - 16px); min-width: 0; }
+  body.touch #coach { bottom: calc(330px + env(safe-area-inset-bottom, 0px)); }
+  #co-now { font-size: 13px; }
+}
