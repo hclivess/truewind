@@ -9,36 +9,13 @@
 // for the full-keel double-enders and does not hold for yachts: for the Blackwatch it predicts Rr/W 0.013 at Fn 0.4
 // against the 0.031 its towing-tank table gives, and it rates the Westsail's blunt entrance (half angle 40 deg) as
 // costlier than the table does, the opposite of the gap it was meant to close. Ship regressions have no yacht in them
-// with a Westsail's slenderness and entrance; the residuary tables in js/util.js stay the physics.
+// with a Westsail's slenderness and entrance; the residuary tables in js/classes/util.js stay the physics below the hump,
+// and over it the Delft yacht series on these same form parameters (rrOverHump).
 import { CLASSES } from '../js/physics.js';
-import { HullHydro, linesFor, calibrate } from '../js/hull.js';
+import { calibrate, hullForm as hullFormOf } from '../js/hull.js';
 
-const G = 9.81;
-// form parameters from the drawn hull at rest
-export function hullForm(C) {
-  calibrate(C);
-  const h = new HullHydro(C), Lx = linesFor(C), st = h.stations, V = h.restV;
-  const dx = st[1].x - st[0].x, far = () => -1e3;
-  let Ax = 0, Aw = 0, Mx = 0, xs = [], ys = [], AT = 0;
-  const wl = h.waterline(0, 0, 0, () => 0, () => 0);
-  for (let i = 0; i < st.length; i++) {
-    const xi = st[i].x;
-    const r = h.immerse(0, 0, 0, (x) => (Math.abs(x - xi) < dx / 2 ? 0 : -1e3), () => 0, {});
-    const A = r.V / dx; if (A > Ax) Ax = A;
-    let yb = 0; const p = wl[i].pts; for (let k = 0; k < p.length; k += 2) yb = Math.max(yb, Math.abs(p[k]));
-    if (A > 1e-5) { xs.push(xi); ys.push(yb); Aw += 2 * yb * dx; Mx += A * dx * xi; }
-    if (i === 0) AT = A;
-  }
-  const L = Math.max(0.3, h.restLwl), B = 2 * Math.max(...ys);
-  let Tc = 0; for (let t = 0; t <= 1; t += 0.01) Tc = Math.max(Tc, -Lx.keelZ(t));
-  const xf = Math.max(...xs), xa = Math.min(...xs), xm = (xf + xa) / 2;
-  // half angle of entrance: the waterline's slope over the forward tenth of its length
-  let iE = 20;
-  { const n = xs.length, k = Math.max(1, Math.round(n * 0.1)), yk = ys[n - 1 - k], dxk = xs[n - 1] - xs[n - 1 - k] + dx / 2;
-    iE = Math.atan2(Math.max(1e-3, yk - ys[n - 1] * 0.3), dxk) * 180 / Math.PI; }
-  const Cm = Math.min(0.98, Ax / Math.max(1e-6, B * Tc)), Cp = Math.min(0.85, V / Math.max(1e-6, Ax * L));
-  return { L, B, T: Tc, V, Cm, Cp, Cwp: Aw / (L * B), lcb: 100 * (Mx / V - xm) / L, iE, AT: AT * (xs[0] <= st[0].x + 1e-6 ? 1 : 0) };
-}
+// form parameters from the drawn hull at rest (js/hull.js)
+export function hullForm(C) { calibrate(C); return hullFormOf(C); }
 // Holtrop & Mennen's wave-making resistance / weight at Froude number Fn (low-speed formula)
 export function holtropRw(f, Fn) {
   const { L, B, T, V, Cm, Cp } = f, BL = B / L, LB = L / B;

@@ -37,14 +37,26 @@ async function sailAngle(cls, twsKn, twa, secs) {
       if (b.sailSys) b.sailSys.reset(b);
     }
     b.u = u0;
-    let acc = 0, n = 0, heel = 0, lee = 0, bad = false;
-    for (let i = 0; i < steps; i++) {
+    // (the speed is averaged over the last 40% of the run; a run still slowing from its warm start there (a heavy
+    // boat started at the strip model's speed, or one that fell off a plane) is carried on, up to three times as long,
+    // until the two halves of that window agree to 1%: a transient kept as the steady speed is a fast polar)
+    const us = new Float32Array(3 * steps), ph = new Float32Array(3 * steps), lw = new Float32Array(3 * steps);
+    let bad = false, end = steps;
+    for (let i = 0; i < end; i++) {
       autoTrim(b, dt, bias); b.step(dt, env, i * dt); b.r = 0; b.psi = twa * DEG; b.rudder = 0;
       if (i < hold) b.u = u0;
       if (!Number.isFinite(b.u)) { bad = true; break; }
-      if (i > steps * 0.6) { acc += b.u; heel += b.phi; lee += b.diag.leeway || 0; n++; }
+      us[i] = b.u; ph[i] = b.phi; lw[i] = b.diag.leeway || 0;
+      if (i === end - 1 && end < 3 * steps) {
+        const w0 = Math.floor(end - 0.4 * steps), mid = Math.floor((w0 + end) / 2);
+        let a = 0, c = 0; for (let k = w0; k < mid; k++) a += us[k]; for (let k = mid; k < end; k++) c += us[k];
+        a /= mid - w0; c /= end - mid;
+        if (Math.abs(c - a) > 0.01 * Math.max(0.5, c)) end = Math.min(3 * steps, end + Math.round(0.4 * steps));
+      }
     }
-    const bsp = bad || b.capsized ? 0 : acc / n / KT;
+    let acc = 0, heel = 0, lee = 0, n = 0;
+    if (!bad) for (let k = Math.floor(end - 0.4 * steps); k < end; k++) { acc += us[k]; heel += ph[k]; lee += lw[k]; n++; }
+    const bsp = bad || !n || b.capsized ? 0 : acc / n / KT;
     if (bsp > best.bsp) best = { bsp, heel: Math.abs(heel / n) / DEG, leeway: Math.abs(lee / n) / DEG, gen: gen ? 1 : 0, bias };
   }
   return best;
