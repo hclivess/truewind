@@ -703,12 +703,12 @@ export function aiRules(ai, sim, desired, mode, t, up) {
   // 1. keep clear of the boats she owes it to (and the marks)
   const cD = give.length || marks.length ? clearFor(desired, give) : 1e9;
   if (cD < margin) {
-    let [hh, ok] = search(give, margin, H);
+    let [hh, ok] = search(give, margin, H), tacked = false;
     // a port tacker would rather tack than duck far below her course, if the tack itself is clean
     const beating = Math.abs(wrap(twd - b.psi)) < up + 20 * DEG;
     if ((mode === 'beat' || beating) && (ok < 0 || Math.abs(wrap(hh - desired)) > 35 * DEG) && t - ai.lastTack > 8) {
       const other = twd + (Math.sign(wrap(twd - b.psi)) || 1) * up;
-      if (R.canTurn(b, other)) { hh = other; ok = 1; ai.lastTack = t; }
+      if (R.canTurn(b, other)) { hh = other; ok = 1; ai.lastTack = t; tacked = true; }
     }
     // still nothing clear: would stopping where she is (sheets out, the other boat crossing ahead) do better?
     let stop = false;
@@ -722,6 +722,12 @@ export function aiRules(ai, sim, desired, mode, t, up) {
     // no clear heading (boxed in, or clear astern with nowhere to go): slow down as well
     // (not beside a mark: stopped, she drifts down onto it; nor once slow: she would lose steerage and stall)
     if (b.u > 1.2 && (ok < 0 || give.some(([o, pr]) => pr.rule === '12' && pr.astern === b && pr.d < 2 * b.cls.loa && o.u < b.u)) && !marks.some(m => Math.hypot(m.x - b.x, m.z - b.z) < 3 * b.cls.loa)) plan.ease = true;
+    // (for the autopilot's coach: whom she gives way to, under which rule, and how)
+    if (ai.log && give.length) {
+      const [o, pr] = give.reduce((a, g) => (g[1].d < a[1].d ? g : a));
+      const off = Math.abs(wrap(twd - (hh ?? desired))) - Math.abs(wrap(twd - desired));
+      ai.note('give', { o, rule: pr.room && pr.room.giver === b ? pr.room.rule : pr.rule, how: tacked ? 'tack' : plan.ease ? 'slow' : off > 3 * DEG ? 'duck' : off < -3 * DEG ? 'up' : 'hold' });
+    }
   }
   // 2. right of way: hold her course while a keep-clear boat is close (16) — but not into contact (14)
   else if (!row.length) ai.holdPsi = null;
@@ -738,6 +744,7 @@ export function aiRules(ai, sim, desired, mode, t, up) {
     else if (ai.holdPsi == null) ai.holdPsi = b.psi;
     if (danger) { const [hh] = search(row, 0.3, 3); if (hh !== null) h = hh; }
     else if (ai.holdPsi != null) h = ai.holdPsi + clamp(wrap(desired - ai.holdPsi), -6 * DEG, 6 * DEG);
+    if (ai.log && close) { const [o, pr] = row.reduce((a, g) => (g[1].d < a[1].d ? g : a)); ai.note('stand', { o, rule: pr.rule, danger }); }
   }
   plan.h = h === desired ? null : h;
   if (plan.h !== null) { ai.kcSide = Math.sign(wrap(h - desired)) || ai.kcSide; ai.kcSideT = t; }

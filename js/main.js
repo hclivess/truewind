@@ -28,6 +28,7 @@ import { TrafficView } from './traffic-render.js';
 import { fleetLevels, clothBudget } from './fleet.js';
 import { Gear } from './gear.js';            // damage, anchor, mooring lines, man overboard, crew fatigue
 import { GearVis } from './gear-render.js';
+import { Autopilot } from './autopilot.js';       // the smart autopilot and its coach (a learning aid)
 
 // every boat's sail model: cloth (cloth shaped by the wind and the rig, forces from a vortex lattice over it; the
 // default), ?sails=strip (three strips per sail: the light fallback) or ?sails=vlm (vortex lattice on the rig-set
@@ -62,6 +63,9 @@ class Game {
     this.renderer = new Renderer($('#view'));
     this.hud = new HUD(this);
     this.nav = new Nav(this);                                 // chart, waypoints, nav readout, steering compass
+    // the autopilot's plan (laylines, the track it means to sail) on the chart and the tactical map while engaged
+    this.nav.overlays.push({ id: 'autopilot', chart: (ctx, P) => this.autopilot && this.autopilot.drawPlan(ctx, P, 1, false), mini: (ctx, lw) => this.autopilot && this.autopilot.drawPlan(ctx, (x, z) => [x, z], lw, true) });
+    this.coachText = pref('tw-coach') !== '0';
     this.gear = new Gear(this);                               // damage, anchoring, mooring, MOB, fatigue
     this.gearVis = new GearVis(this.renderer, this);
     this.audio = new Audio();
@@ -368,6 +372,9 @@ class Game {
     $('#tb-sound').setAttribute('aria-pressed', String(!!this.audio.on));
     const rigOn = document.body.classList.contains('narrow') ? document.body.classList.contains('rig-open') : !$('#rig').classList.contains('collapsed');
     $('#tb-rig').setAttribute('aria-pressed', String(rigOn));
+    const apOn = !!(this.autopilot && this.autopilot.engaged);
+    $('#tb-pilot').setAttribute('aria-pressed', String(apOn));
+    $('#tp-pilot').classList.toggle('on', apOn); $('#tp-pilot').textContent = apOn ? 'Pilot on' : 'Pilot';
   }
   cycleCamera() {
     const order = ['chase', 'helm', 'bow', 'mast', 'top', 'orbit', 'deck'];
@@ -474,6 +481,7 @@ class Game {
     if (dockReef) player.ctrl.reef = dockReef;
     this.player = player;
     this.boats.push(player);
+    this.autopilot = new Autopilot(player); this.apTrim = null;
     const P = makeProjection(v.lat, v.lon);
     // (with a real tide: deep enough at the lowest tide, below chart datum)
     const dep = (x, z) => world.bed && world.tide && !world.tide.still ? Math.min(world.depthAt(x, z), world.chartDepthAt(x, z)) : world.depthAt(x, z);
@@ -704,7 +712,7 @@ class Game {
     if (!this.race) return [];
     const C = this.course;
     const code = (r) => r.dsq ? 'DSQ' : r.ocsAtGun && !r.started ? 'OCS' : r.retired ? 'RET' : null;
-    const list = this.race.standings().map(r => ({ name: r.boat === this.player ? (this.settings.boatName ? `${this.settings.boatName} (you)` : 'You') : `${r.boat.name}${r.boat.sailNo ? ' · ' + r.boat.sailNo : ''}`, me: r.boat === this.player, finished: r.finished, retired: r.retired, time: r.finishTime, leg: r.leg, boat: r.boat, code: code(r), pen: !!(this.rules && this.rules.penaltyOf(r.boat)) }));
+    const list = this.race.standings().map(r => ({ name: r.boat === this.player ? (this.settings.boatName ? `${this.settings.boatName} (you)` : 'You') : `${r.boat.name}${r.boat.sailNo ? ' · ' + r.boat.sailNo : ''}`, me: r.boat === this.player, finished: r.finished, retired: r.retired, time: r.finishTime, leg: r.leg, boat: r.boat, code: code(r), pen: !!(this.rules && this.rules.penaltyOf(r.boat)), ap: !!r.autopilot }));
     if (this.sharedRace) {
       for (const b of this.boats) {
         if (!b.remote || !b.netRace || b.netRace.id !== this.sharedRace.id) continue;
@@ -761,6 +769,7 @@ class Game {
     this.polar = p; this.targets = vmgTargets(p);
     if (this.rules) this.rules.upTwa = this.targets.up.twa;
     for (const ai of this.ais) ai.targetsUpBsp = this.targets.up.bsp;
+    if (this.autopilot) this.autopilot.helm.targetsUpBsp = this.targets.up.bsp;
   }
 
   navTarget() {
@@ -775,10 +784,41 @@ class Game {
 
   userTouched(k) {
     const trimKeys = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibLead', 'jibHalyard', 'tackLine', 'board'];
-    if (trimKeys.includes(k) && this.player.auto.trim) { this.player.auto.trim = false; this.hud.toast('Automatic trim off — you have the sheets'); }
+    if (trimKeys.includes(k) && this.player.auto.trim) { this.player.auto.trim = false; this.hud.toast(this.autopilot && this.autopilot.engaged ? 'Automatic trim off — you trim, the autopilot steers' : 'Automatic trim off — you have the sheets'); }
     if ((k === 'hike' || k === 'crewAft') && this.player.auto.hike) { this.player.auto.hike = false; this.hud.toast('Automatic weight off — you place your weight'); }
   }
   toggleAutoTrim() { this.player.auto.trim = !this.player.auto.trim; this.hud.toast(this.player.auto.trim ? 'Automatic trim on' : 'Automatic trim off — you trim the sails'); }
+  // the autopilot (Shift+O, Pilot on the toolbar and the touch pad): sails to the waypoint or round the race course with
+  // the AI crews' tactics, trimming for you; any touch of the helm hands her back (a real autopilot's override)
+  toggleAutopilot() {
+    const ap = this.autopilot, b = this.player;
+    if (!ap || this.idle || !this.running) return;
+    if (ap.engaged) { this.disengageAutopilot('Autopilot off — you have the helm'); return; }
+    if (b.unmanned || b.sunk) { this.hud.toast('Nobody aboard to mind the autopilot', 1.8); return; }
+    if (b.anchor && b.anchor.state !== 'up') { this.hud.toast('At anchor — weigh it first (U)', 1.8); return; }
+    if (b.moor && b.moor.tied) { this.hud.toast('Made fast — cast off first (9)', 1.8); return; }
+    this.apTrim = b.auto.trim; b.auto.trim = true;
+    ap.engage(this.t);
+    const tgt = this.navTarget();
+    this.hud.toast(this.race ? 'Autopilot on — racing the course for you' : tgt ? `Autopilot on — sailing to ${tgt.label && tgt.label !== 'Waypoint' ? tgt.label : 'the waypoint'}` : 'Autopilot on — holding the wind angle', 2.5);
+    this.syncTools();
+  }
+  disengageAutopilot(msg) {
+    const ap = this.autopilot, b = this.player;
+    if (!ap) return;
+    const was = ap.engaged || ap.wasOn;
+    ap.disengage(); ap.wasOn = false;
+    if (was && this.apTrim !== null) { b.auto.trim = this.apTrim; this.apTrim = null; }   // (the trim as it was before)
+    if (was && msg) { this.hud.toast(msg, 2); this.hud.crew(msg + '.', 'coach', 4); }
+    this.syncTools();
+  }
+  // a hand on the helm: the autopilot lets go
+  manualHelm() { if (this.autopilot && this.autopilot.engaged) this.disengageAutopilot('Autopilot off — manual helm'); }
+  setCoachText(on) {
+    this.coachText = on; pref('tw-coach', on ? '1' : '0');
+    for (const id of ['#co-txt', '#chart-coach']) { const el = $(id); if (el) { el.setAttribute('aria-pressed', String(on)); el.classList.toggle('on', on); } }
+    this.hud.toast(on ? 'Coach text on' : 'Coach text off', 1);
+  }
   toggleAutoHike() { this.player.auto.hike = !this.player.auto.hike; this.hud.toast(this.player.auto.hike ? 'Automatic weight placement on' : 'Automatic weight off — you place your weight (Q/E)'); }
   // the side panel's buttons: same rates as the keys, loaded sheets come in slower
   // throw the working jib sheet off the winch: it runs out and the clew is free to cross
@@ -805,7 +845,7 @@ class Game {
   }
   nudge(k, d, dt) {
     const b = this.player, c = b.ctrl, C = b.cls;
-    if (k === 'helm') { c.helm = clamp(c.helm + d * 0.9 * dt, -1, 1); return; }
+    if (k === 'helm') { this.manualHelm(); c.helm = clamp(c.helm + d * 0.9 * dt, -1, 1); return; }
     if (k === 'pushBoom') { c.pushBoom = d; this.pushHeld = true; clearTimeout(this._pbT); this._pbT = setTimeout(() => { this.pushHeld = false; c.pushBoom = 0; }, 120); return; }
     if (k === 'hike') { this.userTouched('hike'); c.hike = clamp(c.hike + d * 1.2 * dt, -1, 1); return; }
     this.userTouched(k);
@@ -1054,6 +1094,7 @@ class Game {
       const [ox, oy] = this.screenOf(o), [sx, sy] = this.screenOf(s);
       const ux = sx - ox, uy = sy - oy, ul = Math.hypot(ux, uy) || 1;
       const along = ((mx - drag.x) * ux + (my - drag.y) * uy) / ul;
+      if (Math.abs(along) > 0.5) this.manualHelm();
       c.helm = clamp(c.helm - (g.wheel ? -1 : 1) * along * 0.006, -1, 1);   // (a wheel turns the way the bow goes)
       this.tillerHeld = performance.now();
     }
@@ -1076,6 +1117,7 @@ class Game {
     // racing: Shift+B protest (B is the protest flag), Shift+U hail for room to tack / answer 'You tack'
     if (e.shiftKey && k === 'b') { this.protestKey(); return; }
     if (e.shiftKey && k === 'u') { this.hailKey(); return; }
+    if (e.shiftKey && k === 'o') { this.toggleAutopilot(); return; }   // (autopilOt: O alone is the sound)
     if (this.gear.onKey(k, e)) return;
     if (k === 'h') this.toggleAutoHike();
     else if (k === 't') this.toggleAutoTrim();
@@ -1093,7 +1135,7 @@ class Game {
     }
     else if (k === 'f' && b.sailBy.jib) this.letFly();
     else if (k === 'b') this.toggleEngine();
-    else if (k === ' ') b.ctrl.helm = 0;
+    else if (k === ' ') { this.manualHelm(); b.ctrl.helm = 0; }
     else if (k === '=' || k === '+') this.warp(2);
     else if (k === '-') this.warp(0.5);
   }
@@ -1121,10 +1163,15 @@ class Game {
     tap('#tb-pause', () => { if (this.netEpoch !== null) this.hud.toast('No pausing in a shared world', 1.5); else this.setPaused(!this.paused); });
     tap('#tb-cam', () => this.cycleCamera());
     tap('#tb-chart', () => this.nav.toggleChart());
+    tap('#tb-pilot', () => this.toggleAutopilot());
+    tap('#tp-pilot', () => this.toggleAutopilot());
+    tap('#co-txt', () => this.setCoachText(!this.coachText));
+    tap('#chart-coach', () => this.setCoachText(!this.coachText));
+    for (const id of ['#co-txt', '#chart-coach']) { $(id).setAttribute('aria-pressed', String(this.coachText)); $(id).classList.toggle('on', this.coachText); }
     tap('#tb-rig', () => this.toggleRig());
     tap('#tb-sound', () => this.toggleSound());
     tap('#tb-help', () => this.openHelp());
-    tap('#tp-centre', () => { this.player.ctrl.helm = 0; });
+    tap('#tp-centre', () => { this.manualHelm(); this.player.ctrl.helm = 0; });
     tap('#tp-auto', () => this.toggleAutoTrim());
     tap('#tp-sel', () => { this.touchSel = (this.touchSel + 1) % Math.max(1, this.touchLines.length); this.syncTouch(); this.hud.toast(TOUCH_LINES[this.touchLines[this.touchSel]]?.[3] || '', 1); });
     tap('#tp-gen', () => this.toggleGen());
@@ -1160,7 +1207,7 @@ class Game {
     if (has('a', 'ArrowLeft')) steer -= 1;
     if (has('d', 'ArrowRight')) steer += 1;
     if (this.settings.tiller) steer = -steer; // push the tiller to port, the bow goes to starboard
-    if (steer) c.helm = clamp(c.helm + steer * 0.9 * dt, -1, 1);
+    if (steer) { this.manualHelm(); c.helm = clamp(c.helm + steer * 0.9 * dt, -1, 1); }
     // the helmsman holds the tiller where it was put (Space centres it)
     const rate = 0.28 * dt;
     const trim = (key, dir) => { this.userTouched(key); const tr = ['main', 'jib', 'stay', 'lazy', 'trav', 'tackLine'].includes(key) ? dir < 0 : dir > 0; const hr = handRate(b, key, tr); c[key] = clamp(c[key] + dir * (hr === null ? rate : hr * dt) * this.working(key, tr), 0, 1); };
@@ -1324,7 +1371,21 @@ class Game {
     const b = this.player;
     this.t += dt;
     if (!this.idle) this.applyInput(dt);
-    if ((b.auto.trim || this.idle) && !b.unmanned) autoTrim(b, dt, 0, true);
+    // the autopilot: the AI crews' tactician and helm sailing her (it trims too, unless you took the sheets)
+    const ap = this.autopilot, apOn = !!(ap && ap.engaged && !this.idle);
+    if ((b.auto.trim || this.idle) && !b.unmanned && !apOn) autoTrim(b, dt, 0, true);
+    if (apOn) {
+      if (b.unmanned || b.sunk || (b.anchor && b.anchor.state !== 'up' && b.anchor.state !== 'weighing') || (b.moor && b.moor.tied)) this.disengageAutopilot(b.unmanned ? 'Autopilot off — crew overboard' : 'Autopilot off');
+      else {
+        ap.helm.noTrim = !b.auto.trim;
+        const r0 = this.race && this.race.racers[0];
+        ap.update(dt, this.t, this, { target: this.race ? null : this.navTarget(), racer: r0 || null, course: this.course, targets: this.targets ? { up: this.targets.up.twa, dn: this.targets.dn.twa } : null });
+        if (!ap.engaged) { ap.wasOn = true; this.disengageAutopilot('Autopilot off — manual helm'); }       // (the helm moved under it)
+        else if (r0 && !r0.finished && !r0.retired) r0.autopilot = true;                                        // (noted in the results)
+        // (the coach speaks on the crew's line: hud.crew)
+        for (const e of ap.events.splice(0)) { this.hud.crew(e.text, 'coach', 20); if (e.kind === 'arrive') { this.hud.toast('Arrived — hove to', 2.5); this.audio.beep && this.audio.beep(); } }
+      }
+    }
     if (this.idle) this.idleHelm(dt);
     for (const ai of this.ais) {
       const i = this.boats.indexOf(ai.b);

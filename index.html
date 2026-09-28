@@ -46,6 +46,7 @@
       <button class="chip" id="tb-pause" title="Pause (P)" aria-label="Pause" aria-pressed="false">Pause</button>
       <button class="chip" id="tb-cam" title="Next camera (keys 1–7)" aria-label="Next camera">Cam</button>
       <button class="chip" id="tb-chart" title="Chart and waypoints (Tab)" aria-label="Chart" aria-pressed="false">Chart</button>
+      <button class="chip" id="tb-pilot" title="Autopilot: sail to the waypoint or the next mark, with a coach (Shift+O)" aria-label="Autopilot" aria-pressed="false">Pilot</button>
       <button class="chip" id="tb-rig" title="Rig panel" aria-label="Rig panel" aria-pressed="true">Rig</button>
       <button class="chip" id="tb-sound" title="Sound (O)" aria-label="Sound" aria-pressed="true">Snd</button>
       <button class="chip" id="tb-help" title="Help (?)" aria-label="Help">?</button>
@@ -73,11 +74,15 @@
   </section>
 
   <section id="instruments" class="panel"></section>
-  <canvas id="compass-tape" width="720" height="64" aria-label="Steering compass: heading, course over ground (orange), bearing to the waypoint (blue)"></canvas>
+  <canvas id="compass-tape" width="720" height="64" aria-label="Steering compass: heading, course over ground (orange), bearing to the waypoint (blue), the autopilot's heading (green)"></canvas>
+  <section id="coach" class="panel" hidden aria-label="Crew and autopilot">
+    <div class="co-top"><span class="eyebrow" id="co-who">Autopilot</span><b id="co-mode"></b><span id="co-twa"></span><span id="co-next"></span><button class="chip" id="co-txt" title="Coach text on / off" aria-pressed="true">Coach</button></div>
+    <div id="co-text" aria-live="polite"><p id="co-now"></p><p id="co-prev"></p></div>
+  </section>
 
   <section id="chart" class="panel" hidden aria-label="Chart">
     <header><span class="eyebrow">Chart</span><span id="chart-title" class="muted"></span><span class="grow"></span><span id="chart-scale" class="muted small"></span>
-      <button class="chip" id="chart-labels" title="Names and light characteristics" aria-pressed="true">Labels</button><button class="chip" id="chart-centre" title="Follow the boat">Boat</button><button class="chip" id="chart-clear" title="Clear the waypoint">Clear WP</button><button class="chip" id="chart-close" title="Close (Tab / Esc)">Close</button></header>
+      <button class="chip" id="chart-labels" title="Names and light characteristics" aria-pressed="true">Labels</button><button class="chip" id="chart-centre" title="Follow the boat">Boat</button><button class="chip" id="chart-clear" title="Clear the waypoint">Clear WP</button><button class="chip" id="chart-coach" title="The autopilot's coach text on / off" aria-pressed="true">Coach</button><button class="chip" id="chart-close" title="Close (Tab / Esc)">Close</button></header>
     <div class="chart-wrap"><canvas id="chart-cv" aria-label="Chart: click or tap to set a waypoint"></canvas><div id="chart-tip" hidden></div></div>
   </section>
 
@@ -88,6 +93,7 @@
     <div class="tp tp-helm">
       <button class="tbtn" data-k="helm" data-d="-1">◀<small>Port</small></button>
       <button class="tbtn tsm" id="tp-centre">Centre</button>
+      <button class="tbtn tsm" id="tp-pilot" title="Autopilot">Pilot</button>
       <button class="tbtn" data-k="helm" data-d="1">▶<small>Stbd</small></button>
     </div>
     <div class="tp tp-trim">
@@ -229,6 +235,7 @@
       <div><kbd>Shift</kbd>+<kbd>B</kbd><span>Racing: “Protest!” — a boat that did not keep clear of you (the umpire rules at once; contact and mark touches it penalises by itself). A ring on each boat near you: green, you have right of way; red, keep clear of her; amber, she is owed room or mark-room</span></div>
       <div><kbd>Shift</kbd>+<kbd>U</kbd><span>Racing: hail “Room to tack!” at an obstruction to the boat to windward (rule 20); hailed yourself, tack, or answer “You tack”. A penalty: turn the same way round, each turn a tack and a gybe, before the countdown ends</span></div>
       <div><kbd>Tab</kbd><span>Chart: seamarks and lights, depths, your track; click or tap to set a waypoint (a mark: steer for it)</span></div>
+      <div><kbd>Shift</kbd>+<kbd>O</kbd><span>Autopilot (<b>Pilot</b> on the toolbar): sails to the waypoint (racing, round the course) as the AI crews do — laylines, tacks and gybes, the kite, reefs, the shallows, the racing rules — trimming for you, and a coach line says what it does and why. With no waypoint it holds the wind angle. Touch the helm and it lets go</span></div>
       <div><kbd>U</kbd> <kbd>9</kbd> <kbd>0</kbd><span>Anchor down / weigh (keelboats) · lines: make fast alongside a pier or to a mooring, cast off · MOB: mark the spot on the plotter</span></div>
       <div>Damage<span>Loads break gear: shrouds part, sails tear or blow out, collisions and groundings hole the hull and she takes water (pump, or she sinks), a rudder bends, a keel can go. The Boat section of the rig panel shows it all, with the crew's strength (hiking and grinding tire them) — and Damage: off.</span></div>
       <div><kbd>-</kbd> <kbd>=</kbd><span>Time warp (free sail)</span></div>
