@@ -3,7 +3,7 @@ import { Boat, solvePolar, vmgTargets, wrap } from '../js/physics.js';
 import '../js/sail/sailsim.js';   // the game's sail model (cloth by default; SAILS=strip for the strip model)
 import { loadBakedPolars } from '../js/sail/surrogate.js';
 import { VENUES, World } from '../js/world.js';
-import { Course, Race, AIHelm, applyWindShadow, resolveCollisions } from '../js/race.js';
+import { Course, Race, AIHelm, applyWindShadow, resolveCollisions, waterTwd } from '../js/race.js';
 import { Traffic } from '../js/traffic.js';
 import { RuleEngine } from '../js/rules.js';
 import { readFileSync, existsSync } from 'node:fs';
@@ -48,6 +48,7 @@ const onTouch = (b, o) => {
   pairT.set(k, (pairT.get(k) || 0) + dt);
   lastHit.set(k, t);
 };
+const TRB = process.env.TRB ? process.env.TRB.split(',').map(Number) : null, TRDT = +(process.env.TRDT ?? 1), TRT0 = +(process.env.TRT0 ?? -1e9), TRT1 = +(process.env.TRT1 ?? 1e9);
 const dt=1/120; let t=0; let aground=0;   // (dt: the game's physics step)
 const piers = geo?.piers||[];
 for (let s=0; s< +mins*60/dt; s++) {
@@ -72,6 +73,25 @@ for (let s=0; s< +mins*60/dt; s++) {
     else if (e.type === 'penaltyDone' || e.type === 'dsq' || e.type === 'hail') console.log(`t=${race.clock.toFixed(0)}s ${e.type} ${(e.boat || e.from).id}${e.to ? ' -> ' + e.to.id : ''}${e.why ? ' (' + e.why + ')' : ''}`);
   }
   if (race.racers.every(r=>r.finished)) break;
+  // TRB=0,3: a per-boat trace (TRDT s apart, TRT0..TRT1 on the race clock) of what the AI wants and what she does:
+  // mode, leg, place in the course frame (a up the course, c to the right), TWA and the heading wanted (ground wind),
+  // the rules' constraint (kc), rudder, speed, sheets, dipping / start tack / crossings, irons, penalty count;
+  // TRX=1 adds the rig (apparent wind, heel, boom, rudder angle of attack and stall, yaw moments) and the tack state
+  if (TRB && s % Math.round(TRDT / dt) === 0 && race.clock >= TRT0 && race.clock <= TRT1) for (const i of TRB) {
+    const b = boats[i], a = ais[i], r = race.racers[i], d = b.diag, tw = d.twd ?? 0, p = rules?.penaltyOf(b), X = process.env.TRX;
+    const [la, lc] = course.frame(b.x, b.z, course.origin.x, course.origin.z), f = (h) => h == null ? '-' : (wrap(tw - h) / DEG).toFixed(0);
+    let o = `  [${i}] ${race.clock.toFixed(1)} ${a.mode} L${r.leg} a ${la.toFixed(0)} c ${lc.toFixed(0)} twa ${f(b.psi)} want ${f(a.desired)} kc ${a.kc ? f(a.kc.h) : '-'}${a.ease ? ' EASE' : ''}`;
+    o += ` rud ${(b.rudder / DEG).toFixed(0)} helm ${b.ctrl.helm.toFixed(2)} r ${(b.r / DEG).toFixed(1)} u ${(b.u / KT).toFixed(1)} v ${(b.v / KT).toFixed(1)} main ${b.ctrl.main.toFixed(2)} jib ${b.ctrl.jib.toFixed(2)}`;
+    if (X) o += ` | awa ${((d.awaMid ?? 0) / DEG).toFixed(0)} heel ${(b.phi / DEG).toFixed(0)} boom ${(b.booms.main.a / DEG).toFixed(0)} over ${(b._tt?.over ?? 0).toFixed(2)} rα ${((d.rudAlpha ?? 0) / DEG).toFixed(0)}${d.rudderStall ? 'S' : ''} sh ${b.shadow.toFixed(2)} N ${d.Nsail?.toFixed(0)} ${d.Nkeel?.toFixed(0)} ${d.Nrud?.toFixed(0)} ${d.Nhull?.toFixed(0)}`;
+    if (a.dipping) o += ' DIP';
+    if (a.startTack) o += ` ST${a.startTack}${rules ? (rules.canTurn(b, waterTwd(b) - a.startTack * (a.upAngle ?? 0.7)) ? 'ok' : 'NO') : ''}`;
+    if (X) o += ` tk ${a.tackTo} lt ${(t - a.lastTack).toFixed(1)} tg ${((a.turnGo ?? 0) - (rules?.t ?? 0)).toFixed(1)} tn ${((a.turnNo ?? 0) - (rules?.t ?? 0)).toFixed(1)}`;
+    if (a.xs) o += ' x ' + a.xs.map(v => Number.isFinite(v) ? v.toFixed(0) : 'inf').join('/');
+    if (a.backing) o += ' IRONS';
+    if (a.buildT) o += ' build ' + a.buildT.toFixed(0);
+    if (p) o += ` PEN ${p.made}/${p.turns} acc ${(p.acc / DEG).toFixed(0)} dir ${p.dir} tk ${p.tk} gy ${p.gy} idle ${p.idle.toFixed(0)}`;
+    console.log(o);
+  }
   if (process.env.TR && s%(120*10)==0) { const b=boats[0]; console.log(`clk ${race.clock.toFixed(0)} x ${b.x.toFixed(0)} z ${b.z.toFixed(0)} hdg ${(b.psi/DEG).toFixed(0)} u ${(b.u/KT).toFixed(1)} twa ${(b.diag.twa/DEG).toFixed(0)} tws ${(b.diag.tws/KT).toFixed(1)} depth ${world.depthAt(b.x,b.z).toFixed(1)} mode ${ais[0].mode} leg ${race.racers[0].leg} shadow ${b.shadow.toFixed(2)}`); }
 }
 for (const r of race.standings()) console.log('boat', r.boat.id, 'leg', r.leg, r.finished ? 'finished '+r.finishTime.toFixed(0)+'s' : 'dnf', 'mode', ais[r.boat.id].mode, 'spd', (r.boat.u/KT).toFixed(1));

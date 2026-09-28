@@ -663,8 +663,11 @@ export function aiRules(ai, sim, desired, mode, t, up) {
   const margin = 1 + b.cls.beam * 0.5;
   // (headings on the other tack only when she is already turning through the wind: tacks and gybes are chosen
   // above, where they are checked clear)
+  // (mid-turn, only on the side she is turning to: turned back half way through, she was left head to wind, stopped
+  // in the others' path, the helm swinging from one side to the other)
   const tk = Math.sign(wrap(twd - b.psi)) || 1, midTurn = Math.abs(wrap(twd - b.psi)) < up * 0.8;
-  const sailable = (h) => Math.abs(wrap(twd - h)) >= up * 0.9 && (midTurn || (Math.sign(wrap(twd - h)) || 1) === tk);
+  const side = midTurn ? Math.sign(wrap(twd - desired)) || tk : tk;
+  const sailable = (h) => Math.abs(wrap(twd - h)) >= up * 0.9 && (Math.sign(wrap(twd - h)) || 1) === side;
   let h = desired;
   const search = (list, need, HH) => {
     // turn away from the nearest threat first; the smallest change of course that is clear
@@ -714,7 +717,8 @@ export function aiRules(ai, sim, desired, mode, t, up) {
       if (cs > cb) { hh = b.psi; stop = true; }
     }
     if (hh !== null) h = hh;
-    if (stop) plan.ease = true;
+    // (sheets out only with way on to lose: slow, out of a tack, she stops dead in the other's path and cannot steer)
+    if (stop && b.u > 1.2) plan.ease = true;
     // no clear heading (boxed in, or clear astern with nowhere to go): slow down as well
     // (not beside a mark: stopped, she drifts down onto it; nor once slow: she would lose steerage and stall)
     if (b.u > 1.2 && (ok < 0 || give.some(([o, pr]) => pr.rule === '12' && pr.astern === b && pr.d < 2 * b.cls.loa && o.u < b.u)) && !marks.some(m => Math.hypot(m.x - b.x, m.z - b.z) < 3 * b.cls.loa)) plan.ease = true;

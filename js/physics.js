@@ -1320,7 +1320,7 @@ export class Boat {
 // Automatic trim — what a competent crew does. Used by AI boats, the player's trim assist and the VPP.
 // Sheets and traveler for angle of attack; shape controls for wind strength and how overpowered the
 // boat is; board height; (AI only) reefs.
-const AK = {};   // (the telltale filters' keys, one string per sail)
+const AK = {}, SK = {};   // (the telltale and slack filters' keys, one string per sail)
 export function autoTrim(boat, dt, aoaBias = 0, full = true) {
   const C = boat.cls, d = boat.diag, c = boat.ctrl;
   const awa = Math.abs(d.awaMid ?? Math.PI);
@@ -1470,7 +1470,25 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
         // closing it is the vang's
         if ((s.track.horse || c.vang < 0.05) && e > 0) dA += clamp(2 * e, 0, 0.3);
       }
-      c[key] = clamp((c[key] ?? 0.3) + dA / (s.max - s.min) * k * 0.4 + (tt[key] - ease0), pinchedC && s.key === 'main' && s.vang !== 'none' ? 0.35 : 0, 1);
+      // a flogging sail (let fly for a luff, or eased past where it fills) swings its boom about well inside where
+      // the sheet would hold it, and its telltales read anything: the crew takes in the slack until the sail fills
+      // and leans on the sheet again (by the telltales alone an eased J/70 main flogged at 60 deg on a close reach
+      // for minutes, and with the jib alone pulling the bow down she could not come up to close-hauled)
+      // (a headsail's clew likewise, inside where its working sheet would let it go: after a tack the new sheet
+      // comes in from fully eased, and trimmed by the telltales alone a J/70 left her tacks at 2-3 kn with the jib
+      // still flogging) (a main to a beam reach, a headsail upwind and close reaching: further off, a sail blanketed
+      // or twisted off can float inside its sheet and still draw)
+      let slackIn = 0;
+      const sk = SK[key] || (SK[key] = 'sl_' + key), jr = s.kind === 'loose' && boat.sailSys.cloth(s.key);
+      if (awa < (s.kind === 'boom' ? 110 : 80) * DEG && ((s.kind === 'boom' && boat.booms[s.key]) || (jr && jr.side === sd && jr.a !== undefined))) {
+        const out = s.kind === 'boom' ? boat.boomLimit(s) - boat.booms[s.key].a * sd : lerp(s.min, s.max, clamp(boat.lines.jib, 0, 1)) - jr.a * sd;
+        tt[sk] = lerp(tt[sk] ?? 0, out, clamp(dt / 1.5, 0, 1));
+        slackIn = clamp((tt[sk] - 8 * DEG) / (20 * DEG), 0, 1) * (s.kind === 'boom' ? 0.3 : 0.6) * dt;
+        // (never past the sheet that sets it to the apparent wind: an eased main while she bears away is no slack)
+        const wA = Math.max(0, want), floor = s.kind === 'boom' ? (s.track ? easeForBoomAngle(C, s, wA, c.trav) : clamp((wA - s.min) / (s.max - s.min), 0, 1)) : clamp((wA - s.min) / (s.max - s.min), 0, 1);
+        slackIn = clamp(Math.min(slackIn, (c[key] ?? 0.3) - floor), 0, 1);
+      } else tt[sk] = 0;
+      c[key] = clamp((c[key] ?? 0.3) + dA / (s.max - s.min) * k * 0.4 + (tt[key] - ease0) - slackIn, pinchedC && s.key === 'main' && s.vang !== 'none' ? 0.35 : 0, 1);
       continue;
     }
     if (s.key === 'main' && s.trav) {
