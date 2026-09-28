@@ -79,6 +79,11 @@
   <div id="keys" class="muted"></div>
   <div id="paused-badge" hidden>Paused<small>P or Play to resume</small></div>
 
+  <div class="tp tp-eng" id="tp-eng" hidden title="Engine: B start / stop; throttle PgUp / PgDn, or the two keys right of P (] / [ on a US keyboard), or drag the lever">
+    <span class="tl" id="tp-thr-l">N</span>
+    <input type="range" id="tp-thr" min="-1" max="1" step="0.02" value="0" aria-label="Throttle: astern, neutral, ahead">
+    <button class="tbtn tsm" id="tp-engine">Start</button>
+  </div>
   <div id="touch" aria-hidden="true">
     <div class="tp tp-helm">
       <button class="tbtn" data-k="helm" data-d="-1">◀<small>Port</small></button>
@@ -90,11 +95,6 @@
       <span class="tl tl-jib" id="tp-jibl">Jib</span><button class="tbtn tp-jib" data-k="jib" data-d="-1">Trim</button><button class="tbtn tp-jib" data-k="jib" data-d="1">Ease</button>
       <button class="tbtn tsm tp-sel" id="tp-sel" title="Tap for the next line">Trav ▸</button><button class="tbtn" id="tp-x0" data-k="trav" data-d="-1">Up</button><button class="tbtn" id="tp-x1" data-k="trav" data-d="1">Down</button>
       <button class="tbtn tsm" id="tp-auto">Auto trim</button><button class="tbtn tsm" id="tp-gen" hidden>Hoist</button>
-    </div>
-    <div class="tp tp-eng" id="tp-eng" hidden>
-      <span class="tl" id="tp-thr-l">N</span>
-      <input type="range" id="tp-thr" min="-1" max="1" step="0.02" value="0" aria-label="Throttle: astern, neutral, ahead">
-      <button class="tbtn tsm" id="tp-engine">Start</button>
     </div>
   </div>
 </div>

@@ -375,7 +375,8 @@ body.menu-open #hud { visibility: hidden; }
 #engine-card small { color: var(--muted); font-size: 11px; margin-left: -4px; }
 #eng-gear { text-transform: uppercase; }
 #eng-gear.ahead { color: var(--stbd); } #eng-gear.astern { color: var(--amber); }
-.tp-eng { grid-template-columns: 54px; justify-items: center; }
+.tp-eng { grid-template-columns: 54px; justify-items: center; position: absolute; right: 262px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); padding: 8px 6px; background: rgba(11,22,31,.78); border: 1px solid var(--line); border-radius: 8px; z-index: 3; }
+body.touch .tp-eng { right: 12px; bottom: calc(300px + env(safe-area-inset-bottom, 0px)); }
 .tp-eng[hidden] { display: none; }
 .tp-eng #tp-thr { writing-mode: vertical-lr; direction: rtl; width: 44px; height: 120px; accent-color: var(--accent); touch-action: none; }
 .tp-eng #tp-engine.on { background: var(--stbd); color: var(--ink); }

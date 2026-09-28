@@ -882,13 +882,13 @@ class Game {
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
       if (e.repeat && this.keys.has(k)) return;
-      this.keys.add(k);
+      this.keys.add(k); if (e.code) this.keys.add('#' + e.code);          // (and the physical key: [ ] on a Czech or German layout type other characters)
       if (e.shiftKey) this.keys.add('Shift');
       this.onKey(k, e);
     });
     window.addEventListener('keyup', (e) => {
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-      this.keys.delete(k); if (e.key === 'Shift') this.keys.delete('Shift');
+      this.keys.delete(k); if (e.code) this.keys.delete('#' + e.code); if (e.key === 'Shift') this.keys.delete('Shift');
     });
     window.addEventListener('blur', () => this.keys.clear());
     // a background tab stops drawing frames: silence the sea too, and bring it back on return
@@ -1182,7 +1182,8 @@ class Game {
     } else if (!this.pushHeld) c.pushBoom = 0;
     // throttle lever (PgUp / ] ahead, PgDn / [ astern): it stops in the neutral detent until the key is let go
     if (b.engine) {
-      if (has('PageUp', ']')) b.engine.nudge(1, dt); else if (has('PageDown', '[')) b.engine.nudge(-1, dt); else b.engine.release();
+      if (has('PageUp', ']', '#BracketRight')) b.engine.nudge(1, dt); else if (has('PageDown', '[', '#BracketLeft')) b.engine.nudge(-1, dt); else b.engine.release();
+      if ((this._engSync = (this._engSync || 0) + 1) % 6 === 0) this.syncEngineTouch();   // the on-screen lever follows the keys
     }
   }
 
@@ -1208,7 +1209,8 @@ class Game {
     let steps = 0;
     const maxSteps = 12 * this.timeWarp;
     const tPhys = performance.now();
-    while (this.acc >= PHYS_DT && steps < maxSteps) {
+    // (the loop runs from the page's first frame; until a session has its boats there is nothing to step)
+    while (this.player && this.acc >= PHYS_DT && steps < maxSteps) {
       for (const b of this.boats) b._prev = { x: b.x, z: b.z, psi: b.psi, heave: b.heave, pitch: b.pitch, phi: b.phi };
       this.step(PHYS_DT);
       this.acc -= PHYS_DT; steps++;
