@@ -1,7 +1,8 @@
 // Real bathymetry: a regular grid of depth below mean sea level over the venue (decimetres, Int16), baked by
 // tools/fetch-bathy.mjs from the best free source per venue (EMODnet DTM for European waters, NOAA NCEI CUDEM for
 // US coasts, ETOPO 2022 15" elsewhere), with the survey's vertical datum (LAT, NAVD88, EGM2008) moved to MSL.
-// File: 'TWB1', uint32 header length, JSON header { nx, nz, x0, z0, dx, source, datum, ... }, pad to 2, Int16 data
+// File: 'TWB1', uint32 header length, JSON header { nx, nz, x0, z0, dx, source, datum, res (the source's own cell,
+// m), ... }, pad to 2, Int16 data
 // (row j = z, south-going; positive = water depth below MSL, negative = height above MSL).
 // For custom locations fetchBathy() reads the NCEI DEM mosaic live (it sends CORS headers).
 
@@ -83,5 +84,5 @@ export async function fetchBathy(lat, lon, R, proj, dx = 60) {
   const src = await fetchNCEI(bbox, n, n);
   const g = { nx: Math.ceil(2 * R / dx), nz: Math.ceil(2 * R / dx), x0: -R, z0: -R, dx: 2 * R / Math.ceil(2 * R / dx) };
   const d = gridFromLatLon(src, n, n, bbox, proj, g);
-  return new Bathy({ ...g, source: 'NOAA NCEI DEM global mosaic (live)', datum: 'MSL' }, d);
+  return new Bathy({ ...g, source: 'NOAA NCEI DEM global mosaic (live)', datum: 'MSL', res: 450 }, d);   // (ETOPO's 15" cells, for the coastal band)
 }

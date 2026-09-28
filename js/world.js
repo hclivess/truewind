@@ -10,6 +10,9 @@ export const VENUES = [
     // (the real tide here is small and mixed diurnal; its streams on the wide shelf are a few cm/s, so the westward
     // coastal drift along the Yucatán shore is kept under it)
     current: { kt: 0.4, dir: 270 }, residual: { kt: 0.3, dir: 270 }, spawn: { lat: 21.2925, lon: -89.6635, heading: 330 },
+    // (the Yucalpetén refuge harbour's entrance channel and basin: 3.0 m, SEMAR's port questionnaire for Progreso)
+    dredged: [{ name: 'Yucalpetén channel', depth: 3, w: 110, pts: [[21.28741, -89.70368], [21.28424, -89.70329], [21.28153, -89.70291], [21.28062, -89.70247], [21.27610, -89.70247]] },
+      { name: 'Yucalpetén basin', depth: 3, w: 200, pts: [[21.27583, -89.70657], [21.27501, -89.70127]] }],
     note: 'Gulf of Mexico trade-wind sea breeze over the shallow Yucatán shelf, beside the 6.5 km Progreso pier — the longest in the world.' },
   // (the whole Solent, the Needles to Spithead: the tide runs in at both ends and through Hurst Narrows)
   { id: 'solent', name: 'The Solent', place: 'Cowes, Isle of Wight, UK', lat: 50.772, lon: -1.285, R: 24000, wind: 225, windKt: 13, depth: 14, current: { kt: 1.2, dir: 90 }, note: 'Home of Cowes Week. The tide races through Hurst Narrows, double high water, Bramble Bank dries at low springs.' },
@@ -149,6 +152,23 @@ export function processOSM(osm, lat0, lon0, R = MAP_RADIUS + 600) {
   }
   const coastOut = clipped.filter(l => l.length >= 4).map(l => ({ id: l.osm, pts: Array.from(l) }));
   return { coast: coastOut, water, piers };
+}
+
+// in place: each cell of an n × m grid the sum over the (2r+1)² box around it (running sums, rows then columns)
+function boxBlur(F, n, m, r) {
+  const tmp = new Float64Array(Math.max(n, m));
+  for (let j = 0; j < m; j++) {
+    let acc = 0; const o = j * n;
+    for (let i = 0; i < Math.min(r, n); i++) acc += F[o + i];
+    for (let i = 0; i < n; i++) { if (i + r < n) acc += F[o + i + r]; if (i - r - 1 >= 0) acc -= F[o + i - r - 1]; tmp[i] = acc; }
+    for (let i = 0; i < n; i++) F[o + i] = tmp[i];
+  }
+  for (let i = 0; i < n; i++) {
+    let acc = 0;
+    for (let j = 0; j < Math.min(r, m); j++) acc += F[j * n + i];
+    for (let j = 0; j < m; j++) { if (j + r < m) acc += F[(j + r) * n + i]; if (j - r - 1 >= 0) acc -= F[(j - r - 1) * n + i]; tmp[j] = acc; }
+    for (let j = 0; j < m; j++) F[j * n + i] = tmp[j];
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -306,20 +326,68 @@ export class World {
   }
   // Real bathymetry (a Bathy grid of depth below MSL) laid onto the OSM shoreline: the coastline is mean high water,
   // so on its water side the bed is at least 10 cm below MHW (drying banks stay, but the shore is wet at high
-  // water); where a coarse survey grid still has land on the water side (a harbour narrower than its cells) the
-  // estimate stands in; on the land side the bed rises just clear of MHW, so the shore ramps up within a cell.
+  // water); on the land side the bed rises just clear of MHW, so the shore ramps up within a cell.
+  // Near the shore a coarse survey's cells straddle land and water (bathy.res, the source's own cell: ETOPO's and
+  // GEBCO's 450 m average a beach's first half kilometre with the dunes behind it), which drags the water there
+  // toward MSL and dries it out at low water. Within 1.5 source cells of the shore the bed is therefore at least
+  // the coastal profile the survey's own trustworthy cells further out imply: from MHW at the waterline to their
+  // depth along d ∝ s^p, Dean's equilibrium beach (p = 2/3) where the bottom shelves gently, steepening toward
+  // p = 1/2 off a steep (rocky) shore. Real drying banks stay: a bank's own cells are shallow, and so is the
+  // profile they imply. (A survey whose cells are under three of this grid's resolves its own shore, and its
+  // shoals there are real: Marseille's Frioul, 7 m beside 25 m water.) Where the water is too narrow for any
+  // trustworthy cell (a harbour narrower than the survey's cells) and the survey has land, the shelving
+  // estimate stands in.
   // tide: the venue's Tide (js/tide.js), for the level and the chart datum; null in tideless water.
   setBathy(bathy, tide = null) {
     this.tide = tide;
     if (!bathy) { this.bed = null; return; }
-    const n = bathy.nx, m = bathy.nz, bed = new Float32Array(n * m);
+    const n = bathy.nx, m = bathy.nz, dx = bathy.dx, bed = new Float32Array(n * m), N = n * m;
+    const S = new Float32Array(N), HW = new Float32Array(N), raw = new Float32Array(N);
     for (let j = 0; j < m; j++) for (let i = 0; i < n; i++) {
-      const x = bathy.x0 + (i + 0.5) * bathy.dx, z = bathy.z0 + (j + 0.5) * bathy.dx, k = j * n + i;
-      const s = this.sdfAt(x, z), hw = tide ? Math.max(0.05, tide.mhwAt(x, z)) : 0.05, d = bathy.d[k] * 0.1;
-      if (s > 0) bed[k] = Math.max(d > -hw && bathy.d[k] > -32000 ? d : this.estDepth(x, z, s), -hw + 0.1);
-      else bed[k] = -hw - 0.3;
+      const x = bathy.x0 + (i + 0.5) * dx, z = bathy.z0 + (j + 0.5) * dx, k = j * n + i;
+      S[k] = this.sdfAt(x, z); HW[k] = tide ? Math.max(0.05, tide.mhwAt(x, z)) : 0.05;
+      raw[k] = bathy.d[k] > -32000 ? bathy.d[k] * 0.1 : NaN;
     }
-    this.bed = bed; this.bedG = { nx: n, nz: m, x0: bathy.x0, z0: bathy.z0, dx: bathy.dx };
+    // the trustworthy cells (B..3B from the shore): their depth above MHW's bed, distance and profile exponent,
+    // averaged over the neighbourhood (a tent 2B wide: two box passes)
+    const res = bathy.res ?? dx, B = res >= 3 * dx ? 1.5 * res : 0, T = new Float32Array(N), TA = new Float32Array(N), TS = new Float32Array(N), TP = new Float32Array(N);
+    for (let k = 0; k < N; k++) {
+      if (!B || S[k] < B || S[k] > 3 * B || !(raw[k] > -HW[k])) continue;          // (land there: the survey doesn't know this water)
+      const A = raw[k] + HW[k], slope = A / S[k];
+      T[k] = 1; TA[k] = A; TS[k] = S[k]; TP[k] = 2 / 3 - Math.max(0, Math.min(1, (slope - 0.02) / 0.06)) / 6;
+    }
+    if (B) for (const F of [T, TA, TS, TP]) for (let pass = 0; pass < 2; pass++) boxBlur(F, n, m, Math.round(B / dx));
+    for (let j = 0; j < m; j++) for (let i = 0; i < n; i++) {
+      const k = j * n + i, s = S[k], hw = HW[k], d = raw[k];
+      if (s <= 0) { bed[k] = -hw - 0.3; continue; }
+      let b = d > -hw ? d : NaN;
+      if (s < B && T[k] > 1e-3) {
+        const pr = -hw + TA[k] / T[k] * Math.pow(Math.min(1, s / (TS[k] / T[k])), TP[k] / T[k]);
+        b = b === b ? Math.max(b, pr) : pr;
+      }
+      if (!(b === b)) b = this.estDepth(bathy.x0 + (i + 0.5) * dx, bathy.z0 + (j + 0.5) * dx, s);
+      bed[k] = Math.max(b, -hw + 0.1);
+    }
+    // dredged channels and basins (venue.dredged: the charted depth the port keeps, which no survey grid this
+    // coarse resolves): at least that deep below chart datum
+    if (this.venue.dredged) {
+      const P = makeProjection(this.venue.lat, this.venue.lon);
+      for (const c of this.venue.dredged) {
+        const pts = c.pts.map(([la, lo]) => P.fwd(la, lo));
+        for (let j = 0; j < m; j++) for (let i = 0; i < n; i++) {
+          const k = j * n + i; if (S[k] <= 0) continue;
+          const x = bathy.x0 + (i + 0.5) * dx, z = bathy.z0 + (j + 0.5) * dx;
+          let dd = Infinity;
+          for (let q = 0; q + 1 < pts.length; q++) {
+            const [ax, az] = pts[q], [bx, bz] = pts[q + 1], ex = bx - ax, ez = bz - az, t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez || 1)));
+            dd = Math.min(dd, Math.hypot(ax + ex * t - x, az + ez * t - z));
+          }
+          if (dd <= c.w / 2) bed[k] = Math.max(bed[k], c.depth + (tide ? tide.z0At(x, z) : 0));
+        }
+      }
+    }
+    this.bed = bed; this.bedG = { nx: n, nz: m, x0: bathy.x0, z0: bathy.z0, dx };
+    this.bedWet = S.map(s => s > 0 ? 1 : 0); this.bedHw = HW; this.bedS = S;
     this.bathySource = bathy.source;
   }
   // bed depth below MSL (m; negative: a drying bank or land above MSL)
@@ -330,8 +398,16 @@ export class World {
     let fx = (x - g.x0) / g.dx - 0.5, fz = (z - g.z0) / g.dx - 0.5;
     fx = Math.max(0, Math.min(g.nx - 1.001, fx)); fz = Math.max(0, Math.min(g.nz - 1.001, fz));
     const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j, k = j * g.nx + i;
-    const d = (b[k] * (1 - u) + b[k + 1] * u) * (1 - v) + (b[k + g.nx] * (1 - u) + b[k + g.nx + 1] * u) * v;
-    return s <= 0 ? Math.min(d, s * 0.05 - 0.3) : d;
+    const w00 = (1 - u) * (1 - v), w10 = u * (1 - v), w01 = (1 - u) * v, w11 = u * v;
+    if (s <= 0) return Math.min(b[k] * w00 + b[k + 1] * w10 + b[k + g.nx] * w01 + b[k + g.nx + 1] * w11, s * 0.05 - 0.3);
+    // over water, from the wet cells only (a land cell's bed, above MHW, would make a false shoal a cell wide along
+    // a quay or a dredged berth), and between the shore and those cells' own distance from it, rising evenly from
+    // their depth to MHW at the waterline
+    const W = this.bedWet, a = W[k] * w00, c = W[k + 1] * w10, e = W[k + g.nx] * w01, f = W[k + g.nx + 1] * w11, ws = a + c + e + f;
+    if (ws < 1e-6) return b[k] * w00 + b[k + 1] * w10 + b[k + g.nx] * w01 + b[k + g.nx + 1] * w11;
+    const d = (b[k] * a + b[k + 1] * c + b[k + g.nx] * e + b[k + g.nx + 1] * f) / ws, bs = this.bedS;
+    const sw = (bs[k] * a + bs[k + 1] * c + bs[k + g.nx] * e + bs[k + g.nx + 1] * f) / ws, hw = this.bedHw[k];
+    return s >= sw ? d : -hw + (d + hw) * s / sw;
   }
   // the tide's level above MSL here, now
   levelAt(x, z) { return this.tide ? this.tide.levelAt(x, z) : 0; }
