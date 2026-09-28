@@ -155,7 +155,10 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 .seg-b.on { background: var(--accent); color: var(--ink); }
 .checks { display: grid; gap: 6px; margin-top: 12px; font-size: 13px; color: #c5d1da; }
 .checks input { accent-color: var(--accent); margin-right: 6px; }
-.menu-foot { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 20px 0 0; padding: 14px 0 calc(10px + env(safe-area-inset-bottom, 0px)); position: sticky; bottom: -24px; background: linear-gradient(to top, rgba(8,14,20,.97) 70%, rgba(8,14,20,0)); z-index: 2; }
+.menu-foot { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin: 20px 0 0; padding: 18px 0 calc(12px + env(safe-area-inset-bottom, 0px)); position: sticky; bottom: 0; background: linear-gradient(to top, rgba(8,14,20,.97) 72%, rgba(8,14,20,0)); z-index: 2; }
+/* the action bar: credits small on the left, Resume and Cast off on the right under the conditions you set last */
+.menu-foot > span { order: -1; margin-right: auto; }
+@media (max-width: 640px) { .menu-foot > span { order: 3; flex: 1 1 100%; text-align: center; margin: 0; } .menu-foot .btn { flex: 1 1 0; } }
 .btn { border-radius: 4px; padding: 10px 16px; cursor: pointer; font: 700 16px var(--cond); letter-spacing: .1em; text-transform: uppercase; border: 1px solid var(--line); background: transparent; }
 .btn.primary { background: var(--accent); color: var(--ink); border-color: var(--accent); padding: 12px 28px; font-size: 19px; }
 .btn.primary:hover { filter: brightness(1.08); }
