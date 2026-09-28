@@ -386,10 +386,14 @@ body.touch .tp-eng #tp-thr { writing-mode: vertical-lr; direction: rtl; width: 4
 .tp-eng #tp-engine.on { background: var(--stbd); color: var(--ink); }
 .tp-eng .tl { font: 700 14px var(--cond); letter-spacing: .08em; }
 
-/* ---------------- autopilot: the coach line, the toolbar button ---------------- */
-#coach { position: absolute; left: 50%; transform: translateX(-50%); top: calc(92px + env(safe-area-inset-top, 0px)); width: min(460px, calc(100% - 700px)); min-width: 300px; padding: 6px 10px 7px; border-left: 3px solid var(--stbd); }
+/* ---------------- the crew / coach line (under the toast, the alert, the engine readout and throttle); the autopilot's button ---------------- */
+#coach { position: absolute; left: 50%; transform: translateX(-50%); top: calc(162px + env(safe-area-inset-top, 0px)); width: min(460px, calc(100% - 700px)); min-width: 300px; padding: 6px 10px 7px; border-left: 3px solid var(--stbd); }
 #coach .co-top { display: flex; align-items: baseline; gap: 10px; font: 600 13px var(--cond); letter-spacing: .05em; font-variant-numeric: tabular-nums; white-space: nowrap; }
 #coach .co-top .eyebrow { color: var(--stbd); }
+#coach:not(.ap) #co-mode, #coach:not(.ap) #co-twa, #coach:not(.ap) #co-next { display: none; }
+#coach:not(.ap) { border-left-color: var(--amber); } #coach:not(.ap) .co-top .eyebrow { color: var(--amber); }
+#co-text { transition: opacity .8s; } #co-text.faded { opacity: 0; }
+#coach.ap #co-text.faded { opacity: .45; }
 #co-mode { color: #5fe39a; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; }
 #co-next { color: #c5d1da; overflow: hidden; text-overflow: ellipsis; }
 #co-txt { margin-left: auto; font-size: 11px; padding: 1px 6px; }

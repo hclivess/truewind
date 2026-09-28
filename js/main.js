@@ -809,7 +809,7 @@ class Game {
     const was = ap.engaged || ap.wasOn;
     ap.disengage(); ap.wasOn = false;
     if (was && this.apTrim !== null) { b.auto.trim = this.apTrim; this.apTrim = null; }   // (the trim as it was before)
-    if (was && msg) this.hud.toast(msg, 2);
+    if (was && msg) { this.hud.toast(msg, 2); this.hud.crew(msg + '.', 'coach', 4); }
     this.syncTools();
   }
   // a hand on the helm: the autopilot lets go
@@ -1242,7 +1242,7 @@ class Game {
     // Math.min/max, which pass NaN through; the ropes went NaN and three.js warned about their bounds)
     let dt = Number.isFinite(frameMs) && frameMs > 0 ? Math.min(0.1, frameMs / 1000) : 1 / 60;   // (the first frame's stamp can precede the start: never 0, which divides)
     this.last = now;
-    if (!this.env || !this.player) return;   // (the first session's environment comes a moment before its boat)
+    if (!this.env) return;
     if (this.netEpoch !== null) {
       // shared clock: everyone evaluates the same wind and waves at the same instant
       this.timeWarp = 1; this.paused = false;
@@ -1381,7 +1381,8 @@ class Game {
         ap.update(dt, this.t, this, { target: this.race ? null : this.navTarget(), racer: r0 || null, course: this.course, targets: this.targets ? { up: this.targets.up.twa, dn: this.targets.dn.twa } : null });
         if (!ap.engaged) { ap.wasOn = true; this.disengageAutopilot('Autopilot off — manual helm'); }       // (the helm moved under it)
         else if (r0 && !r0.finished && !r0.retired) r0.autopilot = true;                                        // (noted in the results)
-        for (const e of ap.events.splice(0)) if (e.kind === 'arrive') { this.hud.toast('Arrived — hove to', 2.5); this.audio.beep && this.audio.beep(); }
+        // (the coach speaks on the crew's line: hud.crew)
+        for (const e of ap.events.splice(0)) { this.hud.crew(e.text, 'coach', 20); if (e.kind === 'arrive') { this.hud.toast('Arrived — hove to', 2.5); this.audio.beep && this.audio.beep(); } }
       }
     }
     if (this.idle) this.idleHelm(dt);

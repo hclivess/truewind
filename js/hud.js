@@ -203,18 +203,39 @@ export class HUD {
     if (!$('#results').hidden) this.fillResults();
   }
 
-  // the autopilot's coach: what it is doing (mode, the wind angle it steers, its next decision) and why, in words
+  // The one crew / coach line (top centre), shared by everyone aboard who talks: the autopilot's coach ('coach': what
+  // it does and why), the trimmers ('trim': what they do to the sheets), anyone else by kind. Rate-limited (the same
+  // words not again within 10 s; a coach line stands 4 s against the others' calls), merged (said by the same voice
+  // within a second: one line), and it fades (secs). The line before it stays a while, dimmed.
+  crew(msg, kind = 'crew', secs = 8) {
+    if (!msg) return false;
+    const now = performance.now() / 1000, L = this.crewLine, seen = this.crewSeen || (this.crewSeen = new Map());
+    if (now - (seen.get(msg) ?? -1e9) < 10) return false;
+    if (L && L.kind === 'coach' && kind !== 'coach' && now - L.t < 4) return false;
+    seen.set(msg, now); if (seen.size > 80) seen.delete(seen.keys().next().value);
+    if (L && L.kind === kind && now - L.t < 1 && now < L.until && L.text.length + msg.length < 240) { L.text += ' ' + msg; L.t = now; L.until = Math.max(L.until, now + secs); }
+    else { this.crewPrev = L && now < L.until + 15 ? L : null; this.crewLine = { text: msg, kind, t: now, until: now + secs }; }
+    this.updateCoach();
+    return true;
+  }
+  // the line: the autopilot's numbers (mode, the wind angle it steers, its next decision) while it is engaged, and the
+  // crew's words while they last
   updateCoach() {
-    const ap = this.g.autopilot, el = $('#coach'), on = !!(ap && ap.engaged && ap.info);
+    const g = this.g, ap = g.autopilot, el = $('#coach'), apOn = !!(ap && ap.engaged && ap.info), now = performance.now() / 1000;
+    const L = this.crewLine, words = !!(L && now < L.until + 0.6 && g.coachText);
+    const on = apOn || words;
     if (el.hidden === on) el.hidden = !on;
     if (!on) return;
-    const I = ap.info, txt = (id, v) => { const e = document.getElementById(id); if (e.textContent !== v) e.textContent = v; };
-    txt('co-mode', I.label || '');
-    txt('co-twa', I.twa != null ? `TWA ${deg(I.twa)}°` : '');
-    txt('co-next', I.next || '');
-    el.classList.toggle('notext', !this.g.coachText);
-    txt('co-now', ap.line ? ap.line.text : '');
-    txt('co-prev', ap.prev && ap.line && ap.line.t - ap.prev.t < 60 ? ap.prev.text : '');
+    const txt = (id, v) => { const e = document.getElementById(id); if (e.textContent !== v) e.textContent = v; };
+    el.classList.toggle('ap', apOn); el.classList.toggle('notext', !g.coachText);
+    el.dataset.kind = L ? L.kind : '';
+    txt('co-who', apOn ? 'Autopilot' : 'Crew');
+    if (apOn) { const I = ap.info; txt('co-mode', I.label || ''); txt('co-twa', I.twa != null ? `TWA ${deg(I.twa)}°` : ''); txt('co-next', I.next || ''); }
+    const text = $('#co-text');
+    text.classList.toggle('faded', !(L && now < L.until));
+    txt('co-now', L ? L.text : '');
+    const P = this.crewPrev;
+    txt('co-prev', P && L && L.t - P.t < 45 ? P.text : '');
   }
 
   // engine readout: only while it runs (or is being started)
