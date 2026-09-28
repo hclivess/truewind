@@ -691,7 +691,7 @@ class LandStream {
     // (streets: a disc of cells round every 3 m along each segment)
     let q = 0;
     for (const r of T.roads) {
-      if (++q % 60 === 0) yield 'roads';
+      if (++q % 20 === 0) yield 'roads';
       const hw = ROAD_W[r.cls] / 2, p = r.pts, rc = hw / oc + 0.35, ri = Math.floor(rc);
       for (let k = 0; k + 3 < p.length; k += 2) {
         if (Math.max(p[k], p[k + 2]) < ox - hw || Math.min(p[k], p[k + 2]) > ox + ON * oc + hw || Math.max(p[k + 1], p[k + 3]) < oz - hw || Math.min(p[k + 1], p[k + 3]) > oz + ON * oc + hw) continue;
@@ -895,10 +895,13 @@ class LandStream {
         }
       }
     }
+    yield;
     const bm = b.mesh(this.bMat); if (bm) { bm.name = 'buildings'; g.add(bm); }
+    yield;
     const rm = r.mesh(this.rMat); if (rm) { rm.name = 'roads'; rm.receiveShadow = true; rm.renderOrder = 1; g.add(rm); }
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), col = new THREE.Color();
     for (const sp of ['palm', 'broad', 'conifer', 'bush']) {
+      yield;
       const list = T.trees.filter(t => t[6] === sp);
       if (!list.length) continue;
       const im = new THREE.InstancedMesh(this.TG[sp], this.tMat, list.length);
@@ -992,7 +995,7 @@ class LandStream {
     const C = 30, cells = new Map();
     let qf = 0;
     for (const T of B.tiles) for (const rec of T.recs) {
-      if (++qf % 3000 === 0) yield;
+      if (++qf % 1000 === 0) yield;
       const key = Math.floor((rec.cx - B.x0) / C) + Math.floor((rec.cz - B.z0) / C) * 1000;
       let c = cells.get(key);
       if (!c) cells.set(key, c = { fa: 0, h: 0, x: 0, z: 0, base: Infinity, r: 0, g: 0, b: 0, kind: 0 });
@@ -1004,7 +1007,7 @@ class LandStream {
     let lights = [];
     const rand = rng(hash2(B.I * 31 + 7, B.J * 131 + 11));
     for (const T of B.tiles) for (const rec of T.recs) {
-      if (++qf % 3000 === 0) yield;
+      if (++qf % 1000 === 0) yield;
       const o = rec.o, big = rec.ty === 2 || rec.ty === 3 || rec.ty === 7;
       const n = big ? Math.min(5, Math.ceil(rec.fa / 300)) : rec.ty === 4 || rec.ty === 6 ? (rand() < 0.15 ? 1 : 0) : rand() < 0.6 ? 1 : 0;
       for (let k = 0; k < n; k++) {
