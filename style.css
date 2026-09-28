@@ -377,11 +377,18 @@ body.menu-open #hud { visibility: hidden; }
 #eng-gear.ahead { color: var(--stbd); } #eng-gear.astern { color: var(--amber); }
 /* the engine: on a desktop a small horizontal bar under the engine readout at the top (clear of the panels at any
    window size); on a touch screen the vertical lever beside the touch pad */
-.tp-eng { position: absolute; z-index: 3; top: calc(124px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); grid-template-columns: auto 170px auto; grid-auto-flow: column; align-items: center; gap: 8px; padding: 4px 8px; background: rgba(11,22,31,.72); border: 1px solid rgba(233,238,242,.16); border-radius: 4px; }
-body:not(.touch) .tp-eng #tp-thr { writing-mode: horizontal-tb; direction: ltr; width: 170px; height: 18px; }
-body.touch .tp-eng { top: auto; left: auto; transform: none; grid-template-columns: 54px; grid-auto-flow: row; justify-items: center; right: 12px; bottom: calc(300px + env(safe-area-inset-bottom, 0px)); padding: 8px 6px; }
+/* the engine: on a desktop a row at the foot of the rig panel (Engine · gear · throttle · Start); on a touch screen
+   the vertical lever beside the touch pad */
+.tp-eng { grid-template-columns: auto auto 1fr auto; grid-auto-flow: column; align-items: center; gap: 8px; padding: 6px 10px 8px; border-top: 1px solid var(--line); }
+.tp-eng::before { content: 'Engine'; font: 600 11px var(--cond); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+body:not(.touch) .tp-eng #tp-thr { writing-mode: horizontal-tb; direction: ltr; width: 100%; height: 18px; }
+#rig.collapsed .tp-eng { display: none; }
+body.touch .tp-eng { position: static; grid-template-columns: 54px; grid-auto-flow: row; justify-items: center; right: 12px; bottom: calc(300px + env(safe-area-inset-bottom, 0px)); padding: 8px 6px; background: rgba(11,22,31,.78); border: 1px solid var(--line); border-radius: 8px; }
+body.touch .tp-eng::before { display: none; }
 .tp-eng[hidden] { display: none; }
 .tp-eng #tp-thr { accent-color: var(--accent); touch-action: none; }
 body.touch .tp-eng #tp-thr { writing-mode: vertical-lr; direction: rtl; width: 44px; height: 120px; }
 .tp-eng #tp-engine.on { background: var(--stbd); color: var(--ink); }
 .tp-eng .tl { font: 700 14px var(--cond); letter-spacing: .08em; }
+/* a narrow window: the rig panel stops above the instruments (they span the bottom middle and reach under it) */
+@media (max-width: 1180px) { body:not(.touch) #rig { bottom: calc(126px + env(safe-area-inset-bottom, 0px)); max-height: calc(100% - 300px); } }

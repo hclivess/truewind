@@ -55,6 +55,11 @@
   <section id="rig" class="panel">
     <header><span class="eyebrow">Rig</span><span><button id="rig-adv" class="chip" aria-pressed="false" title="Show every string: vang, cunningham, outhaul, backstay, jib car and halyard, lazy sheet, loads">All strings</button><button id="rig-toggle" class="chip" aria-expanded="true">Hide</button></span></header>
     <div id="rig-body"></div>
+    <div class="tp tp-eng" id="tp-eng" hidden title="Engine: B start / stop; throttle PgUp / PgDn, or the two keys right of P (] / [ on a US keyboard), or drag the lever">
+      <span class="tl" id="tp-thr-l">N</span>
+      <input type="range" id="tp-thr" min="-1" max="1" step="0.02" value="0" aria-label="Throttle: astern, neutral, ahead">
+      <button class="tbtn tsm" id="tp-engine">Start</button>
+    </div>
   </section>
 
   <section id="polar-card" class="panel">
@@ -79,11 +84,6 @@
   <div id="keys" class="muted"></div>
   <div id="paused-badge" hidden>Paused<small>P or Play to resume</small></div>
 
-  <div class="tp tp-eng" id="tp-eng" hidden title="Engine: B start / stop; throttle PgUp / PgDn, or the two keys right of P (] / [ on a US keyboard), or drag the lever">
-    <span class="tl" id="tp-thr-l">N</span>
-    <input type="range" id="tp-thr" min="-1" max="1" step="0.02" value="0" aria-label="Throttle: astern, neutral, ahead">
-    <button class="tbtn tsm" id="tp-engine">Start</button>
-  </div>
   <div id="touch" aria-hidden="true">
     <div class="tp tp-helm">
       <button class="tbtn" data-k="helm" data-d="-1">◀<small>Port</small></button>

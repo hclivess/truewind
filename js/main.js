@@ -1113,7 +1113,8 @@ class Game {
   // toolbar, touch pad and pinch zoom
   bindTouch() {
     const narrow = matchMedia('(max-width: 720px)'), coarse = matchMedia('(pointer: coarse)');
-    const upd = () => { document.body.classList.toggle('narrow', narrow.matches); document.body.classList.toggle('touch', coarse.matches); if (!narrow.matches) document.body.classList.remove('rig-open'); if (this.hud) this.syncTools(); };
+    const upd = () => { document.body.classList.toggle('narrow', narrow.matches); document.body.classList.toggle('touch', coarse.matches); { const eng = $('#tp-eng'), home = coarse.matches ? $('#touch') : $('#rig'); if (eng && home && eng.parentElement !== home) home.appendChild(eng); }   // (the engine: beside the touch pad, or at the foot of the rig panel)
+      if (!narrow.matches) document.body.classList.remove('rig-open'); if (this.hud) this.syncTools(); };
     narrow.addEventListener('change', upd); coarse.addEventListener('change', upd); upd();
     const tap = (id, fn) => $(id).addEventListener('click', (e) => { fn(); e.currentTarget.blur(); });
     tap('#tb-menu', () => this.openMenu());
