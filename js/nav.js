@@ -196,6 +196,17 @@ export class Nav {
     if (s.tgt) mark(s.brg / DEG - off, '#39d0ff', `BRG ${pad3(s.brg / DEG - off)}C`, false);
     const twd = this.g.env && this.g.env.wind ? this.g.env.wind.twd / DEG : null;
     if (twd !== null) mark(twd - off, 'rgba(233,238,242,.8)', '', false);
+    // the autopilot's heading: a green bracket (engaged only)
+    const ap = this.g.autopilot, I = ap && ap.engaged && ap.info;
+    if (I && I.desired != null) {
+      const a = I.desired / DEG - off; let X = x(a), out = false;
+      if (X < 8) { X = 8; out = true; } else if (X > W - 8) { X = W - 8; out = true; }
+      ctx.strokeStyle = '#27b36a'; ctx.lineWidth = 3; ctx.strokeRect(X - 7, 2, 14, H - 4);
+      ctx.fillStyle = '#5fe39a'; ctx.font = `700 ${Math.round(H * 0.26)}px "Barlow Condensed", sans-serif`;
+      ctx.textAlign = out ? (X < W / 2 ? 'left' : 'right') : 'center';
+      ctx.fillText(out ? `AP ${pad3(a)}C` : 'AP', out ? (X < W / 2 ? X + 10 : X - 10) : X, out ? H * 0.82 : H * 0.97);
+      ctx.textAlign = 'center';
+    }
     // lubber line and heading
     ctx.fillStyle = '#ff7a1a'; ctx.fillRect(W / 2 - 1.5, 0, 3, H);
     const bw = H * 1.25;

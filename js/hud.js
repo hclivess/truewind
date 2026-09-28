@@ -143,7 +143,7 @@ export class HUD {
     if (prev) prev.addEventListener('click', () => { b.ctrl.preventer = b.ctrl.preventer > 0.5 ? 0 : 1; this.toast(b.ctrl.preventer ? 'Preventer rigged: the boom is held out' : 'Preventer off', 2); });
     const fly = $('#a-fly'); if (fly) { hover(fly, 'jibtail'); fly.addEventListener('click', () => this.g.letFly()); }
     const right = $('#a-right'); if (right) right.addEventListener('click', () => this.g.rightBoat());
-    $('#a-center').addEventListener('click', () => { b.ctrl.helm = 0; });
+    $('#a-center').addEventListener('click', () => { this.g.manualHelm(); b.ctrl.helm = 0; });
   }
 
   toast(msg, secs = 2.4) {
@@ -197,9 +197,24 @@ export class HUD {
     if (!$('#physics').hidden) this.updatePhysics(b);
     this.drawPolar(b, twaDeg);
     this.updateRaceCard();
+    this.updateCoach();
     this.updateEngine(b);
     this.fitRig();
     if (!$('#results').hidden) this.fillResults();
+  }
+
+  // the autopilot's coach: what it is doing (mode, the wind angle it steers, its next decision) and why, in words
+  updateCoach() {
+    const ap = this.g.autopilot, el = $('#coach'), on = !!(ap && ap.engaged && ap.info);
+    if (el.hidden === on) el.hidden = !on;
+    if (!on) return;
+    const I = ap.info, txt = (id, v) => { const e = document.getElementById(id); if (e.textContent !== v) e.textContent = v; };
+    txt('co-mode', I.label || '');
+    txt('co-twa', I.twa != null ? `TWA ${deg(I.twa)}°` : '');
+    txt('co-next', I.next || '');
+    el.classList.toggle('notext', !this.g.coachText);
+    txt('co-now', ap.line ? ap.line.text : '');
+    txt('co-prev', ap.prev && ap.line && ap.line.t - ap.prev.t < 60 ? ap.prev.text : '');
   }
 
   // engine readout: only while it runs (or is being started)
@@ -287,7 +302,7 @@ export class HUD {
     const st = g.raceStandings(), me = g.race.racers[0];
     $('#res-sub').textContent = `${g.venue.name} · ${g.course.laps} lap${g.course.laps > 1 ? 's' : ''} · ${me.dsq ? 'you were disqualified' : me.finished ? 'you finished ' + ordinal(me.place) : 'racing'}`;
     let n = 0;
-    const html = st.map((r) => `<li class="${r.me ? 'me' : ''}${r.code ? ' dsq' : ''}"><span>${r.finished && !r.code ? ++n : ''}</span><span>${esc(r.name)}</span><span>${r.code ? r.code : r.finished ? fmtT(r.time) : `<span class="muted">${legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span>`}</span></li>`).join('');
+    const html = st.map((r) => `<li class="${r.me ? 'me' : ''}${r.code ? ' dsq' : ''}"><span>${r.finished && !r.code ? ++n : ''}</span><span>${esc(r.name)}${r.ap ? ' <span class="muted" title="Sailed with the autopilot on for some of the race">· autopilot</span>' : ''}</span><span>${r.code ? r.code : r.finished ? fmtT(r.time) : `<span class="muted">${legShort(g.course.legs[Math.min(r.leg, g.course.legs.length - 1)])}</span>`}</span></li>`).join('');
     if (this._resHtml !== html) { this._resHtml = html; $('#res-list').innerHTML = html; }
     // the umpire's log: every incident with the rule, and what came of it
     const R = g.rules, P = g.player;
@@ -562,7 +577,7 @@ export class HUD {
     }
     // laylines to the navigation target
     const tgt = g.navTarget();
-    if (tgt && g.showLaylines && g.targets) {
+    if (tgt && g.showLaylines && g.targets && !(g.autopilot && g.autopilot.engaged)) {   // (engaged: the autopilot's own, from its ground tracks)
       const twd = g.env.wind.twd;
       const up = g.targets.up.twa * DEG, dn = g.targets.dn.twa * DEG;
       const upwindLeg = Math.cos(wrap(Math.atan2(tgt.x - b.x, -(tgt.z - b.z)) - twd)) > 0;
