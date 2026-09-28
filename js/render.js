@@ -1382,7 +1382,10 @@ export class Renderer {
     const C0 = b.cls, ckx = C0.sternX + C0.lwl * 0.22;
     const fx0 = Math.sin(P.psi), fz0 = -Math.cos(P.psi);
     const gx = P.x + fx0 * ckx, gz = P.z + fz0 * ckx;
-    const far = Math.hypot(gx - c.tx, gz - c.tz) > 30;              // new session / teleport: snap, don't glide
+    // new session / teleport: snap, don't glide. (Written so that NaN counts as far: a pose that came out
+    // NaN for one frame used to be lerped into the target for good — nothing compares greater than 30 to a
+    // NaN distance — and the camera, and with it the sky march's origin, stayed NaN and the picture black)
+    const far = !(Math.hypot(gx - c.tx, gz - c.tz) <= 30);
     c.tx = far ? gx : lerp(c.tx, gx, k); c.tz = far ? gz : lerp(c.tz, gz, k);
     const bh = P.heave || 0;
 
@@ -1392,7 +1395,7 @@ export class Renderer {
       const d = c.dist;
       // a camera boat rides the swell slower than the yacht: follow the heave through a ~1.5 s low-pass so
       // the horizon does not bob with every wave, and never let the lens dip under the sea in front of it
-      c.hs = c.hs === undefined || Math.abs(c.hs - bh) > 6 ? bh : c.hs + (bh - c.hs) * (1 - Math.exp(-dt / 1.5));
+      c.hs = c.hs === undefined || !(Math.abs(c.hs - bh) <= 6) ? bh : c.hs + (bh - c.hs) * (1 - Math.exp(-dt / 1.5));
       const px = c.tx - Math.sin(yaw) * Math.cos(c.pitch) * d, pz = c.tz + Math.cos(yaw) * Math.cos(c.pitch) * d;
       let py = Math.max(1.2, c.hs + 2 + Math.sin(c.pitch) * d);
       if (env && env.waves && env.waves.height) {
@@ -1405,7 +1408,7 @@ export class Renderer {
             floor = Math.max(floor, ty + (need - ty) / (1 - f));
           }
         }
-        c.floor = c.floor === undefined ? floor : Math.max(floor, c.floor + (floor - c.floor) * (1 - Math.exp(-dt * 3)));
+        c.floor = Number.isFinite(c.floor) ? Math.max(floor, c.floor + (floor - c.floor) * (1 - Math.exp(-dt * 3))) : floor;
         py = Math.max(py, c.floor);
       }
       cam.position.set(px, py, pz);

@@ -55,6 +55,10 @@ function startReef(C, kn) {
 
 class Game {
   constructor() {
+    // the frame loop runs from the moment the page has a renderer, before the first session sets the clock:
+    // an undefined accumulator makes the frame's interpolation alpha NaN and every boat's pose with it, and
+    // the camera — smoothed from that pose — never comes back (the whole picture stayed black)
+    this.t = 0; this.acc = 0; this.timeWarp = 1;
     this.renderer = new Renderer($('#view'));
     this.hud = new HUD(this);
     this.nav = new Nav(this);                                 // chart, waypoints, nav readout, steering compass
@@ -1199,7 +1203,7 @@ class Game {
       else this.acc = target - this.t;
     } else {
       const simDt = this.paused && !this.idle ? 0 : dt * (this.idle ? 1 : this.timeWarp);
-      this.acc += simDt;
+      this.acc = (Number.isFinite(this.acc) ? this.acc : 0) + simDt;   // (an accumulator only ever adds: once poisoned it would never heal)
     }
     let steps = 0;
     const maxSteps = 12 * this.timeWarp;
