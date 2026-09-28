@@ -1188,7 +1188,7 @@ class Game {
     const frameMs = now - this.last;
     // (the first frame has no previous timestamp: NaN here once reached every system that clamps with
     // Math.min/max, which pass NaN through; the ropes went NaN and three.js warned about their bounds)
-    let dt = Number.isFinite(frameMs) ? Math.min(0.1, Math.max(0, frameMs / 1000)) : 1 / 60;
+    let dt = Number.isFinite(frameMs) && frameMs > 0 ? Math.min(0.1, frameMs / 1000) : 1 / 60;   // (the first frame's stamp can precede the start: never 0, which divides)
     this.last = now;
     if (!this.env) return;
     if (this.netEpoch !== null) {
