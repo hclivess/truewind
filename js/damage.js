@@ -18,12 +18,15 @@
 //    folds) or at the deck (lowers or a chainplate), a Laser at its partners or its joint, a beach cat's mast
 //    falls whole. The broken rig hangs over the side on its wires and sails and drags (drag and its weight
 //    through js/physics.js ext), the sails are gone; the crew can cut it away.
-//  * SAILS. Peak membrane tension from the cloth solver (per triangle: k_warp (|F e_warp| - 1), k_fill (...))
-//    or, with the strip model, pressure x radius of curvature; times a stress concentration of 3 at the corner
-//    patches, against the cloth's strip strength (CLOTH_STRENGTH). Over it the sail tears, far over it blows
-//    out. Flogging fatigue: Miner damage at dt / T(q), T = T0 (q0/q)^2.2 (a Dacron main flogging in 30 kn
-//    apparent lasts ~20 minutes, in 50 kn ~2). A tear grows while the sail is loaded (reef or douse it to save
-//    it) and costs the sail its area and shape (sailHealth -> the sail models' loads).
+//  * SAILS. Membrane tension from the cloth solver (per triangle: k_warp (|F e_warp| - 1), k_fill (...); the 95th
+//    percentile, leaving out the triangles lying on a wire) or, with the strip model, pressure x radius of
+//    curvature; held over TAU_LOAD (0.5 s: a scan's spike is not a load), times the corners' concentration of 3
+//    over their patches' plies, against the cloth's strip strength (CLOTH_STRENGTH) less its seams and a season's
+//    UV. Over it the sail tears, far over it blows out: a working sail has ~10x in hand, a light kite ~1-2x.
+//    Flogging fatigue: Miner damage at dt / T(q), T = T0 (q0/q)^3 (a Dacron main flogging head to wind lasts
+//    ~12 h in 25 kn, ~1.5 h in 35, ~20 min in 45; a 0.75 oz kite ~3 min in 30 kn). A tear grows while the sail
+//    is loaded or flogs (reef or douse it to save it) and costs the sail its area and shape (sailHealth -> the
+//    sail models' loads).
 //  * HULL. Collision energy E = 1/2 mu v_rel^2 (1 - e^2), mu = m1 m2 / (m1 + m2), e = 0.3 (GRP): above the
 //    hull's crack energy it costs damage points (drag), above its penetration energy it holes the hull.
 //    Grounding: 1/2 m v^2 at the strike, the share that goes into the structure set by the seabed (rock 0.8,
@@ -46,17 +49,34 @@ export const WIRE = { 2.5: 5.0e3, 3: 7.4e3, 4: 12.8e3, 5: 20.1e3, 6: 28.9e3, 7: 
 const w1x19 = (d) => WIRE[d] ?? 800 * d * d;              // (between the table's sizes: ~800 d^2 N)
 const w7x19 = (d) => 0.7 * w1x19(d);
 
-// strip tensile strength of sailcloth along the warp (N/m), makers' data order of magnitude: 7-8 oz Dacron
-// ~250 lbf/in, 4-5 oz ~170, polyester/aramid scrim laminates ~300, 0.75 oz ripstop nylon ~35 lbf/in
-// (1 lbf/in = 175 N/m). Flogging life T0 (s) at q0 = 145 Pa (30 kn apparent): woven Dacron takes flogging
-// best, laminates delaminate soonest.
+// Sailcloth. S: strip tensile strength of new cloth in its weaker direction (N/m; 1 lbf/in = 175 N/m). Woven
+// polyester of 7-8 oz (US sailmaker) ~350-450 lbf/in in strip tests, 4-5 oz ~250 (Challenge, Dimension-Polyant
+// data sheets; from the yarn: 280 g/m2 with ~140 g/m2 each way at 0.8 N/tex and ~60% of it realised in the weave
+// gives ~65 kN/m), polyester/aramid scrim laminates ~500 lbf/in along their load yarns, 0.75 oz ripstop nylon
+// ~35 lbf/in. Sails are cut to stretch, not to strength: the body of a working sail sees ~1-4 kN/m (pressure
+// times the camber's radius, ~150 Pa x 3 m in 30 kn), 1/10-1/20 of its cloth; a light nylon kite ~1 kN/m, 1/5 of
+// its. plies: the corner patches (a working sail's head, tack and clew carry 3-6 extra layers and webbing, a
+// kite's a layer or two of light cloth), which carry the corners' concentration STRESS_CONC (the grid does not
+// resolve it): a working sail's body governs, a kite's corners. age: a season of UV (polyester keeps ~75%, nylon,
+// which sunlight weakens about twice as fast, ~50%). So a 0.75 oz kite has ~2x in hand at 18 kn and none left
+// overpowered or broached in 25-30 kn, as sailmakers rate them. T0 (s): flogging life at q0 = 145 Pa (30 kn
+// apparent), all of the sail flogging: a woven Dacron main left flogging lasts ~hours in a gale, a laminate
+// delaminates sooner, a light kite shreds in ~3 minutes; T = T0 (q0/q)^3 (the snap loads go as q, polyester and nylon
+// yarns' flex-fatigue life as ~the 3rd power of them): a Dacron main flogs ~12 h in 25 kn, ~1.5 h in 35, ~20 min
+// in 45 before its leech goes.
 export const CLOTH_STRENGTH = {
-  dacronCruise: { S: 45e3, T0: 1200 }, dacronDinghy: { S: 30e3, T0: 900 },
-  laminate: { S: 52e3, T0: 350 }, nylon: { S: 6e3, T0: 500 },
+  dacronCruise: { S: 70e3, plies: 3, age: 0.75, T0: 14400 }, dacronDinghy: { S: 45e3, plies: 3, age: 0.75, T0: 10800 },
+  laminate: { S: 90e3, plies: 3, age: 0.75, T0: 4500 }, canvas: { S: 55e3, plies: 3, age: 0.75, T0: 10800 },
+  nylon: { S: 6e3, plies: 1.5, age: 0.5, T0: 180 },
 };
 export const STRESS_CONC = 3;          // corner patches: the grid does not resolve them
-export const SEAM_AGE = 0.65 * 0.75;   // a sewn seam holds ~65% of the cloth, a season's UV takes ~25% more
-const FLOG_Q0 = 145, FLOG_M = 2.2;
+export const SEAM = 0.65;              // a sewn seam holds ~65% of the cloth
+// (the solver's 95th-percentile tension at each 0.1 s scan, low-passed over TAU_LOAD: a yarn breaks under the load
+// it holds, and one scan's peak on a triangle is the grid's flutter and the penalty constraints' ringing (a jib
+// luffing as she gathers way read 5-20 kN/m for single scans against ~1.5 held); a gybe's slam, a broach or a
+// kite's refill holds its load for 0.3-1 s and keeps 45-85% of it through the filter)
+export const TAU_LOAD = 0.5;
+const FLOG_Q0 = 145, FLOG_M = 3;
 
 // ------------------------------------------------------------------ per-class specifications
 // Standing rigging from the class rules / builders where published, else estimated for the size (marked ~).
@@ -244,16 +264,47 @@ export function recomputeMass(b) {
 
 // peak membrane tension (N/m) of a cloth sail: the larger of warp and fill tension per triangle, taken at the
 // 95th percentile of the triangles (the grid converging on the head and the corner nodes pinned by the rig give a
-// few triangles strains that mean nothing; the corner patches' real concentration is STRESS_CONC), and where
-const _pk = { v: new Float64Array(0), i: new Int32Array(0) };
+// few triangles strains that mean nothing; the corner patches' real concentration is STRESS_CONC), and where.
+// Triangles lying on a shroud, spreader or stay (cloth.js wires) are left out: there the solver's contact
+// projection sets the strain (a main pressed on its shrouds running came out at 50-400 kN/m on the triangles
+// wrapped round the wire, 12 kn on a Catalina 30, against ~1 kN/m in the rest of the sail), where the real
+// sail carries its wind pressure onto the wire and wears by chafe over days, not by tearing (out.chafe: how many)
+const _pk = { v: new Float64Array(0), i: new Int32Array(0), c: new Uint8Array(0) };
+// squared distance between segments p-q and a-b (3-vectors in flat arrays at offsets)
+function segSeg2(X, p, q, P, a, b) {
+  const d1x = X[q] - X[p], d1y = X[q + 1] - X[p + 1], d1z = X[q + 2] - X[p + 2];
+  const d2x = P[b] - P[a], d2y = P[b + 1] - P[a + 1], d2z = P[b + 2] - P[a + 2];
+  const rx = X[p] - P[a], ry = X[p + 1] - P[a + 1], rz = X[p + 2] - P[a + 2];
+  const A = d1x * d1x + d1y * d1y + d1z * d1z, E = d2x * d2x + d2y * d2y + d2z * d2z, F = d2x * rx + d2y * ry + d2z * rz;
+  const C = d1x * rx + d1y * ry + d1z * rz, B = d1x * d2x + d1y * d2y + d1z * d2z, den = A * E - B * B;
+  let u = den > 1e-12 ? clamp((B * F - C * E) / den, 0, 1) : 0, t = E > 1e-12 ? (B * u + F) / E : 0;
+  if (t < 0) { t = 0; u = A > 1e-12 ? clamp(-C / A, 0, 1) : 0; } else if (t > 1) { t = 1; u = A > 1e-12 ? clamp((B - C) / A, 0, 1) : 0; }
+  const x = rx + u * d1x - t * d2x, y = ry + u * d1y - t * d2y, z = rz + u * d1z - t * d2z;
+  return x * x + y * y + z * z;
+}
 export function clothPeak(cl, out = {}) {
   const X = cl.x, tri = cl.tri, cf = cl.cf;
   if (_pk.v.length < cl.T) { _pk.v = new Float64Array(cl.T); _pk.i = new Int32Array(cl.T); }
+  if (_pk.c.length < cl.n) _pk.c = new Uint8Array(cl.n);
+  const cn = _pk.c; cn.fill(0, 0, cl.n);
+  // nodes on a wire: both ends of every cloth edge within the wire's radius + 3 cm of it
+  let chafe = 0;
+  if (cl.wires) for (const w of cl.wires) {
+    if (w.off) continue;
+    const P = w.P, E = w.E, lo = w.lo, hi = w.hi, ns = P.length / 3 - 1, r2 = (w.r + 0.03) ** 2;
+    for (let e = 0; e < E.length; e += 2) {
+      const p = 3 * E[e], q = 3 * E[e + 1];
+      if (Math.max(X[p], X[q]) < lo[0] || Math.min(X[p], X[q]) > hi[0] || Math.max(X[p + 1], X[q + 1]) < lo[1] || Math.min(X[p + 1], X[q + 1]) > hi[1] ||
+        Math.max(X[p + 2], X[q + 2]) < lo[2] || Math.min(X[p + 2], X[q + 2]) > hi[2]) continue;
+      for (let k = 0; k < ns; k++) if (segSeg2(X, p, q, P, 3 * k, 3 * k + 3) < r2) { cn[E[e]] = cn[E[e + 1]] = 1; break; }
+    }
+  }
   let Am = 0, n = 0;
   for (let t = 0; t < cl.T; t++) Am += cl.tA[t];
   Am /= Math.max(1, cl.T);
   for (let t = 0; t < cl.T; t++) {
     const A = cl.tA[t]; if (A < 0.25 * Am) continue;
+    if (cn[tri[3 * t]] || cn[tri[3 * t + 1]] || cn[tri[3 * t + 2]]) { chafe++; continue; }
     const i0 = 3 * tri[3 * t], i1 = 3 * tri[3 * t + 1], i2 = 3 * tri[3 * t + 2];
     const c0 = cf[6 * t], c1 = cf[6 * t + 1], c2 = cf[6 * t + 2], d0 = cf[6 * t + 3], d1 = cf[6 * t + 4], d2 = cf[6 * t + 5];
     const ax = c0 * X[i0] + c1 * X[i1] + c2 * X[i2], ay = c0 * X[i0 + 1] + c1 * X[i1 + 1] + c2 * X[i2 + 1], az = c0 * X[i0 + 2] + c1 * X[i1 + 2] + c2 * X[i2 + 2];
@@ -261,6 +312,7 @@ export function clothPeak(cl, out = {}) {
     const sw = Math.sqrt(ax * ax + ay * ay + az * az) - 1, sf = Math.sqrt(bx * bx + by * by + bz * bz) - 1;
     _pk.v[n] = Math.max(cl.kw[t] * sw, cl.kf[t] * sf) / A; _pk.i[n] = t; n++;
   }
+  out.chafe = chafe;
   if (!n) { out.T = 0; return out; }
   // 95th percentile by partial selection (n ~ 100: a few passes)
   const k = Math.min(n - 1, Math.floor(n * 0.95));
@@ -629,17 +681,17 @@ export class Damage {
       const areaF = st.areaF ?? 0;
       if (S.blown || areaF < 0.05) continue;
       const q = 0.5 * (d.rhoA || 1.225) * (d.aws || 0) ** 2;
-      // flogging: Miner damage at dt / T(q)
+      // flogging: Miner damage at dt / T(q); a tear's tip, flogging, runs ~20x faster than the cloth fatigues
       let flog = 0; for (let i = 0; i < 3; i++) flog += (st[i].flog || 0) * STRIP_W[i];
       if (flog > 0.05 && q > 5) {
         const T = S.mat.T0 * Math.pow(FLOG_Q0 / q, FLOG_M);
         S.D += dt * flog * areaF / T;
-        if (S.tear > 0) S.tear += dt * flog * areaF / (T * 0.6);
+        if (S.tear > 0) S.tear += dt * flog * areaF / (T * 0.05);
         if (S.D >= 1 && S.tear === 0) { S.tear = 0.06; S.u = 0.85; S.v = 0.62; this.event('tear', `${this.sailName(s)} torn at the leech — flogging`); }
       }
       if (scan && this.age > 3) {
         const cl = b.sailSys && b.sailSys.active(b) && b.sailSys.cloth(s.key);
-        if (cl && (cl.sincePose || 0) < 2) continue;         // (a cloth just set, or re-made at another detail level, is settling)
+        if (cl && (cl.sincePose || 0) < 2) { S.Tf = 0; continue; }   // (a cloth just set, or re-made at another detail level, is settling)
         let T;
         if (cl && cl.cloth && (b.sailSys.sails.find((x) => x.key === s.key) || {}).part?.on) { clothPeak(cl.cloth, this._pk); T = this._pk.T; }
         else {
@@ -649,13 +701,16 @@ export class Damage {
           this._pk.u = 0.2; this._pk.v = 0.5;
         }
         S.peak = T;
-        S.ratio = T * STRESS_CONC / (S.mat.S * SEAM_AGE * (1 - 0.4 * clamp(S.D, 0, 1)));
+        S.Tf = (S.Tf ?? T) + (T - (S.Tf ?? T)) * clamp(every / TAU_LOAD, 0, 1);      // the load the cloth holds
+        const M = S.mat, Sd = M.S * SEAM * M.age * (1 - 0.4 * clamp(S.D, 0, 1));
+        S.ratio = S.Tf * Math.max(1, STRESS_CONC / M.plies) / Sd;
         if (S.ratio > 1) {
-          if (S.tear === 0) { S.u = this._pk.u ?? 0.5; S.v = this._pk.v ?? 0.5; S.tear = 0.05; this.event('tear', `${this.sailName(s)} torn — overloaded (${Math.round(T / 1000 * 10) / 10} kN/m at the ${S.v > 0.8 ? 'head' : S.u < 0.3 ? 'leech' : 'clew'})`); }
+          if (S.tear === 0) { S.u = this._pk.u ?? 0.5; S.v = this._pk.v ?? 0.5; S.tear = 0.05; this.event('tear', `${this.sailName(s)} torn — overloaded (${Math.round(S.Tf / 1000 * 10) / 10} kN/m at the ${S.v > 0.8 ? 'head' : S.u < 0.3 ? 'leech' : 'clew'})`); }
           S.tear += every * 0.6 * (S.ratio - 1) * (S.ratio > 1.6 ? 6 : 1);
         } else if (S.tear > 0) {
-          // a tear under load runs: slowly at working loads, fast near the strength (e-folding ~2 min at 1/3)
-          S.tear += every * S.tear * 0.008 * (S.ratio / 0.33) ** 2 * areaF;
+          // a tear under load runs: slowly at working loads, fast near the strength (e-folding ~2 min at 1/10, a
+          // Dacron sail's working load in a breeze; ~20 s at 1/4)
+          S.tear += every * S.tear * 0.0008 * (S.ratio / 0.1) ** 2 * areaF;
         }
       }
       if (S.tear > 0) {
