@@ -1156,7 +1156,7 @@ export class Renderer {
     if (world.open) return;
     // terrain, buildings, streets and trees from the venue's OSM land data (built once it has loaded;
     // everything stands on the same height function, so buildings neither float nor sink)
-    loadLand(world.venue.id).then(land => {
+    loadLand(world.venue.id, world).then(land => {
       if (this.world !== world) return;                       // the venue changed meanwhile
       const T = buildTerrain(world, land, { lat: world.venue.lat, low: this.low });
       const shadowed = new Set();
@@ -1331,7 +1331,7 @@ export class Renderer {
     const Ld = this.skySys.lightDir || this.sunDir;
     if (this.town) {
       setSceneryNight(this.town, clamp((-this.sunDir.y + 0.02) / 0.12, 0, 1));
-      const mw = env.wind.mean(t); tickScenery(this.town, t, mw.speed);
+      const mw = env.wind.mean(t); tickScenery(this.town, t, mw.speed, this.camera);   // (and the land streams in round the camera)
     }
     if (player) {
       this.sun.position.set(player.x + Ld.x * 60, Math.max(Ld.y, 0.05) * 60, player.z + Ld.z * 60);

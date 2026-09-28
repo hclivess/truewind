@@ -1,26 +1,48 @@
 // Shore scenery from OpenStreetMap: land-cover-coloured terrain, extruded building footprints, procedural
-// houses along the real street network where OSM has no footprints, road ribbons and instanced trees.
-// Data: data/venues/<id>.land.json (tools/fetch-venues.mjs --land). Everything is merged per ~1 km tile
-// so the whole venue costs a few hundred draw calls and tiles off screen are culled.
+// houses along the real street network (and in villages and housing estates) where OSM has no footprints,
+// road ribbons and instanced trees.
+// Data: data/venues/<id>.land.json + .land.bin + .land/<i>_<j>.bin (tools/fetch-venues.mjs --land), or Overpass live
+// for a custom location. The venue's whole area streams in by distance from the camera, in three levels of detail:
+// near (< 2.5 km) every building with its facade, roof, streets and trees, merged per 1 km tile; mid (< 10 km) one
+// instanced box (and roof) per building and a cheap crown per tree, per 4 km block; far, the buildings of each
+// 30 m cell merged into one low box. Lit windows and a point light per few houses make the towns read at dusk.
 import * as THREE from 'three';
 import { noise2 } from './env.js';
-import { LAND_KINDS } from './world.js';
+import { LAND_KINDS, PLACE_KINDS, LAND_CHUNK, TOWN_CELL, decodeLandBin, fetchLandLive } from './world.js';
 
 const K = Object.fromEntries(LAND_KINDS.map((k, i) => [k, i]).filter(([k]) => k));
-const TILE = 1000;
+const PK = Object.fromEntries(PLACE_KINDS.map((k, i) => [k, i]).filter(([k]) => k));
+const TILE = 1000, BLOCK = LAND_CHUNK;
 const ROAD_W = [14, 12, 10, 9, 8, 6, 6, 5, 3.5];          // motorway .. service
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 function rng(seed) { let s = seed >>> 0 || 1; return () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; }; }
 
 // ------------------------------------------------------------------ data
-export async function loadLand(venueId) {
+// -> { areas, town, places, chunks: [{ key: 'i,j' (4 km chunk; 'all' for everything), load() -> { buildings, roads } }] }
+export async function loadLand(venueId, world = null) {
   try {
+    if (venueId === 'custom') {
+      if (!world || world.open) return null;
+      const L = await fetchLandLive(world);
+      return { decoded: true, id: 'custom', lat: world.venue.lat, live: true, ...L };
+    }
     const r = await fetch(`data/venues/${venueId}.land.json`);
     if (!r.ok) return null;
-    return decodeLand(await r.json());
-  } catch { return null; }
+    const j = await r.json();
+    if (!j.v) return decodeLand(j);
+    const b = await fetch(`data/venues/${venueId}.land.bin`);
+    if (!b.ok) return null;
+    const base = decodeLandBin(await b.arrayBuffer());
+    const chunks = Object.entries(j.chunks || {}).map(([key, [bytes, nB]]) => ({ key, bytes, nB, load: async () => {
+      const c = await fetch(`data/venues/${venueId}.land/${key.replace(',', '_')}.bin`);
+      if (!c.ok) throw new Error(`land chunk ${key}: HTTP ${c.status}`);
+      return decodeLandBin(await c.arrayBuffer());
+    } }));
+    return { decoded: true, id: j.id, lat: j.lat, band: j.band, areas: base.areas, town: base.town, places: (j.places || []).map(([t, x, z, name, pop]) => ({ t, x, z, name, pop })), chunks };
+  } catch (e) { console.warn('land', e); return null; }
 }
+// the old single-file format (delta-coded int arrays): everything in one chunk
 export function decodeLand(j) {
   if (!j || j.decoded) return j;
   const u = j.unit ?? 0.5;
@@ -29,24 +51,24 @@ export function decodeLand(j) {
   for (let i = 0, B = j.B || []; i < B.length;) { const n = B[i]; buildings.push({ h: B[i + 1] / 10, lv: B[i + 2], ty: B[i + 3], rf: B[i + 4], pts: ring(B, i + 5, n) }); i += 5 + 2 * n; }
   for (let i = 0, R = j.R || []; i < R.length;) { const n = R[i]; roads.push({ cls: R[i + 1], pts: ring(R, i + 2, n) }); i += 2 + 2 * n; }
   for (let i = 0, A = j.A || []; i < A.length;) { const n = A[i]; areas.push({ kind: A[i + 1], pts: ring(A, i + 2, n) }); i += 2 + 2 * n; }
-  return { decoded: true, id: j.id, lat: j.lat, buildings, roads, areas };
+  return { decoded: true, id: j.id, lat: j.lat, areas, roads, town: null, places: [], chunks: [{ key: 'all', load: async () => ({ buildings, roads }) }] };
 }
 
-// scanline fill of a polygon into a grid (cell size cs, origin -R): calls fn(i, j) per covered cell
-function fillPoly(pts, R, cs, N, fn) {
+// scanline fill of a polygon into a grid (cell size cs, N x N cells from (ox, oz)): calls fn(i, j) per covered cell
+function fillPoly(pts, ox, oz, cs, N, fn) {
   let z0 = Infinity, z1 = -Infinity; const n = pts.length / 2;
   for (let k = 0; k < n; k++) { z0 = Math.min(z0, pts[2 * k + 1]); z1 = Math.max(z1, pts[2 * k + 1]); }
-  const j0 = Math.max(0, Math.floor((z0 + R) / cs)), j1 = Math.min(N - 1, Math.floor((z1 + R) / cs));
+  const j0 = Math.max(0, Math.floor((z0 - oz) / cs)), j1 = Math.min(N - 1, Math.floor((z1 - oz) / cs));
   const xs = [];
   for (let j = j0; j <= j1; j++) {
-    const zc = -R + (j + 0.5) * cs; xs.length = 0;
+    const zc = oz + (j + 0.5) * cs; xs.length = 0;
     for (let k = 0, m = n - 1; k < n; m = k++) {
       const za = pts[2 * m + 1], zb = pts[2 * k + 1];
       if ((za > zc) !== (zb > zc)) xs.push(pts[2 * m] + (zc - za) / (zb - za) * (pts[2 * k] - pts[2 * m]));
     }
     xs.sort((a, b) => a - b);
     for (let q = 0; q + 1 < xs.length; q += 2) {
-      const i0 = Math.max(0, Math.ceil((xs[q] + R) / cs - 0.5)), i1 = Math.min(N - 1, Math.floor((xs[q + 1] + R) / cs - 0.5));
+      const i0 = Math.max(0, Math.ceil((xs[q] - ox) / cs - 0.5)), i1 = Math.min(N - 1, Math.floor((xs[q + 1] - ox) / cs - 0.5));
       for (let i = i0; i <= i1; i++) fn(i, j);
     }
   }
@@ -57,24 +79,32 @@ function coverGrid(world, land, cs = 8) {
   // paint big/general classes first, specific ones over them
   const order = [K.farmland, K.meadow, K.grassland, K.grass, K.orchard, K.forest, K.wood, K.scrub, K.wetland, K.residential, K.retail, K.commercial, K.industrial, K.park, K.parking, K.sand, K.beach];
   const areas = land ? land.areas.slice().sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind)) : [];
-  for (const a of areas) fillPoly(a.pts, R, cs, N, (i, j) => { g[j * N + i] = a.kind; });
+  for (const a of areas) fillPoly(a.pts, -R, -R, cs, N, (i, j) => { g[j * N + i] = a.kind; });
   return { g, N, cs, R, at(x, z) { const i = Math.floor((x + R) / cs), j = Math.floor((z + R) / cs); return i < 0 || j < 0 || i >= N || j >= N ? 0 : g[j * N + i]; } };
 }
 
-// town-ness: metres of local streets per 250 m cell (a street grid every ~100 m gives ~1250 m)
+// town-ness: metres of local streets per 250 m cell (a street grid every ~100 m gives ~1250 m); baked with the land
+// data, or summed from the streets as they arrive (.add(roads): a custom location's live chunks)
 function townGrid(world, land) {
-  const R = world.R, dc = 250, DN = Math.ceil(2 * R / dc), dens = new Float32Array(DN * DN);
-  for (const r of land?.roads || []) {
-    if (r.cls < 3 || r.cls > 7) continue;
-    const p = r.pts;
-    for (let k = 0; k + 3 < p.length; k += 2) { const L = Math.hypot(p[k + 2] - p[k], p[k + 3] - p[k + 1]); const i = Math.floor(((p[k] + p[k + 2]) / 2 + R) / dc), j = Math.floor(((p[k + 1] + p[k + 3]) / 2 + R) / dc); if (i >= 0 && j >= 0 && i < DN && j < DN) dens[j * DN + i] += L; }
-  }
+  const R = world.R, dc = TOWN_CELL, DN = Math.ceil(2 * R / dc), dens = new Float32Array(DN * DN);
+  const add = (roads) => {
+    for (const r of roads || []) {
+      if (r.cls < 3 || r.cls > 7) continue;
+      const p = r.pts;
+      for (let k = 0; k + 3 < p.length; k += 2) { const L = Math.hypot(p[k + 2] - p[k], p[k + 3] - p[k + 1]); const i = Math.floor(((p[k] + p[k + 2]) / 2 + R) / dc), j = Math.floor(((p[k + 1] + p[k + 3]) / 2 + R) / dc); if (i >= 0 && j >= 0 && i < DN && j < DN) dens[j * DN + i] += L; }
+    }
+  };
+  const T = land?.town;
+  if (T && T.DN === DN) for (let k = 0; k < dens.length; k++) dens[k] = T.q[k] * 10;
+  else add(land?.roads);
   // bilinear, so town edges fade instead of stepping at cell borders
-  return (x, z) => {
+  const f = (x, z) => {
     const fx = (x + R) / dc - 0.5, fz = (z + R) / dc - 0.5, i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
     const g = (a, b) => a < 0 || b < 0 || a >= DN || b >= DN ? 0 : dens[b * DN + a];
     return (g(i, j) * (1 - u) + g(i + 1, j) * u) * (1 - v) + (g(i, j + 1) * (1 - u) + g(i + 1, j + 1) * u) * v;
   };
+  f.add = T ? () => {} : add;
+  return f;
 }
 
 // ------------------------------------------------------------------ terrain
@@ -193,7 +223,16 @@ function facadeMaterial() {
     sh.uniforms.uNight = NIGHT;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nattribute vec4 aBld;\nvarying vec4 vBld;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;')
-      .replace('#include <fog_vertex>', '#include <fog_vertex>\nvBld = aBld;\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvWNrm = normalize(mat3(modelMatrix) * objectNormal);');
+      // (the distant levels are instanced boxes and roofs: their world position goes through the instance matrix)
+      .replace('#include <fog_vertex>', `#include <fog_vertex>
+vBld = aBld;
+#ifdef USE_INSTANCING
+vWPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
+vWNrm = normalize(mat3(modelMatrix) * (mat3(instanceMatrix) * objectNormal));
+#else
+vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+vWNrm = normalize(mat3(modelMatrix) * objectNormal);
+#endif`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
 uniform float uNight;
@@ -203,8 +242,10 @@ float box(vec2 f, vec2 a, vec2 b, vec2 w){ vec2 lo = smoothstep(a - w, a + w, f)
 float winMask = 0.0; float winLit = 0.0;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
 {
-  float kind = vBld.w, hy = vWPos.y - vBld.x, top = vBld.y - vBld.x;
+  // (kind + 8: a distant level's box, whose top is the flat roof)
+  float lodBox = step(7.5, vBld.w), kind = vBld.w - 8.0 * lodBox, hy = vWPos.y - vBld.x, top = vBld.y - vBld.x;
   float wall = 1.0 - step(0.35, abs(vWNrm.y));
+  if (lodBox > 0.5 && vWNrm.y > 0.6) diffuseColor.rgb = vec3(0.64, 0.63, 0.6) * (0.8 + 0.35 * fract(vBld.z * 5.7));
   vec2 t2 = normalize(vec2(-vWNrm.z, vWNrm.x) + 1e-5);
   float hx = dot(vWPos.xz, t2);
   float fh = 3.0 + 0.4 * fract(vBld.z * 7.3), ws = kind > 0.5 && kind < 1.5 ? 1.9 : 2.6 + 1.2 * fract(vBld.z * 13.1);
@@ -231,7 +272,9 @@ float winMask = 0.0; float winLit = 0.0;`)
   w = mix(w, kind < 2.5 ? 0.28 * inFacade : 0.0, far); fr *= 1.0 - far; door *= 1.0 - far;
   winMask = w;
   float r = hsh(vec3(id, vBld.z * 91.0));
-  winLit = step(r, 0.38) * w;
+  // (far off, where a window is under a pixel, each building glows at its own share of lit windows instead of
+  // twinkling pixel by pixel)
+  winLit = mix(step(r, 0.38), 0.15 + 0.6 * fract(vBld.z * 17.3), far) * w;
   vec3 base = diffuseColor.rgb;
   vec3 glass = mix(vec3(0.1, 0.11, 0.12), vec3(0.34, 0.38, 0.42), 0.3 + 0.4 * r);
   diffuseColor.rgb = mix(base, mix(base, vec3(0.97, 0.96, 0.93), 0.75), fr);        // light frames / reveals
@@ -250,9 +293,13 @@ float winMask = 0.0; float winLit = 0.0;`)
   };
   return m;
 }
-export function setSceneryNight(group, v) { NIGHT.value = clamp(v, 0, 1); }
-// trees sway with the wind (t seconds, wind m/s)
-export function tickScenery(group, t, wind = 5) { TIME.value = t; SWAY.value = clamp(wind / 15, 0, 1.5); }
+export function setSceneryNight(group, v) { NIGHT.value = clamp(v, 0, 1); group?.userData.scenery?.setNight(NIGHT.value); }
+// trees sway with the wind (t seconds, wind m/s); the land streams in and changes its detail around the camera
+export function tickScenery(group, t, wind = 5, camera = null) {
+  TIME.value = t; SWAY.value = clamp(wind / 15, 0, 1.5);
+  const s = group?.userData.scenery;
+  if (s && camera) s.update(camera.position.x, camera.position.z);
+}
 
 // ------------------------------------------------------------------ geometry accumulator (per tile)
 class Acc {
@@ -455,51 +502,158 @@ function treeMaterial() {
 }
 
 // ------------------------------------------------------------------ the scenery
-export function buildScenery(world, land, opts = {}) {
-  const group = new THREE.Group(); group.name = 'scenery';
-  if (!land || world.open) return group;
-  land = decodeLand(land);
-  const t0 = performance.now();
-  const lat = opts.lat ?? land.lat ?? 45, tropical = Math.abs(lat) < 30, low = !!opts.low;
-  const onStructure = opts.onStructure || (() => false);
-  // (the town grids only cover what the OSM land data covers: for the big Solent, the 6 km round Cowes)
-  let ext = 0;
-  for (const b of land.buildings) for (let k = 0; k < b.pts.length; k++) ext = Math.max(ext, Math.abs(b.pts[k]));
-  for (const r of land.roads) for (let k = 0; k < r.pts.length; k++) ext = Math.max(ext, Math.abs(r.pts[k]));
-  const R = world.R > 10000 ? Math.min(world.R, Math.ceil(ext / 500) * 500 + 500) : world.R;
-  const terrain = opts.terrain || buildTerrain(world, land, { low, lat });
-  const H = terrain.h, cover = terrain.cover || coverGrid(world, land);
-  const rand = rng(0x5eed ^ Math.round(world.R));
-  // occupancy (4 m): 1 road, 2 OSM building, 4 procedural house, 8 tree
-  const oc = 4, ON = Math.ceil(2 * R / oc), occ = new Uint8Array(ON * ON);
-  const oi = (x, z) => { const i = Math.floor((x + R) / oc), j = Math.floor((z + R) / oc); return i < 0 || j < 0 || i >= ON || j >= ON ? -1 : j * ON + i; };
-  const mark = (x, z, bit) => { const k = oi(x, z); if (k >= 0) occ[k] |= bit; };
-  const test = (x, z, bits) => { const k = oi(x, z); return k < 0 || (occ[k] & bits) !== 0; };
-  // roads into the occupancy grid
-  for (const r of land.roads) {
-    const hw = ROAD_W[r.cls] / 2, p = r.pts;
-    for (let k = 0; k + 3 < p.length; k += 2) {
-      const L = Math.hypot(p[k + 2] - p[k], p[k + 3] - p[k + 1]), n = Math.max(1, Math.ceil(L / 2));
-      for (let s = 0; s <= n; s++) { const x = p[k] + (p[k + 2] - p[k]) * s / n, z = p[k + 1] + (p[k + 3] - p[k + 1]) * s / n;
-        for (let a = -hw; a <= hw; a += 2) for (let b = -hw; b <= hw; b += 2) if (a * a + b * b <= hw * hw) mark(x + a, z + b, 1); }
+const NEAR = 2500, MID = 10000, HYST = 600;       // m: full detail, instanced blocks, (beyond) merged cells
+const WALL_T = [[0.96, 0.94, 0.89], [0.98, 0.96, 0.9], [0.98, 0.82, 0.4], [0.95, 0.66, 0.62], [0.45, 0.78, 0.74], [0.97, 0.6, 0.32], [0.62, 0.78, 0.93], [0.93, 0.87, 0.55], [0.82, 0.42, 0.36], [0.98, 0.98, 0.96],
+  [0.62, 0.8, 0.45], [0.92, 0.9, 0.8], [0.75, 0.55, 0.8], [0.99, 0.93, 0.78]];
+const WALL_C = [[0.62, 0.33, 0.25], [0.55, 0.3, 0.24], [0.9, 0.88, 0.83], [0.85, 0.82, 0.74], [0.7, 0.7, 0.68], [0.78, 0.72, 0.6], [0.95, 0.94, 0.9], [0.5, 0.42, 0.36]];
+const ROOF_TILE = [[0.55, 0.24, 0.17], [0.6, 0.3, 0.2], [0.45, 0.2, 0.15], [0.28, 0.29, 0.31], [0.35, 0.36, 0.38], [0.5, 0.33, 0.25]];
+const FLAT = [[0.72, 0.71, 0.68], [0.62, 0.61, 0.59], [0.8, 0.79, 0.76], [0.55, 0.54, 0.52]];
+const pick = (a, r) => a[Math.floor(r * a.length) % a.length];
+const shade = (c, r) => { const t = 0.9 + 0.2 * r; return [c[0] * t, c[1] * t, c[2] * t]; };
+const NO_HOUSE = new Set([K.forest, K.wood, K.farmland, K.park, K.beach, K.sand, K.wetland, K.industrial, K.parking, K.grass, K.meadow, K.orchard]);
+const WOOD = { [K.forest]: 220, [K.wood]: 220, [K.orchard]: 220, [K.scrub]: 220, [K.wetland]: 480, [K.park]: 500 };   // m² per tree
+// named places without footprints: how far their houses reach (m)
+const PLACE_R = { city: 2500, town: 1200, suburb: 700, village: 480, quarter: 380, neighbourhood: 300, hamlet: 200, isolated_dwelling: 45 };
+const TREE_CROWN = { palm: [[0.3, 0.5, 0.2], 2.6, 1.0, 7.9], broad: [[0.22, 0.38, 0.15], 2.3, 2.0, 4.6], conifer: [[0.13, 0.27, 0.15], 1.7, 3.4, 4.6], bush: [[0.3, 0.38, 0.19], 1.0, 0.7, 0.6] };
+
+// the distant levels' pieces: a box standing on y = 0 (walls and a flat top), a gable prism (ridge along x, 1 high),
+// a tree crown
+function unitGeometries() {
+  const box = new THREE.BoxGeometry(1, 1, 1); box.translate(0, 0.5, 0);
+  const P = [], a = [-0.5, 0, -0.5], b = [0.5, 0, -0.5], c = [0.5, 1, 0], d = [-0.5, 1, 0], e = [-0.5, 0, 0.5], f = [0.5, 0, 0.5];
+  for (const t of [[a, c, b], [a, d, c], [e, f, c], [e, c, d], [a, e, d], [b, c, f]]) for (const v of t) P.push(...v);
+  const prism = new THREE.BufferGeometry(); prism.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); prism.computeVertexNormals();
+  const crown = new THREE.OctahedronGeometry(1, 0);
+  // (the facade material multiplies by the vertex colour: white, so the instance colour shows)
+  for (const g of [box, prism]) g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 3).fill(1), 3));
+  return { box, prism, crown };
+}
+// one geometry per instanced mesh (it carries that mesh's per-instance building data) sharing the unit's buffers
+function instGeometry(unit, aBld) {
+  const g = new THREE.BufferGeometry();
+  for (const k of Object.keys(unit.attributes)) g.setAttribute(k, unit.attributes[k]);
+  if (unit.index) g.setIndex(unit.index);
+  if (aBld) g.setAttribute('aBld', new THREE.InstancedBufferAttribute(aBld, 4));
+  return g;
+}
+function lightsMaterial(near) {
+  const dpr = typeof window !== 'undefined' ? Math.min(2, window.devicePixelRatio || 1) : 1;
+  const m = new THREE.PointsMaterial({ size: 2.4 * dpr, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: true });
+  // (inside the near ring the lit windows of the full buildings do this)
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vFade;')
+      .replace('#include <fog_vertex>', `#include <fog_vertex>
+      vFade = smoothstep(${near.toFixed(1)}, ${(near + 900).toFixed(1)}, -mvPosition.z);
+      if (vFade <= 0.0) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vFade;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.a *= vFade;');
+  };
+  return m;
+}
+const rectDist = (x, z, x0, z0, x1, z1) => Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(z0 - z, 0, z - z1));
+const hash2 = (a, b) => (Math.imul(Math.round(a) | 0, 73856093) ^ Math.imul(Math.round(b) | 0, 19349663)) >>> 0;
+
+// The land around the camera, streamed: chunks of data load nearest first, 1 km tiles are laid out (footprints
+// described, procedural houses and trees placed) and drawn at the detail their distance needs, within a time budget
+// per frame. update(x, z) once a frame; idle() once everything near enough is in.
+class LandStream {
+  constructor(world, land, opts, group, terrain) {
+    this.world = world; this.land = land; this.group = group; this.low = !!opts.low;
+    this.R = world.R; this.H = terrain.h; this.cover = terrain.cover; this.town = terrain.town;
+    this.onStructure = opts.onStructure || (() => false);
+    this.lat = opts.lat ?? land.lat ?? 45; this.tropical = Math.abs(this.lat) < 30;
+    this.nearR = this.low ? 1600 : NEAR; this.midR = this.low ? 7000 : MID;
+    this.band = (land.band ?? 2500) + 200;              // (how far inland the data reaches: no made-up houses beyond)
+    this.tiles = new Map(); this.blocks = new Map(); this.nearSet = new Set();
+    this.bMat = facadeMaterial();
+    this.rMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
+    this.tMat = treeMaterial();
+    this.cMat = new THREE.MeshStandardMaterial({ roughness: 0.92, flatShading: true });
+    this.lMat = lightsMaterial(this.nearR);
+    this.TG = { palm: treeGeometry('palm'), broad: treeGeometry('broad'), conifer: treeGeometry('conifer'), bush: treeGeometry('bush') };
+    this.U = unitGeometries();
+    // (stand-ins, so the renderer's material patches — cloud shadows — reach the materials before the stream uses them)
+    for (const m of [this.bMat, this.rMat, this.tMat, this.cMat]) { const s = new THREE.Mesh(new THREE.BufferGeometry(), m); s.visible = false; s.name = 'material'; group.add(s); }
+    this.places = (land.places || []).filter(p => PLACE_R[PLACE_KINDS[p.t]]).map(p => ({ ...p, r: PLACE_R[PLACE_KINDS[p.t]], ang: (hash2(p.x, p.z) % 628) / 100,
+      scatter: p.t === PK.town || p.t === PK.village || p.t === PK.hamlet || p.t === PK.isolated_dwelling }));   // (cities and their suburbs are mapped)
+    // tiles on (or near) land
+    const R = this.R, nt = Math.ceil(2 * R / TILE);
+    for (let j = 0; j < nt; j++) for (let i = 0; i < nt; i++) {
+      const x0 = -R + i * TILE, z0 = -R + j * TILE; let smin = Infinity;
+      for (let b = 0; b <= 6; b++) for (let a = 0; a <= 6; a++) smin = Math.min(smin, world.sdfAt(x0 + a * TILE / 6, z0 + b * TILE / 6));
+      if (smin < 80) this._tile(i, j);
+    }
+    this.chunks = new Map((land.chunks || []).map(c => [c.key, { ...c, state: 'idle' }]));
+    this.loading = 0; this.dirty = true; this.queue = []; this.cx = 0; this.cz = 0; this.rx = Infinity; this.rz = Infinity;
+    this.lastT = 0; this.frameMs = 16; this.night = 0;
+    this.n = { osm: 0, infill: 0, trees: 0, lights: 0, workMs: 0, maxSliceMs: 0 };
+  }
+  _tile(i, j) {
+    const key = i + ',' + j; let T = this.tiles.get(key);
+    if (T) return T;
+    const R = this.R, nt = Math.ceil(2 * R / TILE);
+    if (i < 0 || j < 0 || i >= nt || j >= nt) return null;
+    const x0 = -R + i * TILE, z0 = -R + j * TILE, I = Math.floor(i * TILE / BLOCK), J = Math.floor(j * TILE / BLOCK);
+    T = { i, j, key, x0, z0, x1: x0 + TILE, z1: z0 + TILE, osm: [], roads: [], recs: null, trees: null, nearG: null, midHidden: false, block: I + ',' + J };
+    T.places = this.places.filter(p => rectDist(p.x, p.z, x0, z0, T.x1, T.z1) < p.r);
+    this.tiles.set(key, T);
+    let B = this.blocks.get(T.block);
+    if (!B) this.blocks.set(T.block, B = { key: T.block, I, J, x0: -R + I * BLOCK, z0: -R + J * BLOCK, x1: -R + (I + 1) * BLOCK, z1: -R + (J + 1) * BLOCK, tiles: [], mid: null, far: null, lights: null });
+    B.tiles.push(T);
+    return T;
+  }
+  // a chunk's data is in (a chunk that failed to load counts as in, empty)
+  _chunkReady(blockKey) {
+    const c = this.chunks.get('all') || this.chunks.get(blockKey);
+    return !c || c.state === 'ready' || c.state === 'failed';
+  }
+  _tileReady(T) {
+    const R = this.R;
+    for (const [x, z] of [[T.x0 - 60, T.z0 - 60], [T.x1 + 60, T.z0 - 60], [T.x0 - 60, T.z1 + 60], [T.x1 + 60, T.z1 + 60]]) {
+      const I = Math.floor((clamp(x, -R, R - 1) + R) / BLOCK), J = Math.floor((clamp(z, -R, R - 1) + R) / BLOCK);
+      if (!this._chunkReady(I + ',' + J)) return false;
+    }
+    return true;
+  }
+  _ingest(d) {
+    const R = this.R, tileAt = (x, z) => this._tile(Math.floor((x + R) / TILE), Math.floor((z + R) / TILE));
+    for (const b of d.buildings || []) {
+      const p = b.pts, n = p.length / 2; if (n < 3) continue;
+      let cx = 0, cz = 0; for (let k = 0; k < n; k++) { cx += p[2 * k]; cz += p[2 * k + 1]; } cx /= n; cz /= n;
+      let rad = 0; for (let k = 0; k < n; k++) rad = Math.max(rad, Math.abs(p[2 * k] - cx) + Math.abs(p[2 * k + 1] - cz));
+      b.cx = cx; b.cz = cz; b.rad = rad;
+      const T = tileAt(cx, cz); if (T) T.osm.push(b);
+    }
+    // a street goes to every tile it passes within 50 m of (the houses along it test against it)
+    for (const r of d.roads || []) {
+      const p = r.pts; let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+      for (let k = 0; k < p.length; k += 2) { x0 = Math.min(x0, p[k]); x1 = Math.max(x1, p[k]); z0 = Math.min(z0, p[k + 1]); z1 = Math.max(z1, p[k + 1]); }
+      for (let j = Math.floor((z0 - 50 + R) / TILE); j <= Math.floor((z1 + 50 + R) / TILE); j++) for (let i = Math.floor((x0 - 50 + R) / TILE); i <= Math.floor((x1 + 50 + R) / TILE); i++) { const T = this._tile(i, j); if (T) T.roads.push(r); }
+    }
+    if (!this.land.roads) this.town.add(d.roads);        // (the old single-file format's streets are counted already)
+  }
+  _load() {
+    const max = this.land.live ? 2 : 4;
+    while (this.loading < max) {
+      let best = null, bd = Infinity;
+      for (const c of this.chunks.values()) {
+        if (c.state !== 'idle') continue;
+        const [I, J] = c.key === 'all' ? [0, 0] : c.key.split(',').map(Number);
+        const d = c.key === 'all' ? 0 : rectDist(this.cx, this.cz, -this.R + I * BLOCK, -this.R + J * BLOCK, -this.R + (I + 1) * BLOCK, -this.R + (J + 1) * BLOCK);
+        if (d < bd) { bd = d; best = c; }
+      }
+      if (!best) return;
+      best.state = 'loading'; this.loading++;
+      best.load().then(d => { if (this.dead) return; this._ingest(d); best.state = 'ready'; })
+        .catch(e => { console.warn('land chunk', best.key, e); best.state = 'failed'; })
+        .finally(() => { this.loading--; this.dirty = true; });
     }
   }
-  for (const b of land.buildings) fillPoly(b.pts, R, oc, ON, (i, j) => { occ[j * ON + i] |= 2; });
 
-  const tiles = new Map();
-  const tile = (x, z) => { const key = Math.floor((x + R) / TILE) + ',' + Math.floor((z + R) / TILE); let t = tiles.get(key); if (!t) tiles.set(key, t = { b: new Acc(), r: new Acc(), trees: { palm: [], broad: [], conifer: [], bush: [] } }); return t; };
-  const WALL_T = [[0.96, 0.94, 0.89], [0.98, 0.96, 0.9], [0.98, 0.82, 0.4], [0.95, 0.66, 0.62], [0.45, 0.78, 0.74], [0.97, 0.6, 0.32], [0.62, 0.78, 0.93], [0.93, 0.87, 0.55], [0.82, 0.42, 0.36], [0.98, 0.98, 0.96],
-    [0.62, 0.8, 0.45], [0.92, 0.9, 0.8], [0.75, 0.55, 0.8], [0.99, 0.93, 0.78]];
-  const WALL_C = [[0.62, 0.33, 0.25], [0.55, 0.3, 0.24], [0.9, 0.88, 0.83], [0.85, 0.82, 0.74], [0.7, 0.7, 0.68], [0.78, 0.72, 0.6], [0.95, 0.94, 0.9], [0.5, 0.42, 0.36]];
-  const ROOF_TILE = [[0.55, 0.24, 0.17], [0.6, 0.3, 0.2], [0.45, 0.2, 0.15], [0.28, 0.29, 0.31], [0.35, 0.36, 0.38], [0.5, 0.33, 0.25]];
-  const FLAT = [[0.72, 0.71, 0.68], [0.62, 0.61, 0.59], [0.8, 0.79, 0.76], [0.55, 0.54, 0.52]];
-  const pick = (a, r) => a[Math.floor(r * a.length) % a.length];
-  const shade = (c, r) => { const t = 0.9 + 0.2 * r; return [c[0] * t, c[1] * t, c[2] * t]; };
-  let nB = 0, nInfill = 0, nTank = 0;
-
-  // one building: footprint ring, total height to the eaves, roof style
-  const addBuilding = (pts, height, ty, roof, seed, simple = false) => {
-    const n = pts.length / 2; let cx = 0, cz = 0, gmin = Infinity;
+  // ---- a tile laid out: footprints described, procedural houses and trees placed
+  describe(pts, height, ty, roof, seed, simple) {
+    const H = this.H, tropical = this.tropical, n = pts.length / 2;
+    let cx = 0, cz = 0, gmin = Infinity;
     for (let k = 0; k < n; k++) { cx += pts[2 * k]; cz += pts[2 * k + 1]; gmin = Math.min(gmin, H(pts[2 * k], pts[2 * k + 1])); }
     cx /= n; cz /= n; gmin = Math.min(gmin, H(cx, cz));
     if (gmin < 0.05) gmin = 0.05;
@@ -507,8 +661,6 @@ export function buildScenery(world, land, opts = {}) {
     const r1 = (seed * 9301 % 1000) / 1000, r2 = (seed * 4973 % 1000) / 1000;
     const wallCol = shade(tropical ? pick(WALL_T, r1) : pick(WALL_C, r1), r2);
     const winKind = ty === 4 ? 2 : ty === 6 ? 3 : (ty === 2 || ty === 3 || ty === 7) ? 1 : 0;
-    const bld = [base, eave, r1 + r2 * 0.37, winKind];
-    const T = tile(cx, cz);
     const o = obb(pts);
     let fa = 0; for (let k = 0, m = n - 1; k < n; m = k++) fa += pts[2 * m] * pts[2 * k + 1] - pts[2 * k] * pts[2 * m + 1]; fa = Math.abs(fa) / 2;
     const rectish = o && fa / o.area > 0.82 && o.hw > 1.5 && o.hw < 9;
@@ -520,59 +672,108 @@ export function buildScenery(world, land, opts = {}) {
     }
     if (style !== 1 && !rectish) style = 1;
     const parapet = style === 1 && ty !== 4 && ty !== 6 ? (tropical ? 0.9 : 0.5) : 0;
-    walls(T.b, pts, y0, eave, wallCol, bld, parapet, simple);
-    if (style === 1) {
-      const rc = shade(pick(FLAT, r2), r1);
-      flatRoof(T.b, pts, eave + (parapet ? 0.05 : 0), rc, [base, eave, 0, 3]);
-      // rooftop water tanks (the black cisterns on every other Yucatán roof), AC boxes elsewhere
-      if (tropical && fa < 600 && r1 < 0.45 && o) { tank(T.b, o.cx + o.lx * o.hl * 0.4, o.cz + o.lz * o.hl * 0.4, eave, 0.55, 1.3, [0.08, 0.08, 0.09], [base, eave, 0, 3]); nTank++; }
-    } else pitchedRoof(T.b, o, eave, (ty === 5 ? 45 : 28 + 14 * r1) * Math.PI / 180, style === 3, shade(pick(ROOF_TILE, r2), r1), wallCol, [base, eave, 0, 3]);
-  };
-
-  // ---- OSM buildings
-  for (let bi = 0; bi < land.buildings.length; bi++) {
-    const b = land.buildings[bi], p = b.pts, n = p.length / 2;
-    if (n < 3) continue;
-    let cx = 0, cz = 0; for (let k = 0; k < n; k++) { cx += p[2 * k]; cz += p[2 * k + 1]; } cx /= n; cz /= n;
-    if (world.sdfAt(cx, cz) > -1 || onStructure(cx, cz)) continue;
-    let fa = 0; for (let k = 0, m = n - 1; k < n; m = k++) fa += p[2 * m] * p[2 * k + 1] - p[2 * k] * p[2 * m + 1]; fa = Math.abs(fa) / 2;
-    if (fa < 6) continue;
-    const r = ((bi * 2654435761) >>> 0) / 4294967296;
-    const fl = tropical ? 3.1 : 2.9;
-    let h = b.h || (b.lv ? b.lv * fl + 0.4 : 0);
-    if (!h) {
-      h = b.ty === 1 ? fl * (r < 0.55 ? 1 : 2) + (tropical ? 0.3 : 0.4) : b.ty === 2 ? fl * (4 + Math.floor(r * 5)) : b.ty === 3 ? fl * (2 + Math.floor(r * 3)) : b.ty === 4 ? 6 + r * 5
-        : b.ty === 5 ? 11 : b.ty === 6 ? 2.7 : b.ty === 7 ? fl * (2 + Math.floor(r * 2)) : fa > 1500 ? 7 + r * 4 : fa > 400 ? fl * (2 + Math.floor(r * 2)) : fl * (1 + Math.floor(r * 2)) + 0.3;
-    }
-    // with a pitched roof, the tagged height includes the roof: eaves lower
-    addBuilding(p, Math.max(2.4, h), b.ty, b.rf, bi * 7 + 3);
-    nB++;
+    const roofCol = style === 1 ? shade(pick(FLAT, r2), r1) : shade(pick(ROOF_TILE, r2), r1);
+    return { pts, cx, cz, base, y0, eave, bld: [base, eave, r1 + r2 * 0.37, winKind], wallCol, roofCol, o, fa, style, parapet, ty, simple, r1,
+      pitch: (ty === 5 ? 45 : 28 + 14 * r1) * Math.PI / 180, tank: tropical && style === 1 && fa < 600 && r1 < 0.45 && !!o };
   }
-
-  // ---- procedural houses along the street network where OSM has no footprints
-  const densAt = terrain.town || townGrid(world, land);
-  const NO_HOUSE = new Set([K.forest, K.wood, K.farmland, K.park, K.beach, K.sand, K.wetland, K.industrial, K.parking, K.grass, K.meadow, K.orchard]);
-  const maxInfill = low ? 5000 : 22000;
-  const roadsByPri = land.roads.filter(r => r.cls >= 4 && r.cls <= 7).map(r => { const p = r.pts; let d = Infinity; for (let k = 0; k < p.length; k += 8) d = Math.min(d, -world.sdfAt(p[k], p[k + 1])); return { r, d }; }).sort((a, b) => a.d - b.d);
-  // the lot's own street is guaranteed clear by construction; its first 3.5 m are not tested against the
-  // (4 m-cell) road raster, the rest of the lot must be free of streets, footprints and other houses
-  const lotFree = (cx, cz, lx, lz, hl, hw, side) => {
-    const px = -lz * side, pz = lx * side;         // pointing away from the street
-    for (let a = -hl + 0.5; a <= hl - 0.5; a += 2) for (let b = -hw; b <= hw + 0.5; b += 2) {
-      const x = cx + lx * a + px * b, z = cz + lz * a + pz * b;
-      if (test(x, z, b < -hw + 3.5 ? 6 : 7)) return false;
+  // (the layout and the builds below are generators: they yield now and then, and the stream resumes them within
+  // its time budget, so a dense town tile never stalls a frame)
+  *_prep(T) {
+    const world = this.world, H = this.H, cover = this.cover, onStructure = this.onStructure, tropical = this.tropical, low = this.low, densAt = this.town;
+    const x0 = T.x0, z0 = T.z0, M = 48, oc = 4, ON = Math.ceil((TILE + 2 * M) / oc), ox = x0 - M, oz = z0 - M;
+    const occ = new Uint8Array(ON * ON);
+    const oi = (x, z) => { const i = Math.floor((x - ox) / oc), j = Math.floor((z - oz) / oc); return i < 0 || j < 0 || i >= ON || j >= ON ? -1 : j * ON + i; };
+    const mark = (x, z, bit) => { const k = oi(x, z); if (k >= 0) occ[k] |= bit; };
+    const test = (x, z, bits) => { const k = oi(x, z); return k < 0 || (occ[k] & bits) !== 0; };
+    const inT = (x, z) => x >= T.x0 && x < T.x1 && z >= T.z0 && z < T.z1;
+    const rand = rng(hash2(T.i * 7919 + 17, T.j * 104729 + 3) ^ 0x5eed);
+    // occupancy (4 m): 1 road, 2 OSM building, 4 procedural house, 8 tree
+    // (streets: a disc of cells round every 3 m along each segment)
+    let q = 0;
+    for (const r of T.roads) {
+      if (++q % 60 === 0) yield 'roads';
+      const hw = ROAD_W[r.cls] / 2, p = r.pts, rc = hw / oc + 0.35, ri = Math.floor(rc);
+      for (let k = 0; k + 3 < p.length; k += 2) {
+        if (Math.max(p[k], p[k + 2]) < ox - hw || Math.min(p[k], p[k + 2]) > ox + ON * oc + hw || Math.max(p[k + 1], p[k + 3]) < oz - hw || Math.min(p[k + 1], p[k + 3]) > oz + ON * oc + hw) continue;
+        const L = Math.hypot(p[k + 2] - p[k], p[k + 3] - p[k + 1]), n = Math.max(1, Math.ceil(L / 3));
+        for (let s = 0; s <= n; s++) {
+          const fx = (p[k] + (p[k + 2] - p[k]) * s / n - ox) / oc, fz = (p[k + 1] + (p[k + 3] - p[k + 1]) * s / n - oz) / oc, ci = Math.floor(fx), cj = Math.floor(fz);
+          for (let b = -ri; b <= ri; b++) {
+            const j = cj + b; if (j < 0 || j >= ON) continue;
+            for (let a = -ri; a <= ri; a++) { const i = ci + a; if (i >= 0 && i < ON && (i + 0.5 - fx) ** 2 + (j + 0.5 - fz) ** 2 <= rc * rc) occ[j * ON + i] |= 1; }
+          }
+        }
+      }
     }
-    for (const [a, b] of [[-hl, -hw], [hl, -hw], [hl, hw], [-hl, hw], [0, 0]]) {
-      const x = cx + lx * a + px * b, z = cz + lz * a + pz * b;
-      if (world.sdfAt(x, z) > -4 || onStructure(x, z)) return false;
-      if (NO_HOUSE.has(cover.at(x, z))) return false;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      const N = this.tiles.get((T.i + di) + ',' + (T.j + dj)); if (!N) continue;
+      for (const b of N.osm) {
+        if (++q % 400 === 0) yield 'fill';
+        if (rectDist(b.cx, b.cz, ox, oz, ox + ON * oc, oz + ON * oc) < b.rad) fillPoly(b.pts, ox, oz, oc, ON, (i, j) => { occ[j * ON + i] |= 2; });
+      }
     }
-    return true;
-  };
-  const gardens = [];
-  outer: for (const { r } of roadsByPri) {
-    const p = r.pts, hwR = ROAD_W[r.cls] / 2;
-    for (let k = 0; k + 3 < p.length; k += 2) {
+    yield 'fill2';
+    const recs = [];
+    // ---- OSM buildings
+    const fl = tropical ? 3.1 : 2.9;
+    for (const b of T.osm) {
+      if (++q % 250 === 0) yield 'osm';
+      const p = b.pts;
+      if (world.sdfAt(b.cx, b.cz) > -1 || onStructure(b.cx, b.cz)) continue;
+      let fa = 0; for (let k = 0, n = p.length / 2, m = n - 1; k < n; m = k++) fa += p[2 * m] * p[2 * k + 1] - p[2 * k] * p[2 * m + 1]; fa = Math.abs(fa) / 2;
+      if (fa < 6) continue;
+      const hs = hash2(b.cx * 2, b.cz * 2), r = hs / 4294967296;
+      let h = b.h || (b.lv ? b.lv * fl + 0.4 : 0);
+      if (!h) {
+        h = b.ty === 1 ? fl * (r < 0.55 ? 1 : 2) + (tropical ? 0.3 : 0.4) : b.ty === 2 ? fl * (4 + Math.floor(r * 5)) : b.ty === 3 ? fl * (2 + Math.floor(r * 3)) : b.ty === 4 ? 6 + r * 5
+          : b.ty === 5 ? 11 : b.ty === 6 ? 2.7 : b.ty === 7 ? fl * (2 + Math.floor(r * 2)) : fa > 1500 ? 7 + r * 4 : fa > 400 ? fl * (2 + Math.floor(r * 2)) : fl * (1 + Math.floor(r * 2)) + 0.3;
+      }
+      // (with a pitched roof, the tagged height includes the roof: eaves lower)
+      recs.push(this.describe(p, Math.max(2.4, h), b.ty, b.rf, hs % 100003, false));
+    }
+    this.n.osm += recs.length;
+    // places reaching into this tile: their pull toward houses, 1 in the middle fading to 0 at their edge
+    const placeW = (x, z, scatter = false) => { let w = 0; for (const pl of T.places) { if (scatter && !pl.scatter) continue; const d = Math.hypot(x - pl.x, z - pl.z); if (d < pl.r) w = Math.max(w, 1 - sstep(pl.r * 0.45, pl.r, d)); } return w; };
+    const placeAng = (x, z) => { let best = null, bd = Infinity; for (const pl of T.places) { const d = Math.hypot(x - pl.x, z - pl.z) / pl.r; if (d < bd) { bd = d; best = pl; } } return best ? best.ang : 0; };
+    // ---- procedural houses along the street network where OSM has no footprints
+    const maxInfill = low ? 500 : 1800;
+    let nInfill = 0;
+    const gardens = [];
+    // the lot's own street is guaranteed clear by construction; its first 3.5 m are not tested against the
+    // (4 m-cell) road raster, the rest of the lot must be free of streets, footprints and other houses
+    const lotFree = (cx, cz, lx, lz, hl, hw, side, anyCover = false) => {
+      const px = -lz * side, pz = lx * side;         // pointing away from the street
+      for (let a = -hl + 0.5; a <= hl - 0.5; a += 2) for (let b = -hw; b <= hw + 0.5; b += 2) {
+        const x = cx + lx * a + px * b, z = cz + lz * a + pz * b;
+        if (test(x, z, b < -hw + 3.5 && !anyCover ? 6 : 7)) return false;
+      }
+      for (const [a, b] of [[-hl, -hw], [hl, -hw], [hl, hw], [-hl, hw], [0, 0]]) {
+        const x = cx + lx * a + px * b, z = cz + lz * a + pz * b;
+        if (world.sdfAt(x, z) > -4 || onStructure(x, z)) return false;
+        if (NO_HOUSE.has(cover.at(x, z))) return false;
+      }
+      return true;
+    };
+    const house = (cx, cz, lx, lz, hl, hw2, kd) => {
+      const px = -lz, pz = lx;
+      const pts = new Float32Array([cx - lx * hl - px * hw2, cz - lz * hl - pz * hw2, cx + lx * hl - px * hw2, cz + lz * hl - pz * hw2, cx + lx * hl + px * hw2, cz + lz * hl + pz * hw2, cx - lx * hl + px * hw2, cz - lz * hl + pz * hw2]);
+      for (let a = -hl; a <= hl; a += 2) for (let b = -hw2; b <= hw2; b += 2) mark(cx + lx * a + px * b, cz + lz * a + pz * b, 4);
+      const rr = rand();
+      const floors = tropical ? (rr < 0.62 ? 1 : rr < 0.93 ? 2 : 3) : (rr < 0.35 ? 1 : 2);
+      const shop = (kd === K.commercial || kd === K.retail) && rand() < 0.6;
+      recs.push(this.describe(pts, floors * (tropical ? 3.1 : 2.8) + 0.3, shop ? 3 : 1, tropical ? 1 : (rand() < 0.65 ? 2 : 3), (hash2(cx * 3, cz * 3) % 100003) + 17, true));
+      nInfill++;
+    };
+    const segs = [];
+    for (const r of T.roads) {
+      if (r.cls < 4 || r.cls > 7) continue;
+      const p = r.pts;
+      for (let k = 0; k + 3 < p.length; k += 2) if (inT((p[k] + p[k + 2]) / 2, (p[k + 1] + p[k + 3]) / 2)) segs.push([r, k, -world.sdfAt(p[k], p[k + 1])]);
+    }
+    segs.sort((a, b) => a[2] - b[2]);                       // nearer the water first
+    outer: for (const [r, k] of segs) {
+      if (++q % 40 === 0) yield 'street';
+      const p = r.pts, hwR = ROAD_W[r.cls] / 2;
       const ax = p[k], az = p[k + 1], bx = p[k + 2], bz = p[k + 3], L = Math.hypot(bx - ax, bz - az);
       if (L < 6) continue;
       const lx = (bx - ax) / L, lz = (bz - az) / L;
@@ -583,108 +784,356 @@ export function buildScenery(world, land, opts = {}) {
           const x = ax + lx * (s + w / 2), z = az + lz * (s + w / 2);
           s += w + (tropical ? rand() * 0.4 : 1 + rand() * 3);   // Yucatán towns: houses wall to wall
           const kd = cover.at(x, z), town = sstep(350, 1300, densAt(x, z));
-          const pr = kd === K.residential ? Math.max(0.9, town) : kd === K.commercial || kd === K.retail ? 0.8 : (r.cls >= 6 ? town : town * 0.6);
+          let pr = kd === K.residential ? Math.max(0.9, town) : kd === K.commercial || kd === K.retail ? 0.8 : (r.cls >= 6 ? town : town * 0.6);
+          pr = Math.max(pr, 0.9 * placeW(x, z));            // a named village with its streets but no footprints
           if (rand() > pr) continue;
           const d = tropical ? 9 + rand() * 8 : 8 + rand() * 4, set = (tropical ? 0.3 + rand() * 1.0 : 3 + rand() * 3);
           const off = side * (hwR + set + d / 2);
           const cx = x - lz * off, cz = z + lx * off;
-          // the house's long axis runs away from the street when deep, along it when wide
           const hl = w / 2 - 0.3, hw2 = d / 2;
           if (!lotFree(cx, cz, lx, lz, hl, hw2, side)) continue;
-          const px = -lz, pz = lx;
-          const pts = new Float32Array([cx - lx * hl - px * hw2, cz - lz * hl - pz * hw2, cx + lx * hl - px * hw2, cz + lz * hl - pz * hw2, cx + lx * hl + px * hw2, cz + lz * hl + pz * hw2, cx - lx * hl + px * hw2, cz - lz * hl + pz * hw2]);
-          for (let a = -hl; a <= hl; a += 2) for (let b = -hw2; b <= hw2; b += 2) mark(cx + lx * a + px * b, cz + lz * a + pz * b, 4);
-          const rr = rand();
-          const floors = tropical ? (rr < 0.62 ? 1 : rr < 0.93 ? 2 : 3) : (rr < 0.35 ? 1 : 2);
-          const shop = (kd === K.commercial || kd === K.retail) && rand() < 0.6;
-          addBuilding(pts, floors * (tropical ? 3.1 : 2.8) + 0.3, shop ? 3 : 1, tropical ? 1 : (rand() < 0.65 ? 2 : 3), (nInfill + 17) * 31, true);
-          nInfill++;
+          house(cx, cz, lx, lz, hl, hw2, kd);
           gardens.push([cx - lz * side * (hw2 + 3), cz + lx * side * (hw2 + 3), tropical ? 0.55 : 0.45]);   // back garden / patio
           gardens.push([x - lz * side * (hwR + 0.6), z + lx * side * (hwR + 0.6), 0.2]);                  // street tree
           if (nInfill >= maxInfill) break outer;
         }
       }
     }
-  }
-
-  // ---- roads: ribbons draped on the terrain
-  for (const r of land.roads) {
-    const p = r.pts, hw = ROAD_W[r.cls] / 2, shade0 = (r.cls <= 2 ? 0.26 : r.cls === 8 ? 0.4 : 0.32) * (tropical ? 1.35 : 1);
-    for (let k = 0; k + 3 < p.length; k += 2) {
-      const ax = p[k], az = p[k + 1], bx = p[k + 2], bz = p[k + 3], L = Math.hypot(bx - ax, bz - az); if (L < 0.5) continue;
-      const lx = (bx - ax) / L, lz = (bz - az) / L, px = -lz * hw, pz = lx * hw;
-      const n = Math.max(1, Math.ceil(L / 8));
-      for (let s = 0; s < n; s++) {
-        const x0 = ax + (bx - ax) * s / n, z0 = az + (bz - az) * s / n, x1 = ax + (bx - ax) * (s + 1) / n, z1 = az + (bz - az) * (s + 1) / n;
-        if (world.sdfAt(x0, z0) > -1 || world.sdfAt(x1, z1) > -1 || onStructure(x0, z0) || onStructure(x1, z1)) continue;
-        // extend a little along the road so segments overlap at bends
-        const e = hw * 0.5, ex = lx * e, ez = lz * e;
-        const q = [[x0 - ex + px, z0 - ez + pz], [x1 + ex + px, z1 + ez + pz], [x1 + ex - px, z1 + ez - pz], [x0 - ex - px, z0 - ez - pz]].map(([x, z]) => [x, H(x, z) + 0.12, z]);
-        const c = shade0 * (0.95 + 0.1 * noise2(x0 / 30, z0 / 30, 11));
-        tile(x0, z0).r.quad(q[0], q[1], q[2], q[3], [0, 1, 0], [c, c, c * 1.02], [0, 0, 0, 3]);
+    // ---- villages and housing estates OSM draws without streets or footprints: houses scattered over residential
+    // land and round named places, wherever nothing stands within 20 m (a mapped town is never that empty)
+    if (nInfill < maxInfill && (T.places.some(pl => pl.scatter) || this._hasCover(T, K.residential))) {
+      const G = 30;
+      for (let gz = T.z0 + G / 2; gz < T.z1; gz += G) for (let gx = T.x0 + G / 2; gx < T.x1; gx += G) {
+        if (++q % 300 === 0) yield 'scatter';
+        const x = gx + (rand() - 0.5) * G * 0.7, z = gz + (rand() - 0.5) * G * 0.7;
+        const kd = cover.at(x, z), pw = placeW(x, z, true);
+        if (world.sdfAt(x, z) < -this.band) continue;
+        const pr = Math.max(kd === K.residential ? 0.7 : 0, 0.75 * pw);
+        if (pr <= 0 || rand() > pr) continue;
+        let clear = true;
+        for (let b = -20; b <= 20 && clear; b += 4) for (let a = -20; a <= 20; a += 4) if (test(x + a, z + b, 6)) { clear = false; break; }
+        if (!clear) continue;
+        const ang = placeAng(x, z) + (rand() < 0.5 ? 0 : Math.PI / 2) + (rand() - 0.5) * 0.3, lx = Math.cos(ang), lz = Math.sin(ang);
+        const hl = (tropical ? 4 : 4.5) + rand() * 2, hw2 = 3.5 + rand() * 1.5;
+        if (!lotFree(x, z, lx, lz, hl, hw2, 1, true)) continue;
+        house(x, z, lx, lz, hl, hw2, kd);
+        gardens.push([x - lz * (hw2 + 4), z + lx * (hw2 + 4), 0.5]);
+        if (nInfill >= maxInfill) break;
       }
     }
+    this.n.infill += nInfill;
+    // ---- trees: gardens, woods and parks (sampled from the land cover), palms along a tropical beachfront
+    const cands = [];
+    const tryTree = (x, z, weight) => {
+      if (!inT(x, z) || world.sdfAt(x, z) > -6 || test(x, z, 15) || onStructure(x, z)) return;
+      const kd = cover.at(x, z);
+      if (kd === K.beach || kd === K.sand || kd === K.parking) { if (!(tropical && kd !== K.parking && rand() < 0.15)) return; }
+      cands.push([x, z, weight * (0.3 + rand())]);
+    };
+    for (const [x, z, pr] of gardens) if (rand() < pr) tryTree(x + (rand() - 0.5) * 3, z + (rand() - 0.5) * 3, 1.5);
+    const S = 12;
+    for (let gz = T.z0 + S / 2; gz < T.z1; gz += S) for (let gx = T.x0 + S / 2; gx < T.x1; gx += S) {
+      if (++q % 2000 === 0) yield 'trees';
+      const x = gx + (rand() - 0.5) * S, z = gz + (rand() - 0.5) * S, per = WOOD[cover.at(x, z)];
+      if (per && rand() < S * S / per) tryTree(x, z, per > 400 ? 1.2 : 1);
+    }
+    if (tropical) for (const r of T.roads) { const p = r.pts; for (let k = 0; k + 1 < p.length; k += 2) if (-world.sdfAt(p[k], p[k + 1]) < 120 && rand() < 0.5) tryTree(p[k] + (rand() - 0.5) * 20, p[k + 1] + (rand() - 0.5) * 20, 2); }
+    // nearer the water first (what you see from a boat), a budget per tile
+    for (const c of cands) c[2] /= 1 + (-world.sdfAt(c[0], c[1])) / 900;
+    cands.sort((a, b) => b[2] - a[2]);
+    const maxTrees = low ? 150 : 350, trees = [], lat = this.lat;
+    for (const [x, z] of cands) {
+      if (trees.length >= maxTrees) break;
+      if (test(x, z, 8)) continue;
+      mark(x, z, 8);
+      const kd = cover.at(x, z), r = rand();
+      const sp = tropical ? (kd === K.scrub || kd === K.wetland ? (r < 0.75 ? 'bush' : 'broad') : kd === K.beach || kd === K.sand ? 'palm' : r < 0.45 ? 'palm' : r < 0.85 ? 'broad' : 'bush')
+        : (kd === K.forest || kd === K.wood ? (r < (Math.abs(lat) > 50 ? 0.5 : 0.25) ? 'conifer' : 'broad') : kd === K.scrub ? 'bush' : r < 0.12 ? 'conifer' : r < 0.9 ? 'broad' : 'bush');
+      trees.push([x, H(x, z) - 0.1, z, 0.75 + rand() * 0.6, rand() * Math.PI * 2, rand(), sp]);
+    }
+    this.n.trees += trees.length;
+    T.recs = recs; T.trees = trees;
+  }
+  _hasCover(T, kind) {
+    for (let z = T.z0 + 25; z < T.z1; z += 50) for (let x = T.x0 + 25; x < T.x1; x += 50) if (this.cover.at(x, z) === kind) return true;
+    return false;
   }
 
-  // ---- trees
-  const cands = [];
-  const tryTree = (x, z, weight) => {
-    if (world.sdfAt(x, z) > -6 || test(x, z, 15) || onStructure(x, z)) return;
-    const kd = cover.at(x, z);
-    if (kd === K.beach || kd === K.sand || kd === K.parking) { if (!(tropical && kd !== K.parking && rand() < 0.15)) return; }
-    cands.push([x, z, weight * (0.3 + rand())]);
-  };
-  for (const [x, z, pr] of gardens) if (rand() < pr) tryTree(x + (rand() - 0.5) * 3, z + (rand() - 0.5) * 3, 1.5);
-  const woodKinds = new Set([K.forest, K.wood, K.park, K.orchard, K.scrub, K.wetland]);
-  for (const a of land.areas) {
-    if (!woodKinds.has(a.kind)) continue;
-    const p = a.pts; let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
-    for (let k = 0; k < p.length; k += 2) { x0 = Math.min(x0, p[k]); x1 = Math.max(x1, p[k]); z0 = Math.min(z0, p[k + 1]); z1 = Math.max(z1, p[k + 1]); }
-    const area = (x1 - x0) * (z1 - z0), n = Math.min(4000, Math.round(area / (a.kind === K.park ? 500 : 220)));
-    for (let q = 0; q < n; q++) { const x = x0 + rand() * (x1 - x0), z = z0 + rand() * (z1 - z0); if (cover.at(x, z) === a.kind) tryTree(x, z, a.kind === K.park ? 1.2 : 1); }
-  }
-  // palms along a tropical beachfront
-  if (tropical) for (const r of land.roads) { const p = r.pts; for (let k = 0; k + 1 < p.length; k += 2) if (-world.sdfAt(p[k], p[k + 1]) < 120 && rand() < 0.5) tryTree(p[k] + (rand() - 0.5) * 20, p[k + 1] + (rand() - 0.5) * 20, 2); }
-  // nearer the water first (what you see from a boat), a budget in total
-  for (const c of cands) c[2] /= 1 + (-world.sdfAt(c[0], c[1])) / 900;
-  cands.sort((a, b) => b[2] - a[2]);
-  const maxTrees = low ? 2500 : 8000;
-  let nTrees = 0;
-  for (const [x, z] of cands) {
-    if (nTrees >= maxTrees) break;
-    if (test(x, z, 8)) continue;
-    mark(x, z, 8);
-    const kd = cover.at(x, z), r = rand();
-    const sp = tropical ? (kd === K.scrub || kd === K.wetland ? (r < 0.75 ? 'bush' : 'broad') : kd === K.beach || kd === K.sand ? 'palm' : r < 0.45 ? 'palm' : r < 0.85 ? 'broad' : 'bush')
-      : (kd === K.forest || kd === K.wood ? (r < (Math.abs(lat) > 50 ? 0.5 : 0.25) ? 'conifer' : 'broad') : kd === K.scrub ? 'bush' : r < 0.12 ? 'conifer' : r < 0.9 ? 'broad' : 'bush');
-    tile(x, z).trees[sp].push([x, H(x, z) - 0.1, z, 0.75 + rand() * 0.6, rand() * Math.PI * 2, rand()]);
-    nTrees++;
-  }
-
-  // ---- meshes per tile
-  const bMat = facadeMaterial();
-  const rMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
-  const tMat = treeMaterial();
-  const TG = { palm: treeGeometry('palm'), broad: treeGeometry('broad'), conifer: treeGeometry('conifer'), bush: treeGeometry('bush') };
-  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), col = new THREE.Color();
-  for (const t of tiles.values()) {
-    const bm = t.b.mesh(bMat); if (bm) { bm.name = 'buildings'; group.add(bm); }
-    const rm = t.r.mesh(rMat); if (rm) { rm.name = 'roads'; rm.receiveShadow = true; rm.renderOrder = 1; group.add(rm); }
-    for (const [sp, list] of Object.entries(t.trees)) {
+  // ---- near: every building in full, the streets, the trees (one merged mesh per kind per tile)
+  *_buildNear(T) {
+    const world = this.world, H = this.H, onStructure = this.onStructure, tropical = this.tropical;
+    const g = new THREE.Group(); g.name = 'tile'; g.matrixAutoUpdate = false;
+    const b = new Acc(), r = new Acc();
+    let qn = 0;
+    for (const rec of T.recs) {
+      if (++qn % 50 === 0) yield;
+      walls(b, rec.pts, rec.y0, rec.eave, rec.wallCol, rec.bld, rec.parapet, rec.simple);
+      const top = [rec.base, rec.eave, 0, 3];
+      if (rec.style === 1) {
+        flatRoof(b, rec.pts, rec.eave + (rec.parapet ? 0.05 : 0), rec.roofCol, top);
+        // rooftop water tanks (the black cisterns on every other Yucatán roof)
+        if (rec.tank) { const o = rec.o; tank(b, o.cx + o.lx * o.hl * 0.4, o.cz + o.lz * o.hl * 0.4, rec.eave, 0.55, 1.3, [0.08, 0.08, 0.09], top); }
+      } else pitchedRoof(b, rec.o, rec.eave, rec.pitch, rec.style === 3, rec.roofCol, rec.wallCol, top);
+    }
+    // roads: ribbons draped on the terrain (each segment drawn by the tile that holds its middle)
+    for (const rd of T.roads) {
+      if (++qn % 60 === 0) yield;
+      const p = rd.pts, hw = ROAD_W[rd.cls] / 2, shade0 = (rd.cls <= 2 ? 0.26 : rd.cls === 8 ? 0.4 : 0.32) * (tropical ? 1.35 : 1);
+      for (let k = 0; k + 3 < p.length; k += 2) {
+        const ax = p[k], az = p[k + 1], bx = p[k + 2], bz = p[k + 3], L = Math.hypot(bx - ax, bz - az); if (L < 0.5) continue;
+        const mx = (ax + bx) / 2, mz = (az + bz) / 2; if (mx < T.x0 || mx >= T.x1 || mz < T.z0 || mz >= T.z1) continue;
+        const lx = (bx - ax) / L, lz = (bz - az) / L, px = -lz * hw, pz = lx * hw;
+        const n = Math.max(1, Math.ceil(L / 8));
+        for (let s = 0; s < n; s++) {
+          const x0 = ax + (bx - ax) * s / n, z0 = az + (bz - az) * s / n, x1 = ax + (bx - ax) * (s + 1) / n, z1 = az + (bz - az) * (s + 1) / n;
+          if (world.sdfAt(x0, z0) > -1 || world.sdfAt(x1, z1) > -1 || onStructure(x0, z0) || onStructure(x1, z1)) continue;
+          // extend a little along the road so segments overlap at bends
+          const e = hw * 0.5, ex = lx * e, ez = lz * e;
+          const q = [[x0 - ex + px, z0 - ez + pz], [x1 + ex + px, z1 + ez + pz], [x1 + ex - px, z1 + ez - pz], [x0 - ex - px, z0 - ez - pz]].map(([x, z]) => [x, H(x, z) + 0.12, z]);
+          const c = shade0 * (0.95 + 0.1 * noise2(x0 / 30, z0 / 30, 11));
+          r.quad(q[0], q[1], q[2], q[3], [0, 1, 0], [c, c, c * 1.02], [0, 0, 0, 3]);
+        }
+      }
+    }
+    const bm = b.mesh(this.bMat); if (bm) { bm.name = 'buildings'; g.add(bm); }
+    const rm = r.mesh(this.rMat); if (rm) { rm.name = 'roads'; rm.receiveShadow = true; rm.renderOrder = 1; g.add(rm); }
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), col = new THREE.Color();
+    for (const sp of ['palm', 'broad', 'conifer', 'bush']) {
+      const list = T.trees.filter(t => t[6] === sp);
       if (!list.length) continue;
-      const im = new THREE.InstancedMesh(TG[sp], tMat, list.length);
+      const im = new THREE.InstancedMesh(this.TG[sp], this.tMat, list.length);
       list.forEach(([x, y, z, s, a, c], i) => {
         q.setFromAxisAngle(up, a); sc.set(s, s * (0.85 + 0.3 * c), s); ps.set(x, y, z);
         m4.compose(ps, q, sc); im.setMatrixAt(i, m4);
         im.setColorAt(i, col.setRGB(0.85 + 0.3 * c, 0.9 + 0.2 * (1 - c), 0.85 + 0.2 * c));
       });
       im.computeBoundingSphere(); im.name = 'trees'; im.matrixAutoUpdate = false;
-      group.add(im);
+      g.add(im);
+    }
+    this.group.add(g); T.nearG = g; this.nearSet.add(T);
+  }
+  _dropNear(T) {
+    const g = T.nearG; if (!g) return;
+    this._midShow(T, true);
+    this.group.remove(g);
+    g.traverse(o => { if (o.isInstancedMesh) o.dispose(); else if (o.isMesh) o.geometry.dispose(); });
+    T.nearG = null; this.nearSet.delete(T);
+  }
+
+  // ---- mid: per 4 km block, one instanced box per building (and a gable per pitched roof), a crown per tree
+  *_buildMid(B) {
+    // (tree crowns only in the blocks near enough to show them: farther off a wood is its colour on the ground)
+    const crowned = rectDist(this.cx, this.cz, B.x0, B.z0, B.x1, B.z1) < this.midR * 0.5;
+    let nb = 0, nr = 0, nc = 0;
+    for (const T of B.tiles) { for (const rec of T.recs) if (rec.o) { nb++; if (rec.style !== 1) nr++; } if (crowned) nc += T.trees.length; }
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), col = new THREE.Color();
+    const mk = (unit, n, mat, withBld) => {
+      if (!n) return null;
+      const aB = withBld ? new Float32Array(n * 4) : null;
+      const im = new THREE.InstancedMesh(instGeometry(unit, aB), mat, n);
+      im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3);
+      im.matrixAutoUpdate = false; im.userData.aB = aB;
+      return im;
+    };
+    const boxes = mk(this.U.box, nb, this.bMat, true), roofs = mk(this.U.prism, nr, this.bMat, true), crowns = mk(this.U.crown, nc, this.cMat, false);
+    let ib = 0, ir = 0, ic = 0, qm = 0;
+    for (const T of B.tiles) {
+      const r0 = [ib, ir, ic];
+      for (const rec of T.recs) {
+        if (++qm % 600 === 0) yield;
+        const o = rec.o; if (!o) continue;
+        const k = rec.style === 1 && rec.fa < o.area * 0.82 ? Math.sqrt(rec.fa / o.area) : 1;
+        q.setFromAxisAngle(up, Math.atan2(-o.lz, o.lx));
+        m4.compose(ps.set(o.cx, rec.y0, o.cz), q, sc.set(2 * o.hl * k, rec.eave + rec.parapet - rec.y0, 2 * o.hw * k));
+        boxes.setMatrixAt(ib, m4); boxes.setColorAt(ib, col.setRGB(...rec.wallCol));
+        boxes.userData.aB.set([rec.bld[0], rec.bld[1], rec.bld[2], rec.bld[3] + 8], ib * 4); ib++;
+        if (rec.style !== 1) {
+          m4.compose(ps.set(o.cx, rec.eave, o.cz), q, sc.set(2 * o.hl + 0.9, o.hw * Math.tan(rec.pitch), 2 * o.hw + 0.9));
+          roofs.setMatrixAt(ir, m4); roofs.setColorAt(ir, col.setRGB(...rec.roofCol));
+          roofs.userData.aB.set([rec.base, rec.eave, 0, 3], ir * 4); ir++;
+        }
+      }
+      if (crowned) for (const [x, y, z, s, a, c, sp] of T.trees) {
+        const [tc, w, h, cy] = TREE_CROWN[sp];
+        q.setFromAxisAngle(up, a);
+        m4.compose(ps.set(x, y + cy * s, z), q, sc.set(w * s, h * s * (0.85 + 0.3 * c), w * s));
+        crowns.setMatrixAt(ic, m4); crowns.setColorAt(ic, col.setRGB(tc[0] * (0.85 + 0.3 * c), tc[1] * (0.9 + 0.2 * (1 - c)), tc[2] * (0.85 + 0.2 * c))); ic++;
+      }
+      T.mid = [r0, [ib, ir, ic]];
+      yield;
+    }
+    const meshes = [boxes, roofs, crowns].filter(Boolean);
+    for (const m of meshes) { m.computeBoundingSphere(); m.userData.orig = m.instanceMatrix.array.slice(); m.name = 'mid'; this.group.add(m); }
+    B.mid = { boxes, roofs, crowns, meshes };
+    for (const T of B.tiles) if (T.nearG) this._midShow(T, false);
+  }
+  // hide (or show again) a tile's instances in its block's mid level, while its near level stands there
+  _midShow(T, on) {
+    const B = this.blocks.get(T.block);
+    if (!B || !B.mid || !T.mid || T.midHidden === !on) return;
+    const [a, b] = T.mid;
+    [B.mid.boxes, B.mid.roofs, B.mid.crowns].forEach((m, k) => {
+      if (!m || b[k] <= a[k]) return;
+      const arr = m.instanceMatrix.array;
+      if (on) arr.set(m.userData.orig.subarray(a[k] * 16, b[k] * 16), a[k] * 16); else arr.fill(0, a[k] * 16, b[k] * 16);
+      m.instanceMatrix.needsUpdate = true;
+    });
+    T.midHidden = !on;
+  }
+  _dropMid(B) {
+    if (!B.mid) return;
+    for (const m of B.mid.meshes) { this.group.remove(m); m.geometry.dispose(); m.dispose(); }
+    B.mid = null;
+    for (const T of B.tiles) { T.mid = null; T.midHidden = false; }
+  }
+
+  // ---- far: the buildings of each 30 m cell merged into one low box; and the block's night lights
+  *_buildFar(B) {
+    const C = 30, cells = new Map();
+    let qf = 0;
+    for (const T of B.tiles) for (const rec of T.recs) {
+      if (++qf % 3000 === 0) yield;
+      const key = Math.floor((rec.cx - B.x0) / C) + Math.floor((rec.cz - B.z0) / C) * 1000;
+      let c = cells.get(key);
+      if (!c) cells.set(key, c = { fa: 0, h: 0, x: 0, z: 0, base: Infinity, r: 0, g: 0, b: 0, kind: 0 });
+      const w = rec.fa, h = rec.eave - rec.base;
+      c.fa += w; c.h += h * w; c.x += rec.cx * w; c.z += rec.cz * w; c.base = Math.min(c.base, rec.base);
+      c.r += rec.wallCol[0] * w; c.g += rec.wallCol[1] * w; c.b += rec.wallCol[2] * w; if (rec.bld[3] === 1) c.kind = 1;
+    }
+    yield;
+    let lights = [];
+    const rand = rng(hash2(B.I * 31 + 7, B.J * 131 + 11));
+    for (const T of B.tiles) for (const rec of T.recs) {
+      if (++qf % 3000 === 0) yield;
+      const o = rec.o, big = rec.ty === 2 || rec.ty === 3 || rec.ty === 7;
+      const n = big ? Math.min(5, Math.ceil(rec.fa / 300)) : rec.ty === 4 || rec.ty === 6 ? (rand() < 0.15 ? 1 : 0) : rand() < 0.6 ? 1 : 0;
+      for (let k = 0; k < n; k++) {
+        const a = o ? (rand() - 0.5) * 1.6 * o.hl : 0, b = o ? (rand() - 0.5) * 1.6 * o.hw : 0, lx = o ? o.lx : 1, lz = o ? o.lz : 0;
+        const x = rec.cx + lx * a - lz * b, z = rec.cz + lz * a + lx * b, y = rec.base + 1.4 + rand() * Math.max(0, rec.eave - rec.base - 2.2);
+        const warm = rand() < (big ? 0.55 : 0.85), t = 0.55 + 0.45 * rand();
+        lights.push(x, y, z, t * (warm ? 1 : 0.85), t * (warm ? 0.72 : 0.88), t * (warm ? 0.42 : 1));
+      }
+    }
+    const n = cells.size;
+    if (n) {
+      const aB = new Float32Array(n * 4), im = new THREE.InstancedMesh(instGeometry(this.U.box, aB), this.bMat, n);
+      im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3);
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3(), col = new THREE.Color();
+      let i = 0;
+      for (const c of cells.values()) {
+        const side = C * Math.sqrt(clamp(c.fa / (C * C) * 1.4, 0.1, 0.85)), h = c.h / c.fa;
+        m4.compose(ps.set(c.x / c.fa, c.base - 2.5, c.z / c.fa), q, sc.set(side, h + 2.5, side));
+        im.setMatrixAt(i, m4); im.setColorAt(i, col.setRGB(c.r / c.fa, c.g / c.fa, c.b / c.fa));
+        aB.set([c.base, c.base + h, (i * 0.618) % 1, 8 + c.kind], i * 4); i++;
+      }
+      im.computeBoundingSphere(); im.matrixAutoUpdate = false; im.name = 'far';
+      this.group.add(im); B.far = im;
+    } else B.far = true;
+    if (lights.length) {
+      const g = new THREE.BufferGeometry(), a = new Float32Array(lights), P = new Float32Array(a.length / 2), Cc = new Float32Array(a.length / 2);
+      for (let k = 0; k < a.length / 6; k++) { P.set(a.subarray(k * 6, k * 6 + 3), k * 3); Cc.set(a.subarray(k * 6 + 3, k * 6 + 6), k * 3); }
+      g.setAttribute('position', new THREE.BufferAttribute(P, 3)); g.setAttribute('color', new THREE.BufferAttribute(Cc, 3)); g.computeBoundingSphere();
+      const pts = new THREE.Points(g, this.lMat); pts.matrixAutoUpdate = false; pts.name = 'lights'; pts.visible = this.night > 0.01; pts.renderOrder = 2;
+      this.group.add(pts); B.lights = pts; this.n.lights += P.length / 3;
+    } else B.lights = true;
+  }
+
+  // ---- the work list, nearest first: near tiles, tiles to lay out, blocks to build
+  _rank() {
+    const cx = this.cx, cz = this.cz, q = [];
+    this.rx = cx; this.rz = cz; this.dirty = false;
+    for (const B of this.blocks.values()) {
+      const dB = rectDist(cx, cz, B.x0, B.z0, B.x1, B.z1);
+      let all = true;
+      for (const T of B.tiles) {
+        if (!T.recs) {
+          all = false;
+          if (B.far && dB > this.midR) continue;            // (let go far off: laid out again when it comes nearer)
+          if (this._tileReady(T)) q.push([rectDist(cx, cz, T.x0, T.z0, T.x1, T.z1), 0, T]);
+        } else if (!T.nearG) { const d = rectDist(cx, cz, T.x0, T.z0, T.x1, T.z1); if (d < this.nearR) q.push([d - 20000, 1, T]); }
+      }
+      if (!all) continue;
+      if (!B.mid && dB < this.midR) q.push([dB + 500, 2, B]);
+      if (!B.far) q.push([dB + 2000, 3, B]);
+    }
+    q.sort((a, b) => a[0] - b[0]);
+    this.queue = q;
+  }
+  update(cx, cz) {
+    if (this.dead || !this.group.parent) return;
+    const now = performance.now();
+    if (this.lastT) this.frameMs = this.frameMs * 0.8 + Math.min(1000, now - this.lastT) * 0.2;
+    this.lastT = now;
+    this.cx = cx; this.cz = cz;
+    this._load();
+    if (this.dirty || Math.hypot(cx - this.rx, cz - this.rz) > 150) this._rank();
+    // a slice of the frame (a fifth: more on a slow frame, which would be slow anyway)
+    const budget = clamp(this.frameMs * 0.2, this.low ? 2.5 : 4, 60);
+    while (performance.now() - now < budget) {
+      if (!this.job) {
+        if (!this.queue.length) break;
+        const [, kind, o] = this.queue.shift();
+        const go = kind === 0 ? !o.recs : kind === 1 ? !o.nearG && rectDist(cx, cz, o.x0, o.z0, o.x1, o.z1) < this.nearR : kind === 2 ? !o.mid : !o.far;
+        if (!go || o.busy) continue;
+        o.busy = true;
+        this.job = { o, it: kind === 0 ? this._prep(o) : kind === 1 ? this._buildNear(o) : kind === 2 ? this._buildMid(o) : this._buildFar(o) };
+      }
+      const w0 = performance.now();
+      const r = this.job.it.next();
+      const dw = performance.now() - w0; this.n.workMs += dw; if (dw > this.n.maxSliceMs) this.n.maxSliceMs = dw;
+      if (r.done) { this.job.o.busy = false; this.job = null; this.dirty = true; }
+    }
+    // levels by distance (with some slack, so crossing a boundary does not rebuild back and forth)
+    for (const T of this.nearSet) {
+      const d = rectDist(cx, cz, T.x0, T.z0, T.x1, T.z1);
+      if (d > this.nearR + HYST) this._dropNear(T); else if (!T.midHidden) this._midShow(T, false);
+    }
+    for (const B of this.blocks.values()) {
+      const dB = rectDist(cx, cz, B.x0, B.z0, B.x1, B.z1);
+      if (B.mid && dB > this.midR + HYST) this._dropMid(B);
+      if (B.far && B.far !== true) B.far.visible = !B.mid;
+      // far off and drawn: its tiles' layouts are let go (memory), and made again, the same, if the camera returns
+      if (B.far && !B.mid && dB > this.midR + 3000 && !B.evicted) { for (const T of B.tiles) if (!T.busy && !T.nearG) { T.recs = null; T.trees = null; } B.evicted = true; }
+      else if (dB < this.midR) B.evicted = false;
     }
   }
+  setNight(v) {
+    this.night = v; this.lMat.opacity = v;
+    for (const B of this.blocks.values()) if (B.lights && B.lights !== true) B.lights.visible = v > 0.01;
+  }
+  // nothing left to load or build within r of the camera (default: the mid ring)
+  idle(r = this.midR) {
+    for (const c of this.chunks.values()) {
+      if (c.state === 'loading') return false;
+      if (c.state === 'idle') {
+        if (c.key === 'all') return false;
+        const [I, J] = c.key.split(',').map(Number);
+        if (rectDist(this.cx, this.cz, -this.R + I * BLOCK, -this.R + J * BLOCK, -this.R + (I + 1) * BLOCK, -this.R + (J + 1) * BLOCK) < r) return false;
+      }
+    }
+    if (this.dirty) this._rank();
+    return !this.job && !this.queue.some(([p, kind]) => (kind === 1 ? p + 20000 : kind === 2 ? p - 500 : kind === 3 ? p - 2000 : p) < r);
+  }
+  stats() {
+    let prepped = 0, near = 0, mid = 0, far = 0, chunks = 0;
+    for (const T of this.tiles.values()) { if (T.recs) prepped++; if (T.nearG) near++; }
+    for (const B of this.blocks.values()) { if (B.mid) mid++; if (B.far) far++; }
+    for (const c of this.chunks.values()) if (c.state === 'ready') chunks++;
+    return { tiles: this.tiles.size, prepped, near, midBlocks: mid, farBlocks: far, blocks: this.blocks.size, chunks, chunksTotal: this.chunks.size, ...this.n, workMs: Math.round(this.n.workMs), maxSliceMs: Math.round(this.n.maxSliceMs) };
+  }
+  dispose() { this.dead = true; }
+}
+
+export function buildScenery(world, land, opts = {}) {
+  const group = new THREE.Group(); group.name = 'scenery';
+  if (!land || world.open) return group;
+  land = decodeLand(land);
+  const terrain = opts.terrain || buildTerrain(world, land, { low: opts.low, lat: opts.lat });
+  const stream = new LandStream(world, land, opts, group, terrain);
+  group.userData.scenery = stream;
   // beaches, as OSM draws them (for terrain colouring and anything else that wants them)
   group.userData.beaches = land.areas.filter(a => a.kind === K.beach || a.kind === K.sand).map(a => a.pts);
   group.userData.terrain = terrain;
-  group.userData.stats = { osmBuildings: nB, infill: nInfill, tanks: nTank, trees: nTrees, tiles: tiles.size, meshes: group.children.length, ms: Math.round(performance.now() - t0) };
+  Object.defineProperty(group.userData, 'stats', { get: () => stream.stats(), enumerable: false });
   return group;
 }

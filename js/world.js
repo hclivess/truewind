@@ -465,23 +465,36 @@ export async function fetchLiveWind(lat, lon) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Land scenery from OpenStreetMap: building footprints, roads, land use / land cover.
-// Baked by tools/fetch-venues.mjs --land into data/venues/<id>.land.json (compact delta-coded ints,
-// 0.5 m units) and turned into meshes by js/scenery.js.
+// Land scenery from OpenStreetMap: building footprints, roads, land use / land cover, named places.
+// Baked by tools/fetch-venues.mjs --land over the venue's whole area into a small manifest
+// data/venues/<id>.land.json (chunk list, named places), a base file <id>.land.bin (land cover, street density)
+// and one file per 4 km chunk under data/venues/<id>.land/ (footprints, streets) that js/scenery.js loads
+// nearest first; custom locations fetch the same from Overpass live (fetchLandLive), chunk by chunk.
 const HW_CLASSES = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street', 'service'];
 export const LAND_KINDS = ['', 'residential', 'commercial', 'industrial', 'retail', 'farmland', 'forest', 'grass', 'meadow', 'orchard',
   'wood', 'scrub', 'beach', 'sand', 'wetland', 'grassland', 'park', 'parking'];
+// named places (their type sizes the procedural village where OSM has no footprints)
+export const PLACE_KINDS = ['', 'city', 'town', 'village', 'hamlet', 'suburb', 'neighbourhood', 'quarter', 'isolated_dwelling'];
+export const LAND_CHUNK = 4000;          // m: the file / streaming unit
+const bbox = (lat, lon, x0, z0, x1, z1) => {
+  const kx = 111320 * Math.cos(lat * Math.PI / 180), kz = 110540;
+  return `${(lat - z1 / kz).toFixed(5)},${(lon + x0 / kx).toFixed(5)},${(lat - z0 / kz).toFixed(5)},${(lon + x1 / kx).toFixed(5)}`;
+};
+// Overpass queries: land cover and places over the whole square of half-width R; buildings and streets per box
+// (x0, z0, x1, z1 in local metres; ways crossing box edges come back from both sides and are merged by id)
 export function landQueries(lat, lon, R) {
-  const dLat = R / 110540, dLon = R / (111320 * Math.cos(lat * Math.PI / 180));
-  const bb = `${(lat - dLat).toFixed(5)},${(lon - dLon).toFixed(5)},${(lat + dLat).toFixed(5)},${(lon + dLon).toFixed(5)}`;
+  const bb = bbox(lat, lon, -R, -R, R, R);
   const H = '[out:json][timeout:180];';
   return {
-    buildings: `${H}(way["building"](${bb}););out tags geom;`,
-    roads: `${H}(way["highway"~"^(${HW_CLASSES.join('|')})$"](${bb}););out tags geom;`,
     areas: `${H}(way["landuse"~"^(residential|commercial|industrial|retail|farmland|forest|grass|meadow|orchard)$"](${bb});relation["landuse"~"^(residential|commercial|industrial|retail|farmland|forest|grass|meadow|orchard)$"](${bb});` +
       `way["natural"~"^(wood|scrub|beach|sand|wetland|grassland)$"](${bb});relation["natural"~"^(wood|scrub|beach|sand|wetland|grassland)$"](${bb});` +
       `way["leisure"="park"](${bb});relation["leisure"="park"](${bb});way["amenity"="parking"](${bb}););out tags geom;`,
+    places: `${H}(node["place"~"^(${PLACE_KINDS.slice(1).join('|')})$"](${bb}););out;`,
   };
+}
+export function landBoxQuery(lat, lon, x0, z0, x1, z1) {
+  const bb = bbox(lat, lon, x0, z0, x1, z1);
+  return `[out:json][timeout:180];(way["building"](${bb});way["highway"~"^(${HW_CLASSES.join('|')})$"](${bb}););out tags geom;`;
 }
 const BTYPE = (t) => {
   const b = t.building;
@@ -500,63 +513,61 @@ function areaKind(t) {
   const i = LAND_KINDS.indexOf(k);
   return i > 0 ? i : 0;
 }
-// append a ring/polyline: absolute first point, then deltas (0.5 m units)
-function pushPts(out, pts) {
-  let px = 0, pz = 0;
-  for (let i = 0; i < pts.length; i += 2) {
-    const x = Math.round(pts[i] * 2), z = Math.round(pts[i + 1] * 2);
-    if (i === 0) out.push(x, z); else out.push(x - px, z - pz);
-    px = x; pz = z;
-  }
-}
-// osm: { buildings, roads, areas } Overpass JSON; world: World built from the venue's water geometry
+const ringArea = (p) => { let a = 0; for (let k = 0, n = p.length / 2, m = n - 1; k < n; m = k++) a += p[2 * m] * p[2 * k + 1] - p[2 * k] * p[2 * m + 1]; return Math.abs(a) / 2; };
+// osm: { buildings, roads, areas, places } Overpass JSON (any may be missing; buildings and roads may share one
+// response); world: World built from the venue's water geometry. Returns plain lists in local metres:
+// buildings [{ pts, h, lv, ty, rf }], roads [{ cls, pts }], areas [{ kind, pts }], places [{ t, x, z, name, pop }].
+// opts.box [x0, z0, x1, z1] keeps buildings by centroid and streets by vertex inside it (default the world's square)
 export function processLand(osm, lat0, lon0, world, opts = {}) {
   const P = makeProjection(lat0, lon0), R = world.R;
-  const maxShore = opts.maxShore ?? 2500, maxB = opts.maxBuildings ?? 25000;
+  const maxShore = opts.maxShore ?? 2500;
+  const [bx0, bz0, bx1, bz1] = opts.box || [-R * 0.98, -R * 0.98, R * 0.98, R * 0.98];
   const toPts = (geom) => { const a = []; for (const g of geom) { if (!g) continue; const [x, z] = P.fwd(g.lat, g.lon); a.push(x, z); } return a; };
   const inBox = (x, z, m = 1) => Math.abs(x) < R * m && Math.abs(z) < R * m;
   const openRing = (p) => (p.length >= 4 && Math.abs(p[0] - p[p.length - 2]) < 0.01 && Math.abs(p[1] - p[p.length - 1]) < 0.01) ? p.slice(0, -2) : p;
-  // buildings: footprint rings on land near the water, nearest first
-  const bl = [];
-  for (const el of osm.buildings?.elements || []) {
-    if (el.type !== 'way' || !el.geometry) continue;
-    let pts = openRing(simplify(toPts(el.geometry), opts.tolB ?? 1.5));
-    if (pts.length < 6) continue;
-    let cx = 0, cz = 0; for (let i = 0; i < pts.length; i += 2) { cx += pts[i]; cz += pts[i + 1]; } cx /= pts.length / 2; cz /= pts.length / 2;
-    if (!inBox(cx, cz, 0.98)) continue;
-    const s = world.sdfAt(cx, cz);
-    if (s > -2 || s < -maxShore) continue;                     // on land, within reach of the shore
+  const els = (k) => osm[k]?.elements || [];
+  const seen = new Set();
+  // buildings: footprint rings on land within reach of the shore (simpler the farther inland: seen from the water
+  // they are a few pixels)
+  const buildings = [], roads = [];
+  for (const el of [...els('buildings'), ...els('roads')]) {
+    if (el.type !== 'way' || !el.geometry || seen.has(el.id)) continue;
+    seen.add(el.id);
     const t = el.tags || {};
-    const h = parseFloat(t.height), lv = parseInt(t['building:levels']);
-    bl.push({ d: -s, pts, h: isFinite(h) ? Math.min(400, h) : 0, lv: isFinite(lv) ? Math.min(99, lv) : 0, ty: BTYPE(t), rf: ROOF(t['roof:shape']) });
-  }
-  bl.sort((a, b) => a.d - b.d);
-  const B = [];
-  for (const b of bl.slice(0, maxB)) { B.push(b.pts.length / 2, Math.round(b.h * 10), b.lv, b.ty, b.rf); pushPts(B, b.pts); }
-  // roads: polylines clipped to the modelled box and to the shore band
-  const Rd = []; let nR = 0;
-  for (const el of osm.roads?.elements || []) {
-    if (el.type !== 'way' || !el.geometry) continue;
-    const cls = HW_CLASSES.indexOf(el.tags?.highway); if (cls < 0) continue;
-    const all = toPts(el.geometry);
-    let cur = [];
-    const flush = () => { if (cur.length >= 4) { const sp = simplify(cur, opts.tolR ?? 3); Rd.push(sp.length / 2, cls); pushPts(Rd, sp); nR++; } cur = []; };
-    for (let i = 0; i < all.length; i += 2) {
-      const x = all[i], z = all[i + 1];
-      if (inBox(x, z, 0.99) && world.sdfAt(x, z) > -maxShore - 300) cur.push(x, z); else flush();
+    if (t.building && t.building !== 'no') {
+      const raw = toPts(el.geometry);
+      let cx = 0, cz = 0; for (let i = 0; i < raw.length; i += 2) { cx += raw[i]; cz += raw[i + 1]; } cx /= raw.length / 2; cz /= raw.length / 2;
+      if (cx < bx0 || cx >= bx1 || cz < bz0 || cz >= bz1 || !inBox(cx, cz, 0.99)) continue;
+      const s = world.sdfAt(cx, cz);
+      if (s > -2 || s < -maxShore) continue;
+      const pts = openRing(simplify(raw, (opts.tolB ?? 1.2) * (s < -1000 ? 2 : 1)));
+      if (pts.length < 6 || ringArea(pts) < 6) continue;
+      const h = parseFloat(t.height), lv = parseInt(t['building:levels']);
+      buildings.push({ pts, d: -s, h: isFinite(h) ? Math.min(400, h) : 0, lv: isFinite(lv) ? Math.min(99, Math.max(0, lv)) : 0, ty: BTYPE(t), rf: ROOF(t['roof:shape']) });
+    } else if (t.highway) {
+      const cls = HW_CLASSES.indexOf(t.highway); if (cls < 0) continue;
+      // streets: polylines clipped to the box and to the shore band
+      const all = toPts(el.geometry);
+      let cur = [];
+      const flush = () => { if (cur.length >= 4) roads.push({ cls, pts: simplify(cur, opts.tolR ?? 3) }); cur = []; };
+      // (driveways and car-park aisles only near the water, where they are seen; the streets as far as the houses)
+      const reach = cls === 8 ? Math.min(600, maxShore) : maxShore + 300;
+      for (let i = 0; i < all.length; i += 2) {
+        const x = all[i], z = all[i + 1];
+        if (x >= bx0 - 40 && x < bx1 + 40 && z >= bz0 - 40 && z < bz1 + 40 && inBox(x, z, 0.99) && world.sdfAt(x, z) > -reach) cur.push(x, z); else flush();
+      }
+      flush();
     }
-    flush();
   }
-  // land use / cover: outer rings
-  const A = []; let nA = 0;
+  // land use / cover: outer rings (tiny patches do not show on the 8-16 m cover raster)
+  const areas = [];
   const addArea = (ring, kind) => {
     ring = openRing(simplify(ring, opts.tolA ?? 8));
-    if (ring.length < 6) return;
+    if (ring.length < 6 || ringArea(ring) < (opts.minArea ?? 0)) return;
     let near = false; for (let i = 0; i < ring.length; i += 2) if (inBox(ring[i], ring[i + 1], 1.02)) { near = true; break; }
-    if (!near) return;
-    A.push(ring.length / 2, kind); pushPts(A, ring); nA++;
+    if (near) areas.push({ kind, pts: ring });
   };
-  for (const el of osm.areas?.elements || []) {
+  for (const el of els('areas')) {
     const kind = areaKind(el.tags || {}); if (!kind) continue;
     if (el.type === 'way' && el.geometry) addArea(toPts(el.geometry), kind);
     else if (el.type === 'relation' && el.members) {
@@ -564,5 +575,163 @@ export function processLand(osm, lat0, lon0, world, opts = {}) {
       for (const r of joinRings(outer)) addArea(r, kind);
     }
   }
-  return { B, R: Rd, A, counts: { buildings: Math.min(bl.length, maxB), buildingsTotal: bl.length, roads: nR, areas: nA } };
+  const places = [];
+  for (const el of els('places')) {
+    if (el.type !== 'node' || !el.tags) continue;
+    const t = PLACE_KINDS.indexOf(el.tags.place); if (t < 1) continue;
+    const [x, z] = P.fwd(el.lat, el.lon);
+    if (!inBox(x, z)) continue;
+    const pop = parseInt(String(el.tags.population || '').replace(/[, ]/g, ''));
+    places.push({ t, x: Math.round(x), z: Math.round(z), name: el.tags.name || '', pop: isFinite(pop) ? pop : 0 });
+  }
+  return { buildings, roads, areas, places, counts: { buildings: buildings.length, roads: roads.length, areas: areas.length, places: places.length } };
+}
+// street metres per 250 m cell (a street grid every ~100 m gives ~1250 m): town-ness for the ground colour and
+// the procedural houses; quantised to 10 m in a byte
+export const TOWN_CELL = 250;
+export function townDensity(roads, R) {
+  const dc = TOWN_CELL, DN = Math.ceil(2 * R / dc), dens = new Float32Array(DN * DN);
+  for (const r of roads) {
+    if (r.cls < 3 || r.cls > 7) continue;
+    const p = r.pts;
+    for (let k = 0; k + 3 < p.length; k += 2) { const L = Math.hypot(p[k + 2] - p[k], p[k + 3] - p[k + 1]); const i = Math.floor(((p[k] + p[k + 2]) / 2 + R) / dc), j = Math.floor(((p[k + 1] + p[k + 3]) / 2 + R) / dc); if (i >= 0 && j >= 0 && i < DN && j < DN) dens[j * DN + i] += L; }
+  }
+  const q = new Uint8Array(DN * DN); for (let k = 0; k < q.length; k++) q[k] = Math.min(255, Math.round(dens[k] / 10));
+  return { DN, dc, q };
+}
+// split streets into per-chunk pieces (each piece keeps the vertex where it leaves its chunk, so they join up)
+export function chunkOf(x, z, R, C = LAND_CHUNK) { return [Math.floor((x + R) / C), Math.floor((z + R) / C)]; }
+export function splitByChunk(roads, R, C = LAND_CHUNK) {
+  const out = new Map(), put = (k, r) => { let a = out.get(k); if (!a) out.set(k, a = []); a.push(r); };
+  for (const r of roads) {
+    const p = r.pts; let cur = [p[0], p[1]], key = chunkOf(p[0], p[1], R, C).join(',');
+    for (let k = 2; k < p.length; k += 2) {
+      const mk = chunkOf((p[k] + p[k - 2]) / 2, (p[k + 1] + p[k - 1]) / 2, R, C).join(',');
+      if (mk !== key) { if (cur.length >= 4) put(key, { cls: r.cls, pts: cur }); cur = [p[k - 2], p[k - 1]]; key = mk; }
+      cur.push(p[k], p[k + 1]);
+    }
+    if (cur.length >= 4) put(key, { cls: r.cls, pts: cur });
+  }
+  return out;
+}
+
+// ---- TWL2: 'TWL2', uint32 header length, JSON header, then zigzag LEB128 varints: coordinates in 0.5 m units,
+// each point a delta from the previous one (the first point of a ring from the previous ring's first point).
+// A building: flags (bit 0 a rectangle, 1 a height follows, 2 levels follow, 3-5 type, 6-8 roof shape), then a
+// rectangle as its first corner, one side and the signed width across it (most houses: 7-8 bytes), any other
+// footprint as its vertex count and ring
+class VarW {
+  constructor() { this.b = new Uint8Array(1 << 16); this.n = 0; this.px = 0; this.pz = 0; }
+  byte(v) { if (this.n >= this.b.length) { const nb = new Uint8Array(this.b.length * 2); nb.set(this.b); this.b = nb; } this.b[this.n++] = v; }
+  u(v) { v = Math.max(0, Math.round(v)); while (v >= 128) { this.byte((v % 128) | 128); v = Math.floor(v / 128); } this.byte(v); }
+  s(v) { v = Math.round(v); this.u(v < 0 ? -2 * v - 1 : 2 * v); }
+  pts(p) {
+    let fx = 0, fz = 0;
+    for (let k = 0; k < p.length; k += 2) {
+      const x = Math.round(p[k] * 2), z = Math.round(p[k + 1] * 2);
+      if (k === 0) { this.s(x - this.px); this.s(z - this.pz); this.px = fx = x; this.pz = fz = z; }
+      else { this.s(x - fx); this.s(z - fz); fx = x; fz = z; }
+    }
+  }
+}
+class VarR {
+  constructor(u8, i) { this.b = u8; this.i = i; this.px = 0; this.pz = 0; }
+  u() { let v = 0, m = 1, c; do { c = this.b[this.i++]; v += (c & 127) * m; m *= 128; } while (c & 128); return v; }
+  s() { const v = this.u(); return v % 2 ? -(v + 1) / 2 : v / 2; }
+  pts(n) {
+    const p = new Float32Array(n * 2); let x = 0, z = 0;
+    for (let k = 0; k < n; k++) {
+      if (k === 0) { x = this.px += this.s(); z = this.pz += this.s(); } else { x += this.s(); z += this.s(); }
+      p[2 * k] = x * 0.5; p[2 * k + 1] = z * 0.5;
+    }
+    return p;
+  }
+}
+// d: { buildings?, roads?, areas?, town? } -> Uint8Array
+export function encodeLandBin(header, d) {
+  const w = new VarW(), B = d.buildings || [], Rd = d.roads || [], A = d.areas || [];
+  w.u(B.length);
+  for (const b of B) {
+    const p = b.pts, q = (v) => Math.round(v * 2), h = Math.round(b.h * 2);
+    let rect = null;
+    if (p.length === 8) {
+      // (a rectangle to within 0.6 m: rebuilt from the quantised corner, side and width)
+      const x0 = q(p[0]) / 2, z0 = q(p[1]) / 2, ex = q(p[2] - p[0]) / 2, ez = q(p[3] - p[1]) / 2, L = Math.hypot(ex, ez);
+      if (L > 0.5) {
+        const nx = -ez / L, nz = ex / L, wd = q((p[6] - p[0]) * nx + (p[7] - p[1]) * nz) / 2;
+        if (Math.hypot(x0 + ex + nx * wd - p[4], z0 + ez + nz * wd - p[5]) < 0.6 && Math.hypot(x0 + nx * wd - p[6], z0 + nz * wd - p[7]) < 0.6 && Math.abs(wd) >= 0.5) rect = [ex, ez, wd];
+      }
+    }
+    w.u((rect ? 1 : 0) | (h > 0 ? 2 : 0) | (b.lv > 0 ? 4 : 0) | (b.ty << 3) | (b.rf << 6));
+    if (h > 0) w.u(h);
+    if (b.lv > 0) w.u(b.lv);
+    if (rect) { w.pts([p[0], p[1]]); w.s(rect[0] * 2); w.s(rect[1] * 2); w.s(rect[2] * 2); }
+    else { w.u(p.length / 2); w.pts(p); }
+  }
+  w.u(Rd.length);
+  for (const r of Rd) { w.u(r.pts.length / 2); w.u(r.cls); w.pts(r.pts); }
+  w.u(A.length);
+  for (const a of A) { w.u(a.pts.length / 2); w.u(a.kind); w.pts(a.pts); }
+  const T = d.town;
+  w.u(T ? T.DN : 0); if (T) for (let k = 0; k < T.q.length; k++) w.byte(T.q[k]);
+  const hj = new TextEncoder().encode(JSON.stringify(header)), out = new Uint8Array(8 + hj.length + w.n);
+  out.set([84, 87, 76, 50]); new DataView(out.buffer).setUint32(4, hj.length, true);
+  out.set(hj, 8); out.set(w.b.subarray(0, w.n), 8 + hj.length);
+  return out;
+}
+export function decodeLandBin(buf) {
+  const u8 = new Uint8Array(buf), dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  if (u8[0] !== 84 || u8[1] !== 87 || u8[2] !== 76 || u8[3] !== 50) throw new Error('not a TWL2 land file');
+  const L = dv.getUint32(4, true), header = JSON.parse(new TextDecoder().decode(u8.subarray(8, 8 + L)));
+  const r = new VarR(u8, 8 + L), buildings = [], roads = [], areas = [];
+  for (let k = 0, n = r.u(); k < n; k++) {
+    const f = r.u(), h = f & 2 ? r.u() / 2 : 0, lv = f & 4 ? r.u() : 0;
+    let pts;
+    if (f & 1) {
+      const c = r.pts(1), ex = r.s() / 2, ez = r.s() / 2, wd = r.s() / 2, L = Math.hypot(ex, ez) || 1, nx = -ez / L * wd, nz = ex / L * wd;
+      pts = new Float32Array([c[0], c[1], c[0] + ex, c[1] + ez, c[0] + ex + nx, c[1] + ez + nz, c[0] + nx, c[1] + nz]);
+    } else pts = r.pts(r.u());
+    buildings.push({ h, lv, ty: (f >> 3) & 7, rf: f >> 6, pts });
+  }
+  for (let k = 0, n = r.u(); k < n; k++) { const m = r.u(), cls = r.u(); roads.push({ cls, pts: r.pts(m) }); }
+  for (let k = 0, n = r.u(); k < n; k++) { const m = r.u(), kind = r.u(); areas.push({ kind, pts: r.pts(m) }); }
+  const DN = r.u(), town = DN ? { DN, dc: TOWN_CELL, q: u8.slice(r.i, r.i + DN * DN) } : null;
+  return { header, buildings, roads, areas, town };
+}
+
+// Live land data for a custom location, the same shape as the baked files: land cover and places first (the
+// terrain needs them), then buildings and streets chunk by chunk, nearest the centre first.
+// Returns { areas, places, town: null, chunks: [{ key, box, load() -> { buildings, roads } }] }.
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
+async function overpassLive(q) {
+  let lastErr;
+  for (const u of OVERPASS) {
+    try {
+      // (a stalled server must not hold the terrain up: the next mirror, then nothing)
+      const signal = typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(90000) : undefined;
+      const r = await fetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal });
+      if (!r.ok) throw new Error('Overpass ' + r.status);
+      return await r.json();
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+export async function fetchLandLive(world) {
+  const v = world.venue, R = world.R, C = LAND_CHUNK, Q = landQueries(v.lat, v.lon, R);
+  const [areas, places] = await Promise.all([overpassLive(Q.areas).catch(() => null), overpassLive(Q.places).catch(() => null)]);
+  const base = processLand({ areas, places }, v.lat, v.lon, world);
+  const nc = Math.ceil(2 * R / C), chunks = [];
+  for (let j = 0; j < nc; j++) for (let i = 0; i < nc; i++) {
+    const box = [-R + i * C, -R + j * C, Math.min(R, -R + (i + 1) * C), Math.min(R, -R + (j + 1) * C)];
+    // (no land within reach of this chunk: nothing to ask for)
+    let land = false;
+    for (let b = 0; b <= 8 && !land; b++) for (let a = 0; a <= 8; a++) if (world.sdfAt(box[0] + (box[2] - box[0]) * a / 8, box[1] + (box[3] - box[1]) * b / 8) < 300) { land = true; break; }
+    if (!land) continue;
+    chunks.push({ key: i + ',' + j, box, load: async () => {
+      const osm = await overpassLive(landBoxQuery(v.lat, v.lon, ...box));
+      const out = processLand({ buildings: osm }, v.lat, v.lon, world, { box });
+      return { buildings: out.buildings, roads: out.roads };
+    } });
+  }
+  return { areas: base.areas, places: base.places, town: null, chunks };
 }
