@@ -550,7 +550,12 @@ export class SkySystem {
       wx.N = 256; wx.data = w2; wx.tex = mk2(256, w2); this.U.uWeather.value = wx.tex;
     });
     this.lutData = new Float32Array(LUT_W * LUT_H * 4);
-    this.lutTex = new THREE.DataTexture(this.lutData, LUT_W, LUT_H, THREE.RGBAFormat, THREE.FloatType);
+    // a GPU that cannot filter 32-bit float textures (many phones: no OES_texture_float_linear) samples a linearly
+    // filtered one as black, and every surface reflecting the sky goes dark: it gets the table in half floats,
+    // filterable everywhere in WebGL2 (computed in full floats here all the same); other GPUs keep full floats
+    this.lutHalf = !!(renderer && renderer.extensions && !renderer.extensions.has('OES_texture_float_linear'));
+    this.lutTex = this.lutHalf ? new THREE.DataTexture(new Uint16Array(LUT_W * LUT_H * 4), LUT_W, LUT_H, THREE.RGBAFormat, THREE.HalfFloatType)
+      : new THREE.DataTexture(this.lutData, LUT_W, LUT_H, THREE.RGBAFormat, THREE.FloatType);
     this.lutTex.minFilter = this.lutTex.magFilter = THREE.LinearFilter; this.lutTex.wrapS = THREE.ClampToEdgeWrapping; this.lutTex.wrapT = THREE.ClampToEdgeWrapping;
     this.lightV = new THREE.Vector3(0, 1, 0);
     this.sunDir = new THREE.Vector3(0, 1, 0); this.moonDir = new THREE.Vector3(0, -1, 0); this.lutDir = new THREE.Vector3(0, 1, 0);
@@ -646,6 +651,7 @@ export class SkySystem {
       else skyView(Math.max(m.el, -0.1), E_SUN * SKY_K * MOON_E * (0.1 + this.moonPhase), d, false);
       // night airglow and starlight floor
       for (let i = 0; i < d.length; i += 4) { d[i] += 0.0025; d[i + 1] += 0.0033; d[i + 2] += 0.0055; }
+      if (this.lutHalf) { const h = this.lutTex.image.data; for (let i = 0; i < d.length; i++) h[i] = THREE.DataUtils.toHalfFloat(Math.min(d[i], 65000)); }
       this.lutTex.needsUpdate = true;
       // a big jump in the light (new time of day): refresh reflections and lighting at once
       if (this._lastEl === undefined || Math.abs((useMoon ? m.el : s.el) - this._lastEl) > 2 * DEG) this.envAge = 999;
