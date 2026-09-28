@@ -1205,7 +1205,7 @@ export class Renderer {
   // ---------------------------------------------------------------- boats
   addBoat(boat, opts = {}) {
     const vis = buildBoatModel(boat, opts);
-    vis.rigging = new Rigging(boat, vis, { player: !!opts.player });
+    vis.rigging = new Rigging(boat, vis, { player: !!opts.player, hardware: true });     // (a fleet boat's cleats and clutches too, drawn near)
     vis.player = !!opts.player;
     vis.splash = new HullSplash(this.scene, vis, boat, this.skySys);
     vis.engineVis = buildEngineModel(boat, vis);        // outboard on its bracket / inboard exhaust (js/engine-model.js)
@@ -1343,6 +1343,7 @@ export class Renderer {
       // detail near the camera: ropes only where they can be seen
       const dist = Math.hypot(b.x - cam.x, b.z - cam.z);
       const near = vis.player || dist < 150;
+      vis.rigging.hwNear = dist < 30;                  // (its line hardware: a few centimetres, a few pixels at most beyond this)
       vis.rigging.update(t, near, dt, env);
       const sp = vis.splash;
       sp.foam.visible = sp.sheet.visible = sp.points.visible = sp.patches.visible = near;

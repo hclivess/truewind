@@ -303,25 +303,31 @@ export class Rigging {
     // the real surface under a point (ray cast against the boat's own hull/deck/cabin meshes, not the rig)
     vis.root.updateMatrixWorld(true);
     const solids = [];
-    inner.traverse(o => { if (o.isMesh && o.visible && o.geometry && !Object.values(vis.sailMeshes || {}).includes(o)) { let p = o, inRig = false; while (p) { if (p === vis.rig) inRig = true; p = p.parent; } if (!inRig) solids.push(o); } });
+    // (not the lifelines, rails and stays: a fitting seated under one stood on the wire)
+    // (nor the parts that move: a fitting seated on the tiller as it lay at the start floated when it swung)
+    const moving = [vis.rig, vis.rudderPivot, vis.keelMesh, vis.boardPivot, vis.sprit, vis.wheel, ...(vis.wheels || [])].filter(Boolean);
+    inner.traverse(o => { if (o.isMesh && o.visible && o.geometry && !(o.material && o.material.userData.noSeat) && !Object.values(vis.sailMeshes || {}).includes(o)) { let p = o, inRig = false; while (p) { if (moving.includes(p)) inRig = true; p = p.parent; } if (!inRig) solids.push(o); } });
     const rc = new THREE.Raycaster(), Minv = inner.matrixWorld.clone().invert(), dn = new THREE.Vector3();
     this.surfaceAt = (x, y, fromZ = 3) => {             // physics coords -> height of the solid surface below fromZ (or null)
       inner.updateWorldMatrix(true, true);
       const top = V(x, y, fromZ).applyMatrix4(inner.matrixWorld), bot = V(x, y, -1).applyMatrix4(inner.matrixWorld);
       rc.set(top, dn.subVectors(bot, top).normalize()); rc.far = 4;
       const h = rc.intersectObjects(solids, false)[0];
+      // (the surface's normal there, inner frame, facing up: a fitting on a sloping face is tilted to it)
+      if (h && h.face) { this._lastN = h.face.normal.clone().transformDirection(h.object.matrixWorld).transformDirection(Minv.copy(inner.matrixWorld).invert()); if (this._lastN.y < 0) this._lastN.negate(); } else this._lastN = null;
       return h ? h.point.clone().applyMatrix4(Minv.copy(inner.matrixWorld).invert()).y : null;
     };
     // seat a deck-mounted part (three-local position) on the real surface under it, lifted by its own base height;
     // the model never changes shape, so each spot is measured once
-    this._seat = new Map();
+    this._seat = new Map(); this._seatN = new Map(); this._onDeck = new WeakSet();
     this.seat = (p, lift = 0) => {
       const x = -p.z, y = p.x, key = Math.round(x * 50) + ',' + Math.round(y * 50);
       let s = this._seat.get(key);
-      if (s === undefined) { s = this.surfaceAt(x, y, p.y + 0.45); this._seat.set(key, s); }
+      if (s === undefined) { s = this.surfaceAt(x, y, p.y + 0.45); this._seat.set(key, s); this._seatN.set(key, this._lastN); }
       if (s !== null) p.y = s + lift;
       return p;
     };
+    this.seatNormal = (p) => this._seatN.get(Math.round(-p.z * 50) + ',' + Math.round(p.x * 50)) || null;
     // ---------------- hardware layout (physics coordinates)
     const hw = this.hw = {};
     const M = boat.sailBy.main;
@@ -353,7 +359,7 @@ export class Rigging {
       hw.winchX = C.mastX - 1.3; hw.winchY = 0.4; hw.winchZ = C.freeboard + 0.1;
       hw.jibTrack = [C.mastX - 0.45, C.mastX - 1.0]; hw.jibTrackY = 0.55;
     } else {
-      hw.travX = C.sternX + 0.25; hw.travZ = dH(C.sternX + 0.25, 0) + 0.05; hw.travHalf = bw(0.02) * 0.8; hw.boomS = M.foot * 0.97;
+      hw.travX = C.sternX + 0.25; hw.travZ = dH(C.sternX + 0.25, 0) + 0.05; hw.travHalf = bw(C.sternX + 0.25) * 0.8; hw.boomS = M.foot * 0.97;
       hw.ratchetX = C.mastX - 1.55; hw.ratchetZ = vis.ck.sole + 0.12;
     }
     // traveler track + car
@@ -366,12 +372,11 @@ export class Rigging {
       track.position.copy(V(hw.travX, 0, tz + 0.0125)); track.receiveShadow = true;
       hw.travZ = tz + 0.025 + 0.03;                     // the car rides on the track
       if (!isDinghy(C)) for (const [s, e] of [[-1, ends[0]], [0, mid], [1, ends[1]]]) {
-        if (e === null || tz - e < 0.02) continue;
+        if (e === null || tz - e < 0.004) continue;                // (a short one is a pad under the track)
         const h = tz - e, post = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.016, h, 10), mTrack());
         post.position.copy(V(hw.travX, s * (hw.travHalf + (s ? -0.02 : 0)), e + h / 2)); post.castShadow = true; inner.add(post);
       }
       if (!isDinghy(C)) inner.add(track);
-      if (C.multihull) track.position.y += 0.04;
       this.car = makeBlock(0.045); inner.add(this.car);
     }
     // jib tracks, cars, winches
@@ -390,7 +395,8 @@ export class Rigging {
         const baseZ = surf ?? hw.winchZ;
         const pad = C.noWinches ? 0 : 0.035;              // a moulded winch pad under the base
         if (pad) {
-          const pm = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, pad + 0.03, 20), new THREE.MeshStandardMaterial({ color: bronze ? 0x8a5a33 : 0xe8eaec, roughness: bronze ? 0.7 : 0.45 }));
+          const wr = C.hw?.winchR ?? (C.id === 'blackwatch' ? 0.055 : 0.065);        // (the pad as wide as the winch's base flange)
+          const pm = new THREE.Mesh(new THREE.CylinderGeometry(Math.max(0.075, wr * 1.3), Math.max(0.09, wr * 1.5), pad + 0.03, 20), new THREE.MeshStandardMaterial({ color: bronze ? 0x8a5a33 : 0xe8eaec, roughness: bronze ? 0.7 : 0.45 }));
           pm.position.copy(V(hw.winchX, s * wy, baseZ + (pad - 0.03) / 2)); pm.castShadow = pm.receiveShadow = true; inner.add(pm);
         }
         w.position.copy(V(hw.winchX, s * wy, baseZ + pad)); inner.add(w);
@@ -403,7 +409,7 @@ export class Rigging {
       this.genBlocks = [];
       // gennaker sheets are hand-held through ratchet blocks on the quarters (turning forward to the trimmer)
       for (const s of [-1, 1]) {
-        const y = C.multihull ? s * C.hullSpacing / 2 : s * bw(0.04) * 0.88, bl = makeRatchet({ swivel: false });
+        const y = C.multihull ? s * C.hullSpacing / 2 : s * bw(C.sternX + 0.3) * 0.88, bl = makeRatchet({ swivel: false });   // (bw takes x: the deck's half-breadth there)
         bl.position.copy(V(C.sternX + 0.3, y, dH(C.sternX + 0.3, y) + 0.3)); this.seat(bl.position, 0); bl.rotation.y = Math.PI - s * 0.35; inner.add(bl); this.genBlocks.push(bl);
       }
       this.genSheets = [rope(0.006, 'genP', 70), rope(0.006, 'genS', 70)];
@@ -422,6 +428,13 @@ export class Rigging {
       this.cabinLead = rope(0.0045, onWinch[0], 40);
       this.cabinLines = onWinch;
       this.cabinLine = this.cabinLines[0];
+    }
+    // a mainsheet led to its own winch (a class's lines: main at 'winch'): a winch just forward of the traveller, the
+    // self-tailer on its drum (a tailer set on the fiddle block was a ring floating over it)
+    if (!C.noWinches && LS.main && LS.main.at === 'winch' && this.car) {
+      const x = hw.travX + 0.45, w = makeWinch(bronze, 0.065);
+      w.position.copy(V(x, 0, this.surfaceAt(x, 0, vis.deckH(x, 0) + 0.6) ?? vis.deckH(x, 0))); inner.add(w);
+      w.userData.side = 0; this.mainWinch = w;
     }
     this.handleOn = 'work'; // the one winch handle: on the working winch until you use another
     // blocks on the boom and at the mast base
@@ -457,7 +470,9 @@ export class Rigging {
     this.cleats = {};
     const LS2 = lineSpecs(C), S = boat.sailBy;
     const ropeMat = (k) => new THREE.MeshStandardMaterial({ map: ropeTexture(look(k)), roughness: 0.75 });
-    if (this.player) {
+    // (a fleet boat carries the same hardware, drawn while it is near: opts.hardware; hwNear, set by the renderer)
+    this.hwNear = true;
+    if (this.player || opts.hardware) {
       const want = ['main', 'vang', 'cunn', 'outhaul'];
       if (S.main.trav) want.push('trav');
       if (S.jib) want.push('jib', 'lazy');
@@ -481,12 +496,13 @@ export class Rigging {
     // fixed fittings that are not controls: the main halyard's horn cleat on the mast (and the J/70's gennaker halyard
     // cam), the push-button car's holes in the track
     if (!C.multihull && !isDinghy(C)) {
-      const r0 = C.mastR ?? (C.id === 'sportboat' ? 0.05 : 0.055), hz = vis.mastBase + 0.55;
-      const hc = makeHorn(bronze, 0.13); hc.position.copy(V(C.mastX, -r0 - 0.002, hz));
+      // (on the mast's surface: its radius and, on a raked mast, where it is at that height)
+      const r0 = vis.mastR ?? C.mastR ?? (C.id === 'sportboat' ? 0.05 : 0.055), mX = vis.mastXAt || (() => C.mastX), hz = vis.mastBase + 0.55;
+      const hc = makeHorn(bronze, 0.13); hc.position.copy(V(mX(hz), -r0 - 0.001, hz));
       hc.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, -1, 0)));
       hc.userData.set({ s: 'locked', p: 1 }, 0); hc.userData.ropeMat(ropeMat('halMain')); inner.add(hc); this.halHorn = hc;
       if (S.gennaker) {
-        const gc = makeCam('std'); gc.position.copy(V(C.mastX - 0.07, 0.02, vis.mastBase + 0.32));
+        const gz = vis.mastBase + 0.32, gc = makeCam('std'); gc.position.copy(V(mX(gz) - (vis.mastAft ? vis.mastAft(0.02) : 0.07), 0.02, gz));   // on the aft face, beside the luff track
         gc.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, -1, 0)));
         gc.userData.set({ s: 'locked' }, 0); inner.add(gc); this.genCam = gc;
       }
@@ -557,7 +573,7 @@ export class Rigging {
     for (const r of this.ropes) { r.sim = ctx; r.freeEnd = false; }
     vis.inner.getWorldQuaternion(_q).invert();
     this.g.set(0, -1, 0).applyQuaternion(_q);
-    if (!active) { for (const r of this.ropes) r.hide(); return; }
+    if (!active) { for (const r of this.ropes) r.hide(); for (const c of Object.values(this.cleats)) if (c !== this.ratchet) c.visible = false; return; }
     const g = this.g, M = b.sailBy.main;
     // line running through the blocks: sheets by how far they are eased, controls by their setting
     const feedMain = b.lines.main * 3.5, feedJib = b.lines.jib * 2.2, feedStay = b.lines.stay * 1.5;
@@ -574,7 +590,7 @@ export class Rigging {
     this.halyards[2].feed = b.ctrl.jibHalyard * 0.2;
     if (this.tackLine) this.tackLine.feed = b.ctrl.tackLine * 0.6;
     // --- mainsheet purchase: boom block <-> traveler car
-    const bb = this.boomPt('main', hw.boomS, -0.1);
+    const bbot = vis.booms.main.userData.bottom, bb = this.boomPt('main', hw.boomS, bbot ? bbot(hw.boomS) - 0.035 : -0.1);   // (hung under the boom)
     this.boomBlock.position.copy(bb);
     let carY = 0;
     if (M.trav && M.track) {
@@ -745,7 +761,7 @@ export class Rigging {
     if (this.preventer) {
       if (b.ctrl.preventer > 0.5) {
         const side = Math.sign(b.booms.main.a) || 1, end = this.boomPt('main', b.sailBy.main.foot * 0.98, -0.05), bw = this._bw;
-        const bx = C.bowX - 0.3, by = side * bw(0.9) * 0.8, blk = V(bx, by, vis.deckH(bx, by) + 0.08), ax = C.mastX - 0.8, ay = side * bw(0.45) * 0.85;
+        const bx = C.bowX - 0.3, by = side * bw(bx) * 0.8, blk = V(bx, by, vis.deckH(bx, by) + 0.08), ax = C.mastX - 0.8, ay = side * bw(ax) * 0.85;
         this.preventer.set([end, blk, V(ax, ay, vis.deckH(ax, ay) + 0.05)], [Math.max(20, (L.preventerLoad || 0) / 4), 30], g);
       } else this.preventer.set([], 1, g);
     }
@@ -795,7 +811,14 @@ export class Rigging {
   // the load comes from] (the part's +z is turned to lead away from that point), or null
   handlerAt(k, cs) {
     const b = this.b, C = b.cls, vis = this.vis, hw = this.hw, M = b.sailBy.main, sp = lineSpecs(C)[k], h = sp.handler;
-    const dk = (x, y) => this.seat(V(x, y, vis.deckH(x, y) + 0.02), 0);
+    // (on the deck, tilted to it where it slopes; off a steep face, the cockpit well's side, onto the flatter of the floor
+    // inboard or the side deck outboard)
+    const dk = (x, y) => {
+      const at = (yy) => this.seat(V(x, yy, vis.deckH(x, yy) + 0.02), 0), flat = (p) => this.seatNormal(p)?.y ?? 0;
+      let p = at(y);
+      if (flat(p) < 0.87) for (const f of [0.5, 1.4]) { const q = at(y * f); if (flat(q) > flat(p) + 0.05) p = q; }
+      this._onDeck.add(p); return p;
+    };
     const bank = (i) => { const cx0 = this.clutchX; return [dk(cx0 + 0.13, 0.06 + i * 0.062), V(cx0 + 0.7, 0.06 + i * 0.062, vis.deckH(cx0, 0.1))]; };   // a bank on the aft end of the cabin top
     if (h === 'clutch' && this.cabinLines && this.cabinLines.includes(k)) return bank(this.cabinLines.indexOf(k));
     switch (k) {
@@ -804,6 +827,7 @@ export class Rigging {
         if (!this.car) return null;
         const car = this.car.position;
         if (sp.at === 'sole') { const p = this.seat(V(hw.travX + 0.4, 0, vis.ck.sole + 0.3), 0); return [p, p.clone().add(_v.set(0, 0, -1))]; }
+        if (this.mainWinch) { const w = this.mainWinch.position; return [w.clone().add(_v.set(0, 0.185, 0)), car.clone().add(_w.set(0, 0.185, 0))]; }   // on its winch's drum
         if (h === 'ratchetCam') return [car.clone().add(_v.set(0, -0.045, 0)), car.clone().add(_w.set(0, 0, 1))];   // on the car, the tail forward
         return [car.clone().add(_v.set(0, 0.04, 0)), car.clone().add(_w.set(0, 0.04, 1))];              // a cam on top of the fiddle block
       }
@@ -812,28 +836,32 @@ export class Rigging {
         if (!w) return null;
         if (h === 'selfTailer') return [w.position.clone().add(_v.set(0, 0.185, 0)), w.position.clone().add(_w.set(0, 0.185, -1))];
         if (C.noWinches) return [this.seat(V(hw.winchX - 0.12, s * hw.winchY, C.freeboard + 0.3), 0), w.position];
-        const x = hw.winchX - (h === 'winchHorn' ? 0.28 : 0.25), y = s * (Math.abs(w.position.x) - (h === 'winchHorn' ? 0.0 : 0.04));   // just aft of the winch
+        const x = hw.winchX - (h === 'winchHorn' ? 0.28 : 0.25), y = s * Math.min(Math.abs(w.position.x), this._bw(x) * 0.85);   // just aft of the winch, in line with it (inboard of it a cam sat on the well's sloping side, half sunk in it), inside the rail
         return [dk(x, y), w.position];
       }
       case 'stay': return [dk(C.mastX - 1.12, 0.27), V(C.mastX - 0.8, 0.25, vis.deckH(C.mastX - 0.8, 0.25))];   // aft end of the cabin top
       case 'trav': {
         if (!this.car) return null;
         const side = Math.sign(b.booms.main.a) || 1, car = this.car.position;
-        if (h === 'carCam') return [car.clone().add(_v.set(0, -0.02, 0.06)), car.clone().add(_w.set(-side, -0.02, 0.06))];
+        if (h === 'carCam') { const d = this.car.visible ? 0.06 : 0.035; return [car.clone().add(_v.set(0, -0.02, d)), car.clone().add(_w.set(-side, -0.02, d))]; }   // (against the car's aft side; with the car's block hidden under the ratchet block, its riser on the track)
         if (h === 'pinStop') return [car.clone().add(_v.set(0.068, -0.03, 0)), car.clone().add(_w.set(0.068, -0.03, -1))];   // the plunger on the end of the car, over the track's holes
-        const y = -side * (hw.travHalf - 0.06);                       // on the floor ahead of the track's windward end
+        const y = -side * Math.min(hw.travHalf - 0.06, this._bw(hw.travX + 0.12) * 0.75);   // on the floor ahead of the track's windward end (inside the rail)
         const p = this.seat(V(hw.travX + 0.12, y, hw.travZ + 0.3), 0);
         return [p, V(hw.travX - 1, y, p.y)];
       }
       case 'vang': return [dk(C.mastX - 0.95, 0.22), V(C.mastX - 0.35, 0.12, vis.mastBase)];
       case 'cunn':
-        if (sp.at === 'mast' && h === 'horn') return [V(C.mastX, 0.059, vis.mastBase + 0.4), null];     // starboard side of the mast (the main halyard is to port)
+        if (sp.at === 'mast' && h === 'horn') { const z = vis.mastBase + 0.4; return [V(vis.mastXAt ? vis.mastXAt(z) : C.mastX, (vis.mastR ?? 0.058) + 0.001, z), null]; }     // on the starboard side of the mast (the main halyard is to port)
         if (sp.at === 'mast') return [dk(C.mastX - 0.3, -0.16), V(C.mastX - 0.12, 0.05, vis.mastBase)];
         return [dk(C.mastX - 0.65, -0.2), V(C.mastX - 0.12, 0.05, vis.mastBase)];
       case 'outhaul':
-        if (sp.at === 'boom') return [this.boomPt('main', M.foot * 0.45, 0.045), this.boomPt('main', M.foot * 0.8, 0.045)];
+        if (sp.at === 'boom') { const top = vis.booms.main.userData.top, dz = top ? top(M.foot * 0.45) : 0.045; return [this.boomPt('main', M.foot * 0.45, dz), this.boomPt('main', M.foot * 0.8, dz)]; }   // on the boom's top
         return [dk(C.mastX - 0.95, -0.25), V(C.mastX - 0.1, -0.06, vis.mastBase)];
-      case 'backstay': return [dk(C.sternX + 0.95, 0.28), V(C.sternX + 0.3, 0, vis.deckH(C.sternX + 0.3, 0))];
+      case 'backstay': {
+        // (clear of a cockpit's aft wall: where the well begins just there, on its sole a little forward of it)
+        const L = C.bowX - C.sternX, xw = C.sternX + vis.ck.t0 * L, x = vis.ck.t0 > 0.02 && Math.abs(xw - (C.sternX + 0.95)) < 0.3 ? xw + 0.3 : C.sternX + 0.95;
+        return [dk(x, 0.28), V(C.sternX + 0.3, 0, vis.deckH(C.sternX + 0.3, 0))];
+      }
       case 'jibHalyard':
         if (this.mastWinch && this.cabinWinch) { const w = this.cabinWinch.position; return [dk(-w.z - 0.3, w.x + 0.02), w]; }
         if (sp.at === 'mast') return [dk(C.mastX - 0.3, 0.16), V(C.mastX, 0.05, vis.mastBase)];
@@ -862,13 +890,16 @@ export class Rigging {
     for (const [k, c] of Object.entries(this.cleats)) {
       const gen = (k === 'jib' || k === 'lazy') && b.genDeploy > 0.5 && specOf(b, k) !== lineSpecs(C0)[k];
       const at = gen ? null : this.handlerAt(k, cs);
-      c.visible = !!at && !(k === 'tackLine' && b.genDeploy < 0.3) && !(k === 'lazy' && !b.sailBy.jib);
+      c.visible = (this.player || this.hwNear) && !!at && !(k === 'tackLine' && b.genDeploy < 0.3) && !(k === 'lazy' && !b.sailBy.jib);
       if (!at) continue;
       const [p, from] = at;
       if (c !== this.ratchet) {
         c.position.copy(p);
         if (k === 'cunn' && !from) c.quaternion.setFromRotationMatrix(_m.makeBasis(_a.set(0, 0, -1), _b.set(1, 0, 0), _c.set(0, -1, 0)));   // on the mast: tail down
         else if (from) { const dx = p.x - from.x, dz = p.z - from.z; c.rotation.set(0, Math.atan2(dx, dz), 0); }
+        // (a fitting on a sloping face, the cockpit well's side or a cambered roof, stands square to it, not half sunk in it)
+        const n = this._onDeck.has(p) && this.seatNormal(p);
+        if (n && n.y < 0.9995) c.quaternion.premultiply(_q.setFromUnitVectors(_a.set(0, 1, 0), n));
       }
       const st = (b.lh && b.lh[k]) || { s: 'locked', t: 0 }, H = HANDLERS[lineSpecs(C0)[k].handler];
       const pr = st.s === 'locking' ? st.t / H.lockT : st.s === 'releasing' ? st.t / H.releaseT : 1;

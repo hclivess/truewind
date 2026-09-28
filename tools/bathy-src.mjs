@@ -1,5 +1,7 @@
 // Bathymetry sources for the bake tools (node): EMODnet Bathymetry DTM (WCS, GeoTIFF, 1/16' ≈ 115 m, depths to
-// LAT) and the NOAA NCEI DEM mosaic (CUDEM 1/9" on US coasts (NAVD88), ETOPO 2022 15" elsewhere (≈ MSL)).
+// LAT), the NOAA NCEI DEM mosaic (CUDEM 1/9" on US coasts (NAVD88), ETOPO 2022 15" elsewhere (≈ MSL)) and GMRT
+// (Lamont's Global Multi-Resolution Topography: GEBCO 2025's 15" grid under the multibeam surveys it holds, such as
+// AusSeabed's of Port Jackson; ≈ MSL).
 // sample(venue, box, dx) returns depth below MSL (dm, Int16) on a local grid (x east, z south) over box.
 import { fetchNCEI, gridFromLatLon } from '../js/bathy.js';
 import { makeProjection } from '../js/world.js';
@@ -7,16 +9,21 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-// per venue: source and the survey datum's offset to MSL (m to ADD to the source elevation)
+// per venue: source, the survey's datum, and res: the source's own cell (m), which says how far out from the shore
+// its cells straddle land and water (js/world.js setBathy lays a coastal profile over that band).
+// (Sydney, Auckland and Progreso read GMRT, not ETOPO 2022: against the charts ETOPO has land over most of Port
+// Jackson, and a false 15-25 m trough across the Progreso roads where SEMAR's sailing directions give 5.5-9 m with
+// no shoals; GMRT has 6-9 m there, and AusSeabed's multibeam survey of the harbour. In the Hauraki Gulf GMRT's
+// GEBCO has land over the upper Waitematā where ETOPO has its channel: GMRT's multibeam, ETOPO around it.)
 export const SOURCES = {
-  solent: { src: 'emodnet', datum: 'LAT', note: 'EMODnet Bathymetry DTM 2024 (UKHO surveys), LAT → MSL by the gauges\' LAT' },
-  kiel: { src: 'emodnet', datum: 'LAT', note: 'EMODnet Bathymetry DTM 2024 (BSH surveys); LAT ≈ MSL − 0.1 m in the tideless Baltic' },
-  marseille: { src: 'emodnet', datum: 'LAT', note: 'EMODnet Bathymetry DTM 2024 (SHOM surveys); LAT ≈ MSL − 0.2 m' },
-  sfbay: { src: 'ncei', datum: 'NAVD88', note: 'NOAA NCEI CUDEM 1/9" (ncei19_n38x00_w122x50_2022v1), NAVD88 → MSL by NOAA 9414290 datums' },
-  newport: { src: 'ncei', datum: 'NAVD88', note: 'NOAA NCEI CUDEM 1/9" (ncei19_n41x50_w071x50_2018v1) and CRM vol. 1, NAVD88 → MSL by NOAA 8452660 datums' },
-  sydney: { src: 'ncei', datum: 'MSL', note: 'ETOPO 2022 15" (NOAA NCEI; GEBCO / AusSeabed inputs), EGM2008 ≈ MSL' },
-  auckland: { src: 'ncei', datum: 'MSL', note: 'ETOPO 2022 15" (NOAA NCEI; GEBCO / NIWA inputs), EGM2008 ≈ MSL' },
-  progreso: { src: 'ncei', datum: 'MSL', note: 'ETOPO 2022 15" (NOAA NCEI; GEBCO inputs), EGM2008 ≈ MSL' },
+  solent: { src: 'emodnet', datum: 'LAT', res: 115, note: 'EMODnet Bathymetry DTM 2024 (UKHO surveys), LAT → MSL by the gauges\' LAT' },
+  kiel: { src: 'emodnet', datum: 'LAT', res: 115, note: 'EMODnet Bathymetry DTM 2024 (BSH surveys); LAT ≈ MSL − 0.1 m in the tideless Baltic' },
+  marseille: { src: 'emodnet', datum: 'LAT', res: 115, note: 'EMODnet Bathymetry DTM 2024 (SHOM surveys); LAT ≈ MSL − 0.2 m' },
+  sfbay: { src: 'ncei', datum: 'NAVD88', res: 10, note: 'NOAA NCEI CUDEM 1/9" (ncei19_n38x00_w122x50_2022v1), NAVD88 → MSL by NOAA 9414290 datums' },
+  newport: { src: 'ncei', datum: 'NAVD88', res: 10, note: 'NOAA NCEI CUDEM 1/9" (ncei19_n41x50_w071x50_2018v1) and CRM vol. 1, NAVD88 → MSL by NOAA 8452660 datums' },
+  sydney: { src: 'gmrt', datum: 'MSL', res: 61, note: 'GMRT 4.5 (AusSeabed multibeam of Port Jackson over GEBCO 2025), ≈ MSL' },
+  auckland: { src: 'gmrt', base: 'ncei', datum: 'MSL', res: 450, note: 'GMRT 4.5 multibeam where surveyed, ETOPO 2022 15" (NOAA NCEI; GEBCO / NIWA inputs) elsewhere, ≈ MSL' },
+  progreso: { src: 'gmrt', datum: 'MSL', res: 450, note: 'GMRT 4.5 (GEBCO 2025 15"), ≈ MSL' },
 };
 
 const CACHE = join(tmpdir(), 'truewind-bathy'); try { mkdirSync(CACHE, { recursive: true }); } catch (e) {}
@@ -92,6 +99,24 @@ async function ncei(bbox, px) {
   return { data: new Float32Array(buf.buffer, buf.byteOffset, w * h), w, h, bbox };
 }
 
+// GMRT GridServer: ESRI ASCII grid of elevation (m), north row first, pixel-is-area; its finest nodes are ~61 m.
+// layer 'topo-mask': only where GMRT has its own high-resolution surveys (none elsewhere)
+async function gmrt(bbox, layer = 'topo') {
+  const url = `https://www.gmrt.org/services/GridServer?minlongitude=${bbox[0]}&maxlongitude=${bbox[2]}&minlatitude=${bbox[1]}&maxlatitude=${bbox[3]}&format=esriascii&resolution=max&layer=${layer}`;
+  const buf = await cached((layer === 'topo' ? 'gmrt_' : 'gmrtmask_') + bbox.map(v => v.toFixed(4)).join('_') + '.asc', async () => {
+    const r = await fetch(url, { signal: AbortSignal.timeout(300000) }); if (!r.ok) throw new Error('GMRT ' + r.status);
+    return new Uint8Array(await r.arrayBuffer());
+  });
+  const L = new TextDecoder().decode(buf).split('\n'), H = {};
+  for (let i = 0; i < 6; i++) { const [k, v] = L[i].trim().split(/\s+/); H[k.toLowerCase()] = +v; }
+  const w = H.ncols, h = H.nrows, data = new Float32Array(w * h).fill(NaN);
+  for (let j = 0; j < h; j++) {
+    const row = (L[6 + j] || '').trim().split(/\s+/);
+    for (let i = 0; i < w; i++) { const q = +row[i]; if (Number.isFinite(q) && q !== H.nodata_value) data[j * w + i] = q; }
+  }
+  return { data, w, h, bbox: [H.xllcorner, H.yllcorner, H.xllcorner + w * H.cellsize, H.yllcorner + h * H.cellsize] };
+}
+
 // depth below MSL (dm) on grid g = { nx, nz, x0, z0, dx } (or per-axis centres xs, zs) for venue v.
 // z0At(x, z): MSL above LAT (m) where the source is referenced to LAT; navd: MSL − NAVD88 (m).
 export async function sample(v, g, { z0At = () => 0, navd = 0, px = 30 } = {}) {
@@ -100,19 +125,32 @@ export async function sample(v, g, { z0At = () => 0, navd = 0, px = 30 } = {}) {
   const xs = g.xs || Array.from({ length: g.nx }, (_, i) => g.x0 + (i + 0.5) * g.dx), zs = g.zs || Array.from({ length: g.nz }, (_, j) => g.z0 + (j + 0.5) * g.dx);
   const [la0] = P.inv(0, zs[zs.length - 1] + 400), [la1] = P.inv(0, zs[0] - 400), [, lo0] = P.inv(xs[0] - 400, 0), [, lo1] = P.inv(xs[xs.length - 1] + 400, 0);
   const bbox = [lo0, la0, lo1, la1];
-  const r = S.src === 'emodnet' ? await emodnet(bbox) : await ncei(bbox, px);
+  const get = (src) => src === 'emodnet' ? emodnet(bbox) : src === 'gmrt' ? gmrt(bbox) : src === 'gmrt-mask' ? gmrt(bbox, 'topo-mask') : ncei(bbox, px);
   const toMSL = S.datum === 'LAT' ? (x, z) => -z0At(x, z) : S.datum === 'NAVD88' ? () => -navd : () => 0;
+  // resample (bilinear on the source's pixel centres) onto the local grid: elevation (m, source datum), NaN: none
+  const resample = (r) => {
+    const E = new Float32Array(xs.length * zs.length);
+    const [lw, ls, le, ln] = r.bbox, rx = (le - lw) / r.w, ry = (ln - ls) / r.h;
+    for (let j = 0; j < zs.length; j++) for (let i = 0; i < xs.length; i++) {
+      const [lat, lon] = P.inv(xs[i], zs[j]);
+      let fx = (lon - lw) / rx - 0.5, fy = (ln - lat) / ry - 0.5;
+      fx = Math.max(0, Math.min(r.w - 1.001, fx)); fy = Math.max(0, Math.min(r.h - 1.001, fy));
+      const a = Math.floor(fx), b = Math.floor(fy), u = fx - a, w2 = fy - b, k = b * r.w + a, d = r.data;
+      let s = 0, ws = 0;
+      for (const [kk, wt] of [[k, (1 - u) * (1 - w2)], [k + 1, u * (1 - w2)], [k + r.w, (1 - u) * w2], [k + r.w + 1, u * w2]]) if (Number.isFinite(d[kk])) { s += d[kk] * wt; ws += wt; }
+      E[j * xs.length + i] = ws > 1e-6 ? s / ws : NaN;
+    }
+    return E;
+  };
+  const E = resample(await get(S.src));
+  // (a base source under the main one: GMRT's own multibeam where it has any, the base, ETOPO, elsewhere)
+  if (S.base) {
+    const M = resample(await get('gmrt-mask')), Eb = resample(await get(S.base));
+    for (let k = 0; k < E.length; k++) if (!Number.isFinite(M[k])) E[k] = Eb[k];
+  }
   const out = new Int16Array(xs.length * zs.length);
-  // resample (bilinear on the source's pixel centres) onto the local grid
-  const [lw, ls, le, ln] = r.bbox, rx = (le - lw) / r.w, ry = (ln - ls) / r.h;
   for (let j = 0; j < zs.length; j++) for (let i = 0; i < xs.length; i++) {
-    const [lat, lon] = P.inv(xs[i], zs[j]);
-    let fx = (lon - lw) / rx - 0.5, fy = (ln - lat) / ry - 0.5;
-    fx = Math.max(0, Math.min(r.w - 1.001, fx)); fy = Math.max(0, Math.min(r.h - 1.001, fy));
-    const a = Math.floor(fx), b = Math.floor(fy), u = fx - a, w2 = fy - b, k = b * r.w + a, d = r.data;
-    let s = 0, ws = 0;
-    for (const [kk, wt] of [[k, (1 - u) * (1 - w2)], [k + 1, u * (1 - w2)], [k + r.w, (1 - u) * w2], [k + r.w + 1, u * w2]]) if (Number.isFinite(d[kk])) { s += d[kk] * wt; ws += wt; }
-    const e = ws > 1e-6 ? s / ws + toMSL(xs[i], zs[j]) : NaN;
+    const e = E[j * xs.length + i] + toMSL(xs[i], zs[j]);
     out[j * xs.length + i] = Number.isFinite(e) ? Math.max(-32000, Math.min(32000, Math.round(-e * 10))) : -32768;
   }
   // holes (no data): nearest valid neighbour, grown outward
@@ -126,7 +164,7 @@ export async function sample(v, g, { z0At = () => 0, navd = 0, px = 30 } = {}) {
     }
     if (!left) break;
   }
-  return { data: out, source: S.note };
+  return { data: out, source: S.note, res: S.res };
 }
 
 // gauge-based chart datum field: inverse-distance blend of the gauges' LAT below MSL

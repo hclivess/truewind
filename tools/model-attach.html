@@ -1,0 +1,344 @@
+<!doctype html>
+<!-- Model attachment check (and a model viewer for screenshots). Builds every class's boat model as the game does
+     (js/models.js or js/boats/detailed.js, the running rigging and its hardware from js/rigging.js, the engine from
+     js/engine-model.js), samples every part's surface and joins parts that touch (within TOL); every part not joined,
+     through others, to the hull and deck is reported as floating, with its gap to the nearest other part. Deck fittings
+     are also checked for sinking: a fitting's footprint must not lie under the deck / cabin surface.
+     Run: node tools/model-attach.mjs [class ...]  (serves nothing itself: it expects the repo on http://127.0.0.1:PORT)
+     In a browser: tools/model-attach.html?cls=blackwatch  (the report on the page)
+     Viewer: tools/model-attach.html?view=blackwatch&yaw=0.8&pitch=0.3&dist=9&tx=0&ty=1&tz=0 -->
+<html><head><meta charset="utf-8"><title>Model attachment check</title>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }</script>
+<style>body { margin: 0; background: #9fb4c4; font: 13px monospace; } pre { margin: 8px; white-space: pre-wrap; } canvas { display: block; }</style>
+</head><body><pre id="out">running...</pre>
+<script type="module">
+import * as THREE from 'three';
+import { Boat, CLASSES, CLASS_ORDER, makeSteadyEnv, autoTrim } from '../js/physics.js';
+import { buildBoatModel, updateBoatModel, Kit } from '../js/models.js';
+import '../js/boats/detailed.js';
+import { Rigging } from '../js/rigging.js';
+import { buildEngineModel, updateEngineModel } from '../js/engine-model.js';
+import '../js/sail/sailsim.js';
+
+const TOL = 0.012;          // parts closer than this touch (sampled surfaces: ~1 cm gap)
+const H = 0.01;             // surface sampling step
+const q = new URLSearchParams(location.search);
+const out = document.getElementById('out');
+
+// every geometry a Kit merges, recorded as it is added (with the line of the model code that made it)
+const rec = [];
+let recording = false;
+const kitAdd = Kit.prototype.add, kitBuild = Kit.prototype.build;
+Kit.prototype.add = function (material, geom, matrix) {
+  const r = kitAdd.call(this, material, geom, matrix);
+  if (recording) {
+    const site = (new Error().stack.split('\n').slice(2).find(l => !/Kit\.(rod|box)|at (rod|box) /.test(l) && /\/js\//.test(l)) || '').replace(/^.*\/js\//, 'js/').replace(/\)$/, '');
+    rec.push({ kit: this, geom: geom.clone(), material, site });
+  }
+  return r;
+};
+Kit.prototype.build = function (parent, cast) {
+  const n0 = parent.children.length;
+  kitBuild.call(this, parent, cast);
+  for (const c of parent.children.slice(n0)) c.userData.__kit = true;
+};
+
+// (o.ai: a fleet boat as the game draws one far off: strip-model sails, no line handlers)
+function makeBoat(id, o = {}) {
+  const b = new Boat(id, o.ai ? { id: 3, name: 'AI', sailModel: 'strip', lod: 2 } : o.cloth ? { id: 0, name: 'QA', sailModel: 'cloth', lod: 0 } : { id: 0, name: 'QA' });
+  const env = makeSteadyEnv(o.tws ?? 5);
+  b.reset(0, 0, o.heading ?? 0.8);
+  for (let i = 0; i < (o.steps ?? 90); i++) { autoTrim(b, 1 / 60); b.step(1 / 60, env, i / 60); b.x = 0; b.z = 0; }
+  rec.length = 0; recording = true;
+  const vis = buildBoatModel(b, { player: !o.ai, name: o.ai ? 'Fleet' : 'Quality', number: o.ai ? '23' : '7' });
+  vis.rigging = new Rigging(b, vis, { player: !o.ai, hardware: true });     // (as js/render.js addBoat: a fleet boat's line hardware too)
+  vis.player = !o.ai;
+  vis.engineVis = buildEngineModel(b, vis);
+  recording = false;
+  vis.root.updateMatrixWorld(true);
+  updateBoatModel(vis, b, 1.5);
+  if (vis.engineVis) updateEngineModel(vis, b, 1.5, 1 / 60);
+  vis.rigging.update(1.5, true, 1 / 60, env);
+  vis.root.position.set(0, 0, 0); vis.root.rotation.set(0, 0, 0); vis.inner.position.set(0, 0, 0); vis.inner.rotation.set(0, 0, 0);
+  vis.root.updateMatrixWorld(true);
+  return { b, vis, env };
+}
+
+// ------------------------------------------------------------------ parts
+function collectParts(b, vis) {
+  const parts = [], inner = vis.inner, invInner = inner.matrixWorld.clone().invert();
+  const R = vis.rigging, skip = new Set();
+  for (const m of Object.values(vis.sailMeshes || {})) m.traverse(o => skip.add(o));
+  for (const r of R.ropes) { skip.add(r.mesh); skip.add(r.outline); }
+  if (vis.telltales) skip.add(vis.telltales);
+  // names for the separate hardware
+  const names = new Map();
+  const nm = (o, n) => { if (o) o.traverse(c => { if (!names.has(c)) names.set(c, n); }); };
+  for (const [k, c] of Object.entries(R.cleats || {})) nm(c, `handler ${k} (${c.userData.kind || ''})`);
+  nm(R.halHorn, 'main halyard horn cleat (mast)'); nm(R.genCam, 'gennaker halyard cam (mast)');
+  (R.winches || []).forEach((w, i) => nm(w, w === R.cabinWinch ? 'cabin-top winch' : 'primary winch ' + (w.userData.side > 0 ? 'stbd' : 'port')));
+  nm(R.car, 'traveller car'); (R.jibCars || []).forEach((c, i) => nm(c, 'jib car ' + i)); (R.genBlocks || []).forEach((c, i) => nm(c, 'gennaker block ' + i));
+  nm(R.boomBlock, 'boom block'); nm(R.stayBlock, 'staysail block'); nm(R.mizzenBlock, 'mizzen block'); nm(R.ratchet, 'ratchet block'); nm(R.midBlock, 'mid-boom block');
+  nm(vis.rudderPivot, 'rudder / tiller'); nm(vis.keelMesh, 'keel / board'); nm(vis.boardPivot, 'board'); nm(vis.sprit, 'bowsprit');
+  nm(vis.windex, 'windex'); nm(vis.mast, 'mast'); nm(vis.extension, 'tiller extension'); nm(vis.wheel, 'wheel'); (vis.wheels || []).forEach(w => nm(w, 'wheel'));
+  for (const [k, bm] of Object.entries(vis.booms || {})) nm(bm, 'boom ' + k);
+  if (vis.engineVis) for (const v of Object.values(vis.engineVis)) if (v && v.isObject3D) nm(v, 'engine');
+  if (vis.standing) nm(vis.standing.g || vis.standing.group, 'standing rig');
+  const roots = new Set([vis.hull, vis.deck]);
+  inner.traverse(o => { if (o.isMesh && o.geometry.attributes.sheerZ) roots.add(o); });
+  inner.traverse(o => {
+    if (!o.isMesh || skip.has(o) || o.userData.__kit) return;
+    let v = true; for (let p = o; p; p = p.parent) if (!p.visible) v = false;
+    if (!v) return;
+    const g = o.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(invInner, o.matrixWorld));
+    let name = names.get(o);
+    if (!name) { let p = o.parent; while (p && p !== inner && !names.get(p)) p = p.parent; name = (p && names.get(p)) || (roots.has(o) ? (o === vis.deck ? 'deck' : 'hull') : 'mesh ' + (o.name || o.geometry.type)); }
+    // (moving parts and the hardware placed each frame: each must touch the fixed structure, or the boom, rudder,
+    // board, sprit or engine that carries it; nothing fixed may hang on one)
+    const dyn = /^(handler|boom|rudder|tiller|keel|board|bowsprit|wheel|engine|traveller car|jib car|gennaker block|.*block)/.test(name);
+    const carrier = /^(boom|rudder|keel|board|bowsprit|engine|wheel|traveller car|jib car)/.test(name);
+    parts.push({ name, geom: g, root: roots.has(o), obj: o, dyn, carrier });
+  });
+  // the kit-merged parts (their own frame: the kit built into inner, or into the rig group, which sits in inner)
+  for (const r of rec) {
+    const g = r.geom;
+    parts.push({ name: 'kit ' + (r.material.name || '#' + (r.material.color ? r.material.color.getHexString() : '')) + ' @ ' + r.site, geom: g, root: false, site: r.site });
+  }
+  return parts;
+}
+
+// points spread over a geometry's triangles, spacing ~H (a thin triangle is sampled along its length, not in a square grid)
+// (near(box): whether any other part comes within reach of a triangle's box: only those triangles are sampled, which
+// keeps a hull's acres of topsides out of it)
+function samplePts(g, near = null) {
+  const p = g.attributes.position, idx = g.index ? g.index.array : null, n = idx ? idx.length : p.count;
+  const pts = [], A = new THREE.Vector3(), B = new THREE.Vector3(), Cc = new THREE.Vector3(), t = new THREE.Vector3(), bx = new THREE.Box3();
+  for (let i = 0; i + 2 < n; i += 3) {
+    A.fromBufferAttribute(p, idx ? idx[i] : i); B.fromBufferAttribute(p, idx ? idx[i + 1] : i + 1); Cc.fromBufferAttribute(p, idx ? idx[i + 2] : i + 2);
+    if (near && !near(bx.setFromPoints([A, B, Cc]))) continue;
+    // shortest edge BC: fans from A to points along BC
+    const e = [[A, B, Cc], [B, Cc, A], [Cc, A, B]].sort((u, v) => u[1].distanceToSquared(u[2]) - v[1].distanceToSquared(v[2]))[0];
+    const [a, b, c] = e, m = Math.min(40, Math.ceil(b.distanceTo(c) / H)), k = Math.min(1500, Math.ceil(Math.max(a.distanceTo(b), a.distanceTo(c)) / H));
+    for (let j = 0; j <= m; j++) {
+      const f = j / m; t.copy(b).lerp(c, f);
+      for (let l = 0; l <= k; l++) { const u = l / k; pts.push(a.x + (t.x - a.x) * u, a.y + (t.y - a.y) * u, a.z + (t.z - a.z) * u); }
+    }
+  }
+  return pts;
+}
+
+function analyse(id) {
+  const t0 = performance.now();
+  const { b, vis } = makeBoat(id);
+  const parts = collectParts(b, vis);
+  // sample every part, hash its points by cell (TOL): per cell, per part, the points
+  const cell = TOL, K = 8192, key = (x, y, z) => ((Math.floor(x / cell) + 4096) * K + (Math.floor(y / cell) + 4096)) * K + (Math.floor(z / cell) + 4096);
+  const grid = new Map();
+  // every part's box, grown by REACH, on a coarse grid: a triangle is sampled only where another part's box reaches it
+  const REACH = 0.12, BC = 0.5, boxes = new Map(), bk = (x, y, z) => ((x + 512) * 1024 + (y + 512)) * 1024 + (z + 512);
+  parts.forEach((pt, i) => {
+    pt.geom.computeBoundingBox(); const b = pt.box = pt.geom.boundingBox.clone().expandByScalar(REACH);
+    for (let x = Math.floor(b.min.x / BC); x <= Math.floor(b.max.x / BC); x++) for (let y = Math.floor(b.min.y / BC); y <= Math.floor(b.max.y / BC); y++) for (let z = Math.floor(b.min.z / BC); z <= Math.floor(b.max.z / BC); z++) {
+      const k = bk(x, y, z); let a = boxes.get(k); if (!a) boxes.set(k, a = []); a.push(i);
+    }
+  });
+  const nearOf = (i) => (tb) => {
+    for (let x = Math.floor(tb.min.x / BC); x <= Math.floor(tb.max.x / BC); x++) for (let y = Math.floor(tb.min.y / BC); y <= Math.floor(tb.max.y / BC); y++) for (let z = Math.floor(tb.min.z / BC); z <= Math.floor(tb.max.z / BC); z++) {
+      const a = boxes.get(bk(x, y, z)); if (a) for (const j of a) if (j !== i && parts[j].box.intersectsBox(tb)) return true;
+    }
+    return false;
+  };
+  parts.forEach((pt, i) => {
+    const s = samplePts(pt.geom, nearOf(i)); pt.n = s.length / 3; pt.pts = s;
+    for (let j = 0; j < s.length; j += 3) {
+      const k = key(s[j], s[j + 1], s[j + 2]); let c = grid.get(k); if (!c) grid.set(k, c = []);
+      c.push(i, s[j], s[j + 1], s[j + 2]);
+    }
+  });
+  // pairs of parts with points within TOL (the same or a neighbouring cell)
+  const T2 = TOL * TOL, NP = parts.length, pairs = new Set();
+  for (const [k, c] of grid) {
+    const z = k % K, y = Math.floor(k / K) % K, x = Math.floor(k / K / K);
+    for (let dx = 0; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+      if (dx === 0 && (dy < 0 || (dy === 0 && dz < 0))) continue;
+      const nb = dx || dy || dz ? grid.get(((x + dx) * K + (y + dy)) * K + (z + dz)) : c; if (!nb) continue;
+      for (let u = 0; u < c.length; u += 4) for (let v = 0; v < nb.length; v += 4) {
+        const i = c[u], j = nb[v]; if (i === j) continue;
+        const pk = i < j ? i * NP + j : j * NP + i; if (pairs.has(pk)) continue;
+        const ex = c[u + 1] - nb[v + 1], ey = c[u + 2] - nb[v + 2], ez = c[u + 3] - nb[v + 3];
+        if (ex * ex + ey * ey + ez * ez <= T2) pairs.add(pk);
+      }
+    }
+  }
+  // 1. the fixed parts among themselves; 2. the moving ones onto them (or onto what carries them)
+  const par = parts.map((_, i) => i), find = (i) => { while (par[i] !== i) i = par[i] = par[par[i]]; return i; };
+  const uni = (i, j) => { i = find(i); j = find(j); if (i !== j) par[i] = j; };
+  const rootIdx = parts.findIndex(p => p.root);
+  parts.forEach((p, i) => { if (p.root) uni(i, rootIdx); });
+  for (const pk of pairs) { const i = Math.floor(pk / NP), j = pk % NP; if (!parts[i].dyn && !parts[j].dyn) uni(i, j); }
+  const R1 = find(rootIdx), comps = new Map();
+  parts.forEach((p, i) => { if (p.dyn) return; const r = find(i); if (r === R1) return; if (!comps.has(r)) comps.set(r, []); comps.get(r).push(i); });
+  for (const pk of pairs) {
+    const i = Math.floor(pk / NP), j = pk % NP, a = parts[i], b = parts[j];
+    if (a.dyn !== b.dyn || a.name === b.name || a.carrier || b.carrier) uni(i, j);
+  }
+  const R2 = find(rootIdx), comps2 = new Map();
+  parts.forEach((p, i) => { if (!p.dyn) return; const r = find(i); if (r === R2) return; if (!comps2.has(r)) comps2.set(r, []); comps2.get(r).push(i); });
+  for (const [r, l] of comps2) comps.set('d' + r, l);
+  const inComp = new Map(); for (const [r, l] of comps) for (const i of l) inComp.set(i, r);
+  // gaps: the nearest point of any other component, out to ~12 cm (a coarse 5 cm grid; the parts are sampled only that far from each other)
+  const CG = 0.05, cg = new Map(), ck = (x, y, z) => ((x + 4096) * K + (y + 4096)) * K + (z + 4096);
+  if (comps.size) parts.forEach((pt, i) => {
+    const s = pt.pts, st = Math.max(1, Math.floor(pt.n / 20000)) * 3;
+    for (let j = 0; j < s.length; j += st) { const k = ck(Math.floor(s[j] / CG), Math.floor(s[j + 1] / CG), Math.floor(s[j + 2] / CG)); let a = cg.get(k); if (!a) cg.set(k, a = []); a.push(i, s[j], s[j + 1], s[j + 2]); }
+  });
+  const report = [];
+  for (const [r, list] of comps) {
+    let best = Infinity, near = null;
+    const cand = [];
+    let npts = 0; for (const i of list) npts += parts[i].n;
+    const stride = Math.max(1, Math.floor(npts / 1500));
+    for (const i of list) { const s = parts[i].pts; for (let j = 0; j < s.length; j += 3 * stride) cand.push(s[j], s[j + 1], s[j + 2]); }
+    for (let j = 0; j < cand.length; j += 3) {
+      const cx = Math.floor(cand[j] / CG), cy = Math.floor(cand[j + 1] / CG), cz = Math.floor(cand[j + 2] / CG);
+      for (let rad = 0; rad <= 3 && (rad - 1) * CG < best; rad++) {
+        for (let dx = -rad; dx <= rad; dx++) for (let dy = -rad; dy <= rad; dy++) for (let dz = -rad; dz <= rad; dz++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz)) !== rad) continue;
+          const a = cg.get(ck(cx + dx, cy + dy, cz + dz)); if (!a) continue;
+          for (let m = 0; m < a.length; m += 4) if (inComp.get(a[m]) !== r && !parts[a[m]].dyn) {
+            const d = Math.hypot(a[m + 1] - cand[j], a[m + 2] - cand[j + 1], a[m + 3] - cand[j + 2]); if (d < best) { best = d; near = a[m]; }
+          }
+        }
+      }
+    }
+    const bb = new THREE.Box3(); for (const i of list) { parts[i].geom.computeBoundingBox(); bb.union(parts[i].geom.boundingBox); }
+    const c = bb.getCenter(new THREE.Vector3());
+    report.push({ parts: [...new Set(list.map(i => parts[i].name))], gap: best, near: near !== null ? parts[near].name : '-', at: [-c.z, c.x, c.y].map(v => +v.toFixed(2)) });
+  }
+  report.sort((a, b) => a.gap - b.gap);
+  // buried: a part whose every vertex is inside the hull (a ray up from each crosses the hull and deck an odd number
+  // of times) is sunk out of sight below the deck or into the topsides
+  // (inside: odd crossings up, aft and to starboard alike; up alone counts a point just aft of a raked transom, or on
+  // the rising side of the cockpit well, as inside)
+  const rc = new THREE.Raycaster(), rootObjs = parts.filter(p => p.root).map(p => p.obj), buried = [];
+  const dirs = [new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0)];
+  const inside = (o) => dirs.every((d) => {
+    rc.set(o, d); rc.far = 40;
+    const hits = rc.intersectObjects(rootObjs, false);
+    // (a hit pair closer than 1 mm is one surface met at a seam)
+    let n = 0, last = -1; for (const h of hits) { if (h.distance - last > 0.001) n++; last = h.distance; }
+    return n % 2 === 1;
+  });
+  // (an outboard in a well through the hull, and a prop in a full keel's aperture, which the hull does not open: inside
+  // by design)
+  const well = b.engine && (b.engine.spec.transom === false || (b.cls.keel.long && b.engine.spec.type === 'inboard'));
+  parts.forEach((pt) => {
+    // (a rudder's stock and a raised board are inside the hull by design)
+    if (pt.root || (well && pt.name === 'engine') || /^(rudder|keel|board)/.test(pt.name)) return;
+    // (its vertices and its triangles' centres: a long rod's vertices are all at its two ends)
+    const pa = pt.geom.attributes.position, ix = pt.geom.index ? pt.geom.index.array : null, nt = (ix ? ix.length : pa.count) / 3;
+    const probe = [], a = new THREE.Vector3(), b2 = new THREE.Vector3(), c = new THREE.Vector3();
+    for (let i = 0; i < pa.count; i += Math.max(1, Math.floor(pa.count / 24))) probe.push(new THREE.Vector3().fromBufferAttribute(pa, i));
+    for (let t = 0; t < nt; t += Math.max(1, Math.floor(nt / 24))) { const v = (j) => ix ? ix[3 * t + j] : 3 * t + j; a.fromBufferAttribute(pa, v(0)); b2.fromBufferAttribute(pa, v(1)); c.fromBufferAttribute(pa, v(2)); probe.push(a.clone().add(b2).add(c).multiplyScalar(1 / 3)); }
+    const o = new THREE.Vector3();
+    let all = true;
+    for (const q of probe) { if (!all) break; all = inside(o.copy(q)); }
+    if (all) { pt.geom.computeBoundingBox(); const c = pt.geom.boundingBox.getCenter(o); buried.push({ name: pt.name, at: [-c.z, c.x, c.y].map(v => +v.toFixed(2)) }); }
+  });
+  return { id, parts: parts.length, ms: Math.round(performance.now() - t0), floating: report, buried };
+}
+
+// ------------------------------------------------------------------ viewer
+function view(id) {
+  const W = +(q.get('w') || 960), Hh = +(q.get('h') || 600);
+  const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); r.setSize(W, Hh); r.setPixelRatio(1);
+  r.shadowMap.enabled = true; r.toneMapping = THREE.ACESFilmicToneMapping;
+  document.body.innerHTML = ''; document.body.appendChild(r.domElement);
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x9fb4c4);
+  const { b, vis } = makeBoat(id);
+  scene.add(vis.root);
+  scene.add(new THREE.HemisphereLight(0xdfeaf5, 0x4a5560, 1.6));
+  const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(8, 14, 6); sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 0.5, far: 60 }); scene.add(sun);
+  const cam = new THREE.PerspectiveCamera(+(q.get('fov') || 35), W / Hh, 0.02, 400);
+  // one view (yaw, pitch, dist, tx, ty, tz, sails) or several: views=name:yaw,pitch,dist,tx,tz,sails;... (dist, tx, tz in
+  // boat lengths), each kept as a PNG data URL in window.__shots
+  const L = b.cls.bowX - b.cls.sternX, shoot = (yaw, pitch, dist, tx, ty, tz, sails) => {
+    for (const m of Object.values(vis.sailMeshes)) m.visible = sails;
+    const tgt = new THREE.Vector3(ty, tz, -tx);   // physics x fwd, y stbd, z up
+    cam.position.set(tgt.x + dist * Math.cos(pitch) * Math.sin(yaw), tgt.y + dist * Math.sin(pitch), tgt.z + dist * Math.cos(pitch) * Math.cos(yaw));
+    cam.lookAt(tgt);
+    r.render(scene, cam);
+  };
+  updateBoatModel(vis, b, 1.5);
+  vis.root.position.set(0, 0, 0); vis.root.rotation.set(0, 0, 0); vis.inner.rotation.set(0, 0, 0);
+  if (q.get('views')) {
+    window.__shots = {};
+    for (const v of q.get('views').split(';')) {
+      const [name, a] = v.split(':'), [yaw, pitch, dk, tx, tz, sl] = a.split(',').map(Number);
+      shoot(yaw, pitch, dk * L, tx * L, 0, tz * L, sl !== 0);
+      window.__shots[name] = r.domElement.toDataURL('image/png');
+    }
+  } else shoot(+(q.get('yaw') || 0.8), +(q.get('pitch') || 0.3), +(q.get('dist') || 10), +(q.get('tx') || 0), +(q.get('ty') || 0), +(q.get('tz') || 1), q.get('sails') !== '0');
+  window.__done = true;
+}
+
+// a player's boat (cloth sails) and a fleet boat (strip sails) of the same class side by side, ~30 m off
+function pair(id) {
+  const W = +(q.get('w') || 960), Hh = +(q.get('h') || 600);
+  const r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(W, Hh); r.setPixelRatio(1);
+  r.shadowMap.enabled = true; r.toneMapping = THREE.ACESFilmicToneMapping;
+  document.body.innerHTML = ''; document.body.appendChild(r.domElement);
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x9fb4c4);
+  const hd = +(q.get('heading') || 1.7), A = makeBoat(id, { cloth: true, steps: 360, tws: 6, heading: hd }), B = makeBoat(id, { ai: true, steps: 360, tws: 6, heading: hd });
+  const L = A.b.cls.bowX - A.b.cls.sternX, gap = Math.max(4, L * 1.25);
+  A.vis.root.position.z = gap / 2; B.vis.root.position.z = -gap / 2;          // (the player's astern, left in the picture)
+  for (const v of [A.vis, B.vis]) { v.root.rotation.y = 0; scene.add(v.root); }
+  scene.add(new THREE.HemisphereLight(0xdfeaf5, 0x4a5560, 1.6));
+  const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(8, 14, 6); sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -20, right: 20, top: 20, bottom: -20, near: 0.5, far: 80 }); scene.add(sun);
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ color: 0x2c4a5c, roughness: 0.4 })); sea.rotation.x = -Math.PI / 2; sea.receiveShadow = true; scene.add(sea);
+  const cam = new THREE.PerspectiveCamera(+(q.get('fov') || 35), W / Hh, 0.1, 800);
+  const dist = +(q.get('dist') || 30), yaw = +(q.get('yaw') || 2.3), mh = A.b.cls.mastHeight;
+  cam.position.set(dist * Math.sin(yaw), 2 + mh * 0.1, dist * Math.cos(yaw)); cam.lookAt(0, mh * 0.35, 0);
+  r.render(scene, cam);
+  window.__done = true;
+}
+
+// a fleet's per-frame cost: n fleet boats (strip sails) round a player, all near the camera (the worst case: every
+// boat's line hardware drawn) or with it hidden (hw=0): the models' and rigging's update time a frame and draw calls
+function fleet(id, n, hw) {
+  const r = new THREE.WebGLRenderer({ antialias: false }); r.setSize(320, 200);
+  const scene = new THREE.Scene(), env = makeSteadyEnv(5), all = [];
+  for (let i = 0; i <= n; i++) {
+    const o = i ? { ai: true, steps: 30 } : { steps: 30 }, B = makeBoat(id, o);
+    B.vis.root.position.set((i % 6) * 12, 0, Math.floor(i / 6) * 14); scene.add(B.vis.root); all.push(B);
+  }
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 2));
+  const cam = new THREE.PerspectiveCamera(50, 1.6, 0.1, 500); cam.position.set(30, 25, 90); cam.lookAt(30, 0, 30);
+  const frame = (t) => { for (const B of all) { B.b.step(1 / 60, env, t); updateBoatModel(B.vis, B.b, t); B.vis.rigging.hwNear = hw; B.vis.rigging.update(t, true, 1 / 60, env); } };
+  for (let f = 0; f < 10; f++) frame(2 + f / 60);
+  const t0 = performance.now(); for (let f = 0; f < 60; f++) frame(3 + f / 60); const ms = (performance.now() - t0) / 60;
+  r.render(scene, cam);
+  let meshes = 0; scene.traverse((o) => { if (o.isMesh && o.visible) meshes++; });
+  return { n, hw, msPerFrame: +ms.toFixed(2), drawCalls: r.info.render.calls, visibleMeshes: meshes };
+}
+window.__fleet = fleet;
+window.__analyse = analyse;
+window.__classes = CLASS_ORDER;
+if (q.get('view')) view(q.get('view'));
+else if (q.get('pair')) pair(q.get('pair'));
+else if (q.get('cls') !== null) {
+  const ids = q.get('cls') ? q.get('cls').split(',') : CLASS_ORDER;
+  const lines = [];
+  for (const id of ids) {
+    const r = analyse(id);
+    lines.push(`${id}: ${r.parts} parts, ${r.floating.length} floating, ${r.buried.length} buried (${r.ms} ms)`);
+    for (const f of r.floating) lines.push(`   gap ${(f.gap * 100).toFixed(1)} cm at [${f.at}] near ${f.near}: ${f.parts.join(' | ')}`);
+    for (const f of r.buried) lines.push(`   buried at [${f.at}]: ${f.name}`);
+  }
+  out.textContent = lines.join('\n');
+  window.__done = true;
+} else { out.textContent = 'ready'; window.__ready = true; }
+</script>
+</body></html>

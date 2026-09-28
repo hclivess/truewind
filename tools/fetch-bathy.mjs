@@ -20,7 +20,7 @@ for (const v of VENUES) {
   const r = await sample(v, g, { z0At: z0Field(gauges), navd: ref ? ref.navd : 0, px: 25 });
   const d = r.data;
   let wet = 0, mx = 0; for (let k = 0; k < d.length; k++) if (d[k] > 0) { wet++; mx = Math.max(mx, d[k]); }
-  const h = { ...g, source: r.source, datum: 'MSL', fetched: new Date().toISOString().slice(0, 10) };
+  const h = { ...g, source: r.source, datum: 'MSL', res: r.res, fetched: new Date().toISOString().slice(0, 10) };
   const buf = encodeBathy(h, d);
   writeFileSync(`data/venues/${v.id}.bathy.bin`, buf);
   console.log(v.id, `${n}x${n} @ ${g.dx.toFixed(0)} m, ${(100 * wet / d.length).toFixed(0)}% below MSL, deepest ${(mx / 10).toFixed(1)} m, ${(buf.length / 1024).toFixed(0)} KB, ${((Date.now() - t0) / 1000).toFixed(0)} s`);
