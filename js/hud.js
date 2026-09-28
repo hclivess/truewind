@@ -4,7 +4,7 @@ import { DEG, KT } from './env.js';
 import { polarSpeedAt, vmgTargets, clamp, wrap, REEF } from './physics.js';
 import { drawTrafficMap } from './traffic.js';
 import { RULE_SHORT } from './rules.js';
-import { lineStatus, ropeLook, ropeKey, lineName, HANDLERS, specOf, lineSpecs } from './linehandlers.js';
+import { lineStatus, ropeLook, ropeKey, lineName, HANDLERS, specOf, lineSpecs, lineLoad, handLoad, tackleOf } from './linehandlers.js';
 import { ropeCSS } from './linegear.js';
 
 // a small drawing of each kind of line handler for the panel (16 x 12, in the text colour)
@@ -90,10 +90,12 @@ export class HUD {
     if (S.main.brake) rows.push(['brake', 'Boom brake', { css: '#c9a227' }]);
     rows.push(['hike', 'Weight on rail', { css: '#d33f49' }]);
     let h = `<div class="rg"><h3>Sails ${''}</h3>`;
-    h += `<div class="sl2"><span>Main</span>${tt('main')}</div>`;
-    if (S.stay) h += `<div class="sl2"><span>${stayName}</span>${tt('stay')}</div>`;
+    // (each sail's shape under its telltales, live: what the strings are doing to it)
+    const shp = (key) => `<div class="shape" id="sh-${key}"></div>`;
+    h += `<div class="sl2"><span>Main</span>${tt('main')}</div>${shp('main')}`;
+    if (S.stay) h += `<div class="sl2"><span>${stayName}</span>${tt('stay')}</div>${shp('stay')}`;
     if (S.mizzen) h += `<div class="sl2"><span>Mizzen</span>${tt('mizzen')}</div>`;
-    if (S.jib) h += `<div class="sl2"><span id="hs-name">${S.jib.label ?? 'Jib'}</span>${tt('jib')}</div>`;
+    if (S.jib) h += `<div class="sl2"><span id="hs-name">${S.jib.label ?? 'Jib'}</span>${tt('jib')}</div>${shp('jib')}`;
     if (S.gennaker) h += `<div class="sl2"><span>${genName}</span>${tt('gennaker')}</div>`;
     h += `</div><div class="rg"><h3>Lines <span class="muted" style="font-weight:500;letter-spacing:.02em;text-transform:none">or grab them on deck (7)</span></h3><div class="lines">`;
     // every control is here as press-and-hold buttons, and on deck as the real line / car / winch
@@ -107,7 +109,7 @@ export class HUD {
     const ADV = new Set(['vang', 'cunn', 'outhaul', 'backstay', 'lazy', 'jibLead', 'jibHalyard', 'tackLine', 'brake']);
     // (with its purchase: the tackle between the load and the hand)
     const LS = lineSpecs(C), pr = (k) => (lockable.has(k) && LS[k] && LS[k].n > 1 ? ` <em class="pr">${LS[k].n}:1</em>` : '');
-    h += rows.map(([k, label, col]) => `<div class="ln${ADV.has(k) ? ' adv' : ''}" data-k="${k}"><i style="background:${col.css}"></i><span${col.tint ? ` class="rl" style="--rc:${col.tint}"` : ''}>${label}${pr(k)}</span><b id="o-${k}"></b>${lk(k)}${btns(k)}</div>`).join('');
+    h += rows.map(([k, label, col]) => `<div class="ln${ADV.has(k) ? ' adv' : ''}" data-k="${k}"><i style="background:${col.css}"></i><span${col.tint ? ` class="rl" style="--rc:${col.tint}"` : ''}>${label}${pr(k)}</span><b id="o-${k}"></b>${lk(k)}${btns(k)}<span class="bar" id="bar-${k}"${col.tint ? ` style="--rc:${col.tint}"` : ''}></span></div>`).join('');
     h += `<div class="ln"><i style="background:#8a5a2b"></i><span>Helm</span><b id="o-helm"></b><span class="lk-sp"></span><span class="nb"><button class="nbtn" data-k="helm" data-d="-1">Port</button><button class="nbtn" data-k="helm" data-d="1">Stbd</button></span></div>`;
     h += `</div><div class="toggles acts">`;
     if (S.main.reefs) h += `<span class="muted small">Reef</span>` + [0, 1, 2].slice(0, S.main.reefs + 1).map(r => `<button class="chip" data-reef="${r}">${['Full', '1st', '2nd'][r]}</button>`).join('') + `<b id="o-reef" class="small"></b>`;
@@ -150,6 +152,25 @@ export class HUD {
     const t = $('#toast'); t.textContent = msg; t.classList.add('show');
     clearTimeout(this._tt); this._tt = setTimeout(() => t.classList.remove('show'), secs * 1000);
   }
+  // the crew / coach line: what the automatic crew (js/crew.js) or the coach did and why, one line at a time. Messages
+  // are paced (each shown at least 1.6 s, gone after 4.5 s) and merged (a newer one about the same thing — key —
+  // replaces one still waiting). kind: 'crew' | 'coach' | 'warn'
+  crew(msg, kind = 'crew', key = msg) {
+    const q = this._crewQ || (this._crewQ = []);
+    const i = q.findIndex((m) => m.key === key); if (i >= 0) q.splice(i, 1);
+    if (this._crewNow && this._crewNow.key === key && this._crewNow.msg === msg) return;
+    q.push({ msg, kind, key }); while (q.length > 3) q.shift();
+    this.pumpCrew();
+  }
+  pumpCrew() {
+    const el = document.getElementById('crew'); if (!el) return;
+    const now = performance.now(), q = this._crewQ || [];
+    if (q.length && !(now < (this._crewMin || 0))) {
+      const m = q.shift(); this._crewNow = m;
+      el.innerHTML = `<b>${m.kind === 'coach' ? 'Coach' : m.kind === 'warn' ? 'Watch' : 'Crew'}</b><span>${esc(m.msg)}</span>`;
+      el.className = 'show ' + m.kind; this._crewMin = now + 1600; this._crewHide = now + 4500;
+    } else if (this._crewNow && now > (this._crewHide || 0)) { el.classList.remove('show'); this._crewNow = null; }
+  }
   alert(msg, bad = false) {
     const a = $('#alert');
     if (!msg) { a.classList.remove('show'); this._alertMsg = null; return; }
@@ -164,6 +185,8 @@ export class HUD {
     this.acc += dt; this.mapAcc += dt;
     if (this.mapAcc > 1 / 20) { this.mapAcc = 0; this.drawMap(); }
     this.drawRules();
+    this.pumpCrew();
+    this.updateWork(b, dt);
     if (this.acc < 0.1) return;
     this.acc = 0;
     const d = b.diag, C = b.cls;
@@ -309,25 +332,46 @@ export class HUD {
     k.style.animation = 'none'; void k.offsetWidth; k.style.animation = '';
   }
 
+  // a line's setting as the panel shows it: text, and how far along its range it is (0..1, 1 = hard on / trimmed in)
+  rowValue(b, k) {
+    const d = b.diag, S = b.sailBy, v = b.ctrl[k];
+    let txt, frac = v;
+    if (k === 'main') { txt = `${Math.abs(deg(b.booms.main.a))}° · ${Math.round(d.rig.mainLoad || 0)} N`; frac = 1 - v; }
+    else if (k === 'stay' || k === 'mizzen') { txt = `${Math.abs(deg(b.booms[k].a))}° · ${Math.round(d.rig[k + 'Load'] || 0)} N`; frac = 1 - v; }
+    else if (k === 'trav') txt = `${deg(S.main.trav[0] + (S.main.trav[1] - S.main.trav[0]) * v)}°`;
+    else if (k === 'jib') { const s2 = b.genDeploy > 0.5 ? S.gennaker : S.jib; txt = `${deg(s2.min + (s2.max - s2.min) * b.lines.jib)}° · ${Math.round(d.rig.jibLoad || 0)} N`; frac = 1 - v; }
+    else if (k === 'hike') { txt = `${fmt(Math.abs(b.crewY), 1)} m ${b.auto.hike ? 'auto' : ''}`; frac = Math.abs(b.crewY) / b.cls.crewMaxOut; }
+    else if (k === 'lazy') { txt = b.backedByLazy ? `backed · ${Math.round((1 - b.lines.lazy) * 100)}%` : v > 0.95 ? 'slack' : `${Math.round((1 - v) * 100)}% in`; frac = 1 - v; }
+    else if (k === 'pushBoom') { txt = v ? (v < 0 ? 'to port' : 'to starboard') : '—'; frac = Math.abs(v); }
+    else if (k === 'board') txt = `${Math.round(v * 100)}% down`;
+    else if (k === 'jibLead') txt = `${Math.round(v * 100)}% aft`;
+    else if (k === 'vang' && S.main.vang === 'none') txt = 'none';
+    else txt = `${Math.round(v * 100)}%`;
+    return { txt, frac: clamp(frac, 0, 1) };
+  }
   updateRig(b) {
     const d = b.diag, S = b.sailBy;
+    const busy = (k) => (b.held && b.held[k] > 0) || (this._busyT && performance.now() - (this._busyT[k] || 0) < 1500);
     for (const k of this.rows) {
       const o = document.getElementById('o-' + k), bar = document.getElementById('bar-' + k);
-      const v = b.ctrl[k];
-      let txt, frac = v;
-      if (k === 'main') { txt = `${Math.abs(deg(b.booms.main.a))}° · ${Math.round(d.rig.mainLoad || 0)} N`; frac = 1 - v; }
-      else if (k === 'stay' || k === 'mizzen') { txt = `${Math.abs(deg(b.booms[k].a))}° · ${Math.round(d.rig[k + 'Load'] || 0)} N`; frac = 1 - v; }
-      else if (k === 'trav') txt = `${deg(S.main.trav[0] + (S.main.trav[1] - S.main.trav[0]) * v)}°`;
-      else if (k === 'jib') { const s2 = b.genDeploy > 0.5 ? S.gennaker : S.jib; txt = `${deg(s2.min + (s2.max - s2.min) * b.lines.jib)}° · ${Math.round(d.rig.jibLoad || 0)} N`; frac = 1 - v; }
-      else if (k === 'hike') { txt = `${fmt(Math.abs(b.crewY), 1)} m ${b.auto.hike ? 'auto' : ''}`; frac = Math.abs(b.crewY) / b.cls.crewMaxOut; }
-      else if (k === 'lazy') { txt = b.backedByLazy ? `backed · ${Math.round((1 - b.lines.lazy) * 100)}%` : v > 0.95 ? 'slack' : `${Math.round((1 - v) * 100)}% in`; frac = 1 - v; }
-      else if (k === 'pushBoom') { txt = v ? (v < 0 ? 'to port' : 'to starboard') : '—'; frac = Math.abs(v); }
-      else if (k === 'board') txt = `${Math.round(v * 100)}% down`;
-      else if (k === 'jibLead') txt = `${Math.round(v * 100)}% aft`;
-      else if (k === 'vang' && S.main.vang === 'none') txt = 'none';
-      else txt = `${Math.round(v * 100)}%`;
+      let { txt, frac } = this.rowValue(b, k);
+      // a control being worked shows the load on it too (a sheet's is there already)
+      if (busy(k) && ['vang', 'cunn', 'outhaul', 'backstay', 'jibHalyard', 'tackLine', 'trav'].includes(k)) txt += ` · ${Math.round(lineLoad(b, k))} N`;
       o.textContent = txt;
-      if (bar) bar.style.setProperty('--v', `${Math.round(clamp(frac, 0, 1) * 100)}%`);
+      if (bar) bar.style.setProperty('--v', `${Math.round(frac * 1000) / 10}%`);
+    }
+    // each sail's shape, with which way it is going (against its own last couple of seconds)
+    for (const key of ['main', 'jib', 'stay']) {
+      const el = document.getElementById('sh-' + key), sh = d.shape[key];
+      if (!el || !sh) continue;
+      const st = d.strips[key];
+      if (st && (st.areaF ?? 1) < 0.3) { el.textContent = key === 'jib' && b.genDeploy > 0.5 ? 'furled / down' : 'down'; continue; }
+      const now = { d: sh[1].d * 100, f: sh[1].f * 100, tw: (sh[2].tw || 0) / DEG };
+      const F = (this._shF || (this._shF = {}))[key] || (this._shF[key] = { ...now });
+      for (const q in now) F[q] += (now[q] - F[q]) * (1 - Math.exp(-0.1 / 1.5));
+      const arr = (q, th) => (now[q] - F[q] > th ? '<i class="up">▲</i>' : F[q] - now[q] > th ? '<i class="dn">▼</i>' : '');
+      const html = `depth <b>${fmt(now.d, 1)}%</b>${arr('d', 0.25)} · draft <b>${Math.round(now.f)}%</b>${arr('f', 0.8)} · twist <b>${Math.round(now.tw)}°</b>${arr('tw', 0.8)}`;
+      if (el._h !== html) { el._h = html; el.innerHTML = html; }
     }
     document.querySelectorAll('#rig-body [data-reef]').forEach(btn => btn.classList.toggle('on', +btn.dataset.reef === (b.ctrl.reef | 0)));
     const prev = document.getElementById('a-prev');
@@ -388,6 +432,45 @@ export class HUD {
       (b.cls.id === 'cat' || b.rigStruct?.spec.rotating ? `<span>Mast rotation</span><b>${Math.round(Math.abs(L.mastRot || 0) * 57.3)}°</b>` : '') +
       `<span>Heel moment</span><b>${Math.round(Math.abs(d.sailK || 0))} Nm</b>` +
       `<span>Righting</span><b>${Math.round(Math.abs(d.RM || 0))} Nm</b>`;
+  }
+
+  // the line in your hands (the player's, js/main.js workLine): its name, purchase and handler, a big bar and the
+  // setting, the load on it and in the hand, a winch's turns, and what it is doing to the sail's shape. Also each row
+  // whose line has hands on it (yours or the crew's) lights up, and a line made fast or cast off is toasted.
+  updateWork(b, dt) {
+    const now = performance.now(), el = document.getElementById('work');
+    this._busyT = this._busyT || {};
+    if (b.held) for (const k in b.held) if (b.held[k] > 0) this._busyT[k] = now;
+    this._wAcc = (this._wAcc || 0) + dt;
+    if (this._wAcc >= 0.05) {
+      this._wAcc = 0;
+      for (const k of this.rows || []) { const row = document.querySelector(`#rig-body .ln[data-k="${k}"]`); if (row) row.classList.toggle('work', now - (this._busyT[k] || 0) < 400); }
+    }
+    // made fast / cast off (your own lines: the automatic crew says what it does on the crew line)
+    const P = this._lhPrev || (this._lhPrev = {});
+    if (b.lh) for (const k in b.lh) {
+      const s = b.lh[k].s, was = P[k]; P[k] = s;
+      if (!was || was === s || b.auto.trim || this.g.idle) continue;
+      const H = HANDLERS[specOf(b, k).handler], n = lineName(b, k);
+      if (was === 'locking' && s === 'locked') this.toast(`${n} made fast${H.hand ? '' : ` — ${H.name.toLowerCase()}`}`, 1.3);
+      else if (was === 'releasing' && s === 'free') this.toast(`${n} ${H.hand ? 'let go' : 'cast off'} — ${b.lh[k].fly ? 'running free' : H.release === 'ease' ? 'surging round the drum' : H.release === 'hand' ? 'in the hand' : 'free to run'}`, 1.3);
+    }
+    if (!el) return;
+    const w = this.g.workLine, on = !!(w && now - w.t < 1300 && b.ctrl[w.k] !== undefined);
+    if (!on) { if (!el.hidden && !el.classList.contains('out')) { el.classList.add('out'); clearTimeout(this._wkT); this._wkT = setTimeout(() => { el.hidden = true; }, 350); } return; }
+    clearTimeout(this._wkT); el.hidden = false; el.classList.remove('out');
+    if (this._wAcc !== 0) return;                                                   // (the text at 20 Hz)
+    const k = w.k, C = b.cls, L = ropeLook(C, ropeKey(C, k)), sp = lineSpecs(C)[k], st = b.lh && b.lh[k];
+    const { txt, frac } = this.rowValue(b, k), ls = st ? lineStatus(b, k) : null;
+    const tk = sp ? tackleOf(C, k) : null, load = sp ? lineLoad(b, k) : 0, hand = sp ? handLoad(b, k, true) : 0;
+    const name = k === 'jibLead' ? 'Jib car' : k === 'board' ? (C.keel.pivot ? 'Centreboard' : 'Daggerboard') : lineName(b, k);
+    const shapeKey = ['jib', 'jibLead', 'jibHalyard', 'lazy'].includes(k) ? (b.genDeploy > 0.5 ? null : S0(b)) : k === 'stay' ? 'stay' : ['main', 'trav', 'vang', 'cunn', 'outhaul', 'backstay'].includes(k) ? 'main' : null;
+    const sh = shapeKey && b.diag.shape[shapeKey];
+    const shape = sh ? `${shapeKey === 'main' ? 'Main' : shapeKey === 'stay' ? (b.sailBy.stay.label ?? 'Staysail') : (b.sailBy.jib.label ?? 'Jib')}: depth ${fmt(sh[1].d * 100, 1)}% · draft ${Math.round(sh[1].f * 100)}% · twist ${Math.round((sh[2].tw || 0) / DEG)}°` : '';
+    el.innerHTML = `<div class="wk-h"><i style="background:${ropeCSS(L)}"></i><b>${esc(name)}</b>${tk && tk.purchase > 1 ? `<em>${tk.purchase}:1</em>` : ''}${ls ? `<span class="wk-st ${ls.cls}">${ls.txt}</span>` : ''}<span class="wk-dir">${w.dir > 0 ? 'hauling' : w.dir < 0 ? 'easing' : ''}</span></div>`
+      + `<div class="wk-bar" style="--rc:${L.swatch}"><span style="width:${(frac * 100).toFixed(1)}%"></span></div>`
+      + `<div class="wk-f"><b>${txt.split(' · ')[0]}</b>${sp ? `<span>${Math.round(load)} N on it · ${Math.round(hand)} N in the hand</span>` : ''}${w.turns > 0.05 ? `<span>winch ${w.turns.toFixed(1)} turns${w.gear ? ` · ${w.gear}` : ''}</span>` : ''}</div>`
+      + (shape ? `<div class="wk-s">${shape}</div>` : '');
   }
 
   updatePhysics(b) {
@@ -642,6 +725,7 @@ export function pref(k, v) {
   try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; }
   return null;
 }
+const S0 = (b) => (b.sailBy.jib ? 'jib' : b.sailBy.stay ? 'stay' : null);
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function ordinal(n) { return n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th'); }
 function fmtT(t) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; }

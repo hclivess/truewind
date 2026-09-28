@@ -422,7 +422,11 @@ export class BoomSailRig extends ClothRig {
     // luff: cunningham tension stretches it a little; the halyard eased while reefing lets it sag
     const slack = this.isMain ? b.reefSlack : 0;
     // (s.cunnTravel: a big main's cunningham pulls its tack down further)
-    const luff = this.luff0 * (1 + 0.006 * (s.cunnTravel ?? 1) * ((this.isMain ? ctrl.cunn : 0.3) - 0.3) - 0.06 * slack);
+    // (a headsail's luff is tensioned by its halyard: the jib halyard control, 0.5 its set-up tension, stretches it
+    // the way the cunningham does the main's and pulls the draft forward; eased, the luff scallops and the draft
+    // goes aft)
+    const hal = !this.isMain && (s.key === 'jib' || s.key === 'stay') && ctrl.jibHalyard !== undefined ? 0.3 + 2 * (clamp(ctrl.jibHalyard, 0, 1) - 0.5) : 0.3;
+    const luff = this.luff0 * (1 + 0.006 * (s.cunnTravel ?? 1) * ((this.isMain ? ctrl.cunn : hal) - 0.3) - 0.06 * slack);
     const bend = this.lroundK * bendRig;
     // (with the rig's structure solved, the luff follows the mast's solved shape, or the stay's sag: js/rig-structure.js)
     const rs = b.rigStruct && b.rigStruct.ready && b.rigStruct.feedLuff ? b.rigStruct : null, P = this._q, onStay = rs && !this.isMain && rs.stays[s.key] && rs.stays[s.key].M;
@@ -598,9 +602,12 @@ export class JibRig extends ClothRig {
     // too, the luff and its load chase each other through the level switches' fresh cloths)
     const rs = b.rigStruct && b.rigStruct.ready && b.rigStruct.feedStay && b.rigStruct.stays[s.key] && b.rigStruct.stays[s.key].M ? b.rigStruct : null;
     if (rs) sagM = rs.staySag(s.key);
+    // the halyard: its tension stretches the luff along the stay (0.5 the set-up tension; up pulls the draft forward,
+    // eased the luff scallops and the draft goes aft), as the cunningham does the main's
+    const luff = this.luff0 * (1 + (s.key === 'jib' || s.key === 'stay' ? 0.012 * (s.cunnTravel ?? 1) * (clamp(ctrl.jibHalyard ?? 0.5, 0, 1) - 0.5) : 0));
     for (let j = 0; j < nv; j++) {
       const v = j / (nv - 1), sg = (sagM || 0) * 4 * v * (1 - v);
-      c.pin(c.node(0, j), this.px - this.rake * v + dx * sg, dy * sg, this.pz + v * this.luff0);
+      c.pin(c.node(0, j), this.px - this.rake * v + dx * sg, dy * sg, this.pz + v * luff);
     }
     // leads: the car forward (0) closes the leech and deepens the foot, aft (1) opens the leech, flattens the foot
     const lead = clamp(ctrl.jibLead, 0, 1), cx = this.px - this.footLen * Math.cos(s.min), dz = this.pz + this.footRise - this.leadZ;

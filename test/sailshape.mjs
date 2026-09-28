@@ -2,7 +2,8 @@
 //  1. beating in 12 kn (or the class's full-power wind, C.fullPowerTws) with the automatic crew: main depth, draft position and twist at the three heights
 //  2. every string does what it does on a real boat (sign checks, one control moved, the rest held):
 //     outhaul in -> flatter foot; cunningham on -> draft forward; backstay on -> flatter main, less headstay sag
-//     (flatter jib); vang on -> less twist; jib car aft -> flatter jib foot, more jib twist
+//     (flatter jib); vang on -> less twist; jib halyard up -> jib draft forward; jib car aft -> flatter jib foot, more
+//     jib twist
 // Run: node test/sailshape.mjs [class]
 import { Boat, autoTrim, makeSteadyEnv, CLASSES, CLASS_ORDER } from '../js/physics.js';
 import { attachSails } from '../js/sail/sailsim.js';
@@ -71,6 +72,11 @@ for (const cls of classes) {
     const [a, b] = pair('backstay', 0, 1);
     check(b.sh.main[1][0] < a.sh.main[1][0], `${cls}: backstay flattens the main (${(a.sh.main[1][0] * 100).toFixed(1)}% -> ${(b.sh.main[1][0] * 100).toFixed(1)}%)`);
     if (a.sh.jib) check(b.sh.jib[1][0] < a.sh.jib[1][0], `${cls}: backstay takes the sag out of the jib (${(a.sh.jib[1][0] * 100).toFixed(1)}% -> ${(b.sh.jib[1][0] * 100).toFixed(1)}%)`);
+  }
+  if (base.sh.jib) {
+    // (the jib halyard is the headsail's cunningham: luff tension pulls its draft forward)
+    const [a, b] = pair('jibHalyard', 0.1, 0.9);
+    check(b.sh.jib[1][1] < a.sh.jib[1][1], `${cls}: jib halyard up pulls the jib's draft forward (${(a.sh.jib[1][1] * 100).toFixed(0)}% -> ${(b.sh.jib[1][1] * 100).toFixed(0)}%)`);
   }
   if (base.sh.jib) {
     const [a, b] = pair('jibLead', 0.1, 0.9);
