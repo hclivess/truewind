@@ -400,7 +400,7 @@ export class BoomSailRig extends ClothRig {
   // put the cloth at its rest shape swung out to boom angle a (camber to leeward), at rest
   pose(a, tw = null) {
     this.poseCloth(a, tw);
-    this.vangSlip = 0;
+    this.vangSlip = 0; this._sheetIn = undefined;
     const c = this.cloth, g = this.Gp[0];
     if (this.lateen) {
       // the whole rig turns about the mast: every node (the luff on its yard too) swung by a about the mast's axis
@@ -469,9 +469,25 @@ export class BoomSailRig extends ClothRig {
     const s0 = this.s0, c = this.cloth, ctrl = b.ctrl, C = b.cls, bd = this.bend;
     const ey = c.x[1];
     if (Math.abs(ey) > 0.05 * this.Lb) this.side = Math.sign(ey);
-    sheetCar(C, s0, ctrl.trav, this.side, this.a, this.car);
+    // the car stays where the traveller put it, to leeward of the wind, not of the boom: taken to the boom's side, a
+    // luffing boom crossing the centreline threw the car the length of the track, and the sheet flung the boom back
+    // (rattling it at 300 deg/s); running, where the wind is no guide, it goes with the boom once the boom is well out
+    const awa = b.diag.awaMid || 0;
+    if (Math.abs(awa) < 2.6) { if (Math.abs(awa) > 0.07) this.carSide = -Math.sign(awa); }
+    else if (Math.abs(ey) > 0.3 * this.Lb) this.carSide = Math.sign(ey);
+    sheetCar(C, s0, ctrl.trav, this.carSide || this.side, this.a, this.car);
     void bd;
-    this.sheet.len = sheetLen(C, s0, ease) - (this.sheetHaul ?? 0.035) * (1 - sstep(0, 0.25, ease));
+    const tgt = sheetLen(C, s0, ease) - (this.sheetHaul ?? 0.035) * (1 - sstep(0, 0.25, ease));
+    if (ease < 0.2) {
+      // hauled in, the crew takes in whatever slack the boom gives and lets out only what they ease: a hard-in sheet is
+      // never slack (left at its trimmed length while the vang pulled the boom down, it went slack and the boom rattled
+      // ±9 deg at several Hz on a luffing main, held by nothing sideways)
+      const t = this.tb, G = this.Gp, x = c.x, cr = this.car;
+      const d = hyp3(G[0] + t * (x[0] - G[0]) - cr[0], t * x[1] - cr[1], G[2] + t * (x[2] - G[2]) - cr[2]);
+      this._sheetIn = Math.min(tgt, (this._sheetIn ?? tgt) + Math.max(0, tgt - (this._sheetTgt ?? tgt)), d + 0.003);
+    } else this._sheetIn = tgt;
+    this._sheetTgt = tgt;
+    this.sheet.len = this._sheetIn;
     if (this.vang && !this.noVang) {
       const L0 = hyp(this.tv * this.Lb, this.dv), vg = clamp(ctrl.vang, 0, 1);
       this._vL = L0 - (this.vangHaul ?? 0.012) * vg + 0.05 * (1 - vg) ** 1.3;
@@ -518,10 +534,14 @@ export class BoomSailRig extends ClothRig {
         else if (this.vangSlip > 0 && F < 0.5 * hold) this.vangSlip = Math.max(0, this.vangSlip - 0.02 * dt);
         if (this.vangSlip > 0 && this._vL !== undefined) this.vang.len = this._vL + this.vangSlip;
       }
+      const ex = c.x[E3] - this.px, ey = c.x[E3 + 1], r = hyp(ex, ey) || 1, tx = -ey / r, ty = ex / r;   // horizontal tangent
+      // the boom's swing damped by the air it and the foot push aside and by the gooseneck's and blocks' friction,
+      // 15 N per m/s at its end (15 N at a brisk 20 deg/s on a 3 m boom): without it a luffing main with its sheet
+      // eased swung the boom through 60 deg every six seconds, its twist lagging its angle, for want of any loss
+      { const vt = c.v[E3] * tx + c.v[E3 + 1] * ty, k = 1 - 1 / (1 + 15 * dt / c.m[this.E]); c.v[E3] -= k * vt * tx; c.v[E3 + 1] -= k * vt * ty; }
       // boom brake: friction at the boom's swing, a force at its end that slows it and never reverses it
       const Fb = (b.ctrl.brake || 0) * (s0.brake || 0);
       if (Fb > 0) {
-        const ex = c.x[E3] - this.px, ey = c.x[E3 + 1], r = hyp(ex, ey) || 1, tx = -ey / r, ty = ex / r;   // horizontal tangent
         const vt = c.v[E3] * tx + c.v[E3 + 1] * ty, dv = Math.min(Math.abs(vt), Fb * clamp(Math.abs(vt) / 0.1, 0, 1) / c.m[this.E] * dt) * Math.sign(vt);
         c.v[E3] -= dv * tx; c.v[E3 + 1] -= dv * ty;
       }
