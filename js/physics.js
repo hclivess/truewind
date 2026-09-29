@@ -64,6 +64,13 @@ function interp(table, x) {
   return yb + (yb - ya) / (xb - xa) * (x - xb);
 }
 export const wrap = (a) => { if (!isFinite(a)) return 0; return a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI)); };
+// the pose a boat is drawn in, alpha (0..1) of the way from its previous physics state p to its state b. The
+// heading and the heel are angles kept in -pi..pi: each goes the short way round (a capsized boat's heel through pi
+// went the long way, through upright, for a frame)
+export function drawPose(p, b, alpha) {
+  const ang = (a0, a1) => a0 + Math.atan2(Math.sin(a1 - a0), Math.cos(a1 - a0)) * alpha;
+  return { x: lerp(p.x, b.x, alpha), z: lerp(p.z, b.z, alpha), psi: ang(p.psi, b.psi), heave: lerp(p.heave, b.heave, alpha), pitch: lerp(p.pitch, b.pitch, alpha), phi: ang(p.phi, b.phi) };
+}
 
 // ---------------------------------------------------------------------------------------------
 // Boat classes. Geometry in metres from the centre of gravity (x fwd), heights above waterline.

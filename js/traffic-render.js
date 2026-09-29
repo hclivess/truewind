@@ -325,43 +325,48 @@ export class TrafficView {
     this._m2 = new THREE.Matrix4(); this._m3 = new THREE.Matrix4(); this._zero = new THREE.Matrix4().makeScale(0, 0, 0);
     this.waveT = -1;
   }
-  // the few biggest wave components (for the far and the moored boats: cheap, and in harbours the sea is small)
+  // the few biggest wave components (for the wakes' ribbons: cheap)
   _waves(env) {
     const W = env.waves, list = W.comps.map(c => ({ A: c.A * (c.curAmp ?? 1), k: c.kRef ?? c.k, w: c.omegaEff ?? c.omega, dx: c.dx, dz: c.dz, ph: c.phase })).filter(c => c.A > 0.005).sort((a, b) => b.A - a.A).slice(0, 6);
     this.wv = list;
   }
-  _cheap(x, z, t, sc, o) {
+  // (keep: what of each wave the water grid draws there, render.js seaKeepAt)
+  _cheap(x, z, t, sc, o, keep = null) {
     let h = 0, sx = 0, sz = 0;
-    for (const c of this.wv) { const th = c.k * (c.dx * x + c.dz * z) - c.w * t + c.ph, C = Math.cos(th), S = Math.sin(th); h += c.A * S; sx += c.A * c.k * c.dx * C; sz += c.A * c.k * c.dz * C; }
+    for (const c of this.wv) { const A = keep ? c.A * keep(c.k) : c.A, th = c.k * (c.dx * x + c.dz * z) - c.w * t + c.ph, C = Math.cos(th), S = Math.sin(th); h += A * S; sx += A * c.k * c.dx * C; sz += A * c.k * c.dz * C; }
     o.h = h * sc; o.sx = sx * sc; o.sz = sz * sc;
     return o;
   }
-  // per frame. env: Environment; cam: the camera (THREE); night 0..1; renderer height (px) for the lights
+  // per frame. env: Environment; cam: the camera (THREE); night 0..1; renderer height (px) for the lights.
+  // seaKeep(x, z) (set by main.js: render.js seaKeepAt): what the water grid draws of each wave there
   update(dt, t, env, cam, night, px) {
     const T = this.traffic; if (!T || !this.meshes) return;
     if (!this.wv || Math.abs(t - this.waveT) > 1) { this._waves(env); this.waveT = t; }
-    const cx = cam.position.x, cz = cam.position.z, W = T.world, wo = this._wo || (this._wo = {});
+    const cx = cam.position.x, cz = cam.position.z, wo = this._wo || (this._wo = {});
     const m = this._m, q = this._q, e = this._e, p = this._p, s = this._s;
-    let full = 0, idx = 0;
+    let idx = 0;
     const fr = this.frameN = (this.frameN || 0) + 1;
-    // pose of every vessel: the sea under it, its own heel and trim (far ones every third frame)
+    // pose of every vessel: the sea under it as it is drawn, the hull's mean of it over its length and beam
+    // (WaveField.ride: a ship spans the short waves and rides the swell), its own heel and trim. The sea is
+    // looked at every frame near the camera, every third or sixth far off (where only the long waves are drawn);
+    // a vessel under way is moved every frame all the same.
+    // (It was the sea's point value at the bow-to-stern middle, times one factor for the hull's length, of the
+    // whole sea near the camera but of six waves elsewhere — waves the grid does not draw far off: the far boats
+    // bobbed on a glassy sea, a ship sat at 40 % of a swell's trough, lifted clear of it, and a boat popped between
+    // the two as it came within 350 m. And the far ones' positions were only updated with their sea.)
     for (const v of T.vessels) {
       const d = Math.hypot(v.x - cx, v.z - cz);
       v._d = d; idx++;
+      const moving = v.mode !== 'berth';
       if (v.mode === 'berth' && d > 1500 && v._posed) continue;           // (far off in a marina: leave it)
-      if (v._posed && (d > 1200 ? (fr + idx) % 6 : d > 400 ? (fr + idx) % 3 : 0)) continue;
-      if (d < 2500 || !v._posed) {
-        const sc = v._sc ?? (v._sc = W.open ? 1 : clamp(W.sdfAt(v.x, v.z) / 60, 0.08, 1));
-        if (v.mode === 'rail') v._sc = undefined;
-        // the nearest boats under way take the full sea state (the one the water is drawn with)
-        const o = v.mode === 'rail' && d < 350 && full++ < 10 && env.wavesOn ? env.waves.sample(v.x, v.z, t, wo) : this._cheap(v.x, v.z, t, sc, wo);
-        const resp = clamp(12 / v.L, 0.1, 1), rr = clamp(5 / v.B, 0.06, 1);   // (a big hull spans the short waves)
-        const fx = Math.sin(v.psi), fz = -Math.cos(v.psi);
-        v.heave = o.h * (0.35 + 0.65 * resp);
-        v.pitch = Math.atan(o.sx * fx + o.sz * fz) * resp + (v.trim || 0);
-        v.roll = -Math.atan(o.sx * fz * -1 + o.sz * fx) * rr * 0.8 + (v.heel || 0);
-        v._posed = true; v._dirty = true;
-      }
+      // (the hundreds alongside in a marina, in its sheltered water: every frame only close by)
+      if (v._posed && (d > 2500 || (d > 1200 ? (fr + idx) % 6 : d > (moving ? 400 : 150) ? (fr + idx) % 3 : 0))) { if (moving) v._dirty = true; continue; }
+      if (env.wavesOn) env.waves.ride(v.x, v.z, t, v.psi, v.L, v.B, this.seaKeep ? this.seaKeep(v.x, v.z) : null, wo);
+      else { wo.h = 0; wo.al = 0; wo.at = 0; }
+      v.heave = wo.h;
+      v.pitch = Math.atan(wo.al) + (v.trim || 0);
+      v.roll = -Math.atan(wo.at) + (v.heel || 0);
+      v._posed = true; v._dirty = true;
     }
     // instance matrices
     for (const type in this.meshes) {
@@ -409,7 +414,7 @@ export class TrafficView {
         const c = cr[Math.min(i, cr.length - 1)], k = (base + i * 2);
         if (!c || i >= cr.length) { A[k] = A[k + 1] = 0; continue; }
         const age = t - c.t, w = c.B * 0.45 + age * c.sp * 0.33;
-        if (c.h === undefined || (i + this.frameN) % 4 === 0) c.h = this._cheap(c.x, c.z, t, 1, wo).h * 0.5 + 0.12;
+        if (c.h === undefined || (i + this.frameN) % 4 === 0) c.h = this._cheap(c.x, c.z, t, 1, wo, this.seaKeep ? this.seaKeep(c.x, c.z) : null).h * 0.5 + 0.12;
         const h = c.h;
         const a = clamp(c.sp / 5, 0, 1) * Math.exp(-age / (4 + c.B * 0.3)) * (i === 0 ? 0 : 1);
         const o3 = k * 3; P[o3] = c.x + c.px * w; P[o3 + 1] = h; P[o3 + 2] = c.z + c.pz * w; P[o3 + 3] = c.x - c.px * w; P[o3 + 4] = h; P[o3 + 5] = c.z - c.pz * w;

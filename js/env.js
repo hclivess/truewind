@@ -1049,8 +1049,51 @@ export class WaveField {
     return out;
   }
   height(x, z, t) { return this.sample(x, z, t, this._tmp || (this._tmp = {})).h; }
+
+  // The sea as a drawing shows it, per component: keep(k) is the share (0..1) of the wave of wavenumber k that the
+  // drawing has (render.js seaKeep: the water grid's spacing and its far fade). A hull of length L and beam B at
+  // (x, z) heading psi, as it averages the sea over its waterplane (each component by sinc(k L cos / 2) sinc(k B
+  // sin / 2)): out.h its level, out.al / out.at the mean slope along (+ = bow up) and across (+ = up to starboard).
+  // With keep = 1 and L = B = 0 that is the linear sea at the point. The coast's local waves are those of (x, z);
+  // the limits, the second order, the trochoids' lean and the rogue groups are left out (a vessel's ride, not the
+  // surface itself). unseen = true: the part the drawing leaves out instead (1 - keep).
+  ride(x, z, t, psi, L, B, keep, out, unseen = false) {
+    const W = this._local(x, z, 1), comps = this.comps, fx = Math.sin(psi), fz = -Math.cos(psi), sx = -fz, sz = fx;
+    let h = 0, al = 0, at = 0;
+    for (let n = 0; n < W.n; n++) {
+      const k = W.k[n], q = keep ? keep(k) : 1, w = unseen ? 1 - q : q;
+      if (w < 1e-4) continue;
+      const c = comps[W.ci[n]], ca = W.ux[n] * fx + W.uz[n] * fz, cs = W.ux[n] * sx + W.uz[n] * sz;
+      const ua = 0.5 * k * L * ca, uc = 0.5 * k * B * cs;
+      const R = (Math.abs(ua) < 1e-4 ? 1 : Math.sin(ua) / ua) * (Math.abs(uc) < 1e-4 ? 1 : Math.sin(uc) / uc);
+      const A = c.A * (c.curAmp ?? 1) * W.K[n] * w * R, th = W.p[n] + W.gx[n] * x + W.gz[n] * z - W.we[n] * t;
+      const S = Math.sin(th), C = Math.cos(th);
+      h += A * S; al += A * k * ca * C; at += A * k * cs * C;
+    }
+    const s = this.scaleFn ? this.scaleFn(x, z) : 1;
+    out.h = h * s; out.al = al * s; out.at = at * s;
+    return out;
+  }
 }
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
+// What the water is drawn with, of a wave of wavenumber k at world (x, z): keep(k), 0..1 — render.js's vertex shader
+// draws each wave times fade * smoothstep(3 spc, 6 spc, wavelength). spc is the grid's spacing there: grid
+// { N, R, a } is render.js _buildWater's (the vertex u in -1..1 at R (a u + (1 - a) u^3), spacing
+// R (a + 3 (1 - a) u^2) 2 / N, the larger of the two axes), laid about (ox, oz), the snapped camera; the fade takes
+// the sea out toward the horizon from the camera (cx, cz), further for a higher sea Hs. st: a scratch object that
+// keeps the returned keep() (valid until the next call with it).
+export function drawnSeaKeep(grid, ox, oz, cx, cz, Hs, x, z, st) {
+  const { N, R, a } = grid;
+  const inv = (d) => {                     // u in 0..1 with u (a + (1 - a) u^2) = d / R (Newton from above: convex)
+    const s = Math.min(1, d / R); let u = Math.cbrt(s);
+    for (let i = 0; i < 6; i++) u -= (a * u + (1 - a) * u * u * u - s) / (a + 3 * (1 - a) * u * u);
+    return clamp01(u);
+  };
+  const dmap = (u) => R * (a + 3 * (1 - a) * u * u) * 2 / N;
+  st.spc = Math.max(dmap(inv(Math.abs(x - ox))), dmap(inv(Math.abs(z - oz))));
+  st.fade = 1 - sstep(700 + 60 * Hs, 3200 + 250 * Hs, Math.hypot(x - cx, z - cz));
+  return st.keep || (st.keep = (k) => st.fade * sstep(3 * st.spc, 6 * st.spc, 2 * Math.PI / k));
+}
 // wavenumber for angular frequency w at depth h (Eckart's approximation of w^2 = g k tanh(k h))
 export function kOfDepth(w, h) {
   const k0 = w * w / G;

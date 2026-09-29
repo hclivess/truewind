@@ -1821,9 +1821,10 @@ function bendMast(vis, b) {
 const _v = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
 export function updateBoatModel(vis, b, t) {
   const C = b.cls, P = b.pose || b;
-  vis.root.position.set(P.x, P.heave, P.z);
+  // (seaDh, seaDp: on the sea as drawn, render.js onDrawnSea)
+  vis.root.position.set(P.x, P.heave + (P.seaDh || 0), P.z);
   vis.root.rotation.set(0, -P.psi, 0);
-  vis.inner.rotation.set(P.pitch, 0, -P.phi, 'YXZ');
+  vis.inner.rotation.set(P.pitch + (P.seaDp || 0), 0, -P.phi, 'YXZ');
   if (vis.rudderPivots && vis.rudderPivots.length) { for (const pv of vis.rudderPivots) pv.rotation.y = b.rudder; vis.rudderPivot.position.x = -Math.sin(b.rudder) * 0.6 * 0; }
   else vis.rudderPivot.rotation.y = b.rudder;
   if (C.keel.twin && vis.keelMesh) vis.keelMesh.position.y = C.freeboard - 0.05 + (1 - b.ctrl.board) * C.keel.span * 0.8;

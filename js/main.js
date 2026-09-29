@@ -1,7 +1,7 @@
 // Game controller: menu, venue loading (baked OSM or live Overpass), live weather, input, the
 // fixed-step simulation loop, race flow, AI fleet, cameras.
 import { Environment, KT, DEG } from './env.js';
-import { Boat, CLASSES, CLASS_ORDER, autoTrim, solvePolarAngle, POLAR_TWAS, vmgTargets, clamp, lerp, wrap, makeSteadyEnv } from './physics.js';
+import { Boat, CLASSES, CLASS_ORDER, autoTrim, solvePolarAngle, POLAR_TWAS, vmgTargets, clamp, lerp, wrap, makeSteadyEnv, drawPose } from './physics.js';
 import { VENUES, World, makeProjection, fetchVenueGeo, fetchLiveWind } from './world.js';
 import { fetchSeamarks } from './seamarks.js';
 import { Nav } from './nav.js';
@@ -97,6 +97,7 @@ class Game {
     this.boats = [];
     this.showLaylines = true;
     this.trafficView = new TrafficView(this.renderer.scene);
+    this.trafficView.seaKeep = (x, z) => this.renderer.seaKeepAt(x, z);     // (the traffic rides the sea as it is drawn)
     this.buildMenu();
     this.bindInput();
     this.bindTouch();
@@ -1275,20 +1276,22 @@ class Game {
     if (steps >= maxSteps) this.acc = 0;
     if (SAIL_MODEL !== 'strip' && this._sailLevel) this.gov().frame(performance.now() - tPhys, steps, PHYS_DT, frameMs, this.boats.filter((b) => b.sailModel !== 'strip'), this.player, this._camDist, this.timeWarp);
     if (SAIL_MODEL !== 'strip' && this._sailLevel) this.fleetSwap(steps * PHYS_DT);
-    // harbour traffic: moves at the simulation's pace (time warp, pause), drawn every frame
-    if (this.traffic) {
-      this.traffic.update(steps * PHYS_DT, this.t, this.env, this.boats);
-      const night = clamp((-this.renderer.sunDir.y + 0.02) / 0.12, 0, 1);
-      this.trafficView.update(dt, this.t, this.env, this.renderer.camera, night, this.renderer.r.domElement.height);
-    }
     // draw the boats between the last two physics states so motion is smooth at any refresh rate
     const alpha = clamp(this.acc / PHYS_DT, 0, 1);
-    const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
-    for (const b of this.boats) {
-      const p = b._prev || b;
-      b.pose = { x: lerp(p.x, b.x, alpha), z: lerp(p.z, b.z, alpha), psi: p.psi + wrapA(b.psi - p.psi) * alpha,
-        heave: lerp(p.heave, b.heave, alpha), pitch: lerp(p.pitch, b.pitch, alpha), phi: lerp(p.phi, b.phi, alpha) };
+    // the instant that is drawn: the boats' (between the last two steps), the sea's and the traffic's. The sea and
+    // the traffic went by the last step's time, which moves in whole 1/120 s steps: at 144 Hz one frame in six
+    // stood still, at 60 Hz a frame moved them one, two or three steps as the frame times jittered.
+    const tDraw = this.t - (1 - alpha) * PHYS_DT;
+    // harbour traffic: moves at the simulation's pace (time warp, pause) to the drawn instant, drawn every frame
+    if (this.traffic) {
+      let dTr = tDraw - (this._tDraw ?? tDraw);
+      if (!(dTr >= 0 && dTr <= (steps + 1) * PHYS_DT + 1e-9)) dTr = steps * PHYS_DT;   // (a new session, a clock resync)
+      this.traffic.update(dTr, tDraw, this.env, this.boats);
+      const night = clamp((-this.renderer.sunDir.y + 0.02) / 0.12, 0, 1);
+      this.trafficView.update(dt, tDraw, this.env, this.renderer.camera, night, this.renderer.r.domElement.height);
     }
+    this._tDraw = tDraw;
+    for (const b of this.boats) b.pose = drawPose(b._prev || b, b, alpha);
     // the tide: the sea's stream from the boat's water (a shared room: the venue's centre, so every peer's sea
     // agrees), the level at the boat for the land, the banks and the shader
     const pl = this.player;
@@ -1319,7 +1322,7 @@ class Game {
       this.renderer.updateGrabMarkers(show ? vis.rigging.grabs() : [], hid, GRAB_PX);
     }
     { const pl = this.skyPlace(); this.renderer.setClock(this.netEpoch !== null ? Date.now() : (this.clockBase ?? Date.now()) + this.t * 1000, pl.lat, pl.lon); }
-    this.renderer.update(dt, this.t, { env: this.env, boats: this.boats, player: p });
+    this.renderer.update(dt, tDraw, { env: this.env, boats: this.boats, player: p });
     if (!this.idle && this.running) {
       const r0 = this.race && this.race.racers[0];
       this.net.update(dt, p, this.sharedRace && r0 ? { id: this.sharedRace.id, leg: r0.leg, fin: r0.finished ? r0.finishTime : 0, dsq: r0.dsq ? 1 : 0, ocs: r0.ocs ? 1 : 0, pen: this.rules && this.rules.penaltyOf(p) ? 1 : 0 } : null);

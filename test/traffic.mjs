@@ -25,6 +25,10 @@ for (const v of VENUES) {
   const player = { id: 0, x: o.x, z: o.z, psi: 0, u: 0, v: 0, cls: { loa: 7, beam: 2.3, bowX: 3.5, sternX: -3.4 } };
   const dt = 1 / 30, steps = Math.round(+mins * 60 / dt);
   const minSdf = {}, travel = new Map(), legs = new Map(), prevHidden = new Map();
+  // leaps: a vessel moved further between two looks (0.2 s) than 20 m/s takes it, or turned more than 3 rad/s
+  // (a chain ferry changes ends at once) (a moored boat lay back to its buoy a quarter second in, leaping its scope; a new leg or the way back from a
+  // terminal set the heading at once; a step to starboard toward the shore was taken back in one frame)
+  const last = new Map(); let leap = null, nLeap = 0;
   let hits = 0, worst = null;
   const t0 = Date.now();
   for (let s = 0; s < steps; s++) {
@@ -35,7 +39,13 @@ for (const v of VENUES) {
     if (s % 6) continue;
     for (const w of T.vessels) {
       if (w.ferry) { const dw = w.dwell > 0; if (dw && !prevHidden.get(w)) legs.set(w, (legs.get(w) || 0) + 1); prevHidden.set(w, dw); }
-      if (w.hidden) continue;
+      if (w.hidden) { last.delete(w); continue; }
+      const q = last.get(w);
+      if (q) {
+        const jump = Math.hypot(w.x - q.x, w.z - q.z), turn = Math.abs(Math.atan2(Math.sin(w.psi - q.psi), Math.cos(w.psi - q.psi)));
+        if (jump > 20 * 6 * dt + 1 || (turn > 3 * 6 * dt && w.type !== 'chain')) { nLeap++; if (!leap) leap = `${w.type} ${w.mode} ${jump.toFixed(1)} m, ${(turn / Math.PI * 180).toFixed(0)} deg in 0.2 s at t ${t.toFixed(1)}`; }
+      }
+      last.set(w, { x: w.x, z: w.z, psi: w.psi });
       const d = world.open ? 1e4 : world.sdfAt(w.x, w.z);
       if (!(w.type in minSdf) || d < minSdf[w.type]) minSdf[w.type] = d;
       if (d <= 1 && !worst) worst = `${w.type} ${w.mode} at ${w.x.toFixed(0)},${w.z.toFixed(0)} sdf ${d.toFixed(1)}`;
@@ -50,11 +60,11 @@ for (const v of VENUES) {
   const ferries = T.movers.filter(w => w.ferry);
   // a ferry should finish a leg when the run is long enough for one
   const lazy = ferries.filter(w => (legs.get(w) || 0) < 1 && w.ferry.rail.L / (w.cruise * 0.7) + 200 < +mins * 60);
-  const ok = !worst && !stuck.length && !lazy.length && !pierHit;
+  const ok = !worst && !stuck.length && !lazy.length && !pierHit && !leap;
   if (!ok) fail++;
   console.log(`${v.id.padEnd(9)} ${ok ? 'ok  ' : 'FAIL'} berthed ${c.berthed}, moored ${c.moored}, anchored ${c.anchored}, ferries ${c.ferries} on ${T.ferryRails.length} routes, under way ${c.underway}` +
     ` | build ${T.buildMs ?? 0} ms, ${(ms * 1000).toFixed(0)} us/update | min shore distance ${Object.entries(minSdf).map(([k, d]) => `${k} ${d.toFixed(0)}`).join(' ')}` +
-    ` | ferry legs ${[...legs.values()].reduce((a, b) => a + b, 0)} | bumps ${hits}` + (worst ? ` | ON LAND: ${worst}` : '') + (pierHit ? ` | THROUGH A PIER: ${pierHit}` : '') +
+    ` | ferry legs ${[...legs.values()].reduce((a, b) => a + b, 0)} | bumps ${hits}` + (worst ? ` | ON LAND: ${worst}` : '') + (pierHit ? ` | THROUGH A PIER: ${pierHit}` : '') + (leap ? ` | LEAPS ${nLeap}: ${leap}` : '') +
     (stuck.length ? ` | STUCK: ${stuck.map(w => `${w.type}@${w.x.toFixed(0)},${w.z.toFixed(0)} ${(travel.get(w)?.d ?? 0).toFixed(0)}m`).join(' ')}` : '') +
     (lazy.length ? ` | FERRY NO LEG: ${lazy.map(w => w.name || w.type).join(', ')}` : ''));
   if (process.env.IMG) {
