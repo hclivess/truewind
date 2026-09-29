@@ -130,12 +130,6 @@ export function buildTerrain(world, land, opts = {}) {
   const cover = opts.cover || coverGrid(world, land, R > 10000 ? 16 : 8), town = opts.town || townGrid(world, land);
   const H = new Float32Array((Nf + 1) * (Nf + 1)).fill(NaN);
   const hv = (i, j) => { i = clamp(i, 0, Nf); j = clamp(j, 0, Nf); const k = j * (Nf + 1) + i; let v = H[k]; if (v !== v) v = H[k] = groundHeight(world, -R + i * f, -R + j * f); return v; };
-  // exact height of the rendered surface (fine grid, same triangulation as the mesh)
-  const h = (x, z) => {
-    const fx = (x + R) / f, fz = (z + R) / f, i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
-    if (u + v <= 1) { const a = hv(i, j); return a + u * (hv(i + 1, j) - a) + v * (hv(i, j + 1) - a); }
-    const c = hv(i + 1, j + 1); return c + (1 - u) * (hv(i, j + 1) - c) + (1 - v) * (hv(i + 1, j) - c);
-  };
   const pal = tropical ? {
     sand: [0.93, 0.89, 0.78], wetsand: [0.72, 0.66, 0.55], scrub: [0.47, 0.5, 0.3], dry: [0.66, 0.62, 0.45], green: [0.4, 0.5, 0.26],
     forest: [0.24, 0.36, 0.17], wet: [0.33, 0.42, 0.26], town: [0.8, 0.74, 0.62], ind: [0.62, 0.6, 0.56], park: [0.36, 0.52, 0.24], field: [0.62, 0.58, 0.38], asphalt: [0.36, 0.36, 0.36], rock: [0.6, 0.57, 0.5],
@@ -167,19 +161,74 @@ export function buildTerrain(world, land, opts = {}) {
     out[0] = (c[0] * (1 - wet) + pal.wetsand[0] * wet) * t; out[1] = (c[1] * (1 - wet) + pal.wetsand[1] * wet) * t; out[2] = (c[2] * (1 - wet) + pal.wetsand[2] * wet) * t;
   };
   const group = new THREE.Group(); group.name = 'terrain';
-  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0 });
   const T = Math.round(480 / f) * f, nt = Math.ceil(2 * R / T), cells = T / f;
-  const col = [0, 0, 0];
+  // classify each tile: skip open water; full detail along the shore; coarser inland (a step that divides the tile)
+  const steps = new Int8Array(nt * nt);
   for (let tj = 0; tj < nt; tj++) for (let ti = 0; ti < nt; ti++) {
     const x0 = -R + ti * T, z0 = -R + tj * T;
-    // classify: skip open water; full detail along the shore; coarse inland
     let smin = Infinity, smax = -Infinity, bmin = Infinity;
     for (let b = 0; b <= 8; b++) for (let a = 0; a <= 8; a++) { const s = world.sdfAt(x0 + a * T / 8, z0 + b * T / 8); smin = Math.min(smin, s); smax = Math.max(smax, s); if (world.bed && s > 120) bmin = Math.min(bmin, world.bedAt(x0 + a * T / 8, z0 + b * T / 8)); }
     // (offshore, only where the tide can uncover the bank: above the lowest tide)
     if (smin > 120 && !(bmin < (world.tide ? world.tide.z0At(x0, z0) : 0) + 0.3)) continue;
-    const step = smin < 40 && smax > -40 ? 1 : smax > -900 ? 2 : 4, n = cells / step, i0 = ti * cells, j0 = tj * cells;
+    let step = smin < 40 && smax > -40 ? 1 : smax > -900 ? 2 : 4;
+    while (cells % step) step >>= 1;
+    steps[tj * nt + ti] = step;
+  }
+  // exact height of the rendered surface: the lattice of the tile's own step, the same triangulation as its mesh,
+  // so whatever stands on the ground (buildings, roads, trees) sits on what is drawn, coarse tiles included
+  const h = (x, z) => {
+    const ti = clamp(Math.floor((x + R) / T), 0, nt - 1), tj = clamp(Math.floor((z + R) / T), 0, nt - 1), st = steps[tj * nt + ti] || 1;
+    const fx = (x + R) / f / st, fz = (z + R) / f / st, i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j, I = i * st, J = j * st;
+    if (u + v <= 1) { const a = hv(I, J); return a + u * (hv(I + st, J) - a) + v * (hv(I, J + st) - a); }
+    const c = hv(I + st, J + st); return c + (1 - u) * (hv(I, J + st) - c) + (1 - v) * (hv(I + st, J) - c);
+  };
+  // the ground's colour: one texture over the whole venue (not per-vertex colours, whose detail would change with
+  // each tile's mesh step and draw the tile edges), with the streets painted in as their chunks arrive
+  const S = opts.low ? 1024 : 2048, px = 2 * R / S, tex = new Uint8Array(S * S * 4), cov = new Uint8Array(S * S);
+  const col = [0, 0, 0], ws = pal.wetsand;
+  for (let j = 0; j < S; j++) {
+    const z = -R + (j + 0.5) * px, tj = Math.floor((z + R) / T);
+    for (let i = 0; i < S; i++) {
+      const x = -R + (i + 0.5) * px, k = (j * S + i) * 4;
+      // (texels round a tile get its colour; open water the wet-sand tone, never seen)
+      let used = false;
+      for (let dj = -1; dj <= 1 && !used; dj++) for (let di = -1; di <= 1; di++) { const a = Math.floor((x + di * px + R) / T), b = tj + (dj ? Math.floor((z + dj * px + R) / T) - tj : 0); if (a >= 0 && b >= 0 && a < nt && b < nt && steps[b * nt + a]) { used = true; break; } }
+      if (used) colorAt(x, z, h(x, z), col); else { col[0] = ws[0]; col[1] = ws[1]; col[2] = ws[2]; }
+      tex[k] = Math.min(255, col[0] * 255 + 0.5); tex[k + 1] = Math.min(255, col[1] * 255 + 0.5); tex[k + 2] = Math.min(255, col[2] * 255 + 0.5); tex[k + 3] = 255;
+    }
+  }
+  const map = new THREE.DataTexture(tex, S, S, THREE.RGBAFormat);
+  map.magFilter = THREE.LinearFilter; map.minFilter = THREE.LinearMipmapLinearFilter; map.generateMipmaps = true; map.anisotropy = 16;
+  map.needsUpdate = true;
+  const asph = pal.asphalt.map(v => v * 255);
+  // streets into the ground texture: each texel darkens by the share of it the street covers (the widest wins)
+  const paintRoads = (roads) => {
+    let n = 0;
+    for (const r of roads || []) {
+      const w = ROAD_W[r.cls], c = clamp(w / px, 0.08, 1), cq = Math.round(c * 255), p = r.pts;
+      for (let k = 0; k + 3 < p.length; k += 2) {
+        const L = Math.hypot(p[k + 2] - p[k], p[k + 3] - p[k + 1]), m = Math.max(1, Math.ceil(L / (px * 0.5)));
+        for (let q = 0; q <= m; q++) {
+          const x = p[k] + (p[k + 2] - p[k]) * q / m, z = p[k + 1] + (p[k + 3] - p[k + 1]) * q / m;
+          const i = Math.floor((x + R) / px), j = Math.floor((z + R) / px);
+          if (i < 0 || j < 0 || i >= S || j >= S) continue;
+          const t = j * S + i; if (cov[t] >= cq || world.sdfAt(x, z) > -1) continue;
+          const o = cov[t] / 255, e = t * 4;
+          for (let ch = 0; ch < 3; ch++) { const base = o < 1 ? (tex[e + ch] - asph[ch] * o) / (1 - o) : asph[ch]; tex[e + ch] = clamp(Math.round(base * (1 - c) + asph[ch] * c), 0, 255); }
+          cov[t] = cq; n++;
+        }
+      }
+    }
+    if (n) map.userData.dirty = true;               // (uploaded by the land stream, at most every second or two)
+  };
+  const mat = withEdge(new THREE.MeshStandardMaterial({ map, roughness: 0.96, metalness: 0 }));
+  EDGE.value = R;
+  const uR = 1 / (2 * R);
+  for (let tj = 0; tj < nt; tj++) for (let ti = 0; ti < nt; ti++) {
+    const step = steps[tj * nt + ti]; if (!step) continue;
+    const n = cells / step, i0 = ti * cells, j0 = tj * cells;
     const nv = (n + 1) * (n + 1), skirt = 4 * n;
-    const pos = new Float32Array((nv + skirt * 2) * 3), nor = new Float32Array((nv + skirt * 2) * 3), cl = new Float32Array((nv + skirt * 2) * 3);
+    const pos = new Float32Array((nv + skirt * 2) * 3), nor = new Float32Array((nv + skirt * 2) * 3), uv = new Float32Array((nv + skirt * 2) * 2);
     const idx = [];
     let p = 0;
     for (let b = 0; b <= n; b++) for (let a = 0; a <= n; a++) {
@@ -187,7 +236,7 @@ export function buildTerrain(world, land, opts = {}) {
       pos[p] = x; pos[p + 1] = y; pos[p + 2] = z;
       const dx = hv(I + 1, J) - hv(I - 1, J), dz = hv(I, J + 1) - hv(I, J - 1), L = Math.hypot(dx, 2 * f, dz);
       nor[p] = -dx / L; nor[p + 1] = 2 * f / L; nor[p + 2] = -dz / L;
-      colorAt(x, z, y, col); cl[p] = col[0]; cl[p + 1] = col[1]; cl[p + 2] = col[2];
+      uv[p / 3 * 2] = (x + R) * uR; uv[p / 3 * 2 + 1] = (z + R) * uR;
       p += 3;
     }
     for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) { const k = b * (n + 1) + a; idx.push(k, k + n + 1, k + 1, k + 1, k + n + 1, k + n + 2); }
@@ -198,7 +247,7 @@ export function buildTerrain(world, land, opts = {}) {
     for (let a = n; a > 0; a--) border.push(n * (n + 1) + a);
     for (let b = n; b > 0; b--) border.push(b * (n + 1));
     let q = nv;
-    for (const k of border) { pos.set([pos[3 * k], pos[3 * k + 1] - 6, pos[3 * k + 2]], 3 * q); nor.set(nor.subarray(3 * k, 3 * k + 3), 3 * q); cl.set(cl.subarray(3 * k, 3 * k + 3), 3 * q); q++; }
+    for (const k of border) { pos.set([pos[3 * k], pos[3 * k + 1] - 6, pos[3 * k + 2]], 3 * q); nor.set(nor.subarray(3 * k, 3 * k + 3), 3 * q); uv.set(uv.subarray(2 * k, 2 * k + 2), 2 * q); q++; }
     for (let e = 0; e < border.length; e++) {
       const a = border[e], b2 = border[(e + 1) % border.length], a2 = nv + e, bb = nv + (e + 1) % border.length;
       idx.push(a, a2, b2, b2, a2, bb, a, b2, a2, b2, bb, a2);   // both windings: seen from either side
@@ -206,27 +255,56 @@ export function buildTerrain(world, land, opts = {}) {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos.subarray(0, q * 3), 3));
     g.setAttribute('normal', new THREE.BufferAttribute(nor.subarray(0, q * 3), 3));
-    g.setAttribute('color', new THREE.BufferAttribute(cl.subarray(0, q * 3), 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(uv.subarray(0, q * 2), 2));
     g.setIndex(idx); g.computeBoundingSphere();
     const m = new THREE.Mesh(g, mat); m.receiveShadow = true; m.matrixAutoUpdate = false;
     group.add(m);
   }
-  return { group, h, cover, town, material: mat };
+  paintRoads(land?.roads); map.needsUpdate = true;
+  return { group, h, cover, town, material: mat, paintRoads };
+}
+
+// ------------------------------------------------------------------ the edge of the modelled land
+// Nothing is known past the venue's square: rather than end in a cut, the land (and all that stands on it) goes
+// into the haze over its last 1.5 km. EDGE: the square's half-width, shared by every scenery material.
+const EDGE = { value: 1e9 };
+function withEdge(m) {
+  const prev = m.onBeforeCompile, prevKey = m.customProgramCacheKey;
+  m.onBeforeCompile = (sh, r) => {
+    if (prev) prev.call(m, sh, r);
+    sh.uniforms.uEdge = EDGE;
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uEdge;').replace('#include <fog_fragment>', `#include <fog_fragment>
+#ifdef USE_FOG
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(uEdge - 1500.0, uEdge - 40.0, max(abs(vFogWorld.x), abs(vFogWorld.z))));
+#endif`);
+  };
+  m.customProgramCacheKey = () => 'edge' + (prevKey ? prevKey.call(m) : '');
+  return m;
 }
 
 // ------------------------------------------------------------------ building material (procedural facades)
 const NIGHT = { value: 0 };
 const SWAY = { value: 0 }, TIME = { value: 0 };
-function facadeMaterial() {
+// fade: for the instanced distant levels, a dithered hand-over by distance: each instance is drawn only nearer than
+// (fade.out) or beyond (fade.in) its own threshold, spread between the two distances by a hash of its position, so
+// one level thins out while the next fills in over the same band and no line is drawn between them
+const DITHER_GLSL = `
+float ditherKeep(vec3 o, float lo, float hi, float dir) {
+  float hsh = fract(sin(dot(floor(o.xz * 0.5), vec2(12.9898, 78.233))) * 43758.5453);
+  float d = length(o.xz - cameraPosition.xz), th = mix(lo, hi, hsh);
+  return dir > 0.0 ? step(d, th) : step(th, d);
+}`;
+function facadeMaterial(fade = null) {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uNight = NIGHT;
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec4 aBld;\nvarying vec4 vBld;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;')
+      .replace('#include <common>', '#include <common>\nattribute vec4 aBld;\nattribute vec3 aRoof;\nvarying vec4 vBld;\nvarying vec3 vRoof;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;' + (fade ? DITHER_GLSL : ''))
       // (the distant levels are instanced boxes and roofs: their world position goes through the instance matrix)
       .replace('#include <fog_vertex>', `#include <fog_vertex>
-vBld = aBld;
+vBld = aBld; vRoof = aRoof;
 #ifdef USE_INSTANCING
+${fade ? `if (ditherKeep((modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz, ${fade[0].toFixed(1)}, ${fade[1].toFixed(1)}, ${fade[2].toFixed(1)}) < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);` : ''}
 vWPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
 vWNrm = normalize(mat3(modelMatrix) * (mat3(instanceMatrix) * objectNormal));
 #else
@@ -236,7 +314,7 @@ vWNrm = normalize(mat3(modelMatrix) * objectNormal);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
 uniform float uNight;
-varying vec4 vBld; varying vec3 vWPos; varying vec3 vWNrm;
+varying vec4 vBld; varying vec3 vRoof; varying vec3 vWPos; varying vec3 vWNrm;
 float hsh(vec3 p){ p = fract(p * 0.1031); p += dot(p, p.yzx + 33.33); return fract((p.x + p.y) * p.z); }
 float box(vec2 f, vec2 a, vec2 b, vec2 w){ vec2 lo = smoothstep(a - w, a + w, f), hi = 1.0 - smoothstep(b - w, b + w, f); return lo.x * lo.y * hi.x * hi.y; }
 float winMask = 0.0; float winLit = 0.0;`)
@@ -245,7 +323,7 @@ float winMask = 0.0; float winLit = 0.0;`)
   // (kind + 8: a distant level's box, whose top is the flat roof)
   float lodBox = step(7.5, vBld.w), kind = vBld.w - 8.0 * lodBox, hy = vWPos.y - vBld.x, top = vBld.y - vBld.x;
   float wall = 1.0 - step(0.35, abs(vWNrm.y));
-  if (lodBox > 0.5 && vWNrm.y > 0.6) diffuseColor.rgb = vec3(0.64, 0.63, 0.6) * (0.8 + 0.35 * fract(vBld.z * 5.7));
+  if (lodBox > 0.5 && vWNrm.y > 0.6) diffuseColor.rgb = vRoof;                // (the roof's own tone, as near)
   vec2 t2 = normalize(vec2(-vWNrm.z, vWNrm.x) + 1e-5);
   float hx = dot(vWPos.xz, t2);
   float fh = 3.0 + 0.4 * fract(vBld.z * 7.3), ws = kind > 0.5 && kind < 1.5 ? 1.9 : 2.6 + 1.2 * fract(vBld.z * 13.1);
@@ -291,6 +369,7 @@ float winMask = 0.0; float winLit = 0.0;`)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.12, winMask);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.72, 0.42) * winLit * uNight * 1.6;');
   };
+  m.customProgramCacheKey = () => 'facade' + (fade ? fade.join() : '');
   return m;
 }
 export function setSceneryNight(group, v) { NIGHT.value = clamp(v, 0, 1); group?.userData.scenery?.setNight(NIGHT.value); }
@@ -530,11 +609,12 @@ function unitGeometries() {
   return { box, prism, crown };
 }
 // one geometry per instanced mesh (it carries that mesh's per-instance building data) sharing the unit's buffers
-function instGeometry(unit, aBld) {
+function instGeometry(unit, aBld, aRoof = null) {
   const g = new THREE.BufferGeometry();
   for (const k of Object.keys(unit.attributes)) g.setAttribute(k, unit.attributes[k]);
   if (unit.index) g.setIndex(unit.index);
   if (aBld) g.setAttribute('aBld', new THREE.InstancedBufferAttribute(aBld, 4));
+  if (aRoof) g.setAttribute('aRoof', new THREE.InstancedBufferAttribute(aRoof, 3));
   return g;
 }
 function lightsMaterial(near) {
@@ -546,8 +626,13 @@ function lightsMaterial(near) {
       .replace('#include <fog_vertex>', `#include <fog_vertex>
       vFade = smoothstep(${near.toFixed(1)}, ${(near + 900).toFixed(1)}, -mvPosition.z);
       if (vFade <= 0.0) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);`);
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vFade;')
-      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.a *= vFade;');
+    sh.uniforms.uEdge = EDGE;
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vFade; uniform float uEdge;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+      diffuseColor.a *= vFade;
+      #ifdef USE_FOG
+      diffuseColor.a *= 1.0 - smoothstep(uEdge - 1500.0, uEdge - 40.0, max(abs(vFogWorld.x), abs(vFogWorld.z)));
+      #endif`);
   };
   return m;
 }
@@ -560,21 +645,38 @@ const hash2 = (a, b) => (Math.imul(Math.round(a) | 0, 73856093) ^ Math.imul(Math
 class LandStream {
   constructor(world, land, opts, group, terrain) {
     this.world = world; this.land = land; this.group = group; this.low = !!opts.low;
-    this.R = world.R; this.H = terrain.h; this.cover = terrain.cover; this.town = terrain.town;
+    this.R = world.R; this.H = terrain.h; this.cover = terrain.cover; this.town = terrain.town; this.terrain = terrain;
     this.onStructure = opts.onStructure || (() => false);
     this.lat = opts.lat ?? land.lat ?? 45; this.tropical = Math.abs(this.lat) < 30;
     this.nearR = this.low ? 1600 : NEAR; this.midR = this.low ? 7000 : MID;
     this.band = (land.band ?? 2500) + 200;              // (how far inland the data reaches: no made-up houses beyond)
     this.tiles = new Map(); this.blocks = new Map(); this.nearSet = new Set();
-    this.bMat = facadeMaterial();
-    this.rMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
+    // (the hand-over bands: mid to far over the last 1.5 km of the mid ring; tree crowns thin out well before it)
+    const f0 = this.midR - 1500, f1 = this.midR - 100;
+    this.bMat = facadeMaterial(); this.mMat = facadeMaterial([f0, f1, 1]); this.fMat = facadeMaterial([f0, f1, -1]);
+    this.crownR = this.low ? 4500 : 7000;
+    this.rMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4, transparent: true, depthWrite: false });
+    // (the ribbons fade out before the near ring ends; the streets painted into the ground texture carry on beyond)
+    this.rMat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vRd;').replace('#include <fog_vertex>', '#include <fog_vertex>\nvRd = length((modelMatrix * vec4(transformed, 1.0)).xz - cameraPosition.xz);');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vRd;').replace('#include <color_fragment>', `#include <color_fragment>
+        diffuseColor.a *= 1.0 - smoothstep(${(this.nearR * 0.55).toFixed(1)}, ${(this.nearR - 150).toFixed(1)}, vRd);`);
+    };
+    this.rMat.customProgramCacheKey = () => 'road' + this.nearR;
     this.tMat = treeMaterial();
     this.cMat = new THREE.MeshStandardMaterial({ roughness: 0.92, flatShading: true });
+    this.cMat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>' + DITHER_GLSL).replace('#include <fog_vertex>', `#include <fog_vertex>
+        if (ditherKeep((modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz, ${(this.crownR - 2500).toFixed(1)}, ${this.crownR.toFixed(1)}, 1.0) < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);`);
+    };
+    this.cMat.customProgramCacheKey = () => 'crown' + this.crownR;
     this.lMat = lightsMaterial(this.nearR);
     this.TG = { palm: treeGeometry('palm'), broad: treeGeometry('broad'), conifer: treeGeometry('conifer'), bush: treeGeometry('bush') };
     this.U = unitGeometries();
     // (stand-ins, so the renderer's material patches — cloud shadows — reach the materials before the stream uses them)
-    for (const m of [this.bMat, this.rMat, this.tMat, this.cMat]) { const s = new THREE.Mesh(new THREE.BufferGeometry(), m); s.visible = false; s.name = 'material'; group.add(s); }
+    for (const m of [this.bMat, this.mMat, this.fMat, this.rMat, this.tMat, this.cMat]) withEdge(m);
+    EDGE.value = this.R;
+    for (const m of [this.bMat, this.mMat, this.fMat, this.rMat, this.tMat, this.cMat]) { const s = new THREE.Mesh(new THREE.BufferGeometry(), m); s.visible = false; s.name = 'material'; group.add(s); }
     this.places = (land.places || []).filter(p => PLACE_R[PLACE_KINDS[p.t]]).map(p => ({ ...p, r: PLACE_R[PLACE_KINDS[p.t]], ang: (hash2(p.x, p.z) % 628) / 100,
       scatter: p.t === PK.town || p.t === PK.village || p.t === PK.hamlet || p.t === PK.isolated_dwelling }));   // (cities and their suburbs are mapped)
     // tiles on (or near) land
@@ -599,7 +701,7 @@ class LandStream {
     T.places = this.places.filter(p => rectDist(p.x, p.z, x0, z0, T.x1, T.z1) < p.r);
     this.tiles.set(key, T);
     let B = this.blocks.get(T.block);
-    if (!B) this.blocks.set(T.block, B = { key: T.block, I, J, x0: -R + I * BLOCK, z0: -R + J * BLOCK, x1: -R + (I + 1) * BLOCK, z1: -R + (J + 1) * BLOCK, tiles: [], mid: null, far: null, lights: null });
+    if (!B) this.blocks.set(T.block, B = { key: T.block, I, J, x0: -R + I * BLOCK, z0: -R + J * BLOCK, x1: -R + (I + 1) * BLOCK, z1: -R + (J + 1) * BLOCK, tiles: [], mid: null, crown: null, far: null, lights: null });
     B.tiles.push(T);
     return T;
   }
@@ -631,7 +733,7 @@ class LandStream {
       for (let k = 0; k < p.length; k += 2) { x0 = Math.min(x0, p[k]); x1 = Math.max(x1, p[k]); z0 = Math.min(z0, p[k + 1]); z1 = Math.max(z1, p[k + 1]); }
       for (let j = Math.floor((z0 - 50 + R) / TILE); j <= Math.floor((z1 + 50 + R) / TILE); j++) for (let i = Math.floor((x0 - 50 + R) / TILE); i <= Math.floor((x1 + 50 + R) / TILE); i++) { const T = this._tile(i, j); if (T) T.roads.push(r); }
     }
-    if (!this.land.roads) this.town.add(d.roads);        // (the old single-file format's streets are counted already)
+    if (!this.land.roads) { this.town.add(d.roads); this.terrain.paintRoads?.(d.roads); }   // (the old single-file format's streets are in already)
   }
   _load() {
     const max = this.land.live ? 2 : 4;
@@ -926,23 +1028,13 @@ class LandStream {
 
   // ---- mid: per 4 km block, one instanced box per building (and a gable per pitched roof), a crown per tree
   *_buildMid(B) {
-    // (tree crowns only in the blocks near enough to show them: farther off a wood is its colour on the ground)
-    const crowned = rectDist(this.cx, this.cz, B.x0, B.z0, B.x1, B.z1) < this.midR * 0.5;
-    let nb = 0, nr = 0, nc = 0;
-    for (const T of B.tiles) { for (const rec of T.recs) if (rec.o) { nb++; if (rec.style !== 1) nr++; } if (crowned) nc += T.trees.length; }
+    let nb = 0, nr = 0;
+    for (const T of B.tiles) for (const rec of T.recs) if (rec.o) { nb++; if (rec.style !== 1) nr++; }
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), col = new THREE.Color();
-    const mk = (unit, n, mat, withBld) => {
-      if (!n) return null;
-      const aB = withBld ? new Float32Array(n * 4) : null;
-      const im = new THREE.InstancedMesh(instGeometry(unit, aB), mat, n);
-      im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3);
-      im.matrixAutoUpdate = false; im.userData.aB = aB;
-      return im;
-    };
-    const boxes = mk(this.U.box, nb, this.bMat, true), roofs = mk(this.U.prism, nr, this.bMat, true), crowns = mk(this.U.crown, nc, this.cMat, false);
-    let ib = 0, ir = 0, ic = 0, qm = 0;
+    const boxes = this._inst(this.U.box, nb, this.mMat, true), roofs = this._inst(this.U.prism, nr, this.mMat, true);
+    let ib = 0, ir = 0, qm = 0;
     for (const T of B.tiles) {
-      const r0 = [ib, ir, ic];
+      const r0 = [ib, ir];
       for (const rec of T.recs) {
         if (++qm % 600 === 0) yield;
         const o = rec.o; if (!o) continue;
@@ -950,45 +1042,77 @@ class LandStream {
         q.setFromAxisAngle(up, Math.atan2(-o.lz, o.lx));
         m4.compose(ps.set(o.cx, rec.y0, o.cz), q, sc.set(2 * o.hl * k, rec.eave + rec.parapet - rec.y0, 2 * o.hw * k));
         boxes.setMatrixAt(ib, m4); boxes.setColorAt(ib, col.setRGB(...rec.wallCol));
-        boxes.userData.aB.set([rec.bld[0], rec.bld[1], rec.bld[2], rec.bld[3] + 8], ib * 4); ib++;
+        boxes.userData.aB.set([rec.bld[0], rec.bld[1], rec.bld[2], rec.bld[3] + 8], ib * 4); boxes.userData.aR.set(rec.roofCol, ib * 3); ib++;
         if (rec.style !== 1) {
           m4.compose(ps.set(o.cx, rec.eave, o.cz), q, sc.set(2 * o.hl + 0.9, o.hw * Math.tan(rec.pitch), 2 * o.hw + 0.9));
           roofs.setMatrixAt(ir, m4); roofs.setColorAt(ir, col.setRGB(...rec.roofCol));
           roofs.userData.aB.set([rec.base, rec.eave, 0, 3], ir * 4); ir++;
         }
       }
-      if (crowned) for (const [x, y, z, s, a, c, sp] of T.trees) {
+      T.mid = [r0, [ib, ir]];
+      yield;
+    }
+    B.mid = { parts: [boxes, roofs], meshes: this._add([boxes, roofs], 'mid') };
+    for (const T of B.tiles) if (T.nearG) this._midShow(T, false);
+  }
+  // an instanced mesh of a unit piece, with per-instance colour (and building data, roof colour)
+  _inst(unit, n, mat, withBld) {
+    if (!n) return null;
+    const aB = withBld ? new Float32Array(n * 4) : null, aR = withBld ? new Float32Array(n * 3) : null;
+    const im = new THREE.InstancedMesh(instGeometry(unit, aB, aR), mat, n);
+    im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3);
+    im.matrixAutoUpdate = false; im.userData.aB = aB; im.userData.aR = aR;
+    return im;
+  }
+  _add(list, name) {
+    const meshes = list.filter(Boolean);
+    for (const m of meshes) { m.computeBoundingSphere(); m.userData.orig = m.instanceMatrix.array.slice(); m.name = name; this.group.add(m); }
+    return meshes;
+  }
+  // ---- tree crowns, per block within the crown ring (they thin out, dithered, toward its edge)
+  *_buildCrowns(B) {
+    let nc = 0;
+    for (const T of B.tiles) nc += T.trees.length;
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), col = new THREE.Color();
+    const crowns = this._inst(this.U.crown, nc, this.cMat, false);
+    let ic = 0;
+    for (const T of B.tiles) {
+      const c0 = ic;
+      for (const [x, y, z, s, a, c, sp] of T.trees) {
         const [tc, w, h, cy] = TREE_CROWN[sp];
         q.setFromAxisAngle(up, a);
         m4.compose(ps.set(x, y + cy * s, z), q, sc.set(w * s, h * s * (0.85 + 0.3 * c), w * s));
         crowns.setMatrixAt(ic, m4); crowns.setColorAt(ic, col.setRGB(tc[0] * (0.85 + 0.3 * c), tc[1] * (0.9 + 0.2 * (1 - c)), tc[2] * (0.85 + 0.2 * c))); ic++;
       }
-      T.mid = [r0, [ib, ir, ic]];
+      T.crown = [c0, ic];
       yield;
     }
-    const meshes = [boxes, roofs, crowns].filter(Boolean);
-    for (const m of meshes) { m.computeBoundingSphere(); m.userData.orig = m.instanceMatrix.array.slice(); m.name = 'mid'; this.group.add(m); }
-    B.mid = { boxes, roofs, crowns, meshes };
-    for (const T of B.tiles) if (T.nearG) this._midShow(T, false);
+    B.crown = { parts: [crowns], meshes: this._add([crowns], 'crowns') };
+    for (const T of B.tiles) if (T.nearG) { T.crownHidden = false; this._midShow(T, false); }
   }
-  // hide (or show again) a tile's instances in its block's mid level, while its near level stands there
+  // hide (or show again) a tile's instances in its block's mid level and crowns, while its near level stands there
   _midShow(T, on) {
-    const B = this.blocks.get(T.block);
-    if (!B || !B.mid || !T.mid || T.midHidden === !on) return;
-    const [a, b] = T.mid;
-    [B.mid.boxes, B.mid.roofs, B.mid.crowns].forEach((m, k) => {
-      if (!m || b[k] <= a[k]) return;
+    const B = this.blocks.get(T.block); if (!B) return;
+    const put = (m, a, b) => {
+      if (!m || b <= a) return;
       const arr = m.instanceMatrix.array;
-      if (on) arr.set(m.userData.orig.subarray(a[k] * 16, b[k] * 16), a[k] * 16); else arr.fill(0, a[k] * 16, b[k] * 16);
+      if (on) arr.set(m.userData.orig.subarray(a * 16, b * 16), a * 16); else arr.fill(0, a * 16, b * 16);
       m.instanceMatrix.needsUpdate = true;
-    });
-    T.midHidden = !on;
+    };
+    if (B.mid && T.mid && T.midHidden !== !on) { B.mid.parts.forEach((m, k) => put(m, T.mid[0][k], T.mid[1][k])); T.midHidden = !on; }
+    if (B.crown && T.crown && T.crownHidden !== !on) { put(B.crown.parts[0], T.crown[0], T.crown[1]); T.crownHidden = !on; }
   }
   _dropMid(B) {
     if (!B.mid) return;
     for (const m of B.mid.meshes) { this.group.remove(m); m.geometry.dispose(); m.dispose(); }
     B.mid = null;
     for (const T of B.tiles) { T.mid = null; T.midHidden = false; }
+  }
+  _dropCrowns(B) {
+    if (!B.crown) return;
+    for (const m of B.crown.meshes) { this.group.remove(m); m.geometry.dispose(); m.dispose(); }
+    B.crown = null;
+    for (const T of B.tiles) { T.crown = null; T.crownHidden = false; }
   }
 
   // ---- far: the buildings of each 30 m cell merged into one low box; and the block's night lights
@@ -999,10 +1123,11 @@ class LandStream {
       if (++qf % 1000 === 0) yield;
       const key = Math.floor((rec.cx - B.x0) / C) + Math.floor((rec.cz - B.z0) / C) * 1000;
       let c = cells.get(key);
-      if (!c) cells.set(key, c = { fa: 0, h: 0, x: 0, z: 0, base: Infinity, r: 0, g: 0, b: 0, kind: 0 });
+      if (!c) cells.set(key, c = { fa: 0, h: 0, x: 0, z: 0, base: Infinity, r: 0, g: 0, b: 0, rr: 0, rg: 0, rb: 0, kind: 0 });
       const w = rec.fa, h = rec.eave - rec.base;
       c.fa += w; c.h += h * w; c.x += rec.cx * w; c.z += rec.cz * w; c.base = Math.min(c.base, rec.base);
       c.r += rec.wallCol[0] * w; c.g += rec.wallCol[1] * w; c.b += rec.wallCol[2] * w; if (rec.bld[3] === 1) c.kind = 1;
+      c.rr += rec.roofCol[0] * w; c.rg += rec.roofCol[1] * w; c.rb += rec.roofCol[2] * w;
     }
     yield;
     let lights = [];
@@ -1020,15 +1145,14 @@ class LandStream {
     }
     const n = cells.size;
     if (n) {
-      const aB = new Float32Array(n * 4), im = new THREE.InstancedMesh(instGeometry(this.U.box, aB), this.bMat, n);
-      im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3);
+      const im = this._inst(this.U.box, n, this.fMat, true), aB = im.userData.aB, aR = im.userData.aR;
       const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3(), col = new THREE.Color();
       let i = 0;
       for (const c of cells.values()) {
         const side = C * Math.sqrt(clamp(c.fa / (C * C) * 1.4, 0.1, 0.85)), h = c.h / c.fa;
         m4.compose(ps.set(c.x / c.fa, c.base - 2.5, c.z / c.fa), q, sc.set(side, h + 2.5, side));
         im.setMatrixAt(i, m4); im.setColorAt(i, col.setRGB(c.r / c.fa, c.g / c.fa, c.b / c.fa));
-        aB.set([c.base, c.base + h, (i * 0.618) % 1, 8 + c.kind], i * 4); i++;
+        aB.set([c.base, c.base + h, (i * 0.618) % 1, 8 + c.kind], i * 4); aR.set([c.rr / c.fa, c.rg / c.fa, c.rb / c.fa], i * 3); i++;
       }
       im.computeBoundingSphere(); im.matrixAutoUpdate = false; im.name = 'far';
       this.group.add(im); B.far = im;
@@ -1059,6 +1183,7 @@ class LandStream {
       if (!all) continue;
       if (!B.mid && dB < this.midR) q.push([dB + 500, 2, B]);
       if (!B.far) q.push([dB + 2000, 3, B]);
+      if (!B.crown && dB < this.crownR) q.push([dB + 800, 4, B]);
     }
     q.sort((a, b) => a[0] - b[0]);
     this.queue = q;
@@ -1069,6 +1194,8 @@ class LandStream {
     if (this.lastT) this.frameMs = this.frameMs * 0.8 + Math.min(1000, now - this.lastT) * 0.2;
     this.lastT = now;
     this.cx = cx; this.cz = cz;
+    const map = this.terrain.material?.map;
+    if (map?.userData.dirty && now - (this.mapT || 0) > 1500) { map.userData.dirty = false; map.needsUpdate = true; this.mapT = now; }
     this._load();
     if (this.dirty || Math.hypot(cx - this.rx, cz - this.rz) > 150) this._rank();
     // a slice of the frame (a fifth: more on a slow frame, which would be slow anyway)
@@ -1077,10 +1204,10 @@ class LandStream {
       if (!this.job) {
         if (!this.queue.length) break;
         const [, kind, o] = this.queue.shift();
-        const go = kind === 0 ? !o.recs : kind === 1 ? !o.nearG && rectDist(cx, cz, o.x0, o.z0, o.x1, o.z1) < this.nearR : kind === 2 ? !o.mid : !o.far;
+        const go = kind === 0 ? !o.recs : kind === 1 ? !o.nearG && rectDist(cx, cz, o.x0, o.z0, o.x1, o.z1) < this.nearR : kind === 2 ? !o.mid : kind === 3 ? !o.far : !o.crown && rectDist(cx, cz, o.x0, o.z0, o.x1, o.z1) < this.crownR;
         if (!go || o.busy) continue;
         o.busy = true;
-        this.job = { o, it: kind === 0 ? this._prep(o) : kind === 1 ? this._buildNear(o) : kind === 2 ? this._buildMid(o) : this._buildFar(o) };
+        this.job = { o, it: kind === 0 ? this._prep(o) : kind === 1 ? this._buildNear(o) : kind === 2 ? this._buildMid(o) : kind === 3 ? this._buildFar(o) : this._buildCrowns(o) };
       }
       const w0 = performance.now();
       const r = this.job.it.next();
@@ -1090,12 +1217,15 @@ class LandStream {
     // levels by distance (with some slack, so crossing a boundary does not rebuild back and forth)
     for (const T of this.nearSet) {
       const d = rectDist(cx, cz, T.x0, T.z0, T.x1, T.z1);
-      if (d > this.nearR + HYST) this._dropNear(T); else if (!T.midHidden) this._midShow(T, false);
+      if (d > this.nearR + HYST) this._dropNear(T); else this._midShow(T, false);
     }
     for (const B of this.blocks.values()) {
       const dB = rectDist(cx, cz, B.x0, B.z0, B.x1, B.z1);
       if (B.mid && dB > this.midR + HYST) this._dropMid(B);
-      if (B.far && B.far !== true) B.far.visible = !B.mid;
+      if (B.crown && dB > this.crownR + HYST) this._dropCrowns(B);
+      // (the far level is always there: its cells fill in, dithered, as the mid level's buildings thin out; whole
+      // while its block has no mid level yet, so nothing goes missing while that streams in)
+      if (B.far && B.far !== true) { const m = B.mid ? this.fMat : this.bMat; if (B.far.material !== m) B.far.material = m; }
       // far off and drawn: its tiles' layouts are let go (memory), and made again, the same, if the camera returns
       if (B.far && !B.mid && dB > this.midR + 3000 && !B.evicted) { for (const T of B.tiles) if (!T.busy && !T.nearG) { T.recs = null; T.trees = null; } B.evicted = true; }
       else if (dB < this.midR) B.evicted = false;
@@ -1116,7 +1246,7 @@ class LandStream {
       }
     }
     if (this.dirty) this._rank();
-    return !this.job && !this.queue.some(([p, kind]) => (kind === 1 ? p + 20000 : kind === 2 ? p - 500 : kind === 3 ? p - 2000 : p) < r);
+    return !this.job && !this.queue.some(([p, kind]) => (kind === 1 ? p + 20000 : kind === 2 ? p - 500 : kind === 3 ? p - 2000 : kind === 4 ? p - 800 : p) < r);
   }
   stats() {
     let prepped = 0, near = 0, mid = 0, far = 0, chunks = 0;

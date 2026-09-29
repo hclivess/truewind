@@ -601,21 +601,29 @@ export class HUD {
   setWorld(world) {
     this.world = world;
     this.trail = [];
+    this.mapDetail = null;
     if (!world || world.open) { this.landImg = null; return; }
-    const S = 512, cv = document.createElement('canvas'); cv.width = S; cv.height = S;
-    const ctx = cv.getContext('2d'), img = ctx.createImageData(S, S);
+    this.landImg = this.mapImage(-world.R, -world.R, 2 * world.R, 512);
+  }
+  // land and water over a square (x0, z0, size m) at S px: the coast anti-aliased over a pixel, the shallows lighter;
+  // outside the modelled area, the chart's background
+  mapImage(x0, z0, size, S, cv = null) {
+    const world = this.world;
+    if (!cv) { cv = document.createElement('canvas'); cv.width = S; cv.height = S; }
+    const ctx = cv.getContext('2d'), img = ctx.createImageData(S, S), px = size / S, R = world.R;
     for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
-      const x = -world.R + (i + 0.5) * 2 * world.R / S, z = -world.R + (j + 0.5) * 2 * world.R / S;
-      const s = world.sdfAt(x, z), k = (j * S + i) * 4;
-      if (s < 0) { img.data[k] = 142; img.data[k + 1] = 150; img.data[k + 2] = 118; img.data[k + 3] = 255; }
-      else {
-        const dp = world.depthAt(x, z);
-        const sh = clamp(1 - dp / 6, 0, 1);
-        img.data[k] = 18 + 40 * sh; img.data[k + 1] = 42 + 70 * sh; img.data[k + 2] = 58 + 60 * sh; img.data[k + 3] = 255;
+      const x = x0 + (i + 0.5) * px, z = z0 + (j + 0.5) * px, k = (j * S + i) * 4;
+      if (Math.abs(x) > R || Math.abs(z) > R) { img.data[k] = 18; img.data[k + 1] = 42; img.data[k + 2] = 58; img.data[k + 3] = 255; continue; }
+      const s = world.sdfAt(x, z), land = clamp(0.5 - s / px, 0, 1);
+      let r = 142, g = 150, b = 118;
+      if (land < 1) {
+        const sh = clamp(1 - world.depthAt(x, z) / 6, 0, 1);
+        r = r * land + (18 + 40 * sh) * (1 - land); g = g * land + (42 + 70 * sh) * (1 - land); b = b * land + (58 + 60 * sh) * (1 - land);
       }
+      img.data[k] = r; img.data[k + 1] = g; img.data[k + 2] = b; img.data[k + 3] = 255;
     }
     ctx.putImageData(img, 0, 0);
-    this.landImg = cv;
+    return cv;
   }
 
   mapTransform() {
@@ -646,18 +654,33 @@ export class HUD {
     ctx.save();
     ctx.fillStyle = '#122a3a'; ctx.fillRect(0, 0, W, W);
     ctx.translate(W / 2, W / 2); ctx.rotate(T.rot); ctx.scale(T.sc, T.sc); ctx.translate(-T.cx, -T.cz);
+    ctx.imageSmoothingEnabled = true;
     if (this.landImg) {
-      ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(this.landImg, -this.world.R, -this.world.R, 2 * this.world.R, 2 * this.world.R);
+      // one picture of the land round the view at the view's own resolution (redrawn as the boat moves on or the
+      // range changes), so the chart never shows the whole venue's coarse pixels or an edge between two resolutions
+      const half = this.mapRange * 1.8, D = this.mapDetail;
+      if (!D || Math.hypot(b.x - D.cx, b.z - D.cz) > half * 0.2 || Math.abs(Math.log(D.half / half)) > 0.2) {
+        this.mapDetail = { cx: b.x, cz: b.z, half, cv: this.mapImage(b.x - half, b.z - half, 2 * half, 256, D && D.cv) };
+      }
+      const M = this.mapDetail;
+      ctx.drawImage(M.cv, M.cx - M.half, M.cz - M.half, 2 * M.half, 2 * M.half);
     }
-    // puffs (from the renderer's wind texture)
+    // puffs (from the renderer's wind texture), as one smooth overlay
     const gt = g.renderer.gustTex, gd = gt.image.data, GS = 128, size = g.renderer.waterU.uGustS.value, o = g.renderer.waterU.uGustO.value;
-    const cell = size / GS;
-    for (let j = 0; j < GS; j += 2) for (let i = 0; i < GS; i += 2) {
-      const f = gd[(j * GS + i) * 4] / 128;
-      if (f > 1.08) { ctx.fillStyle = `rgba(8,16,40,${Math.min(0.55, (f - 1.05) * 1.6)})`; ctx.fillRect(o.x - size / 2 + i * cell, o.y - size / 2 + j * cell, cell * 2, cell * 2); }
-      else if (f < 0.9) { ctx.fillStyle = `rgba(190,220,235,${Math.min(0.25, (0.92 - f) * 1.2)})`; ctx.fillRect(o.x - size / 2 + i * cell, o.y - size / 2 + j * cell, cell * 2, cell * 2); }
+    const pc = this.puffCv || (this.puffCv = document.createElement('canvas')), PS = GS / 2;
+    if (pc.width !== PS) { pc.width = PS; pc.height = PS; }
+    const pctx = pc.getContext('2d'), pim = this.puffImg || (this.puffImg = pctx.createImageData(PS, PS));
+    for (let j = 0; j < PS; j++) for (let i = 0; i < PS; i++) {
+      // (fading out toward the field's edge, round, so no square shows; and on water only)
+      const f = gd[(2 * j * GS + 2 * i) * 4] / 128, k = (j * PS + i) * 4, rr = Math.hypot(i + 0.5 - PS / 2, j + 0.5 - PS / 2) / (PS / 2);
+      const wx = o.x - size / 2 + (i + 0.5) * size / PS, wz = o.y - size / 2 + (j + 0.5) * size / PS;
+      const e = clamp((1 - rr) / 0.4, 0, 1) * (this.world && !this.world.open ? clamp(this.world.sdfAt(wx, wz) / 30, 0, 1) : 1);
+      if (f > 1.08) { pim.data[k] = 8; pim.data[k + 1] = 16; pim.data[k + 2] = 40; pim.data[k + 3] = 255 * e * Math.min(0.55, (f - 1.05) * 1.6); }
+      else if (f < 0.9) { pim.data[k] = 190; pim.data[k + 1] = 220; pim.data[k + 2] = 235; pim.data[k + 3] = 255 * e * Math.min(0.25, (0.92 - f) * 1.2); }
+      else pim.data[k + 3] = 0;
     }
+    pctx.putImageData(pim, 0, 0);
+    ctx.drawImage(pc, o.x - size / 2, o.y - size / 2, size, size);
     const lw = 1 / T.sc;
     // track
     if (!this.trail.length || Math.hypot(this.trail[this.trail.length - 1][0] - b.x, this.trail[this.trail.length - 1][1] - b.z) > 6) { this.trail.push([b.x, b.z]); if (this.trail.length > 600) this.trail.shift(); }
