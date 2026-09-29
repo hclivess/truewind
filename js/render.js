@@ -1,7 +1,7 @@
 // Three.js renderer: sky, Gerstner ocean (same spectrum as the physics), real-map terrain, piers,
 // lofted hulls, live sails (twist, camber, draft, luffing), telltales, wakes, marks, cameras.
 import * as THREE from 'three';
-import { DEG, WC, WC_GLSL } from './env.js';
+import { DEG, WC, WC_GLSL, drawnSeaKeep } from './env.js';
 import { STRIP_F, REEF, clamp, lerp } from './physics.js';
 import { buildBoatModel, updateBoatModel } from './models.js';
 import './boats/detailed.js';      // (registers the detailed models of the classes in js/classes/)
@@ -234,6 +234,7 @@ export class Renderer {
   // ---------------------------------------------------------------- water
   _buildWater() {
     const N = this.low ? 160 : 360, R = 6500, a = 0.035;
+    this.seaGrid = { N, R, a, snap: 4 };             // (seaKeep: what this grid draws of each wave)
     const pos = new Float32Array((N + 1) * (N + 1) * 3);
     const map = (u) => R * Math.sign(u) * (a * Math.abs(u) + (1 - a) * Math.abs(u) ** 3);
     // local grid spacing (m): a wave shorter than a few cells cannot be drawn as geometry — it would alias
@@ -1201,6 +1202,21 @@ export class Renderer {
     this.piersMesh = pierGroup; this.scene.add(pierGroup);
   }
 
+  // what the water grid draws of each wave at world (x, z): keep(k), 0..1 (env.js drawnSeaKeep), for WaveField.ride
+  seaKeepAt(x, z) {
+    const U = this.waterU, o = U.uOffset.value, c = U.uCam.value;
+    return drawnSeaKeep(this.seaGrid, o.x, o.y, c.x, c.z, U.uHs.value, x, z, this._keepSt || (this._keepSt = {}));
+  }
+  // b's hull drawn on the drawn sea: the heave and pitch that the waves the grid leaves out gave her (her hull's mean
+  // of them, WaveField.ride) come off the drawn hull (models.js updateBoatModel: pose.seaDh, pose.seaDp; the pose
+  // itself stays the boat's, for the hull waves and the splashes that meet the whole sea)
+  onDrawnSea(b, W, t) {
+    const P = b.pose, C = b.cls;
+    if (!C || !W.ride) return;
+    const o = W.ride(P.x, P.z, t, P.psi, C.lwl || C.loa || 0, C.beam || 0, this.seaKeepAt(P.x, P.z), this._ride || (this._ride = {}), true);
+    const ok = Number.isFinite(o.h) && Number.isFinite(o.al);
+    P.seaDh = ok ? -o.h : 0; P.seaDp = ok ? -Math.atan(o.al) : 0;
+  }
   // the tide's level (m above MSL): everything that stands on the ground (terrain, town, piers, beacons and
   // lighthouses) sinks by it while the sea (y = 0) and all that floats stays put, so the bed the water covers and
   // the banks it uncovers are where the physics' depth has them; the shader's depths follow
@@ -1325,8 +1341,13 @@ export class Renderer {
     this._updateCamera(dt, player, env, t);
     const cam = this.camera.position;
     this.waterU.uCam.value.copy(cam);
-    const snap = 4;
+    const snap = this.seaGrid.snap;
     this.waterU.uOffset.value.set(Math.round(cam.x / snap) * snap, Math.round(cam.z / snap) * snap);
+    // the boats on the sea that is drawn: the grid leaves out the waves shorter than a few of its cells (finer
+    // with the distance from the camera) and fades the sea toward the horizon, but a boat heaves and pitches
+    // on all of it (js/physics.js). Drawn as they are, the far boats bobbed on a glassy sea and lifted clear of
+    // the troughs they sat in; the part of the sea the grid does not draw comes off each hull's drawn pose.
+    if (env.wavesOn) for (const b of boats) if (b.pose) this.onDrawnSea(b, env.waves, t);
     this.waterU.uTime.value = t;
     if (env.wavesOn && env.waves.rogueUniforms) this.setRogues(env.waves, t, player ? player.x : cam.x, player ? player.z : cam.z);
     tickGlow(performance.now() / 1000);
@@ -1468,7 +1489,7 @@ export class Renderer {
       const vis = this.boats.get(b), C = b.cls;
       vis.inner.updateMatrixWorld();
       const focus = new THREE.Vector3(0, C.freeboard + 0.4, -(C.sternX + C.lwl * 0.35)).applyMatrix4(vis.inner.matrixWorld);
-      const yaw = c.yaw + b.psi, d = Math.min(c.dist, 9);
+      const yaw = c.yaw + P.psi, d = Math.min(c.dist, 9);     // (the drawn heading: b.psi moved in whole physics steps, the view judders)
       cam.position.set(focus.x - Math.sin(yaw) * Math.cos(c.pitch) * d, focus.y + Math.sin(c.pitch) * d + 0.5, focus.z + Math.cos(yaw) * Math.cos(c.pitch) * d);
       cam.up.set(0, 1, 0); cam.lookAt(focus);
     } else if (c.mode === 'top') {

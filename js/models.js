@@ -1818,18 +1818,22 @@ function bendMast(vis, b) {
 }
 
 // ================================================================== per-frame
+// a cloth sail's nodes as drawn: between the last two physics steps (rig.xd, js/main.js poseRig), else as they are
+export const clothX = (rig) => (rig.xd && rig.xd.length === rig.cloth.x.length ? rig.xd : rig.cloth.x);
 const _v = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
 export function updateBoatModel(vis, b, t) {
   const C = b.cls, P = b.pose || b;
-  vis.root.position.set(P.x, P.heave, P.z);
+  // (seaDh, seaDp: on the sea as drawn, render.js onDrawnSea)
+  vis.root.position.set(P.x, P.heave + (P.seaDh || 0), P.z);
   vis.root.rotation.set(0, -P.psi, 0);
-  vis.inner.rotation.set(P.pitch, 0, -P.phi, 'YXZ');
+  vis.inner.rotation.set(P.pitch + (P.seaDp || 0), 0, -P.phi, 'YXZ');
   if (vis.rudderPivots && vis.rudderPivots.length) { for (const pv of vis.rudderPivots) pv.rotation.y = b.rudder; vis.rudderPivot.position.x = -Math.sin(b.rudder) * 0.6 * 0; }
   else vis.rudderPivot.rotation.y = b.rudder;
   if (C.keel.twin && vis.keelMesh) vis.keelMesh.position.y = C.freeboard - 0.05 + (1 - b.ctrl.board) * C.keel.span * 0.8;
   else if (C.keel.board && vis.keelMesh) vis.keelMesh.position.y = -C.canoeDraft + 0.41 + (1 - b.ctrl.board) * C.keel.span * 0.8;
   for (const k in vis.booms) {
-    vis.booms[k].rotation.set(-(b.booms[k].elev || 0), b.booms[k].a, 0, 'YXZ');   // (a cloth sail's boom lifts)
+    const bk = (P.booms && P.booms[k]) || b.booms[k];                              // (drawn between physics steps)
+    vis.booms[k].rotation.set(-(bk.elev || 0), bk.a, 0, 'YXZ');   // (a cloth sail's boom lifts)
     const bundle = vis.booms[k].userData.bundle;
     if (bundle) { const rp = b.reefPos; bundle.visible = rp > 0.03; bundle.scale.set(0.4 + 0.6 * Math.min(1, rp), 1, 0.4 + 0.6 * Math.min(1, rp)); }
   }
@@ -1861,7 +1865,7 @@ export function updateBoatModel(vis, b, t) {
 // A cloth sail (js/sail/cloth.js) drawn from its own nodes: Catmull-Rom through the cloth grid onto the mesh's
 // (u, v) chart (u = 0 at the luff, v = 0 at the foot), rig frame (x fwd, y stbd, z up) -> [y, z, -x]
 function clothToMesh(mesh, rig) {
-  const c = rig.cloth, nu = c.nu, nv = c.nv, off = c.off, X = c.x, pos = mesh.geometry.attributes.position.array;
+  const c = rig.cloth, nu = c.nu, nv = c.nv, off = c.off, X = clothX(rig), pos = mesh.geometry.attributes.position.array;
   // (never a non-finite vertex to the GPU: a cloth caught mid-blow-up keeps the shape it was last drawn with; the
   // physics re-poses it from its rest shape on its next step)
   for (let i = 3 * off; i < X.length; i++) if (!Number.isFinite(X[i])) {
@@ -1980,7 +1984,7 @@ function updateTelltales(vis, b, t) {
     const chord = head.foot * (1 - fv) + head.head * fv;
     const cx = -Math.cos(a), cy = Math.sin(a);
     let baseX = px - (head.rake || 0) * fv + cx * chord * 0.12, baseY = cy * chord * 0.12, baseZ = pz + fv * head.luff;
-    if (hRig) { hRig.cloth.sample(hRig.cloth.x, 0.12, fv, _q); baseX = _q[0]; baseY = _q[1]; baseZ = _q[2]; }
+    if (hRig) { hRig.cloth.sample(clothX(hRig), 0.12, fv, _q); baseX = _q[0]; baseY = _q[1]; baseZ = _q[2]; }
     for (const ws of [-1, 1]) {
       const nx = Math.sin(a) * side * ws * 0.02, ny = Math.cos(a) * side * ws * 0.02;
       let dx = cx, dy = cy, dz = 0;
@@ -2005,7 +2009,7 @@ function updateTelltales(vis, b, t) {
       const chord = ms.foot * (1 - fv) + ms.head * fv + ms.foot * (ms.roach ?? 0.07) * Math.sin(Math.PI * fv * 0.85);
       const cx = -Math.cos(a), cy = Math.sin(a), lx = Math.sin(a) * mside, ly = Math.cos(a) * mside; // chord aft, leeward normal
       let baseX = C.mastX - 0.02 + cx * chord, baseY = cy * chord, baseZ = C.boomZ + fv * ms.luff * rf.l;
-      if (mRig) { mRig.cloth.sample(mRig.cloth.x, 1, fv, _q); baseX = _q[0]; baseY = _q[1]; baseZ = _q[2]; }
+      if (mRig) { mRig.cloth.sample(clothX(mRig), 1, fv, _q); baseX = _q[0]; baseY = _q[1]; baseZ = _q[2]; }
       let dx = cx, dy = cy, dz = -0.08;
       const flog = s.flog || 0;
       if (s.state === 3) { dx = -cx * 0.25 + lx * 0.75 + Math.sin(t * 8 + i * 1.7) * 0.2; dy = -cy * 0.25 + ly * 0.75 + Math.cos(t * 6 + i) * 0.2; dz = -0.45; }

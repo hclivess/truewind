@@ -64,6 +64,13 @@ function interp(table, x) {
   return yb + (yb - ya) / (xb - xa) * (x - xb);
 }
 export const wrap = (a) => { if (!isFinite(a)) return 0; return a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI)); };
+// the pose a boat is drawn in, alpha (0..1) of the way from its previous physics state p to its state b. The
+// heading and the heel are angles kept in -pi..pi: each goes the short way round (a capsized boat's heel through pi
+// went the long way, through upright, for a frame)
+export function drawPose(p, b, alpha) {
+  const ang = (a0, a1) => a0 + Math.atan2(Math.sin(a1 - a0), Math.cos(a1 - a0)) * alpha;
+  return { x: lerp(p.x, b.x, alpha), z: lerp(p.z, b.z, alpha), psi: ang(p.psi, b.psi), heave: lerp(p.heave, b.heave, alpha), pitch: lerp(p.pitch, b.pitch, alpha), phi: ang(p.phi, b.phi) };
+}
 
 // ---------------------------------------------------------------------------------------------
 // Boat classes. Geometry in metres from the centre of gravity (x fwd), heights above waterline.
@@ -401,6 +408,24 @@ function amaLoad(b, imm) {
 // how far a hull comes over its hump onto a plane (0 a displacement hull .. 1 a planing dinghy or sportboat)
 export const planingOf = (C) => C.planing ?? (C.group === 'dinghy' ? 1 : 0);
 
+// The air the sails carry with them in roll. A plate moving normal to itself carries an added mass rho pi c^2 / 4 per
+// unit span (c its chord: Newman, "Marine Hydrodynamics" (1977) 4.13); a sail is such a plate swinging about the roll
+// axis at its height z, so it adds rho_a pi/4 integral c(z)^2 (z - zG)^2 dz, taken at 0.7 of that for a
+// low-aspect-ratio triangle's tip losses. Air is 1/840 of water, but the sails are big and high: on a 30 ft yacht
+// ~15-20 % of its roll inertia, on a dinghy more (the working sails; a gennaker is off most of the time).
+function sailRollAddedInertia(C, zG) {
+  let I = 0;
+  for (const s of C.sails) {
+    if (s.kind === 'spin' || s.replaces || !(s.luff > 0)) continue;
+    const z0 = s.tackZ ?? C.boomZ, n = 8;
+    for (let i = 0; i < n; i++) {
+      const f = (i + 0.5) / n, c = s.foot * (1 - f) + (s.head || 0) * f, z = z0 + f * s.luff - zG;
+      I += RHO_A * Math.PI / 4 * c * c * z * z * s.luff / n;
+    }
+  }
+  return 0.7 * I;
+}
+
 export class Boat {
   constructor(cls, opts = {}) {
     this.cls = typeof cls === 'string' ? CLASSES[cls] : cls;
@@ -419,6 +444,7 @@ export class Boat {
     const MP = C.useClassInertia ? { Ixx: C.Ixx, Izz: C.Izz, Iyy: this.mass * (0.27 * C.loa) ** 2 }
       : mp.ownData || !C.Ixx ? mp : { Ixx: C.Ixx + mp.IxxCrew, Izz: C.Izz + mp.IzzCrew, Iyy: mp.Iyy };
     this.Izz = MP.Izz * (1 + C.amYaw); this.Ixx = MP.Ixx * (1 + C.amRoll);
+    this.IxxAir = sailRollAddedInertia(C, mp.zG);                     // the sails' air, while they are in the air (step)
     // hydrostatics from the drawn hull (shared geometry with the renderer)
     this.hydro = new HullHydro(C);
     const h0 = this.hydro.immerse(0.02, 0, 0, () => 0, () => 0, {});
@@ -428,8 +454,11 @@ export class Boat {
     // residuary resistance over the hump: the class's table below it, the Delft series on its drawn hull above
     // (js/classes/util.js rrOverHump; the slender multihulls keep their towing-tank tables)
     if (!C._rr) C._rr = C.multihull || C.amas ? C.rr : rrOverHump(C.rr, delftForm(C, this.hydro), planingOf(C));
-    this.m33 = this.mass * 1.8;                                       // heave incl. added mass
-    this.Iyy = MP.Iyy * (1 + (C.amPitch ?? 0.7));                     // pitch incl. added inertia
+    // heave and pitch: the dry mass and pitch inertia here; the water's added mass and inertia come from the drawn hull,
+    // station by station, as much of it as is wet (js/hull.js heaveAddedMass: a 30 ft yacht carries about twice its
+    // own mass in heave). m33 is the total at rest, level.
+    this.m33 = this.mass + this.hydro.A33;
+    this.Iyy = MP.Iyy;
     this.kRoll = RHO_W * G * this.Awp * (C.beam * C.beam / 12);
     this.cRoll = 2 * 0.07 * Math.sqrt(Math.max(1, this.mass * G * 0.6) * this.Ixx);
     this._hy = {}; this._ws7 = []; for (let i = 0; i < 7; i++) this._ws7.push({});
@@ -961,7 +990,7 @@ export class Boat {
     const slLat = (x) => (interp7(W7, 'sx', x) * sx + interp7(W7, 'sz', x) * sz);
     const slAl = (x) => (interp7(W7, 'sx', x) * fx + interp7(W7, 'sz', x) * fz);
     // the orbital acceleration along the hull (body axes): the diffraction (added-mass) wave loads
-    const accAt = wv ? (x, o) => { const ax = interp7(W7, 'ax', x), az = interp7(W7, 'az', x); o.a = ax * fx + az * fz; o.l = ax * sx + az * sz; o.v = interp7(W7, 'ay', x); } : null;
+    const accAt = wv ? (x, o) => { const ax = interp7(W7, 'ax', x), az = interp7(W7, 'az', x); o.a = ax * fx + az * fz; o.l = ax * sx + az * sz; o.v = interp7(W7, 'ay', x); o.w = interp7(W7, 'vy', x); } : null;
     const imm = hy.immerse(this.heave, this.pitch, this.phi, etaAt, slLat, this._hy, slAl, accAt, wv ? env.waves.ka || 0 : 0);
     // the water at a foil (body station xb, depth zb < 0): the local orbital velocity there and the drift
     const wo = this._wo || (this._wo = { u: 0, v: 0 });
@@ -1221,7 +1250,12 @@ export class Boat {
     let du = (X + m22 * this.v * this.r) / m11;
     let dv = (Y - m11 * this.u * this.r) / m22;
     let dr = N / this.Izz;
-    const dp = K / this.Ixx;
+    // (the air the sails carry: gone as they lie down on the water, where the wet strips' drag takes over, and with
+    // the rig if it comes down: ~ the cube of what stands of it, the sail's area and its height)
+    const rigUp = this.mastTop === undefined ? 1 : clamp((this.mastTop - C.boomZ) / Math.max(0.1, C.mastHeight - C.boomZ), 0, 1) ** 3;
+    const Ir = this.Ixx + (this.IxxAir || 0) * rigUp * (1 - sstep(50 * DEG, 80 * DEG, Math.abs(this.phi)));
+    this._Ir = Ir;
+    const dp = K / Ir;
     this._rdot = dr;
     this.u += du * dt; this.v += dv * dt; this.r += dr * dt;
     if (this._wD11 > 0) { // backward Euler for the wet-rig drag: (M + dt D) [v r]' = M [v r]  (D is symmetric, >= 0)
@@ -1230,7 +1264,7 @@ export class Boat {
       this.v = (b1 * a22 - a12 * b2) / det; this.r = (a11 * b2 - a12 * b1) / det;
     }
     // explicit roll, then the stiff water damping of a wet rig implicitly (unconditionally stable)
-    this.p = (this.p + dp * dt) / (1 + (this._cRollWet || 0) * dt / this.Ixx);
+    this.p = (this.p + dp * dt) / (1 + (this._cRollWet || 0) * dt / Ir);
     // guards: a numerical blow-up must never take the game down
     this.p = clamp(this.p, -8, 8); this.r = clamp(this.r, -4, 4); this.v = clamp(this.v, -15, 15); this.u = clamp(this.u, -8, 30);
     for (const k of ['u', 'v', 'r', 'p', 'phi', 'heave', 'heaveV', 'pitch', 'pitchV']) if (!isFinite(this[k])) this[k] = 0;
@@ -1277,7 +1311,7 @@ export class Boat {
       const calm = lerp(0.2, 1, upwindness);
       this._phiF = lerp(this._phiF ?? this.phi, this.phi, clamp(dt * lerp(0.7, 20, upwindness), 0, 1));
       const errC = lerp(this._phiF - tgt, err, upwindness);
-      const wn = 2.5, kp = this.Ixx * wn * wn / Mc * calm, kd = 2 * 0.9 * wn * this.Ixx / Mc * upwindness;
+      const Ir = this._Ir || this.Ixx, wn = 2.5, kp = Ir * wn * wn / Mc * calm, kd = 2 * 0.9 * wn * Ir / Mc * upwindness;
       const cmd = clamp(errC * kp + this.p * kd + (this._hikeI + ff) * upwindness, -1, 1);
       crewTarget = -cmd * lim;
       ctrl.hike = clamp(-crewTarget * windSide / lim, -1, 1);
@@ -1290,33 +1324,41 @@ export class Boat {
     this.crewX += clamp(ctrl.crewAft - this.crewX, -0.6 * dt, 0.6 * dt);
 
     // ---- heave & pitch: buoyancy of the real hull vs weight, drive couple and crew trim ----
+    // Strip theory (Salvesen, Tuck & Faltinsen 1970, the zero-speed terms): each station of the hull carries its own
+    // added mass a33(x) (js/hull.js) while it is wet, and feels the sea at its own place:
+    //   (m + A33) z'' + A35 th'' = F_hs + rho sum V a_w + sum a33 a_w - B sum a33 (z' + x th' - w)
+    //   A35 z'' + (Iyy + A55) th'' = M_hs + rho sum V a_w x + sum a33 a_w x - B sum a33 x (z' + x th' - w)
+    // F_hs, M_hs: the buoyancy of the hull under the local surface (hydrostatic in the wave); rho V a_w: the
+    // Froude-Krylov part that surface does not carry (the wave's pressure decays as e^{kz}: at the hull's depth it is
+    // less than rho g eta by rho V a_w); a33 a_w: diffraction; B: radiation damping, set so a hull at rest has
+    // zeta ~0.3 in heave (measured yacht heave RAOs peak at ~1.5-2 at resonance: Gerritsma, Keuning & Versluis 1993),
+    // pitch damping following from the same sections. A hull that leaves the water keeps its own mass only and
+    // free-falls (dropping off a wave).
     {
       const W = disp * G;
       const Fz = Fb - W;
-      const kz = RHO_W * G * this.Awp;
-      // added mass and radiation damping exist only for the part of the hull that is in the water:
-      // a hull that leaves the water free-falls (dropping off a wave)
-      const imf = clamp(imm.V / Math.max(1e-6, this.hydro.restV), 0, 1.5);
-      const mEff = disp * (1 + 0.8 * Math.min(1, imf));
-      const cz = 2 * 0.35 * Math.sqrt(kz * this.m33) * Math.min(1, imf);
-      // relative to the water surface moving under the hull (wave vertical velocity)
-      const wz = wv ? (wv.vy || 0) : 0;
-      // (and the added mass the water's vertical acceleration carries: the relative-motion form, m_a (a_w - a))
-      const Fd = wv ? 0.8 * RHO_W * (imm.FAz || 0) : 0;
-      this.heaveV += (Fz + Fd - cz * (this.heaveV - wz)) / mEff * dt;
-      this.heave += this.heaveV * dt;
+      const kz = RHO_W * G * this.Awp, A33r = Math.max(1e-6, this.hydro.A33);
+      const beta = 2 * 0.3 * Math.sqrt(kz * (disp + A33r)) / A33r;
+      const M33 = imm.M33 || 0, M35 = imm.M35 || 0, M55 = imm.M55 || 0;
+      let F = Fz, Mw = 0;
+      if (wv) { F += RHO_W * (imm.FAz || 0) + imm.F33; Mw = RHO_W * (imm.FAm || 0) + imm.F35; }
+      // (the damping against the water's own vertical velocity: zero in calm water)
+      F -= beta * (M33 * this.heaveV + M35 * this.pitchV - (wv ? imm.W33 : 0));
       const crewXm = this.crewX * 0.8 + (C.crewX0 ?? 0);
-      let My = RHO_W * G * imm.Mx - W * this.xG - this.crewMass * G * crewXm;
+      let My = RHO_W * G * imm.Mx - W * this.xG - this.crewMass * G * crewXm + Mw;
+      My -= beta * (M35 * this.heaveV + M55 * this.pitchV - (wv ? imm.W35 : 0));
       // bow driven under: green water on the foredeck pushes it down (moment = x * Fz)
       if (imm.deckSub > 0 && uw > 0) { const Fz = -0.5 * RHO_W * uw * uw * C.beam * 0.4 * imm.deckSub; My += C.bowX * 0.6 * Fz; X -= 0.5 * RHO_W * uw * uw * C.beam * 0.15 * imm.deckSub; }
       My -= sailX * (C.boomZ + 2.3);                                            // drive high, drag low: bow down
       if (this.engine) My += this.engine.My;                                     // thrust low (bow up), the engine's weight
-      if (wv) My += 0.8 * RHO_W * (imm.FAm || 0) + (this._brkMy || 0);         // the water's vertical inertia; a breaker's jet
+      if (wv) My += this._brkMy || 0;                                            // a breaker's jet
       My += (this.u > 0 ? 1 : 0) * 0.5 * RHO_W * uw * uw * C.beam * C.lwl * 0.004 * sstep(0.35, 0.6, Fn); // bow lift near planing
-      const kp = RHO_W * G * this.Awp * C.lwl * C.lwl / 16;
-      const cp2 = 2 * 0.3 * Math.sqrt(kp * this.Iyy) * Math.min(1, imf);
-      const IyyEff = this.Iyy * (0.6 + 0.4 * Math.min(1, imf));
-      this.pitchV += (My - cp2 * this.pitchV) / IyyEff * dt;
+      // the coupled heave-pitch inertia (the added mass's centre is not at the origin: A35)
+      const a11 = disp + M33, a12 = M35, a22 = this.Iyy + M55, det = a11 * a22 - a12 * a12;
+      const zdd = (F * a22 - a12 * My) / det, tdd = (a11 * My - a12 * F) / det;
+      this.heaveV += zdd * dt;
+      this.heave += this.heaveV * dt;
+      this.pitchV += tdd * dt;
       this.pitch = clamp(this.pitch + this.pitchV * dt, -0.6, 0.6);
       if (!isFinite(this.heave) || !isFinite(this.heaveV)) { this.heave = 0; this.heaveV = 0; }
       if (!isFinite(this.pitch) || !isFinite(this.pitchV)) { this.pitch = 0; this.pitchV = 0; }

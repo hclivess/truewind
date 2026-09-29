@@ -710,6 +710,10 @@ export class Traffic {
       if (!b || hyp(b[0] - v.x, b[1] - v.z) < 400) continue;
       let pts = this.nav.plan(v.x, v.z, b[0], b[1], v.need);
       if (!pts) continue;
+      // (the plan starts at the middle of her grid cell, and her step to starboard of the old leg lay across the new
+      // one: the leg starts where she is, her offset spent — she leapt up to 20 m onto the new rail)
+      if (!first && hyp(pts[0] - v.x, pts[1] - v.z) > 0.01) pts = [v.x, v.z, ...pts];
+      if (!first) v.off = 0;
       v.sails = false;
       if (v.type === 'yacht') {
         // under sail where there is room to tack; motoring where there is not
@@ -733,7 +737,9 @@ export class Traffic {
     this.twd = mw.dir; this.tws = mw.speed;
     const o = this._o || (this._o = {}), c = this._c || (this._c = {});
     // moored and anchored boats lie to the wind and the tide (a keel boat to the tide, windage turns her)
-    this.mooredAcc = (this.mooredAcc || 0) + dt;
+    // (the first call lays them to their moorings at once: they were made on the buoy or the anchor itself, and
+    // lying back to it a quarter of a second later they leapt their scope, up to 150 m for a ship at anchor)
+    this.mooredAcc = (this.mooredAcc ?? 1) + dt;
     if (this.mooredAcc > 0.25) {
       const h = this.mooredAcc; this.mooredAcc = 0;
       const wx = -Math.sin(mw.dir) * mw.speed, wz = Math.cos(mw.dir) * mw.speed;   // (wind blows toward)
@@ -799,6 +805,11 @@ export class Traffic {
     if (!(t < v.avoidT)) { v.avoidT = t + 0.2 + 0.1 * r(); this.lookOut(v, psi, o.x, o.z, boats); }
     const yieldTo = v.yieldTo, stepOut = v.stepOut;
     want *= 1 - 0.85 * (yieldTo || 0);
+    // a new leg, or the way back from a terminal, can start off where she is not pointing: she turns to it first,
+    // at her own rate (a ship slowly), barely moving (her heading was set to the rail's at once: up to half a turn
+    // in one frame)
+    const dPsi = wrap(psi - v.psi);
+    if (Math.abs(dPsi) > 0.25 && v.type !== 'chain') want = Math.min(want, 0.4);
     // step to starboard (never toward the shore or a moored boat)
     const off0 = v.off || 0, sx = Math.cos(psi), sz = Math.sin(psi);
     let offT = (stepOut || 0) * Math.min(40, v.L * 1.5 + 10);
@@ -810,9 +821,13 @@ export class Traffic {
     v.s += Math.max(0, v.u) * dt;
     rail.at(v.s, o);
     let x = o.x + sx * v.off, z = o.z + sz * v.off;
-    if (this.sdf(x, z) < 1.5) { v.off = 0; x = o.x; z = o.z; }             // (the rail itself is on the water)
-    const turn = wrap(psi - v.psi);
-    v.psi = psi;
+    // (the rail itself is on the water: a step to starboard that runs toward the shore is taken back, briskly but
+    // not in one frame — it was set to 0 at once, a sideways leap of up to 40 m)
+    if (v.off && this.sdf(x, z) < 1.5) { v.off = Math.sign(v.off) * Math.max(0, Math.abs(v.off) - 12 * dt); x = o.x + sx * v.off; z = o.z + sz * v.off; }
+    // (her rate of turn: 0.8 rad/s for a RIB, 0.5 a 40 m ferry, 0.25 a 150 m ship — the rails' bends ask less)
+    // (a chain ferry is double-ended: it only ever changes ends)
+    const wT = v.type === 'chain' ? 9 : clamp(3 / Math.sqrt(v.L), 0.1, 0.8) * dt, turn = clamp(dPsi, -wT, wT);
+    v.psi = wrap(v.psi + turn);
     v.x = x; v.z = z;
     // the look of it: heel into a turn (power) or to leeward (sail), bow up at speed
     const rate = turn / Math.max(dt, 1e-3);

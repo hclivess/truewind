@@ -6,6 +6,7 @@
 //  3. hauling in (the tail growing 0.5 -> 2 m through the cleat) and easing (back to 0.6 m): it settles again
 //  4. the boat pitching and heaving in a seaway (the frame accelerating +-3 m/s^2): a tail on deck stays on deck
 //  5. a tail across a step (the side of a cabin top 0.25 m high): no jumps between the top and the sole
+//  6. a tail pressed against that step by the heel in a seaway: it stays at the wall, never lifted onto the top
 // Run: node test/rope.mjs
 import { RopeSim, coilTail } from '../js/ropesim.js';
 let fails = 0;
@@ -85,6 +86,19 @@ for (const [heel, slides] of [[15, false], [45, true]]) {
   let jump = 0, prev = snap(R);
   run(R, 4, () => 1 / 144, () => env, (t) => { if (t > 1.5) jump = Math.max(jump, moved(R, prev)); prev = snap(R); });
   check(R.finite() && jump < 0.01 && lowest(R, step) > -0.01, `over a cabin side: no jumps (largest move in a frame after landing ${(jump * 1000).toFixed(1)} mm)`);
+}
+// 6. a tail on the sole pressed against the side of a cabin top by the heel (and a seaway), creeping into it: it
+//    stays at the wall (a surface height remembered while a point crept a few millimetres once let one through, then
+//    lifted it onto the top in a single step)
+{
+  const step = (x) => (x < 0.2 ? 0.25 : 0);
+  const R = new RopeSim(24); R.pin[0] = 1; R.rest.fill(0.9 / 23);
+  for (let k = 0; k < 24; k++) R.set(k, 1.1 - k * 0.9 / 23 * 0.9, 0.01, 0.03 * Math.sin(k));
+  let t = 0, jump = 0, prev = snap(R);
+  run(R, 12, (t) => 1 / 60 + 0.002 * Math.sin(t * 91), (tt) => { t = tt; return { g: [-3 + 1.5 * Math.sin(1.1 * t), -9.81 - 2 * Math.sin(1.3 * t), 0.8 * Math.sin(0.7 * t)], air: [-4, 0, 1], cd: 0.03, floorY: step, rad: 0.004 }; },
+    () => { jump = Math.max(jump, moved(R, prev)); prev = snap(R); });
+  let onTop = 0; for (let k = 1; k < 24; k++) if (R.x[3 * k] < 0.2 - 0.01 && R.x[3 * k + 1] > 0.2) onTop++;
+  check(R.finite() && jump < 0.05 && onTop === 0, `pressed against a cabin side in a seaway: stays at the wall (largest move in a frame ${(jump * 1000).toFixed(0)} mm, points climbed onto the top ${onTop})`);
 }
 console.log(fails ? `${fails} FAILED` : 'all rope checks passed');
 process.exit(fails ? 1 : 0);
