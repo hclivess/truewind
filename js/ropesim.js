@@ -23,7 +23,6 @@ export class RopeSim {
     this.pin = new Uint8Array(n);                 // 1: held where the caller puts it (an anchor, a block, a cleat)
     this.rest = new Float64Array(Math.max(1, n - 1));
     this.contact = new Uint8Array(n); this.pen = new Float64Array(n);
-    this.fc = new Float64Array(3 * n).fill(NaN);  // the surface height last measured under each point, and where
     this.hPrev = H; this.t = 0; this.acc = 0; this.stepped = false;
     this.xs = new Float64Array(3 * n);           // the points before the last step (drawn between it and now)
     this._p = { x: 0, y: 0, z: 0 };
@@ -134,11 +133,9 @@ export class RopeSim {
       p.x = x[i]; p.y = x[i + 1]; p.z = x[i + 2]; contain(p);
       if (p.x !== x[i] || p.z !== x[i + 2]) { x[i] = p.x; x[i + 2] = p.z; xp[i] = p.x; xp[i + 2] = p.z; }   // (into the rail: stopped)
     }
-    // (the surface under it, measured again only once it has moved a centimetre across: most of a tail lies still)
-    let top;
-    const cx = x[i] - this.fc[3 * k], cz = x[i + 2] - this.fc[3 * k + 2];
-    if (cx * cx + cz * cz < 1e-4) top = this.fc[3 * k + 1];
-    else { top = floorY(x[i], x[i + 2]); this.fc[3 * k] = x[i]; this.fc[3 * k + 1] = top; this.fc[3 * k + 2] = x[i + 2]; }
+    // (the surface under it measured every time: a height cached while the point crept a few millimetres missed the
+    // edge of a cabin top, and the point was then lifted onto the top in one step, a 25 cm jump)
+    let top = floorY(x[i], x[i + 2]);
     if (!(top > -Infinity)) return 0;
     top += rad;
     const y = x[i + 1];

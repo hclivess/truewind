@@ -17,7 +17,7 @@
 //   keel { kind: 'fin' | 'swing' | 'centreboard' | 'dagger' | 'full', ... }, rudder { kind: 'spade' | 'skeg' | 'keel' | 'transom', ... }
 //   extras [name]: the boat's own pieces (EXTRAS below)
 import * as THREE from 'three';
-import { MODEL_HOOKS, transomDecal, transomPlate, M, Kit, onSide, nameStrip, gudgeons, transomLine, deckRay, V, canvasTex, rnd, hullGeometry, deckGeometry, deckHeightFn, foilGeom, lathe, profR, sailMesh, teakTex } from '../models.js';
+import { MODEL_HOOKS, transomDecal, transomPlate, M, Kit, onSide, nameStrip, gudgeons, transomLine, deckRay, V, canvasTex, rnd, hullGeometry, deckGeometry, deckHeightFn, foilGeom, lathe, profR, sailMesh, teakTex, clothX } from '../models.js';
 import { linesFor, hullOffsets, calibrate, curveOf } from '../hull.js';
 import { clamp, lerp, sstep } from '../physics.js';
 
@@ -496,7 +496,7 @@ function updateDetailed(vis, b, t) {
   // a sail's corner (u, v in its chart) in the rig frame: the cloth node where the cloth sails, else the strip shape
   const corner = (s, u, v, out) => {
     const rg = act && b.sailSys.cloth(s.key);
-    if (rg) { rg.cloth.sample(rg.cloth.x, u, v, _q); return out.copy(V(_q[0], _q[1], _q[2])); }
+    if (rg) { rg.cloth.sample(clothX(rg), u, v, _q); return out.copy(V(_q[0], _q[1], _q[2])); }
     const st = b.diag.strips[s.key], sh = b.diag.shape[s.key], a0 = st.baseAngle ?? 0, a = lerp(a0, sh[2].ang, v);
     const chord = (s.foot * (1 - v) + s.head * v) * u;
     let lx = (s.key === 'main' ? C.mastX - 0.02 : s.tackX) - (s.rake || 0) * v, ly = 0;
