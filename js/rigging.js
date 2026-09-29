@@ -6,8 +6,9 @@ import { V } from './models.js';
 import { clamp, lerp, sstep, reefAt } from './physics.js';
 import { sheetCar } from './boom.js';
 const _car = [0, 0, 0];
-import { lineSpecs, specOf, handlerOf, HANDLERS, ropeLook, ropeKey, ratchetEngaged, lineStatus, lineName } from './linehandlers.js';
+import { lineSpecs, specOf, handlerOf, HANDLERS, ropeLook, ropeKey, ratchetEngaged, lineStatus, lineName, tackleOf, lineLoad, RUNS_UP } from './linehandlers.js';
 import { ropeTexture, makeHandler, makeRatchet, makeHorn, makeCam } from './linegear.js';
+import { RopeSim, coilTail } from './ropesim.js';
 
 const ROPE_W = 1.4; // N/m, a little heavier than real so sag reads at a distance
 // una-rig dinghy deck layout (ratchet block, hiking strap, no halyards led aft): the Laser-like dinghy, or a class
@@ -59,7 +60,7 @@ class Rope {
     this.mesh.visible = true;
     // a loaded line is straight: only slack lines and free tails need the point-mass simulation
     const tMin = Array.isArray(tension) ? Math.min(...tension) : tension;
-    if (this.sim && this.sim.M && (this.freeEnd || tMin < 150)) { this.simulate(path, tension); this.buildTube(); return; }
+    if (this.sim && (this.freeEnd || tMin < 150)) { this.simulate(path, tension); this.buildTube(); return; }
     this._stale = true;
     const lens = []; let total = 0;
     for (let i = 0; i < n - 1; i++) { const L = path[i].distanceTo(path[i + 1]); lens.push(L); total += L; }
@@ -83,96 +84,73 @@ class Rope {
     this.buildTube();
   }
 
-  // ---- a real rope: a chain of point masses (Verlet) simulated in world space between its anchors.
-  // Gravity, the boat's motion (roll, pitch, heave, acceleration) and drag in the apparent wind move it;
-  // each span's length comes from the line's tension (loaded = straight, eased = slack and swinging);
-  // a tail has a free end that spills onto the deck as line is hauled in and draws back as it is eased.
+  // ---- a real rope: a chain of point masses (js/ropesim.js) simulated in the boat's frame between its anchors.
+  // Gravity (tilted by the heel, less the boat's own acceleration), drag in the apparent wind, the deck under it with
+  // friction; each span's length comes from the line's tension (loaded = straight, eased = slack and swinging);
+  // a tail has a free end that spills onto the deck in coils as line is hauled in and draws back as it is eased.
   simulate(path, tension) {
-    const S = this.sim, M = S.M, Minv = S.Minv, dt = Math.min(1 / 30, Math.max(1 / 240, S.dt || 1 / 60));
-    const n = path.length, spans = n - 1, N = this.maxPts;
-    const anchors = path.map(p => p.clone().applyMatrix4(M));
-    if (this._P && (S.reset || !Number.isFinite(this._P[0].x) || !Number.isFinite(this._P[this._P.length - 1].y))) this._P = null;
-    // topology: particles per span in proportion to the span lengths (fixed once laid out)
-    if (!this._P || this._spans !== spans) {
+    const S = this.sim, n = path.length, spans = n - 1, N = this.maxPts;
+    const dt = Math.min(0.1, Math.max(0, S.dt || 1 / 60));
+    let R = this._rs;
+    // the free tail's length, eased toward the handler's (line moving through a cleat, not a rope that jumps)
+    const tr = this.freeEnd && this.tailRest ? this.tailRest : 0;
+    this._tr = this._tr && tr ? this._tr + (tr - this._tr) * (1 - Math.exp(-dt / 0.2)) : tr;
+    // topology: particles per span in proportion to its length (a free tail by the length it has, and at least a
+    // third of them: it is the part that lies about); laid out afresh on a new session, a teleport or after a taut spell
+    if (!R || this._spans !== spans || S.reset || this._stale || !R.finite()) {
+      this._stale = false;
       const lens = []; let tot = 0;
-      for (let i = 0; i < spans; i++) { const L = path[i].distanceTo(path[i + 1]) + 0.05; lens.push(L); tot += L; }
+      for (let i = 0; i < spans; i++) {
+        let L = path[i].distanceTo(path[i + 1]) + 0.05;
+        if (this.freeEnd && i === spans - 1) L = Math.max(L, this._tr, 0.8, tot * 0.5);
+        lens.push(L); tot += L;
+      }
       const segs = lens.map(L => Math.max(2, Math.round((N - 1) * L / tot)));
       let sum = segs.reduce((a, b) => a + b, 0);
       while (sum > N - 1) { const i = segs.indexOf(Math.max(...segs)); segs[i]--; sum--; }
       while (sum < N - 1) { segs[segs.length - 1]++; sum++; }
       this._segs = segs; this._spans = spans; this._freeTopo = null;
       this._start = []; let k = 0; for (const s of segs) { this._start.push(k); k += s; }
-      this._P = []; this._Pp = [];
-      for (let i = 0; i < spans; i++) for (let j = 0; j < segs[i]; j++) {
-        const p = anchors[i].clone().lerp(anchors[i + 1], j / segs[i]); this._P.push(p); this._Pp.push(p.clone());
+      R = this._rs = new RopeSim(N);
+      k = 0;
+      for (let i = 0; i < spans; i++) {
+        const A = path[i], B = path[i + 1];
+        if (this.freeEnd && i === spans - 1) { coilTail(R, k, segs[i], (this._tr || A.distanceTo(B)) / segs[i], A.x, A.y, A.z, B.x, B.y, B.z); k += segs[i]; continue; }
+        for (let j = 0; j < segs[i]; j++, k++) { const u = j / segs[i]; R.set(k, A.x + (B.x - A.x) * u, A.y + (B.y - A.y) * u, A.z + (B.z - A.z) * u); }
       }
-      const e = anchors[n - 1].clone(); this._P.push(e); this._Pp.push(e.clone());
+      if (!(this.freeEnd)) R.set(N - 1, path[n - 1].x, path[n - 1].y, path[n - 1].z);
     }
-    const P = this._P, Pp = this._Pp, segs = this._segs, start = this._start;
-    if (S.carry || (S.dt || 0) > 1 / 45) {
-      // long frame: move with the boat (rigidly for the part of the frame that cannot be simulated)
-      for (let k = 0; k < P.length; k++) { P[k].applyMatrix4(S.Mdelta); Pp[k].applyMatrix4(S.Mdelta); }
-    }
-    // teleport (new session, respawn) or coming back from a taut / static spell: lay the rope out again
-    if (this._stale || P[0].distanceToSquared(anchors[0]) > 25) {
-      this._stale = false;
-      let k = 0; for (let i = 0; i < spans; i++) for (let j = 0; j < segs[i]; j++, k++) { P[k].lerpVectors(anchors[i], anchors[i + 1], j / segs[i]); Pp[k].copy(P[k]); }
-      P[k].copy(anchors[n - 1]); Pp[k].copy(P[k]);
-    }
-    // rest length of each span from the tension (catenary sag -> extra length); a free tail keeps its own length
-    const rest = [];
-    for (let i = 0; i < spans; i++) {
-      const L = anchors[i].distanceTo(anchors[i + 1]);
-      const T = Math.max(2, Array.isArray(tension) ? tension[i] : tension);
-      const sag = Math.min(0.4 * L, ROPE_W * L * L / (8 * T));
-      let R = L + 8 * sag * sag / (3 * Math.max(L, 0.05));
-      if (this.freeEnd && i === spans - 1 && this.tailRest) R = this.tailRest;
-      rest.push(R / segs[i]);
-    }
+    const segs = this._segs, start = this._start;
     if (this._freeTopo !== this.freeEnd) {
       this._freeTopo = this.freeEnd;
-      this._pin = new Int16Array(N).fill(-1);
-      for (let i = 0; i < spans; i++) this._pin[start[i]] = i;
-      if (!this.freeEnd) this._pin[N - 1] = n - 1;
+      R.pin.fill(0);
+      for (let i = 0; i < spans; i++) R.pin[start[i]] = 1;
+      if (!this.freeEnd) R.pin[N - 1] = 1;
     }
-    const pin = this._pin, pinned = (k) => pin[k] >= 0 ? anchors[pin[k]] : null;
-    // integrate: gravity + drag in the apparent wind, light damping
-    const wind = S.wind, g = -9.81 * dt * dt, cd = 0.05 * dt * dt;
-    const v = this._v || (this._v = new THREE.Vector3()), rel = this._rel || (this._rel = new THREE.Vector3());
-    for (let k = 0; k < N; k++) {
-      const a = pinned(k);
-      if (a) { P[k].copy(a); Pp[k].copy(a); continue; }
-      v.subVectors(P[k], Pp[k]).multiplyScalar(0.985);
-      rel.copy(wind).addScaledVector(v, -1 / dt);
-      const sp = rel.length();
-      Pp[k].copy(P[k]);
-      P[k].add(v).addScaledVector(rel, cd * sp); P[k].y += g;
-    }
-    // constraints: segment lengths, pins, and the deck / cabin roof underneath (with friction)
-    const lp = this._lp || (this._lp = new THREE.Vector3()), d = this._d || (this._d = new THREE.Vector3());
-    for (let it = 0; it < 8; it++) {
-      for (let i = 0; i < spans; i++) for (let j = 0; j < segs[i]; j++) {
-        const k = start[i] + j, A = P[k], B = P[k + 1];
-        d.subVectors(B, A); const len = d.length() || 1e-6, diff = (len - rest[i]) / len;
-        const pa = pinned(k), pb = pinned(k + 1);
-        if (pa && pb) continue;
-        if (pa) B.addScaledVector(d, -diff); else if (pb) A.addScaledVector(d, diff); else { A.addScaledVector(d, diff * 0.5); B.addScaledVector(d, -diff * 0.5); }
+    // the anchors where the rig has them now; each span's rest length from its tension (catenary sag -> extra length)
+    for (let i = 0; i < spans; i++) {
+      const A = path[i], B = path[i + 1];
+      R.place(start[i], A.x, A.y, A.z);
+      let Lr;
+      if (this.freeEnd && i === spans - 1 && this._tr) Lr = this._tr;
+      else {
+        const L = A.distanceTo(B), T = Math.max(2, Array.isArray(tension) ? tension[i] : tension);
+        const sag = Math.min(0.4 * L, ROPE_W * L * L / (8 * T));
+        Lr = L + 8 * sag * sag / (3 * Math.max(L, 0.05));
       }
-      if (this.floor && (it === 3 || it === 7)) for (let k = 1; k < N; k++) {
-        if (pinned(k)) continue;
-        lp.copy(P[k]).applyMatrix4(Minv); const y0 = lp.y, x0 = lp.x, z0 = lp.z;
-        this.floor(lp, this.radius);
-        if (this.contain) this.contain(lp);
-        if (lp.y !== y0 || lp.x !== x0 || lp.z !== z0) { P[k].copy(lp.applyMatrix4(M)); Pp[k].lerp(P[k], 0.6); } // resting on deck: friction
-      }
+      R.rest.fill(Lr / segs[i], start[i], start[i] + segs[i]);
     }
-    for (let k = 0; k < N; k++) this.pts[k].copy(P[k]).applyMatrix4(Minv);
+    if (!this.freeEnd) { const E = path[n - 1]; R.place(N - 1, E.x, E.y, E.z); }
+    R.advance(dt, { g: S.gL, air: S.airL, cd: 0.03, floorY: this.floorY, contain: this.contain, rad: this.radius });
+    // (drawn between its last two steps by the time left over: smooth at 144 Hz as at 60)
+    const q = this._q3 || (this._q3 = [0, 0, 0]);
+    for (let k = 0; k < N; k++) { R.drawn(k, q); this.pts[k].set(q[0], q[1], q[2]); }
   }
 
   buildTube() {
     // a non-finite point (seen under very long startup frames; the source is not pinned down) must never reach
     // the GPU: the rope is laid out afresh next frame and hidden for this one
-    for (let i = 0; i < this.maxPts; i++) { const q = this.pts[i]; if (!Number.isFinite(q.x + q.y + q.z)) { this._P = null; this._stale = true; this.mesh.visible = false; this.outline.visible = false; return; } }
+    for (let i = 0; i < this.maxPts; i++) { const q = this.pts[i]; if (!Number.isFinite(q.x + q.y + q.z)) { this._rs = null; this._stale = true; this.mesh.visible = false; this.outline.visible = false; return; } }
     // tube frames
     const R = this.radius, rad = this.radial;
     let ref = new THREE.Vector3(0, 1, 0);
@@ -299,7 +277,16 @@ export class Rigging {
       } else if (Math.abs(y) > half) p.x = Math.sign(y) * half;
       if (x !== xc) p.z = -xc;
     };
-    const rope = (r, k, n) => { const R = new Rope(inner, r, typeof k === 'string' ? look(k) : k, n); R.floor = floorAt; R.contain = containAt; this.ropes.push(R); return R; };
+    // the same surface as a height field for the rope simulation (three-local x, z -> y of the deck, cabin top or
+    // cockpit sole under it; -Infinity off the boat)
+    const floorY = (px, pz) => {
+      const x = -pz, y = px;
+      if (x < C.sternX || x > C.bowX) return -Infinity;
+      const t = clamp((x - C.sternX) / (C.bowX - C.sternX), 0, 1);
+      const inBeam = C.multihull ? Math.abs(Math.abs(y) - C.hullSpacing / 2) < Lx.bDeck(t) || Math.abs(y) < C.hullSpacing / 2 : Math.abs(y) < Lx.bDeck(t);
+      return inBeam ? dH(x, y) + 0.005 : -Infinity;
+    };
+    const rope = (r, k, n) => { const R = new Rope(inner, r, typeof k === 'string' ? look(k) : k, n); R.floor = floorAt; R.floorY = floorY; R.contain = containAt; this.ropes.push(R); return R; };
     // the real surface under a point (ray cast against the boat's own hull/deck/cabin meshes, not the rig)
     vis.root.updateMatrixWorld(true);
     const solids = [];
@@ -554,20 +541,27 @@ export class Rigging {
     // the player's ropes are simulated (world-space point masses); the others are drawn as static catenaries
     let ctx = null;
     if (active && vis.player && env) {
-      const S = this._ctx || (this._ctx = { M: new THREE.Matrix4(), Minv: new THREE.Matrix4(), wind: new THREE.Vector3(), dt: 1 / 60, w: {} });
-      // the boat's motion since last frame: on a long frame the ropes are carried with it rigidly (their
-      // own swing cannot be integrated stably over a big step), so they never stream out behind the boat
-      S.Mprev = S.Mprev || new THREE.Matrix4(); S.Mdelta = S.Mdelta || new THREE.Matrix4();
-      if (S.hasPrev) S.Mdelta.multiplyMatrices(vis.inner.matrixWorld, S.Minv); else S.Mdelta.identity();
-      S.M.copy(vis.inner.matrixWorld); S.Minv.copy(S.M).invert(); S.dt = dt; S.hasPrev = true;
-      S.carry = dt > 1 / 24;
-      // a jump (the clock resynced online, a reset, a long stall): the ropes are laid out afresh where they
-      // are now rather than integrated across it (Verlet over a teleport gives infinite speeds -> NaN)
-      const e = vis.inner.matrixWorld.elements, px = e[12], pz = e[14];
-      S.reset = dt > 0.5 || (S.px !== undefined && (px - S.px) ** 2 + (pz - S.pz) ** 2 > 4);   // > 2 m in one frame
-      S.px = px; S.pz = pz;
+      const S = this._ctx || (this._ctx = { dt: 1 / 60, w: {}, gL: [0, -9.81, 0], airL: [0, 0, 0], v: new THREE.Vector3(), vs: new THREE.Vector3(), a: new THREE.Vector3(), p: new THREE.Vector3() });
+      // the ropes live in the boat's frame: what they feel of her motion is gravity tilted by the heel and pitch, less
+      // her acceleration (from the drawn pose, smoothed: the pose is interpolated between physics steps, so its raw
+      // second difference is a train of spikes), and the apparent wind
+      const e = vis.inner.matrixWorld.elements;
+      S.dt = dt;
+      // a jump (the clock resynced online, a reset, a long stall): the ropes are laid out afresh
+      const jump = S.hasPrev && (e[12] - S.p.x) ** 2 + (e[14] - S.p.z) ** 2 > 4;             // > 2 m in one frame
+      S.reset = dt > 0.5 || jump;
+      if (S.hasPrev && !S.reset && dt > 1e-4) {
+        _a.set(e[12] - S.p.x, e[13] - S.p.y, e[14] - S.p.z).divideScalar(dt);
+        const vs0 = _b.copy(S.vs);
+        S.vs.lerp(_a, 1 - Math.exp(-dt / 0.12));
+        S.a.lerp(_c.subVectors(S.vs, vs0).divideScalar(dt), 1 - Math.exp(-dt / 0.2));
+        if (S.a.length() > 5) S.a.setLength(5);
+      } else { S.a.set(0, 0, 0); if (!S.hasPrev || S.reset) S.vs.set(0, 0, 0); }
+      S.p.set(e[12], e[13], e[14]); S.hasPrev = true;
       const P = b.pose || b, w = env.wind.sample(P.x, P.z, t, S.w);
-      S.wind.set(-Math.sin(w.dir) * w.speed, 0, Math.cos(w.dir) * w.speed);
+      vis.inner.getWorldQuaternion(_q).invert();
+      _a.set(0, -9.81, 0).sub(S.a).applyQuaternion(_q); S.gL[0] = _a.x; S.gL[1] = _a.y; S.gL[2] = _a.z;
+      _a.set(-Math.sin(w.dir) * w.speed, 0, Math.cos(w.dir) * w.speed).sub(S.vs).applyQuaternion(_q); S.airL[0] = _a.x; S.airL[1] = _a.y; S.airL[2] = _a.z;
       ctx = S;
     }
     for (const r of this.ropes) { r.sim = ctx; r.freeEnd = false; }
@@ -658,7 +652,8 @@ export class Rigging {
     lead(this.vangTail, 'vang', [vBot, V(C.mastX - 0.35, 0.12, vis.mastBase + 0.03), V(C.mastX - 0.9, 0.2, vis.deckH(C.mastX - 0.9, 0.2) + 0.03)], vt / 4);
     // --- cunningham, outhaul, halyards
     const rf = reefAt(b.reefPos);
-    const tack = V(C.mastX - 0.06, 0, C.boomZ + 0.22 + (b.reefPos > 0 ? M.luff * (1 - rf.l) : 0));
+    // (the cunningham's cringle comes down toward the boom as it is hauled: the luff stretched)
+    const tack = V(C.mastX - 0.06, 0, C.boomZ + 0.22 - 0.1 * clamp(b.ctrl.cunn, 0, 1) + (b.reefPos > 0 ? M.luff * (1 - rf.l) : 0));
     const cDeck = V(C.mastX - 0.12, 0.05, vis.mastBase + 0.05);
     const ct = 10 + 600 * b.ctrl.cunn;
     this.cunn[0].set([tack, cDeck], ct, g); this.cunn[1].set([tack.clone().add(_v.set(0.02, 0, 0)), cDeck.clone().add(_w.set(0.02, 0, 0))], ct, g);
@@ -793,11 +788,19 @@ export class Rigging {
         : (b.ctrl[this.cabinLine] - (this.lastCabin ?? b.ctrl[this.cabinLine])) * 0.8;
       // the drum only ever turns one way (the ratchet): hauling turns it, easing lets line surge round it
       if (dLine > 0) w.userData.angle -= dLine / 0.03;                  // ~19 cm of line per drum turn
-      // the handle: where your hand is when you wind it (either way — the two gears), otherwise geared to the drum
+      // the handle: where your hand is when you wind it (either way — the two gears), otherwise geared to the drum as
+      // the line is ground in (by the keys, the panel or the automatic crew): turn for turn in the fast gear, three
+      // turns to one in the slow gear under load. The one handle goes to the winch being ground.
+      const grinding = dLine > 2e-4 && performance.now() - (this.crankT || 0) > 300;
+      if (grinding && role !== this.handleOn && !C.noWinches) { this.handleOn = role; }
       if (role === this.handleOn) {
         if (this.handleCrank) { w.userData.handleAngle += this.handleCrank; this.handleCrank = 0; }
-        else if (dLine > 0 && performance.now() - (this.crankT || 0) > 300) w.userData.handleAngle -= dLine / 0.06 / 3.5;
+        else if (grinding) {
+          const ld = (role === 'cabin' ? (b.ctrl[this.cabinLine] || 0) * 1.3 : (L.jibLoad || 0) / (C.sheetPower || 800));
+          w.userData.handleAngle -= dLine / 0.03 * (ld > 0.7 ? 3 : 1);
+        }
       }
+      w.userData.grindT = grinding ? t : w.userData.grindT;
       w.userData.spin.rotation.y = w.userData.angle;
       w.userData.handle.visible = role === this.handleOn && (role === 'cabin' || !!b.sailBy.jib);
       w.userData.handle.rotation.y = w.userData.handleAngle;
@@ -882,8 +885,12 @@ export class Rigging {
   throat(k) {
     const c = this.cleats[k];
     if (!c || !c.visible || !c.userData.throat) return null;
-    const st = this.b.lh && this.b.lh[k], free = !!st && st.s === 'free';
-    return c.userData.throat(free).applyQuaternion(c.quaternion).add(c.position);
+    // (lifted out of the jaws / dropped into them over the time the handler takes: the line does not jump there)
+    const st = this.b.lh && this.b.lh[k], H = st ? handlerOf(this.b, k) : null;
+    const f = !st ? 0 : st.s === 'free' ? 1 : st.s === 'releasing' ? clamp(st.t / H.releaseT, 0, 1) : st.s === 'locking' ? 1 - clamp(st.t / H.lockT, 0, 1) : 0;
+    const p = c.userData.throat(false);
+    if (f > 0) p.lerp(c.userData.throat(true), sstep(0, 1, f));
+    return p.applyQuaternion(c.quaternion).add(c.position);
   }
   placeCleats(cs, t = 0) {
     const b = this.b, C0 = b.cls;
@@ -944,6 +951,34 @@ export class Rigging {
     const a = w.userData.handleAngle;
     out.set(Math.cos(-a) * 0.23, 0.3, Math.sin(-a) * 0.23).add(w.position);
     return out;
+  }
+
+  // the winch line k is on now (a sheet's winch on its side, the control on the cabin-top / mast-foot winch), or null
+  winchOf(k) {
+    const b = this.b;
+    if (this.cabinWinch && this.cabinLine === k && k !== 'jib' && k !== 'lazy') return this.cabinWinch;
+    if ((k !== 'jib' && k !== 'lazy') || b.cls.noWinches || !this.winches.length || (k === 'jib' && b.genDeploy > 0.5)) return null;
+    const cs = Math.sign((b.genDeploy > 0.5 ? b.side.gennaker : b.side.jib)) || 1, s = k === 'jib' ? cs : -cs;
+    return this.winches.find((w) => w.userData.side === s) || null;
+  }
+  // how line k sounds (js/audio.js lines): 'winch' (pawls), 'ratchet' (a ratchet block's clicks) or 'tackle' (sheaves);
+  // metres of line through that hardware over the control's range, which way is easing, its load, its cleat's sound
+  lineSound(k) {
+    const b = this.b, C = b.cls, sp = lineSpecs(C)[k];
+    if (!sp) return null;
+    const gen = (k === 'jib' || k === 'lazy') && b.genDeploy > 0.5 && this.genBlocks, w = gen ? null : this.winchOf(k), H = handlerOf(b, k);
+    const tk = tackleOf(C, (k === 'jib' || k === 'lazy') && b.genDeploy > 0.5 && lineSpecs(C).gen ? 'gen' : k);
+    const metres = w ? (w === this.cabinWinch ? 0.8 : k === 'jib' && b.genDeploy > 0.5 ? 3.0 : 1.4) : tk.purchase * tk.travel;
+    const icon = H.icon, clack = /^(cam|clam|carCam|ratchetCam)$/.test(icon) ? 'clack' : /^(clutch|jam|pinStop)$/.test(icon) ? 'thunk' : /^(horn|winchHorn)$/.test(icon) ? 'thud' : 'zip';
+    return { kind: w ? 'winch' : (H.hold || sp.hold || gen) ? 'ratchet' : 'tackle', metres, runsUp: RUNS_UP.has(k), load: lineLoad(b, k), clack };
+  }
+  // where line k's sound comes from (world): its winch, its handler, else the boat
+  soundAt(k, out) {
+    const b = this.b, gen = (k === 'jib' || k === 'lazy') && b.genDeploy > 0.5 && this.genBlocks;
+    const o = gen ? this.genBlocks[((Math.sign(b.side.gennaker) || 1) * (k === 'jib' ? 1 : -1) + 1) / 2] : this.winchOf(k) || (this.cleats[k] && this.cleats[k].visible ? this.cleats[k] : null);
+    const v = (o || this.vis.inner).getWorldPosition(this._sv || (this._sv = new THREE.Vector3()));
+    if (out) { out.x = v.x; out.y = v.y; out.z = v.z; return out; }
+    return v.clone();
   }
 
   // ropes belonging to a grab point, for the glow

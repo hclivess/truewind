@@ -224,6 +224,92 @@ export class Audio {
     o.connect(g); g.connect(this.master); o.start(t); o.stop(t + 0.04);
   }
 
+  // Lines: a winch's pawls clicking as its drum turns (the click rate from the drum's speed; under load slower, heavier
+  // and duller), a ratchet block's clicks as line comes in through it, the whirr of line running out through a block,
+  // cleat or clutch or surging round a drum (pitch and level with its speed), line hauled through a tackle's sheaves,
+  // and the clack of a cleat, clutch or jammer closing (a lighter snap opening it). Driven by what the lines actually
+  // do — the player's hands and the automatic crew alike (js/crew.js works the same lines) — each from where its
+  // hardware is on deck (rig.soundAt), panned and attenuated from the camera.
+  lines(b, rig, cam, dt) {
+    if (!this.ctx || !rig || !cam || !b || !b.ctrl || !(dt > 0)) return;
+    const ctx = this.ctx, t = ctx.currentTime, L = this._ln || (this._ln = { prev: {}, lh: {}, v: {}, ph: {}, V: new Map(), p: {} });
+    if (L.b !== b) { L.b = b; L.prev = {}; L.lh = {}; L.v = {}; L.ph = {}; }
+    if (!this._lineBufs) this._lineBufs = lineBuffers(ctx);
+    const on = this.on ? 1 : 0, cp = cam.position, m = cam.matrixWorld.elements, rx = m[0], ry = m[1], rz = m[2];
+    const pos = L.p;
+    for (const k of LINE_KEYS) {
+      const v = b.ctrl[k];
+      if (v === undefined || !Number.isFinite(v)) continue;
+      const p0 = L.prev[k]; L.prev[k] = v;
+      const st = b.lh && b.lh[k], s0 = L.lh[k]; if (st) L.lh[k] = st.s;
+      if (p0 === undefined) continue;
+      const info = rig.lineSound ? rig.lineSound(k) : null;
+      if (!info) continue;
+      // metres a second of line at the hardware: the control's speed x the line its range takes there
+      const dv = (v - p0) / dt, spd = Math.min(3, Math.abs(dv) * info.metres), hauling = info.runsUp ? dv < 0 : dv > 0;
+      const sv = (L.v[k] = (L.v[k] || 0) + ((hauling ? 1 : -1) * spd - (L.v[k] || 0)) * (1 - Math.exp(-dt / 0.05)));
+      const moving = Math.abs(sv) > 0.01;
+      const closing = st && s0 && s0 !== st.s && st.s === 'locked', opening = st && s0 && s0 !== st.s && (st.s === 'free' || st.s === 'releasing') && s0 === 'locked';
+      if (!moving && !closing && !opening && !(L.V.has(k) && L.V.get(k).whirr > 0.001)) continue;
+      // where it is, and how loud from here
+      rig.soundAt(k, pos);
+      const dx = pos.x - cp.x, dy = pos.y - cp.y, dz = pos.z - cp.z, d = Math.hypot(dx, dy, dz) || 1;
+      const att = on / (1 + (d / 5) ** 1.4), pan = Math.max(-1, Math.min(1, (dx * rx + dy * ry + dz * rz) / d)) * 0.9;
+      const V = this._lineVoice(L.V, k);
+      V.pan.pan.setTargetAtTime(pan, t, 0.03); V.out.gain.setTargetAtTime(att, t, 0.03);
+      const load = Math.max(0, info.load || 0), heavy = Math.min(1, load / 1500);
+      V.lp.frequency.setTargetAtTime(7500 - 4800 * heavy, t, 0.05);
+      // clicks: a winch's pawls (hauling), a ratchet block's (hauling through it: it only turns that way)
+      let rate = 0, buf = null, lvl = 0;
+      if (sv > 0.01 && info.kind === 'winch') { rate = sv / (2 * Math.PI * 0.03) * 16 * (1 - 0.35 * heavy); buf = this._lineBufs.pawl; lvl = 0.14 + 0.1 * heavy; }
+      else if (sv > 0.01 && info.kind === 'ratchet') { rate = sv / (2 * Math.PI * 0.028) * 12; buf = this._lineBufs.ratchet; lvl = 0.1 + 0.06 * heavy; }
+      if (buf) {
+        L.ph[k] = (L.ph[k] || 0) + Math.min(70, rate) * dt;
+        let n = 0; const N = Math.min(8, Math.floor(L.ph[k]));
+        while (L.ph[k] >= 1 && n < 8) { L.ph[k] -= 1; this._tick(V, buf, t + 0.02 + (N > 1 ? n / N * dt : 0), lvl * (0.85 + 0.3 * Math.random()), 0.94 + 0.12 * Math.random()); n++; }
+        L.ph[k] = Math.min(L.ph[k], 1);
+      }
+      // whirr: line running out (free, surging, slipping) or hauled through a tackle's sheaves
+      const run = sv < -0.01 ? Math.min(1, -sv / 1.2) * (info.kind === 'winch' ? 0.55 : 1) : sv > 0.01 && info.kind === 'tackle' ? Math.min(1, sv / 1.5) * 0.35 : 0;
+      V.whirr = run;
+      if (run > 0 || V.wg.gain.value > 0.001) {
+        if (!V.noise) this._whirr(V);
+        V.bp.frequency.setTargetAtTime(500 + 2600 * Math.min(1, Math.abs(sv) / 1.5), t, 0.05);
+        V.wg.gain.setTargetAtTime(0.22 * run, t, run > 0 ? 0.03 : 0.12);
+      }
+      // the hardware closing on the line / letting it go
+      if (closing) this._tick(V, this._lineBufs[info.clack] || this._lineBufs.clack, t + 0.01, 0.5, 1);
+      else if (opening) this._tick(V, this._lineBufs[info.clack] || this._lineBufs.clack, t + 0.01, 0.28, 1.35);
+    }
+  }
+  _lineVoice(map, k) {
+    let V = map.get(k);
+    if (V) return V;
+    const ctx = this.ctx, out = ctx.createGain(); out.gain.value = 0;
+    const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.createGain();
+    if (!pan.pan) pan.pan = { setTargetAtTime() {} };
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7000; lp.Q.value = 0.9;
+    lp.connect(pan); pan.connect(out); out.connect(this.master);
+    V = { out, pan, lp, whirr: 0, wg: { gain: { value: 0, setTargetAtTime() {} } } };
+    map.set(k, V);
+    return V;
+  }
+  _whirr(V) {
+    const ctx = this.ctx;
+    if (!this._wNoise) this._wNoise = this._noise(ctx, 2.3, 53);
+    const n = ctx.createBufferSource(); n.buffer = this._wNoise; n.loop = true; n.playbackRate.value = 1.6;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 1.4;
+    const wg = ctx.createGain(); wg.gain.value = 0;
+    n.connect(bp); bp.connect(wg); wg.connect(V.lp); n.start();
+    V.noise = n; V.bp = bp; V.wg = wg;
+  }
+  _tick(V, buf, at, level, rate = 1) {
+    const ctx = this.ctx, s = ctx.createBufferSource(), g = ctx.createGain();
+    s.buffer = buf; s.playbackRate.value = rate; g.gain.value = level;
+    s.connect(g); g.connect(V.lp); s.start(Math.max(ctx.currentTime, at));
+    s.onended = () => { s.disconnect(); g.disconnect(); };
+  }
+
   // Engines: a synthesised four-stroke for each running engine (the three nearest the camera). The firing frequency
   // rpm / 60 x cylinders / 2 through a pulse-rich periodic wave (a diesel's brighter), a slightly detuned copy for the
   // cycle-to-cycle unevenness, a combustion bark (noise gated at the firing rate) that grows with load, all through a
@@ -286,4 +372,23 @@ export class Audio {
     for (const o of oscs) o.start(t);
     return { o1, o2, am, tone, bark, st, lp, pan, out, oscs, end: 0 };
   }
+}
+
+// the lines the sound follows (js/audio.js lines)
+const LINE_KEYS = ['main', 'jib', 'lazy', 'stay', 'mizzen', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibHalyard', 'tackLine'];
+// short one-shot sounds for the lines' hardware, made once: a winch pawl's metallic tick, a ratchet block's lighter
+// one, a cam cleat's clack, a clutch / jammer's thunk, a turn thrown on a horn cleat (a soft thud), a self-tailer's jaws
+function lineBuffers(ctx) {
+  const sr = ctx.sampleRate;
+  let seed = 90210; const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296 * 2 - 1;
+  const make = (secs, f) => { const n = Math.floor(sr * secs), buf = ctx.createBuffer(1, n, sr), d = buf.getChannelData(0); for (let i = 0; i < n; i++) d[i] = f(i / sr, i); let mx = 0; for (let i = 0; i < n; i++) mx = Math.max(mx, Math.abs(d[i])); for (let i = 0; i < n; i++) d[i] *= 0.9 / (mx || 1); return buf; };
+  const ring = (t, f, tau) => Math.sin(2 * Math.PI * f * t) * Math.exp(-t / tau);
+  return {
+    pawl: make(0.03, (t) => ring(t, 3100, 0.004) + 0.7 * ring(t, 4870, 0.003) + 0.4 * ring(t, 7300, 0.002) + (t < 0.0015 ? rnd() * (1 - t / 0.0015) : 0)),
+    ratchet: make(0.02, (t) => ring(t, 2150, 0.0025) + 0.6 * ring(t, 3900, 0.002) + (t < 0.001 ? rnd() * 0.8 : 0)),
+    clack: make(0.07, (t) => 0.9 * ring(t, 1180, 0.012) + 0.6 * ring(t, 1760, 0.008) + rnd() * Math.exp(-t / 0.004) * 0.8),
+    thunk: make(0.12, (t) => ring(t, 190, 0.03) + 0.6 * ring(t, 460, 0.018) + 0.3 * ring(t, 2300, 0.004) + rnd() * Math.exp(-t / 0.006) * 0.6),
+    thud: make(0.1, (t) => ring(t, 130, 0.025) + rnd() * Math.exp(-t / 0.012) * 0.5),
+    zip: make(0.09, (t) => rnd() * Math.exp(-t / 0.03) * (0.5 + 0.5 * Math.sin(2 * Math.PI * 180 * t)) + 0.4 * ring(t, 2600, 0.01)),
+  };
 }

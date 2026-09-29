@@ -46,6 +46,25 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px soli
 #rc-standings li.me { color: var(--accent); }
 #toast { position: absolute; top: calc(18px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); font: 700 22px/1.1 var(--display); letter-spacing: .04em; text-shadow: 0 2px 10px rgba(0,0,0,.6); text-align: center; transition: opacity .4s; opacity: 0; white-space: nowrap; }
 #toast.show { opacity: 1; }
+/* the crew / coach line (hud.crew): what the automatic crew or the coach did and why */
+/* (above the compass tape, which sits at 146 px) */
+#crew { position: absolute; left: 50%; bottom: calc(186px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 6px); display: flex; gap: 8px; align-items: baseline; max-width: min(640px, calc(100% - 32px)); padding: 4px 12px 5px; border-radius: 4px; background: rgba(8,18,26,.72); font: 500 14px/1.25 var(--cond); letter-spacing: .02em; color: #e4ecf1; opacity: 0; transition: opacity .35s, transform .35s; pointer-events: none; }
+#crew.show { opacity: 1; transform: translate(-50%, 0); }
+#crew b { font: 700 10px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase; color: #8fc2ea; flex: none; }
+#crew.coach b { color: var(--amber); } #crew.warn b { color: #ff8a6a; }
+/* the line in your hands: name, purchase, a big bar, load, winch turns, the sail's shape */
+#work { position: absolute; left: 50%; bottom: calc(222px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: 300px; padding: 7px 10px 8px; font: 500 12px var(--cond); letter-spacing: .03em; transition: opacity .3s; pointer-events: none; }
+#work.out { opacity: 0; }
+#work .wk-h { display: flex; align-items: center; gap: 6px; }
+#work .wk-h i { width: 16px; height: 7px; border-radius: 4px; }
+#work .wk-h b { font: 700 14px var(--cond); } #work .wk-h em { font-style: normal; color: var(--muted); }
+#work .wk-st { font: 600 9px/1 var(--cond); letter-spacing: .05em; padding: 2px 4px; border-radius: 3px; border: 1px solid var(--line); }
+#work .wk-st.free { background: #b3322a; border-color: #e0413a; color: #fff; } #work .wk-st.busy { background: rgba(80,150,220,.22); border-color: #4d8fd0; } #work .wk-st.slip { background: #e08a1a; color: #1a1206; }
+#work .wk-dir { margin-left: auto; color: var(--accent); font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: .1em; }
+#work .wk-bar { position: relative; height: 8px; margin: 6px 0 4px; border-radius: 4px; background: rgba(255,255,255,.1); overflow: hidden; }
+#work .wk-bar span { position: absolute; left: 0; top: 0; bottom: 0; background: color-mix(in srgb, var(--rc, var(--accent)) 70%, #fff); border-radius: 4px; transition: width .1s linear; }
+#work .wk-f { display: flex; gap: 10px; align-items: baseline; font-variant-numeric: tabular-nums; } #work .wk-f b { font: 700 16px var(--cond); min-width: 44px; } #work .wk-f span { color: #c5d1da; }
+#work .wk-s { margin-top: 3px; color: #9fd0f5; font-variant-numeric: tabular-nums; }
 #alert { position: absolute; top: calc(56px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); font: 600 15px var(--cond); letter-spacing: .08em; text-transform: uppercase; color: var(--ink); background: var(--amber); padding: 3px 10px; border-radius: 3px; opacity: 0; transition: opacity .3s; }
 #alert.show { opacity: 1; }
 #alert.bad { background: var(--port); color: #fff; }
@@ -223,8 +242,16 @@ body.online .online-only { display: block; }
 .ln em.pr { font-style: normal; font-size: 10px; color: var(--muted); opacity: .85; }
 .ln span { color: var(--muted); }
 .ln b { font-weight: 600; font-variant-numeric: tabular-nums; min-width: 50px; text-align: right; }
-.ln .bar { display: none; }
-.ln .bar::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: var(--v, 0%); background: var(--muted); }
+/* each line's setting as a bar under its row (in the rope's colour), animated; a row with hands on it lights up */
+.ln { position: relative; padding-bottom: 3px; }
+.ln .bar { position: absolute; left: 22px; right: 0; bottom: 0; height: 2px; border-radius: 1px; background: rgba(255,255,255,.07); pointer-events: none; }
+.ln .bar::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: var(--v, 0%); border-radius: 1px; background: color-mix(in srgb, var(--rc, #9aa1a8) 75%, #fff); opacity: .75; transition: width .12s linear; }
+.ln.work { background: linear-gradient(90deg, rgba(255,138,42,.16), rgba(255,138,42,0) 80%); border-radius: 3px; }
+.ln.work .bar { height: 3px; } .ln.work .bar::after { opacity: 1; }
+.ln.work b { color: var(--accent); }
+.shape { font: 500 11px var(--cond); letter-spacing: .02em; color: var(--muted); padding: 0 0 3px; font-variant-numeric: tabular-nums; }
+.shape b { color: #d7e2e9; font-weight: 600; }
+.shape i { font-style: normal; font-size: 8px; margin-left: 1px; } .shape i.up { color: #7fd48a; } .shape i.dn { color: #ff9a6a; }
 .rg p.hint { margin: 2px 0 4px; font: 500 12px/1.35 var(--cond); color: var(--muted); }
 .sl2 { display: flex; justify-content: space-between; align-items: center; font: 500 12px var(--cond); color: var(--muted); padding: 1px 0; }
 .tide-row { display: flex; gap: 8px; align-items: center; margin-top: 4px; }

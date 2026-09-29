@@ -16,7 +16,8 @@ import { Audio } from './audio.js';
 import { Net } from './net.js';
 import { Vector3 as THREE_V } from 'three';
 import { Rigging } from './rigging.js';
-import { work, letFly as flyLine, handlerOf, lineName, handRate } from './linehandlers.js';
+import { work, letFly as flyLine, handlerOf, lineName, handRate, tackleOf } from './linehandlers.js';
+import { Crew } from './crew.js';
 import { sunPosition } from './sky.js';
 import './sail/sailsim.js';   // (registers the cloth / lattice sail model with physics.js)
 import { SailGovernor, setSailLevel, sailsFlown } from './governor.js';
@@ -787,7 +788,7 @@ class Game {
     if (trimKeys.includes(k) && this.player.auto.trim) { this.player.auto.trim = false; this.hud.toast(this.autopilot && this.autopilot.engaged ? 'Automatic trim off — you trim, the autopilot steers' : 'Automatic trim off — you have the sheets'); }
     if ((k === 'hike' || k === 'crewAft') && this.player.auto.hike) { this.player.auto.hike = false; this.hud.toast('Automatic weight off — you place your weight'); }
   }
-  toggleAutoTrim() { this.player.auto.trim = !this.player.auto.trim; this.hud.toast(this.player.auto.trim ? 'Automatic trim on' : 'Automatic trim off — you trim the sails'); }
+  toggleAutoTrim() { this.player.auto.trim = !this.player.auto.trim; this.crew = null; this.hud.toast(this.player.auto.trim ? 'Automatic trim on' : 'Automatic trim off — you trim the sails'); }
   // the autopilot (Shift+O, Pilot on the toolbar and the touch pad): sails to the waypoint or round the race course with
   // the AI crews' tactics, trimming for you; any touch of the helm hands her back (a real autopilot's override)
   toggleAutopilot() {
@@ -838,7 +839,16 @@ class Game {
   // (cam, clam, clutch, self-tailer, ratchet); easing, or hauling off a horn cleat / jammer / push-button car, first
   // casts it off (nothing moves until it is), and it is made fast again when the player lets go
   working(k, trimming) {
-    const b = this.player; if (!b.locks || !(k in b.locks)) return 1;
+    const b = this.player;
+    // the line in your hands, for the HUD's work readout (js/hud.js updateWork): winch turns counted from here
+    const now = performance.now(), w0 = this.workLine;
+    if (!w0 || w0.k !== k || now - w0.t > 1300) {
+      const R = this.renderer.boats.get(b)?.rigging, cab = !!(R && R.cabinWinch && R.cabinLine === k && !['jib', 'lazy'].includes(k));
+      const winch = cab || ((k === 'jib' || k === 'lazy') && !!(b.locks && k in b.locks) && tackleOf(b.cls, k === 'jib' && b.genDeploy > 0.5 ? 'gen' : k).winch);
+      this.workLine = { k, t: now, dir: 0, turns: 0, winch, travel: cab ? 0.8 : k === 'jib' && b.genDeploy > 0.5 ? 3.0 : 1.4, v0: b.ctrl[k], gear: '' };
+    }
+    this.workLine.t = now; this.workLine.dir = trimming ? 1 : -1;
+    if (!b.locks || !(k in b.locks)) return 1;
     const was = b.lh && b.lh[k] ? b.lh[k].s : 'locked', f = work(b, k, trimming);
     if (!f && was === 'locked') { const H = handlerOf(b, k); if (H.releaseT > 0.5) this.hud.toast(`${lineName(b, k)}: taking it off the ${H.name.toLowerCase()} first (${H.releaseT} s)`, 1.4); }
     return f;
@@ -1083,8 +1093,7 @@ class Game {
           c[g.key] = clamp(c[g.key] + g.trim * dl, 0, 1);
           if (g.key === 'jib' || g.key === 'lazy') b.lines[g.key] = clamp(Math.min(b.lines[g.key], c[g.key] + 0.002), 0, 1);  // the line comes in as the drum turns
         }
-        if (!stall) drag.clicks = (drag.clicks || 0) + Math.abs(da);
-        if (drag.clicks > (low ? 0.25 : 0.5)) { drag.clicks = 0; this.audio.click(); }
+        if (this.workLine && this.workLine.k === g.key) this.workLine.gear = low ? 'slow gear' : 'fast gear';
       }
       drag.ang = ang;
     } else if (g.kind === 'tiller') {
@@ -1319,6 +1328,12 @@ class Game {
       this.nav.update(dt);
       this.audio.update(p, dt, this.renderer.rainNow || 0);
       this.audio.engines && this.audio.engines(this.boats, this.renderer.camera, dt);
+      const pv = this.renderer.boats.get(p);
+      if (pv) this.audio.lines(p, pv.rigging, this.renderer.camera, dt);
+      // the drum turns the line in your hands has put on the winch; what the automatic crew did (the crew line)
+      const w = this.workLine;
+      if (w) { const v = p.ctrl[w.k]; if (w.winch && Number.isFinite(v)) w.turns += Math.abs(v - w.v0) * w.travel / (2 * Math.PI * 0.03); w.v0 = v; }
+      if (this.crew && p.auto.trim) for (const m of this.crew.said.splice(0)) this.hud.crew(m.msg, 'crew', m.key);
       this.checkAlerts();
     }
   }
@@ -1373,13 +1388,18 @@ class Game {
     if (!this.idle) this.applyInput(dt);
     // the autopilot: the AI crews' tactician and helm sailing her (it trims too, unless you took the sheets)
     const ap = this.autopilot, apOn = !!(ap && ap.engaged && !this.idle);
-    if ((b.auto.trim || this.idle) && !b.unmanned && !apOn) autoTrim(b, dt, 0, true);
+    // automatic trim: the crew does what autoTrim wants through the real lines and hardware (js/crew.js), so the panel,
+    // the cleats, the winches and the sounds show it working (the idle demo's too; the autopilot's trim below as well)
+    const cr = this.crew || (this.crew = new Crew());
+    if ((b.auto.trim || this.idle) && !b.unmanned && !apOn) { cr.begin(b); autoTrim(b, dt, 0, true); cr.end(b, dt); }
     if (apOn) {
       if (b.unmanned || b.sunk || (b.anchor && b.anchor.state !== 'up' && b.anchor.state !== 'weighing') || (b.moor && b.moor.tied)) this.disengageAutopilot(b.unmanned ? 'Autopilot off — crew overboard' : 'Autopilot off');
       else {
         ap.helm.noTrim = !b.auto.trim;
         const r0 = this.race && this.race.racers[0];
+        if (b.auto.trim) cr.begin(b);
         ap.update(dt, this.t, this, { target: this.race ? null : this.navTarget(), racer: r0 || null, course: this.course, targets: this.targets ? { up: this.targets.up.twa, dn: this.targets.dn.twa } : null });
+        if (b.auto.trim) cr.end(b, dt);
         if (!ap.engaged) { ap.wasOn = true; this.disengageAutopilot('Autopilot off — manual helm'); }       // (the helm moved under it)
         else if (r0 && !r0.finished && !r0.retired) r0.autopilot = true;                                        // (noted in the results)
         // (the coach speaks on the crew's line: hud.crew)
