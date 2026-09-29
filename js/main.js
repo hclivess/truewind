@@ -1,6 +1,6 @@
 // Game controller: menu, venue loading (baked OSM or live Overpass), live weather, input, the
 // fixed-step simulation loop, race flow, AI fleet, cameras.
-import { Environment, KT, DEG } from './env.js';
+import { Environment, KT, DEG, seaHsTp } from './env.js';
 import { Boat, CLASSES, CLASS_ORDER, autoTrim, solvePolarAngle, POLAR_TWAS, vmgTargets, clamp, lerp, wrap, makeSteadyEnv } from './physics.js';
 import { VENUES, World, makeProjection, fetchVenueGeo, fetchLiveWind } from './world.js';
 import { fetchSeamarks } from './seamarks.js';
@@ -593,13 +593,13 @@ class Game {
     world.updateShelter(twd);
     // waves: fetch-limited by the real coastline upwind of the sailing area
     const fetchM = world.open ? 60000 : world.fetchAt(0, 0, twd, 6000);
-    // open ocean: effectively unlimited fetch, the sea grows to fully developed (Pierson-Moskowitz)
+    // open ocean: effectively unlimited fetch, the sea limited by the storm's duration (env.js STORM_H)
     const fetchKm = world.open ? 2000 : fetchM >= 6000 ? 25 : Math.max(0.4, fetchM / 1000);
     const clock0 = this.settings.mode === 'online' && cond.epoch ? cond.epoch * 1000 : this.clockFor();
     if (this.tide) this.tide.still = cond.tide === 'steady';
     // an open-ocean gale brings its own swell, raised in its earlier hours and its other sectors, running
-    // under the local sea and crossing it (0.4 of the fully developed sea by 50 kn); the slider's if bigger
-    const U = cond.tws * KT, sw = world.open ? Math.max(cond.swell, 0.4 * 0.21 * U * U / 9.81 * clamp((cond.tws - 30) / 20, 0, 1)) : cond.swell;
+    // under the local sea and crossing it (0.4 of the local sea by 50 kn, env.js seaHsTp); the slider's if bigger
+    const U = cond.tws * KT, sw = world.open ? Math.max(cond.swell, 0.4 * seaHsTp(U, fetchKm * 1000)[0] * clamp((cond.tws - 30) / 20, 0, 1)) : cond.swell;
     const env = new Environment({
       tide: this.tide, tideMode: cond.tide === 'steady' ? 'steady' : 'real', tideClock0: clock0,
       tws: cond.tws * KT, twd: cond.twd, gust: cond.gust, shift: cond.shift, seed: cond.seed, weather: cond.weather ?? 'changing',

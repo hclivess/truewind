@@ -488,10 +488,19 @@ export class Thermal {
 // Each component carries the whole spectral energy of its frequency bin (integrated, so the narrow
 // JONSWAP peak is not missed between bins) weighted by the spreading function at its direction.
 export const MAXW = 20;
-const hsTp = (U, F) => {
-  const chi = G * F / (U * U);
+// Fetch- and duration-limited growth (JONSWAP, Hasselmann et al. 1973; capped by the fully developed
+// Pierson-Moskowitz sea). A sea needs time as well as distance: a wind that has blown for D seconds can only
+// have used the fetch F_D given by gt/U = 68.8 (gF/U^2)^(2/3) (Shore Protection Manual 1984, 3-2). D is a
+// storm's day (STORM_H): the open ocean's sea at 60 kn is then Hs ~14 m, Tp ~18 s, the WMO Beaufort table's
+// "probable height" for force 11-12 (11.5-14 m), not the 20 m / 23 s of a sea fully developed over ~3 days
+// and ~3000 km that no real storm keeps up. Below ~30 kn a day of wind fully develops the sea (no change).
+export const STORM_H = 24;
+const hsTp = (U, F, D = STORM_H * 3600) => {
+  const Fd = U * U / G * Math.pow(G * D / (68.8 * U), 1.5);
+  const chi = G * Math.min(F, Fd) / (U * U);
   return [Math.min(1.6e-3 * Math.sqrt(chi) * U * U / G, 0.21 * U * U / G), Math.min(0.286 * Math.cbrt(chi) * U / G, 7.14 * U / G)];
 };
+export const seaHsTp = hsTp;
 const jonswapShape = (x) => {            // x = f / fp; PM shape times the JONSWAP (gamma 3.3) peak factor
   const sg = x <= 1 ? 0.07 : 0.09;
   return x ** -5 * Math.exp(-1.25 * x ** -4) * Math.pow(3.3, Math.exp(-((x - 1) ** 2) / (2 * sg * sg)));
@@ -511,6 +520,24 @@ export function binEnergy(fa, fb, U, F) {
   for (let i = 0, x = xa; i < n; i++, x *= r) E += jonswapShape(x * Math.sqrt(r)) * x * (r - 1);
   return E * Hs * Hs / 16 / JS_INT;
 }
+// ---------- whitecaps ----------
+// Whitecap cover: the fraction of the sea's surface white with foam — the active, breaking crests (stage A)
+// and the patches of decaying foam they leave (stage B) together — against the 10-m wind U (m/s).
+// Monahan & O'Muircheartaigh (1980): W = 3.84e-6 U^3.41 — 0.1 % at 10 kn, 1.1 % at 20, 4.3 % at 30, 7 % at
+// 35. Their data end near 20 m/s (~40 kn); carried on, the fit would whiten half the sea by 60 kn, where
+// observed whitecap cover levels off (the extra foam of a storm is torn off the crests and laid out in the
+// streaks along the wind that WMO's Beaufort 8-12 describe, drawn separately), so it saturates smoothly at
+// WC.max: 15 % at 45 kn, 27 % at 60.
+// Of that cover, the active crests are a small part: a whitecap breaks for about a second and the foam it
+// leaves decays over several (e-folding ~2-10 s, mostly 3-5: Monahan & Lu 1990, Callaghan et al. 2012), so
+// in a steady sea the decaying foam is 2-4 times the breaking (WC.A: the active share). The water shader
+// draws the active crests and the foam map (render.js) the decaying foam, each calibrated to its share.
+export const WC = { a: 3.84e-6, b: 3.41, max: 0.3, A: 0.3, tauB: 4 };
+export const whitecapCover = (U) => WC.max * Math.tanh(WC.a * Math.pow(Math.max(U, 0), WC.b) / WC.max);
+// the same curve for the shaders (render.js: the water's whitecaps, the foam map's source; test/whitecaps.mjs
+// checks one against the other)
+const glf = (x) => { const t = String(x); return /[.e]/.test(t) ? t : t + '.0'; };
+export const WC_GLSL = `float wcCover(float U) { float m = ${glf(WC.a)} * pow(max(U, 0.0), ${glf(WC.b)}) / ${glf(WC.max)}; float e = exp(-2.0 * m); return ${glf(WC.max)} * (1.0 - e) / (1.0 + e); }`;
 const QMAX = 0.8;   // sum of k·A·Q over the sea: crests sharpen as far as they can without ever looping
 export const BREAK_G = 0.78;   // depth-limited breaking: wave height / depth (McCowan)
 // Rogue waves. A freak wave is the sea's own components arriving in phase at one place and time (dispersive
@@ -600,6 +627,8 @@ export class WaveField {
     this.depthFn = null; this.coastal = null;       // (a new layout: the old coastal field no longer fits)
     this.rogue = opts.rogue ?? true; this.rgForced = []; this._rgE = new Map(); this._rgL = new Map();
     // the rogue groups' lattice, scaled to the session's nominal sea (see RG_PMAX)
+    // (and the session's nominal sea, fixed while the weather moves the sea about it: the size of its whitecaps)
+    this.HsNom = hsTp(U0, this.F)[0] * this.seaScale;
     { const [, Tp0] = hsTp(U0, this.F), Lp0 = G * Tp0 * Tp0 / (2 * Math.PI); this.rgCell = Math.min(2500, Math.max(400, 10 * Lp0)); this.rgSlot = Math.min(240, Math.max(60, 12 * Tp0)); }
     this.update(t0);
   }

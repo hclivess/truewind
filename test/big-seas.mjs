@@ -1,10 +1,11 @@
 // The extreme end of the sea (js/env.js WaveField): node test/big-seas.mjs [quick]
-//  1. open-ocean sea state against Pierson-Moskowitz / JONSWAP at 40, 60 and 80 kn
+//  1. open-ocean sea state against Pierson-Moskowitz / duration-limited JONSWAP at 40, 60 and 80 kn, and the
+//     WMO Beaufort table's probable heights
 //  2. crest and height distributions at a point against Rayleigh and Forristall (2000)
 //  3. rogue groups: how often, how high, and the crest at the focus against the one drawn from the tail
 //  4. the GPU's formula (render.js vertex shader, ported line for line) against sample(), in a rogue group
 //  5. what a boat makes of it: surfing down a big following sea, a storm with a rogue beam-on
-import { Environment, WaveField, KT, DEG, G, MAXW } from '../js/env.js';
+import { Environment, WaveField, KT, DEG, G, MAXW, STORM_H } from '../js/env.js';
 import { Boat, autoTrim, CLASSES, wrap } from '../js/physics.js';
 const quick = process.argv.includes('quick');
 let fail = 0;
@@ -12,10 +13,10 @@ const check = (ok, msg) => { if (!ok) { fail++; console.log('   FAIL: ' + msg); 
 const openSea = (kt, o = {}) => { const e = new Environment({ tws: kt * KT, twd: 0, fetchKm: 2000, seed: 7, weather: 'steady', ...o }); e.tick(0); return e; };
 
 // ---- 1. sea state
-console.log('1. open ocean, fully developed (fetch 2000 km)');
+console.log('1. open ocean (fetch 2000 km, a storm of STORM_H hours: duration-limited, SPM 1984)');
 for (const kt of [40, 60, 80]) {
   const W = openSea(kt, { rogue: false }).waves, U = kt * KT;
-  const chi = G * 2e6 / (U * U);
+  const Fd = U * U / G * Math.pow(G * STORM_H * 3600 / (68.8 * U), 1.5), chi = G * Math.min(2e6, Fd) / (U * U);
   const HsPM = 0.21 * U * U / G, TpPM = 7.14 * U / G, HsJ = 1.6e-3 * Math.sqrt(chi) * U * U / G, TpJ = 0.286 * Math.cbrt(chi) * U / G;
   // the sea as sampled: 4 sigma of the surface at a few points over 20 min (second order included)
   let s1 = 0, s2 = 0, n = 0, mx = -1e9, mn = 1e9; const o = {};
@@ -26,6 +27,10 @@ for (const kt of [40, 60, 80]) {
   check(Math.abs(W.Hs / want - 1) < 0.05, `Hs ${W.Hs.toFixed(1)} vs ${want.toFixed(1)}`);
   check(Math.abs(W.Tp / wantT - 1) < 0.12, `Tp ${W.Tp.toFixed(1)} vs ${wantT.toFixed(1)} (one component's frequency: the bins are jittered)`);
   check(Math.abs(Hm0 / W.Hs - 1) < 0.1, `sampled Hs ${Hm0.toFixed(1)}`);
+  // WMO Beaufort: force 8 (34-40 kn) probable 5.5 m, max 7.5; force 11 (56-63 kn) 11.5 m, max 16
+  // (40 kn is the top of force 8: force 9 is 7 m, max 10)
+  const bf = { 40: [5.5, 10], 60: [11.5, 16] }[kt];
+  if (bf) check(W.Hs > 0.8 * bf[0] && W.Hs < bf[1], `Hs ${W.Hs.toFixed(1)} m outside the Beaufort table's ${bf[0]}-${bf[1]} m`);
 }
 
 // ---- 2. crest and height statistics at points, the sea's own and with its rogue groups (a 20-kn open-ocean
@@ -101,20 +106,30 @@ for (const kt of [40, 60, 80]) {
     console.log(`   another peer's groups: ${same} the same, ${diff} different`);
     check(diff === 0 && same > 0, 'peers disagree on the rogue groups');
   }
-  // a Draupner: a crest of 1.25 Hs, focused; the surface at the focus, and the wave height there
-  const tf = 900, E = W.forceEvent({ x: 400, z: -300, t: tf, crestHs: 1.25 }), o = {};
-  let best = -1e9, bx = 0, bz = 0; const Lm = G * E.Tm * E.Tm / (2 * Math.PI);
-  for (let x = 400 - Lm / 2; x < 400 + Lm / 2; x += Lm / 200) for (let z = -300 - Lm / 4; z < -300 + Lm / 4; z += Lm / 40) {
-    const h = W.sample(x, z, tf, o).h; if (h > best) { best = h; bx = x; bz = z; }
+  // a Draupner: a crest of 1.25 Hs, focused; the surface at the focus, and the wave height there. The troughs
+  // either side are the random sea's as much as the group's (0.25-0.8 Hs from one focus to another), so the
+  // height is checked as the mean over three foci
+  const tf = 900, o = {};
+  let E, best, sumH = 0, nF = 0, worstC = 0;
+  for (const [fx, fz] of [[1700, 900], [-1100, 1500], [400, -300]]) {
+    W.rgForced.length = 0; W._rgL = new Map();
+    E = W.forceEvent({ x: fx, z: fz, t: tf, crestHs: 1.25 });
+    let bx = 0, bz = 0; best = -1e9; const Lm = G * E.Tm * E.Tm / (2 * Math.PI);
+    for (let x = fx - Lm / 2; x < fx + Lm / 2; x += Lm / 200) for (let z = fz - Lm / 4; z < fz + Lm / 4; z += Lm / 40) {
+      const h = W.sample(x, z, tf, o).h; if (h > best) { best = h; bx = x; bz = z; }
+    }
+    // trough-to-crest along the group's direction, the deeper trough either side within a wavelength
+    let tr1 = 1e9, tr2 = 1e9;
+    for (let s = 0; s < Lm; s += Lm / 400) { tr1 = Math.min(tr1, W.sample(bx + E.dx * s, bz + E.dz * s, tf, o).h); tr2 = Math.min(tr2, W.sample(bx - E.dx * s, bz - E.dz * s, tf, o).h); }
+    const Hr = best - Math.min(tr1, tr2);
+    console.log(`   forced group at (${fx}, ${fz}) (crest 1.25 Hs = ${E.crest.toFixed(1)} m): crest ${best.toFixed(1)} m = ${(best / E.Hs).toFixed(2)} Hs, height ${Hr.toFixed(1)} m = ${(Hr / E.Hs).toFixed(2)} Hs`);
+    worstC = Math.max(worstC, Math.abs(best / E.crest - 1)); sumH += Hr / E.Hs; nF++;
   }
-  // trough-to-crest along the group's direction, the deeper trough either side within a wavelength
-  let tr1 = 1e9, tr2 = 1e9;
-  for (let s = 0; s < Lm; s += Lm / 400) { tr1 = Math.min(tr1, W.sample(bx + E.dx * s, bz + E.dz * s, tf, o).h); tr2 = Math.min(tr2, W.sample(bx - E.dx * s, bz - E.dz * s, tf, o).h); }
-  const Hr = best - Math.min(tr1, tr2);
-  console.log(`   forced group (crest 1.25 Hs = ${E.crest.toFixed(1)} m): crest ${best.toFixed(1)} m = ${(best / E.Hs).toFixed(2)} Hs, height ${Hr.toFixed(1)} m = ${(Hr / E.Hs).toFixed(2)} Hs (Draupner: 18.5 / 25.6 m in Hs 12 m = 1.55 / 2.15 Hs)`);
-  check(Math.abs(best / E.crest - 1) < 0.06, 'crest at the focus is not the group\'s crest');
-  check(Hr / E.Hs > 1.8 && Hr / E.Hs < 2.6, 'rogue height not ~2-2.2 Hs');
-  // the build-up: the highest crest near the group, 60 s before, at, and 60 s after the focus
+  console.log(`   mean height ${(sumH / nF).toFixed(2)} Hs (Draupner: 18.5 / 25.6 m in Hs 12 m = 1.55 / 2.15 Hs)`);
+  check(worstC < 0.06, 'crest at the focus is not the group\'s crest');
+  check(sumH / nF > 1.8 && sumH / nF < 2.6, 'rogue height not ~2-2.2 Hs');
+  const Lm = G * E.Tm * E.Tm / (2 * Math.PI);
+  // the build-up: the highest crest near the group (the last, at (400, -300)), 60 s before, at, and 60 s after the focus
   const hi = (tt) => { let m = -1e9; for (let x = 400 - 1.5 * Lm; x < 400 + 1.5 * Lm; x += Lm / 60) for (let z = -300 - Lm / 2; z < -300 + Lm / 2; z += Lm / 12) m = Math.max(m, W.sample(x + E.dx * E.cg * (tt - tf), z + E.dz * E.cg * (tt - tf), tt, o).h); return m; };
   console.log(`   highest crest about the group: -60 s ${hi(tf - 60).toFixed(1)} m, -20 s ${hi(tf - 20).toFixed(1)} m, focus ${hi(tf).toFixed(1)} m, +20 s ${hi(tf + 20).toFixed(1)} m, +60 s ${hi(tf + 60).toFixed(1)} m`);
 }

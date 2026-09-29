@@ -9,6 +9,7 @@
 //  * Foam: patches born at the bow wave, in the quarter wave and where spray lands, riding the wave surface,
 //    drifting, spreading and fading astern — not a band glued to the hull (a thin line stays at the hull).
 import * as THREE from 'three';
+import { whitecapCover } from './env.js';
 
 const DROPS = 2400, PATCHES = 520, Q = 16, RWS = 7;
 export const NOISE = /* glsl */`   // also the ?q=low wake ribbon's (render.js)
@@ -364,14 +365,15 @@ export class HullSplash {
     const PP = this.pP, PQ = this.pQ, PV = this.pV, AG = this.pAge;
     this._pf = (this._pf || 0) + 1;
     for (let i = 0; i < PATCHES; i++) {
-      if (AG[i] > 60) { PQ[i * 4] = 0; continue; }
+      if (AG[i] > 30) { PQ[i * 4] = 0; continue; }
       AG[i] += dt;
       const dr = Math.exp(-dt * 0.8);
       PV[i * 2] *= dr; PV[i * 2 + 1] *= dr;
       PP[i * 4] += PV[i * 2] * dt; PP[i * 4 + 2] += PV[i * 2 + 1] * dt;
       PP[i * 4 + 3] += this.pGrow[i] * dt / (1 + AG[i] * 0.15);
       if ((i + this._pf) % 2 === 0) PP[i * 4 + 1] = env && env.wavesOn ? env.waves.sample(PP[i * 4], PP[i * 4 + 2], t, this._ws).h : 0;
-      PQ[i * 4] = this.pA0[i] * Math.exp(-AG[i] / 9) * Math.min(1, AG[i] * 4 + 0.3);
+      // (the foam of a splash decays like a whitecap's: e-folding ~5 s, Callaghan et al. 2012 measured 2-10 s)
+      PQ[i * 4] = this.pA0[i] * Math.exp(-AG[i] / 5) * Math.min(1, AG[i] * 4 + 0.3);
     }
     this.aP.needsUpdate = true; this.aQ.needsUpdate = true;
   }
@@ -456,11 +458,13 @@ export class SeaSpray {
     dt = Math.min(dt, 0.05);
     const w = env.wind.sample(cam.x, cam.z, t, this._w);
     const U = w.speed, wx = -Math.sin(w.dir) * U, wz = Math.cos(w.dir) * U;
-    const gale = Math.max(0, Math.min(1, (U - 13) / 10));          // 25 kn: nothing; 45 kn: full spindrift
+    // (WMO Beaufort: spindrift is first seen at force 7, 28 kn, and "the edges of crests begin to break into
+    // spindrift" at force 8; dense by force 9)
+    const gale = Math.max(0, Math.min(1, (U - 14.4) / 9.6));       // 28 kn: nothing; 47 kn: full spindrift
     const hurr = Math.max(0, Math.min(1, (U - 28) / 8));           // 55 kn: more; 70 kn: the air full of it
     const waves = env.waves;
     if (gale > 0 && env.wavesOn) {
-      const Wc = Math.min(0.3, 3.84e-6 * Math.pow(U, 3.41)), zA = invTail(0.4 * Wc) + 0.2 - 0.9 * hurr;
+      const Wc = whitecapCover(U), zA = invTail(0.4 * Wc) + 0.2 - 0.9 * hurr;
       const sig = Math.max(0.02, waves.jSigma || 0.1);
       this.acc += dt * 1500 * gale * (1 + 1.5 * hurr);
       for (; this.acc >= 1; this.acc--) {

@@ -1,7 +1,7 @@
 // Three.js renderer: sky, Gerstner ocean (same spectrum as the physics), real-map terrain, piers,
 // lofted hulls, live sails (twist, camber, draft, luffing), telltales, wakes, marks, cameras.
 import * as THREE from 'three';
-import { DEG } from './env.js';
+import { DEG, WC, WC_GLSL } from './env.js';
 import { STRIP_F, REEF, clamp, lerp } from './physics.js';
 import { buildBoatModel, updateBoatModel } from './models.js';
 import './boats/detailed.js';      // (registers the detailed models of the classes in js/classes/)
@@ -17,6 +17,18 @@ import { SeamarkLayer } from './seamark-render.js';
 
 const MAXW = 20;
 const FOAM_N = 512;   // persistent-foam map resolution (texels a side)
+// Whitecaps (env.js WC: Monahan's cover, saturating in storms, split between the active crests and the foam
+// they leave). The crest compression's z-score passes a threshold on a share of the sea set from the cover;
+// how much of the water that share whitens (the foam is aerated patches and lace, not paint) was measured
+// by rendering (tools/verify-foam.mjs), which fixed these: WC_PA, the crests' share for the active whitecaps
+// (water shader), WC_PB and WC_PE, the foam map's source (its share grows a little faster than the cover:
+// the patches of a light sea's small whitecaps overlap less).
+const WC_PA = 0.4, WC_PB = 0.58, WC_PE = 0.4;
+// short waves break on the crests of the long ones (the modulation of whitecap cover by the energetic waves:
+// Dulov, Kudryavtsev & Bol'shakov 2002, most of it at and just ahead of the long crest), so whitecaps gather
+// in bands along the big crests with the troughs between mostly clear: the weight of the long waves'
+// elevation (and a little of their front face) in the z-score
+const WC_G = 0.7;
 
 // Gerstner components (same data as the physics): Wa = (dx, dz, k_base, omega_doppler), Wb = (A, Q, phase, omega)
 // The coast (coastal.js, the same arrays WaveField.sample reads): per component a layer of tangent planes of its
@@ -75,6 +87,13 @@ vec2 crestZV(float J, float Csd, vec3 R, vec3 T) {
 }
 float crestZ(float J, float sJ2, float Cs, float sS2, float Cd, float sd2) {
   vec3 T = vec3(sJ2, sS2 + 0.16 * sd2, 0.0); return crestZV(J, Cs + 0.4 * Cd, T, T).x;
+}
+${WC_GLSL}
+// the whitecap z-score with the long waves' crests in it (WC_G): e1, eH the first-order elevation and its
+// Hilbert partner (their sd Hs / 4); unit variance kept, and the unresolved variance v scaled with it
+vec2 crestMod(vec2 zv, float e1, float eH, float Hs) {
+  float eN = clamp((0.9 * e1 - 0.4 * eH) / max(0.246 * Hs, 0.02), -3.0, 3.0), k = inversesqrt(1.0 + ${WC_G} * ${WC_G});
+  return vec2((zv.x + ${WC_G.toFixed(3)} * eN) * k, zv.y * k * k);
 }
 // hash without sin() (whose precision varies by GPU and blocks up at large arguments), lattice wrapped
 float hash(vec2 p){ p = mod(p, 4096.0); vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -256,7 +275,7 @@ export class Renderer {
       uRg: { value: Array.from({ length: MAXW }, () => new THREE.Vector4()) }, uRgA: { value: [new THREE.Vector4(), new THREE.Vector4()] },
       uRgB: { value: [new THREE.Vector4(), new THREE.Vector4()] }, uRgC: { value: [new THREE.Vector4(), new THREE.Vector4()] },
       uBrk: { value: new THREE.Vector4(0, 0.2, 0.34, 0) }, uDm: { value: new THREE.Vector2(0, 1) },
-      uFoam: { value: null }, uFoamC: { value: new THREE.Vector2() }, uFoamS: { value: 320 }, uFoamOff: { value: new THREE.Vector2() }, uFoamOn: { value: 0 },
+      uFoam: { value: null }, uFoamC: { value: new THREE.Vector2() }, uFoamS: { value: 320 }, uFoamOff: { value: new THREE.Vector2() }, uFoamOn: { value: 0 }, uFoamK: { value: 1 },
       uDeep: { value: new THREE.Color(0x0a2f40) }, uShallow: { value: new THREE.Color(0x2e9c9a) },
       fogColor: { value: new THREE.Color(0xb7c8d4) }, fogDensity: { value: 0.00011 },
       uEnv: { value: this.skySys.cubeRT.texture }, uAmbF: { value: 1 }, uLightDir: { value: this.skySys.lightV }, uSkyRT: this.skySys.compU.uSkyTex, uSkyVP: this.skySys.marchDome.material.uniforms.uPrevVP,
@@ -337,7 +356,7 @@ export class Renderer {
         uniform vec3 uSunDir; uniform vec3 uSunCol; uniform samplerCube uEnv; uniform float uAmbF; uniform vec3 uLightDir; uniform sampler2D uSkyRT; uniform mat4 uSkyVP;
         uniform vec3 uCam; uniform sampler2D uGust; uniform vec2 uGustO; uniform float uGustS;
         uniform vec2 uFlow; uniform float uWind; uniform float uHs; uniform float uJSig; uniform float uLmin;
-        uniform sampler2D uFoam; uniform vec2 uFoamC; uniform float uFoamS; uniform vec2 uFoamOff; uniform float uFoamOn;
+        uniform sampler2D uFoam; uniform vec2 uFoamC; uniform float uFoamS; uniform vec2 uFoamOff; uniform float uFoamOn; uniform float uFoamK;
         uniform vec3 uDeep; uniform vec3 uShallow; uniform vec3 fogColor; uniform float fogDensity;
         varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore; varying float vBreak; varying vec2 vLim;
         // value noise and its gradient (quintic): (v, dv/dx, dv/dy)
@@ -584,12 +603,12 @@ export class Renderer {
           }
           #endif
           vec3 col = mix(body + sss, refl, F) + uSunCol * spec * 1.5;
-          // ---- whitecaps and foam, Beaufort coverage from the wind (Monahan: W = 3.84e-6 U^3.41), placed
-          // on the steepest crests: a z-score of crest compression (1 - Jacobian) against its local spread
-          // (past storm force Monahan's fit is beyond its data; at hurricane force the sea is white: Beaufort 12)
-          float Wc = clamp(3.84e-6 * pow(max(lw, 0.0), 3.41), 0.0, mix(0.3, 0.55, smoothstep(25.0, 34.0, lw)));
+          // ---- whitecaps and foam, Beaufort coverage from the wind (env.js WC: Monahan's W = 3.84e-6 U^3.41,
+          // saturating past storm force, where the streaks take over), placed on the steepest crests: a z-score
+          // of crest compression (1 - Jacobian) against its local spread
+          float Wc = wcCover(lw);
           // long waves say where (their crests), the short waves riding them say exactly which bits break
-          vec2 zv = crestZV(J, Cs + 0.4 * Cd, vec3(sJ2, sS2 + 0.16 * sdR, sC), vec3(sJ2T, sS2T + 0.16 * sdT, sCT));
+          vec2 zv = crestMod(crestZV(J, Cs + 0.4 * Cd, vec3(sJ2, sS2 + 0.16 * sdR, sC), vec3(sJ2T, sS2T + 0.16 * sdT, sCT)), e1, eH, uHs);
           float zc = zv.x;
           // foam texture is fixed in the water (x0 is the undisplaced, Lagrangian position): it rides the
           // orbital motion of the waves and moves with their mean (Stokes) drift, as the foam pass does
@@ -598,8 +617,11 @@ export class Renderer {
           // the detail finer than the footprint goes to its mean and its variance (v*) into the thresholds:
           // far water shows the mean cover of what each pixel spans (a whitening, as the sea is seen from
           // afar), not a sharp pattern that shimmers and then fades to nothing
-          vec2 q = vec2(sw.x * 0.28, sw.y * 0.6);
-          float fq = fpQ(vec2(0.28, 0.6), eRf, eT, fl, pr), v1, v2;
+          // (the patches' size grows with the sea's: a whitecap is a fraction of the breaking wave's length, a
+          // metre or two in a breeze, tens of metres on a storm's crests. uFoamK: from the session's nominal sea,
+          // fixed, so the texture never slides as the sea builds)
+          vec2 q = vec2(sw.x * 0.28, sw.y * 0.6) / uFoamK;
+          float fq = fpQ(vec2(0.28, 0.6) / uFoamK, eRf, eT, fl, pr), v1, v2;
           float f1 = sfbmV(q, fq, v1), f2 = sfbmV(q * 3.1 + 7.1, fq * 3.1, v2);
           float lace = ssV(0.5, 0.18, f1 * 0.6 + f2 * 0.4, 0.36 * v1 + 0.16 * v2);
           float foam = 0.0, foamFlat = 0.0;       // foam on the crests (whitecaps, breakers) and lying flat (streaks, old foam)
@@ -630,7 +652,7 @@ export class Renderer {
           float ya = sw.y + 14.0 * (qn(sw * vec2(0.005, 0.012)) - 0.5) + 4.0 * (qn(sw * vec2(0.025, 0.05) + 5.0) - 0.5);
           float fwY = length(vec2(dFdx(ya), dFdy(ya)));
           if (Wc > 2e-4) {
-            float zA = invTail(0.4 * Wc);                                      // active breaking crests
+            float zA = invTail(${WC_PA} * Wc);                                 // active breaking crests
             // (the crests a pixel cannot resolve still break: their variance zv.y widens the threshold, so a
             // far crest carries its share of the whitecaps and the flat far sea the mean of them all)
             // (their cover, and the whitecap itself aerated white water, dense where it breaks hardest and lacy at
@@ -760,7 +782,7 @@ export class Renderer {
     this.foamRT = [mk(), mk()]; this.foamI = 0; this.foamT = null;
     const U = this.waterU, v6 = () => [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4());
     const fu = { uPrev: { value: null }, uCp: { value: new THREE.Vector2() }, uDt: { value: 0 }, uDrift: { value: new THREE.Vector2() }, uLang: { value: 0 }, uKeep: { value: 0 }, uWake: { value: v6() }, uWakeW: { value: v6() } };
-    for (const k of ['uWa', 'uWb', 'uWn', 'uTime', 'uK2', 'uRg', 'uRgA', 'uRgB', 'uRgC', 'uBrk', 'uDm', 'uSdf', 'uWorldR', 'uHasMap', 'uTide', 'uCst', 'uCstR', 'uCstM', 'uCstOn', 'uCstNR', 'uCstW', 'uCstN', 'uCstRL', 'uShoreW', 'uGust', 'uGustO', 'uGustS', 'uFlow', 'uWind', 'uFoamC', 'uFoamS', 'uFoamOff', 'uHW', 'uHWC']) if (U[k]) fu[k] = U[k];
+    for (const k of ['uWa', 'uWb', 'uWn', 'uTime', 'uK2', 'uRg', 'uRgA', 'uRgB', 'uRgC', 'uBrk', 'uDm', 'uSdf', 'uWorldR', 'uHasMap', 'uTide', 'uCst', 'uCstR', 'uCstM', 'uCstOn', 'uCstNR', 'uCstW', 'uCstN', 'uCstRL', 'uShoreW', 'uGust', 'uGustO', 'uGustS', 'uFlow', 'uWind', 'uFoamC', 'uFoamS', 'uFoamOff', 'uFoamK', 'uHs', 'uHW', 'uHWC']) if (U[k]) fu[k] = U[k];
     this.foamU = fu;
     const mat = new THREE.ShaderMaterial({
       uniforms: fu, depthTest: false, depthWrite: false,
@@ -772,7 +794,7 @@ export class Renderer {
         const float uTexel = 1.0 / ${FOAM_N}.0;
         uniform vec4 uWake[6]; uniform vec4 uWakeW[6];          // stern paths this frame (x0a, z0a, x0b, z0b); (half-width, strength)
         uniform sampler2D uGust; uniform vec2 uGustO; uniform float uGustS; uniform vec2 uFlow; uniform float uWind;
-        uniform vec2 uFoamC; uniform float uFoamS; uniform vec2 uFoamOff;
+        uniform vec2 uFoamC; uniform float uFoamS; uniform vec2 uFoamOff; uniform float uFoamK; uniform float uHs;
         varying vec2 vUv;
         void main(){
           vec2 p = uFoamC + (vUv - 0.5) * uFoamS, cell = vec2(uFoamS * uTexel);
@@ -804,12 +826,13 @@ export class Renderer {
           float Ea = sqrt(e1 * e1 + eH * eH), ph = atan(e1, -eH);
           float brk = smoothstep(uBrk.y, uBrk.z, uBrk.x * Ea); brk *= brk * smoothstep(0.6, 1.0, ph) * (1.0 - smoothstep(1.7, 2.1, ph));
           float lw = uWind * texture2D(uGust, (p - uGustO) / uGustS + 0.5).r * 2.0;
-          // (past storm force Monahan's fit is beyond its data; at hurricane force the sea is white: Beaufort 12)
-          float Wc = clamp(3.84e-6 * pow(max(lw, 0.0), 3.41), 0.0, mix(0.3, 0.55, smoothstep(25.0, 34.0, lw)));
+          // the foam the whitecaps leave: its source the active crests, on a share of the sea that makes the
+          // decaying foam the rest of the cover (env.js WC; WC_PB, WC_PE measured)
+          float Wc = wcCover(lw), pB = min(0.5, ${WC_PB} * Wc * pow(Wc / 0.043, ${WC_PE}));
           vec2 xd = p - uFoamOff, pr = vec2(-uFlow.y, uFlow.x);
           vec2 sw = vec2(dot(xd, uFlow), dot(xd, pr));
-          float f1 = sfbmA(vec2(sw.x * 0.28, sw.y * 0.6), cell.x * 0.28);
-          float act = Wc > 2e-4 ? smoothstep(invTail(0.4 * Wc) - 0.15, invTail(0.4 * Wc) + 0.4, crestZ(J, sJ2, Cs, sS2, 0.0, 0.0) + (f1 - 0.5) * 1.1) : 0.0;
+          float f1 = sfbmA(vec2(sw.x * 0.28, sw.y * 0.6) / uFoamK, cell.x * 0.28 / uFoamK);
+          float act = Wc > 2e-4 ? smoothstep(invTail(pB) - 0.15, invTail(pB) + 0.4, crestMod(vec2(crestZ(J, sJ2, Cs, sS2, 0.0, 0.0), 0.0), e1, eH, uHs).x + (f1 - 0.5) * 1.1) : 0.0;
           // spilling breakers in the surf zone leave their foam behind them
           act = max(act, uHasMap * smoothstep(0.85, 1.1, Lm.z) * (0.6 + 0.4 * f1));
           // Langmuir windrows: cross-wind convergence onto the water shader's streak lines (same rows)
@@ -832,7 +855,9 @@ export class Renderer {
             // spreading: the wake's turbulence widens its bubble cloud (D ~ 0.1 m^2/s: ~1.3 m in 8 s)
             old = c + (nb - 4.0 * c) * min(vec4(0.2), vec4(0.08, 0.1, 0.3, 0.1) * uDt / (cell.x * cell.x));
           }
-          float tau = 3.0 + 6.0 * qn(xd * 0.04 + 1.3);                   // e-folding, patchy: gone in ~5-15 s
+          // e-folding of whitecap foam, patchy: 0.6-1.4 x WC.tauB (Monahan & Lu 1990; Callaghan et al. 2012
+          // measured 2-10 s, most 3-5), gone in ~5-15 s
+          float tau = ${WC.tauB.toFixed(1)} * (0.6 + 0.8 * qn(xd * 0.04 + 1.3));
           // the bubbles rise out in 3-5 s (the cloud's void fraction e-folds: patchy), the scraps of foam they
           // leave on the surface pop in ~5 s
           float tauA = 3.0 + 2.0 * qn(xd * 0.3 + 7.7);
@@ -934,6 +959,8 @@ export class Renderer {
     // sea statistics for the shader: height scale (crest light), crest-compression spread (whitecaps),
     // and the shortest modelled wave, where the drawn-only short waves take over
     let lmin = 1e9; for (let i = 0; i < n; i++) lmin = Math.min(lmin, 2 * Math.PI / (waves.comps[i].kRef ?? waves.comps[i].k));
+    // (whitecap patches scale with the breaking waves: x1 up to Hs 2 m, x3 by Hs 12 m; the session's nominal sea)
+    U.uFoamK.value = clamp(0.6 + 0.2 * (waves.HsNom ?? waves.Hs ?? 0), 1, 3);
     U.uHs.value = waves.Hs || 0; U.uJSig.value = Math.max(0.02, waves.jSigma || 0.1); U.uLmin.value = Math.min(lmin, 12);
     U.uK2.value = waves.k2 || 0;
     const br = waves.brk;
@@ -1054,8 +1081,10 @@ export class Renderer {
     this.convState = conv;
     this.skySys.setWeather(Math.min(1, 0.95 * oc + conv.cover), cells, drift, t, kts, conv);
     // visibility: heavy rain closes it to ~1-2 km, and the haze turns rain-grey (applied to the fog colour in update)
-    // (and from storm force the air fills with spray: Beaufort 12 "visibility very seriously affected")
-    this.scene.fog.density = 0.00011 + 0.0012 * sky.rain + 0.0006 * clamp((kts - 48) / 22, 0, 1);
+    // (and from a strong gale the air fills with spray, WMO Beaufort 9 "spray may affect visibility", 10-11
+    // "visibility affected", 12 "very seriously affected": exp^2 fog reaches 5 % contrast at 1.73 / density,
+    // so ~16 km clear, ~8 km at 45 kn, ~2 km at 60 kn, ~1.3 km in a hurricane)
+    this.scene.fog.density = 0.00011 + 0.0012 * sky.rain + 0.0012 * Math.pow(clamp((kts - 40) / 25, 0, 1), 1.5);
     this.waterU.fogDensity.value = this.scene.fog.density;
     this._rainFog = this.rainNow = sky.rain;     // (rainNow: what the listener hears, audio.js)
     // mist and sea fog (wx.mist): a layer at the surface, eased like the clouds
