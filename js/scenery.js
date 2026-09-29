@@ -520,6 +520,7 @@ const TREE_CROWN = { palm: [[0.3, 0.5, 0.2], 2.6, 1.0, 7.9], broad: [[0.22, 0.38
 // a tree crown
 function unitGeometries() {
   const box = new THREE.BoxGeometry(1, 1, 1); box.translate(0, 0.5, 0);
+  { const ix = box.index.array; box.setIndex([...ix.slice(0, 18), ...ix.slice(24)]); box.clearGroups(); }   // (no underside: 10 triangles)
   const P = [], a = [-0.5, 0, -0.5], b = [0.5, 0, -0.5], c = [0.5, 1, 0], d = [-0.5, 1, 0], e = [-0.5, 0, 0.5], f = [0.5, 0, 0.5];
   for (const t of [[a, c, b], [a, d, c], [e, f, c], [e, c, d], [a, e, d], [b, c, f]]) for (const v of t) P.push(...v);
   const prism = new THREE.BufferGeometry(); prism.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); prism.computeVertexNormals();
