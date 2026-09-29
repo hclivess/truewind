@@ -38,6 +38,32 @@ const SAIL_MODEL = (() => { try { const m = new URLSearchParams(location.search)
 
 const $ = (s) => document.querySelector(s);
 const PHYS_DT = 1 / 120;
+// The rig drawn between the last two physics states too, like the hull (b.pose): each boom's angle and lift
+// (b.pose.booms) and each cloth sail's nodes (rig.xd). Sampled raw, a boom or clew moved by the physics steps that
+// happened to fall in the frame (one, two or three at 60 Hz with a real display's jitter): the booms, the sails'
+// corners and every line made fast to them shook against the hull by up to a step's motion every frame.
+function clothRigs(b) {
+  const out = [];
+  if (b.sailSys && b.sailSys.cloth) for (const s of b.sails) { const r = b.sailSys.cloth(s.key); if (r && r.cloth && r.cloth.x) out.push(r); }
+  return out;
+}
+function snapRig(b) {
+  const bm = b._prevBooms || (b._prevBooms = {});
+  for (const k in b.booms) { const o = bm[k] || (bm[k] = {}); o.a = b.booms[k].a; o.elev = b.booms[k].elev || 0; }
+  for (const r of clothRigs(b)) { const x = r.cloth.x; if (!r._xPrev || r._xPrev.length !== x.length) r._xPrev = new Float64Array(x.length); r._xPrev.set(x); r._xPrevOf = x; }
+}
+function poseRig(b, a) {
+  const P = b.pose, bm = b._prevBooms;
+  P.booms = {};
+  for (const k in b.booms) { const q = bm && bm[k], B = b.booms[k]; P.booms[k] = q ? { a: q.a + (B.a - q.a) * a, elev: q.elev + ((B.elev || 0) - q.elev) * a } : { a: B.a, elev: B.elev || 0 }; }
+  for (const r of clothRigs(b)) {
+    const x = r.cloth.x;
+    // (a cloth replaced since, a new level or a new sail: drawn as it is)
+    if (!r._xPrev || r._xPrevOf !== x || r._xPrev.length !== x.length) { r.xd = null; continue; }
+    const d = r.xd && r.xd.length === x.length ? r.xd : (r.xd = new Float64Array(x.length)), p = r._xPrev;
+    for (let i = 0; i < x.length; i++) d[i] = p[i] + (x[i] - p[i]) * a;
+  }
+}
 const GRAB_PX = 30;
 const C_RIGHT = (b) => (b.cls.multihull ? 8 : 4); // grab radius on screen, also the size of the marker rings
 // chase-camera distance and windward-leeward course length for a class: by its size
@@ -1269,7 +1295,7 @@ class Game {
     const tPhys = performance.now();
     // (the loop runs from the page's first frame; until a session has its boats there is nothing to step)
     while (this.player && this.acc >= PHYS_DT && steps < maxSteps) {
-      for (const b of this.boats) b._prev = { x: b.x, z: b.z, psi: b.psi, heave: b.heave, pitch: b.pitch, phi: b.phi };
+      for (const b of this.boats) { b._prev = { x: b.x, z: b.z, psi: b.psi, heave: b.heave, pitch: b.pitch, phi: b.phi }; snapRig(b); }
       this.step(PHYS_DT);
       this.acc -= PHYS_DT; steps++;
     }
@@ -1291,7 +1317,7 @@ class Game {
       this.trafficView.update(dt, tDraw, this.env, this.renderer.camera, night, this.renderer.r.domElement.height);
     }
     this._tDraw = tDraw;
-    for (const b of this.boats) b.pose = drawPose(b._prev || b, b, alpha);
+    for (const b of this.boats) { b.pose = drawPose(b._prev || b, b, alpha); poseRig(b, alpha); }
     // the tide: the sea's stream from the boat's water (a shared room: the venue's centre, so every peer's sea
     // agrees), the level at the boat for the land, the banks and the shader
     const pl = this.player;

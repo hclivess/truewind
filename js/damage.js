@@ -794,8 +794,9 @@ export class Damage {
     if (C.multihull && h.holes.length) this.waterY = h.holes[0].y;
     b.water = this.water; recomputeMass(b);
     b.pumpWork = out > 0 && H.pumps.some((p) => p.manual) ? 1 : 0;
-    // sunk: more water than her reserve buoyancy, or the deck well under
-    if ((this.water > cap * 0.98 && H.flot === 0) || (b.heave < -(C.freeboard + 0.6) && H.flot === 0)) {
+    // sunk: more water than her reserve buoyancy, or the deck well under the local sea (not still water:
+    // a boat riding a deep trough sits metres below mean level) with her flooding
+    if ((this.water > cap * 0.98 && H.flot === 0) || (b.heave - eta(0, 0) < -(C.freeboard + 0.6) && this.water > cap * 0.5 && H.flot === 0)) {
       h.sunk = true; b.sunk = true;
       this.event('sunk', 'SUNK — she has gone down');
     }
