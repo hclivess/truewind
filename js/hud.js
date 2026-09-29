@@ -169,6 +169,7 @@ export class HUD {
     this.drawRules();
     this.pumpCrew();
     this.updateWork(b, dt);
+    this.updateNextMark(b);
     if (this.acc < 0.1) return;
     this.acc = 0;
     const d = b.diag, C = b.cls;
@@ -227,6 +228,48 @@ export class HUD {
     while (q.length > 4) { const j = q.findIndex((x) => x.kind !== 'coach'); q.splice(j < 0 ? 0 : j, 1); }
     this.pumpCoach(now);
     return true;
+  }
+  // racing: where the next mark is. A tag over the mark (its name, the distance), or, when it is behind you or off the
+  // screen, pinned to the edge with the arrow pointing its way
+  updateNextMark(b) {
+    const g = this.g, el = $('#nextmark'), cam = g.renderer && g.renderer.camera;
+    const r = g.race && g.race.racers[0], leg = r && !r.finished && !r.retired && g.course ? g.course.legs[r.leg] : null;
+    if (!leg || !cam) { if (!el.hidden) el.hidden = true; return; }
+    const C = g.course;
+    let m, name;
+    if (leg.type === 'mark') { m = leg.mark; name = leg.name || 'Mark'; }
+    else if (leg.type === 'gate') { const dl = Math.hypot(b.x - C.gateL.x, b.z - C.gateL.z), dr = Math.hypot(b.x - C.gateR.x, b.z - C.gateR.z); m = dl < dr ? C.gateL : C.gateR; name = 'Leeward gate'; }
+    else { m = { x: (C.pin.x + C.committee.x) / 2, z: (C.pin.z + C.committee.z) / 2 }; name = leg.type === 'start' ? 'Start line' : 'Finish'; }
+    if (el.hidden) el.hidden = false;
+    const W = innerWidth, H = innerHeight, v = (this._nmV || (this._nmV = cam.position.clone()));
+    v.set(m.x, 3, m.z).project(cam);
+    let x = (v.x * 0.5 + 0.5) * W, y = (-v.y * 0.5 + 0.5) * H;
+    // the clear middle of the screen, between the side panels (measured twice a second: panels move and fold)
+    const now = performance.now();
+    if (!this._nmBox || now - this._nmBox.t > 500) {
+      let l = 0, r = W;
+      for (const p of document.querySelectorAll('.panel')) {
+        if (p.hidden || p.offsetParent === null || p.id === 'coach' || p.id === 'instruments') continue;
+        const R = p.getBoundingClientRect(); if (R.width < 20 || R.height > H * 0.9) continue;
+        if (R.right < W * 0.45) l = Math.max(l, R.right); else if (R.left > W * 0.55) r = Math.min(r, R.left);
+      }
+      if (r - l < W * 0.3) { l = 0; r = W; }
+      this._nmBox = { t: now, l: l + 40, r: r - 40 };
+    }
+    const B = this._nmBox, behind = v.z > 1, top = 150, bot = H - 150, cx = (B.l + B.r) / 2, cy = (top + bot) / 2;
+    let edge = behind || x < B.l || x > B.r || y < top || y > bot, ang = 0;
+    if (edge) {
+      // the direction on screen from the centre (flipped when the mark is behind the camera), onto the edge
+      let dx = x - cx, dy = y - cy; if (behind) { dx = -dx; dy = -dy; if (Math.abs(dy) < 1e-3) dy = 1; }
+      const sx = ((B.r - B.l) / 2) / Math.max(1e-6, Math.abs(dx)), sy = ((bot - top) / 2) / Math.max(1e-6, Math.abs(dy)), s = Math.min(sx, sy);
+      x = cx + dx * s; y = cy + dy * s; ang = Math.atan2(dy, dx) * 180 / Math.PI - 90;
+    }
+    el.classList.toggle('edge', edge);
+    el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, ${edge ? '-50%' : '-100%'})`;
+    el.querySelector('.nm-arrow').style.transform = edge ? `rotate(${ang.toFixed(0)}deg)` : '';
+    const d = Math.round(Math.hypot(m.x - b.x, m.z - b.z));
+    const txt = (id, t) => { const e = document.getElementById(id); if (e.textContent !== t) e.textContent = t; };
+    txt('nm-name', name); txt('nm-dist', d >= 1000 ? `${(d / 1852).toFixed(2)} nm` : `${d} m`);
   }
   pumpCoach(now = performance.now() / 1000) {
     const q = this.crewQ || [], L = this.crewLine;
@@ -697,6 +740,13 @@ export class HUD {
       dot(course.pin, '#ff7a1a'); dot(course.committee, '#e9eef2', 5); dot(course.windward, '#ff7a1a', 5); dot(course.gateL, '#f2b33d'); dot(course.gateR, '#f2b33d');
     }
     if (g.nav) g.nav.drawMini(ctx, lw);                       // seamarks
+    if (course && g.race) {                                    // the next mark: an amber ring round it
+      const r = g.race.racers[0], leg = !r.finished && !r.retired ? course.legs[r.leg] : null;
+      if (leg) {
+        const m = leg.type === 'mark' ? leg.mark : leg.type === 'gate' ? (Math.hypot(b.x - course.gateL.x, b.z - course.gateL.z) < Math.hypot(b.x - course.gateR.x, b.z - course.gateR.z) ? course.gateL : course.gateR) : { x: (course.pin.x + course.committee.x) / 2, z: (course.pin.z + course.committee.z) / 2 };
+        ctx.strokeStyle = '#f2b33d'; ctx.lineWidth = 2 * lw; ctx.beginPath(); ctx.arc(m.x, m.z, (9 + 2 * Math.sin(performance.now() / 250)) * lw, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
     if (g.waypoint) {
       dot(g.waypoint, '#39d0ff', 5);
       ctx.strokeStyle = 'rgba(57,208,255,.5)'; ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(b.x, b.z); ctx.lineTo(g.waypoint.x, g.waypoint.z); ctx.stroke();
