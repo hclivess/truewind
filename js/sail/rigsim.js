@@ -602,10 +602,9 @@ export class JibRig extends ClothRig {
     // too, the luff and its load chase each other through the level switches' fresh cloths)
     const rs = b.rigStruct && b.rigStruct.ready && b.rigStruct.feedStay && b.rigStruct.stays[s.key] && b.rigStruct.stays[s.key].M ? b.rigStruct : null;
     if (rs) sagM = rs.staySag(s.key);
-    // the halyard: its tension stretches the luff along the stay (0.6 the set-up tension, where crews have it in a
-    // moderate breeze; up pulls the draft forward, eased the luff scallops and the draft goes aft), as the cunningham
-    // does the main's
-    const luff = this.luff0 * (1 + (s.key === 'jib' || s.key === 'stay' ? 0.012 * (s.cunnTravel ?? 1) * (clamp(ctrl.jibHalyard ?? 0.6, 0, 1) - 0.6) : 0));
+    // the halyard: its tension stretches the luff along the stay (0.5 the set-up tension; up pulls the draft forward,
+    // eased the luff scallops and the draft goes aft), as the cunningham does the main's
+    const luff = this.luff0 * (1 + (s.key === 'jib' || s.key === 'stay' ? 0.008 * (s.cunnTravel ?? 1) * (clamp(ctrl.jibHalyard ?? 0.5, 0, 1) - 0.5) : 0));
     for (let j = 0; j < nv; j++) {
       const v = j / (nv - 1), sg = (sagM || 0) * 4 * v * (1 - v);
       c.pin(c.node(0, j), this.px - this.rake * v + dx * sg, dy * sg, this.pz + v * luff);
