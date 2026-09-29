@@ -212,10 +212,16 @@ function buildStations(C, nStations) {
 // orbital acceleration (accAt(x, o): o.a along, o.l to starboard, o.v up) for the diffraction (added-mass)
 // part, both decaying as e^{k z} to the section's centroid depth (k = ka, the acceleration spectrum's mean).
 // (FA*: sum vol a; FAn, FAm: its moments about x = 0 (yaw, pitch); FAk: the lateral part's roll moment arm.)
+// Heave and pitch in strip theory (HullHydro: each station's 2-D added mass a33, only while it is wet): M33, M35, M55
+// = sum a33 (1, x, x^2); F33, F35 = sum a33 a_w (1, x), the diffraction load of the water's vertical acceleration
+// (o.v); W33, W35 = sum a33 w (1, x), the water's vertical velocity (o.w) weighted the same way, what the radiation
+// damping acts against. Each section feels the water at its own station, so waves shorter than the hull cancel
+// along it instead of being felt at one point.
 function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt, accAt, ka = 0) {
   const cp = Math.cos(phi), sp = Math.sin(phi), ac = ACC;
   let V = 0, My = 0, Mx = 0, girthLen = 0, xmin = 1e9, xmax = -1e9, FKx = 0, FKy = 0, FKn = 0;
   let FAx = 0, FAy = 0, FAn = 0, FAz = 0, FAm = 0, FAk = 0;
+  let M33 = 0, M35 = 0, M55 = 0, F33 = 0, F35 = 0, W33 = 0, W35 = 0;   // heave added mass and its wave loads (see HullHydro)
   const Vh = out.Vh || (out.Vh = new Array(stations[0].polys.length).fill(0)); Vh.fill(0);   // volume per hull
   let deckSub = 0;
   for (const st of stations) {
@@ -237,19 +243,24 @@ function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, sl
     girthLen += girth * st.dx;
     xmin = Math.min(xmin, st.x - st.dx / 2); xmax = Math.max(xmax, st.x + st.dx / 2);
     const dec = ka > 0 ? Math.exp(ka * Math.min(0, -yc * sp + zc * cp - zw)) : 1;   // e^{k z} at the centroid
+    // the section's heave added mass, as much of it as is in the water (a bow out of the water carries none)
+    const am = st.am ? st.am * Math.min(1, A / st.A0) : 0;
+    M33 += am; M35 += am * st.x; M55 += am * st.x * st.x;
     if (slopeAlongAt) { const sa = slopeAlongAt(st.x), vd = vol * dec; FKx -= vd * sa; FKy -= vd * sl; FKn -= vd * sl * st.x; }
     if (accAt) {
       accAt(st.x, ac); const vd = vol * dec;
       FAx += vd * ac.a; FAy += vd * ac.l; FAn += vd * ac.l * st.x; FAz += vd * ac.v; FAm += vd * ac.v * st.x; FAk += vd * ac.l * zc;
+      if (am) { const ad = am * dec, w = ac.w || 0; F33 += ad * ac.v; F35 += ad * ac.v * st.x; W33 += ad * w; W35 += ad * w * st.x; }
     }
   }
   out.V = V; out.My = My; out.Mx = Mx; out.girthLen = girthLen; out.lwl = xmax > xmin ? xmax - xmin : 0;
   out.FKx = FKx; out.FKy = FKy; out.FKn = FKn; out.deckSub = deckSub;
   out.FAx = FAx; out.FAy = FAy; out.FAn = FAn; out.FAz = FAz; out.FAm = FAm; out.FAk = FAk;
+  out.M33 = M33; out.M35 = M35; out.M55 = M55; out.F33 = F33; out.F35 = F35; out.W33 = W33; out.W35 = W35;
   return out;
 }
 
-const ACC = { a: 0, l: 0, v: 0 };
+const ACC = { a: 0, l: 0, v: 0, w: 0 };
 // Where the local water surface cuts each station's section: [x, y1, z1, y2, z2, ...] per station
 function waterlineStations(stations, heave, pitch, phi, etaAt, slopeLatAt) {
   const cp = Math.cos(phi), sp = Math.sin(phi), out = [];
@@ -276,13 +287,52 @@ export class HullHydro {
     this.C = C;
     calibrate(C);
     this.stations = buildStations(C, nStations);
+    heaveAddedMass(this);
     const r = this.immerse(0, 0, 0, () => 0, () => 0, {});
     this.restWetted = r.girthLen; this.restLwl = Math.max(0.5, r.lwl); this.restV = r.V;
+    this.A33 = r.M33; this.A35 = r.M35; this.A55 = r.M55;          // at rest, level (kg, kg m, kg m^2)
   }
   immerse(heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt = null, accAt = null, ka = 0) {
     return immerseStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt, accAt, ka);
   }
   waterline(heave, pitch, phi, etaAt, slopeLatAt) { return waterlineStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt); }
+}
+
+// Heave added mass of each station of the canoe body (strip theory). A section of waterline half-breadth b, draft T
+// and area A has a33 = rho (pi / 2) b^2 C (Lewis 1929: the section mapped conformally from a circle with the
+// coefficients a1, a3 fitted to H0 = b / T and sigma = A / (2 b T); Journee & Massie, "Offshore Hydromechanics"
+// (2001) ch. 7). C is the high-frequency value; at a yacht's heave and pitch resonance (w^2 b / g ~ 1-2) the 2-D
+// coefficient of these flat sections is ~0.8 of it (Ursell 1949; Vugts 1968), and a hull 3-4 beams long carries
+// ~0.75 of what its strips add up to (the end effect: Lewis's J, Kumai 1959), hence AM3D = 0.6. A flat, wide canoe
+// body carries several times its own displacement in heave (Delft series: Gerritsma, Keuning & Versluis 1993): with
+// the old 0.8 of displacement a 30 ft yacht had a 1.4 s heave period and a Laser 0.5 s. The fin, the bulb and the
+// rudder move edgewise in heave and add little. Multihulls: each hull's own breadth.
+export const AM3D = 0.6;
+function lewisC(H0, sg) {
+  const r = (H0 - 1) / (H0 + 1), C1 = (3 + 4 * sg / Math.PI) + (1 - 4 * sg / Math.PI) * r * r;
+  const a3 = (-C1 + 3 + Math.sqrt(Math.max(0, 9 - 2 * C1))) / C1, a1 = r * (a3 + 1);
+  return ((1 + a1) ** 2 + 3 * a3 * a3) / (1 + a1 + a3) ** 2;
+}
+function heaveAddedMass(h) {
+  const wl = h.waterline(0, 0, 0, () => 0, () => 0), cp = 1, sp = 0;
+  for (let i = 0; i < h.stations.length; i++) {
+    const st = h.stations[i], p = wl[i].pts;
+    st.am = 0; st.A0 = 0;
+    let k = 0;
+    for (const poly of st.polys) {
+      if (!poly.length) continue;
+      const r = clipArea(poly, sp, cp, 0, 0), A = r.A;
+      if (A < 1e-6) continue;
+      st.A0 += A;
+      // this hull's two waterline crossings (the next pair in the station's list)
+      let zmin = 0; for (let q = 1; q < poly.length; q += 2) zmin = Math.min(zmin, poly[q]);
+      const b = k + 3 < p.length ? Math.abs(p[k + 2] - p[k]) / 2 : 0; k += 4;
+      const T = -zmin;
+      if (b < 1e-3 || T < 1e-3) continue;
+      const H0 = clamp(b / T, 0.2, 10), sg = clamp(A / (2 * b * T), 0.35, 0.95);
+      st.am += 1025 * Math.PI / 2 * b * b * lewisC(H0, sg) * AM3D * st.dx;
+    }
+  }
 }
 
 // Form parameters of the drawn hull at rest, what a resistance regression needs: waterline length L and beam B,
