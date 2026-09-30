@@ -26,9 +26,10 @@ const FOAM_N = 512;   // persistent-foam map resolution (texels a side)
 const WC_PA = 0.4, WC_PB = 0.45, WC_PE = 0.6;
 // short waves break on the crests of the long ones (the modulation of whitecap cover by the energetic waves:
 // Dulov, Kudryavtsev & Bol'shakov 2002, most of it at and just ahead of the long crest), so whitecaps gather
-// in bands along the big crests with the troughs between mostly clear: the weight of the long waves'
-// elevation (and a little of their front face) in the z-score
-const WC_G = 0.7;
+// toward the big crests rather than evenly over the sea: the weight of the long waves' elevation (and a little
+// of their front face) in the z-score. Kept modest: the crests are what a sight line from a deck meets, so
+// weighting them hard makes a low view read far whiter than the sea's actual cover
+const WC_G = 0.35;
 
 // Gerstner components (same data as the physics): Wa = (dx, dz, k_base, omega_doppler), Wb = (A, Q, phase, omega)
 // The coast (coastal.js, the same arrays WaveField.sample reads): per component a layer of tangent planes of its
@@ -652,7 +653,9 @@ export class Renderer {
           float ya = sw.y + 14.0 * (qn(sw * vec2(0.005, 0.012)) - 0.5) + 4.0 * (qn(sw * vec2(0.025, 0.05) + 5.0) - 0.5);
           float fwY = length(vec2(dFdx(ya), dFdy(ya)));
           if (Wc > 2e-4) {
-            float zA = invTail(${WC_PA} * Wc * max(1.0, pow(Wc / 0.043, 0.3)));  // active breaking crests
+            // active breaking crests (a larger share of the cover both ways from 30 kn: a light sea's small white
+            // horses are mostly the breaking itself, leaving little foam behind; a storm's big breakers overlap)
+            float zA = invTail(${WC_PA} * Wc * max(pow(0.043 / max(Wc, 1e-4), 0.3), pow(Wc / 0.043, 0.3)));
             // (the crests a pixel cannot resolve still break: their variance zv.y widens the threshold, so a
             // far crest carries its share of the whitecaps and the flat far sea the mean of them all)
             // (their cover, and the whitecap itself aerated white water, dense where it breaks hardest and lacy at
@@ -748,14 +751,18 @@ export class Renderer {
           #endif
           // at a grazing angle the waves no pixel draws hide their own troughs (Smith masking, from the slope
           // variance lostF + mssSub) but not the crests that carry the foam: a sight line skims 1/G1 = 1 + L
-          // of surface for each unit it sees, and sees white where any crest it grazes is white (at most 4
-          // deep: the foam lies on the crest's face, not only on its top)
+          // of surface for each unit it sees, and sees white where any crest it grazes is white (at most 2
+          // deep: the foam is placed on the crests already (WC_G), so a deeper count would count those twice)
           float nu = abs(V0.y) / max(length(V0.xz), 1e-4) / sqrt(lostF + mssSub + 1e-4);
           float Lam = nu < 1.6 ? (1.0 - 1.259 * nu + 0.396 * nu * nu) / (3.535 * nu + 2.181 * nu * nu) : 0.0;
-          foam = 1.0 - pow(1.0 - clamp(foam, 0.0, 0.99), min(1.0 + Lam, 4.0));
+          foam = 1.0 - pow(1.0 - clamp(foam, 0.0, 0.99), min(1.0 + Lam, 2.0));
+          float foamC = foam;
           foam = max(foam, foamFlat);             // (foam lying flat is not heaped on the crests the sight line grazes)
+          // how white it is: a breaking crest's fresh foam reflects ~55 % of the light, the thinning foam it leaves
+          // and the streaks far less (Koepke 1984: whitecaps' effective reflectance ~22 %, most of their area old
+          // foam; Frouin, Schwindling & Deschamps 1996): the old foam and the streaks drawn at 45 % of a crest's white
           vec3 foamCol = vec3(0.9, 0.94, 0.96) * fshade * (uAmbF * (0.72 + 0.2 * shadow) + uSunCol * 0.25 * NdL * shadow);
-          col = mix(col, foamCol, clamp(foam, 0.0, 0.92));
+          col = mix(col, foamCol, clamp(max(foamC, 0.45 * foamFlat), 0.0, 0.9));
           // shoreline surf
           if (uHasMap > 0.5) {
             float band = smoothstep(9.0, 0.0, sd) * (0.55 + 0.45 * sin(sd * 1.2 - uTime * 1.6 + vnoise(x0 * 0.1) * 6.0));

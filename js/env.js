@@ -527,12 +527,12 @@ export function binEnergy(fa, fb, U, F) {
 // 35. Their data end near 20 m/s (~40 kn); carried on, the fit would whiten half the sea by 60 kn, where
 // observed whitecap cover levels off (the extra foam of a storm is torn off the crests and laid out in the
 // streaks along the wind that WMO's Beaufort 8-12 describe, drawn separately), so it saturates smoothly at
-// WC.max: 15 % at 45 kn, 27 % at 60.
+// WC.max: 14 % at 45 kn, 20 % at 60.
 // Of that cover, the active crests are a small part: a whitecap breaks for about a second and the foam it
 // leaves decays over several (e-folding ~2-10 s, mostly 3-5: Monahan & Lu 1990, Callaghan et al. 2012), so
 // in a steady sea the decaying foam is 2-4 times the breaking (WC.A: the active share). The water shader
 // draws the active crests and the foam map (render.js) the decaying foam, each calibrated to its share.
-export const WC = { a: 3.84e-6, b: 3.41, max: 0.3, A: 0.3, tauB: 4 };
+export const WC = { a: 3.84e-6, b: 3.41, max: 0.2, A: 0.3, tauB: 4 };
 export const whitecapCover = (U) => WC.max * Math.tanh(WC.a * Math.pow(Math.max(U, 0), WC.b) / WC.max);
 // the same curve for the shaders (render.js: the water's whitecaps, the foam map's source; test/whitecaps.mjs
 // checks one against the other)
