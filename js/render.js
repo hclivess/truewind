@@ -1456,7 +1456,11 @@ export class Renderer {
 
     if (c.mode === 'chase' || c.mode === 'orbit') {
       if (c.mode === 'orbit') c.yaw += dt * 0.08;
-      const yaw = c.yaw + (c.mode === 'chase' ? P.psi : 0);
+      // a camera boat steers her own course: follow the heading through a ~2.5 s low-pass, so each wave's yaw
+      // of a few degrees swings the boat in the frame, not the whole sea and sky with it (a tack still follows)
+      const dpsi = Math.atan2(Math.sin(P.psi - (c.hdg ?? P.psi)), Math.cos(P.psi - (c.hdg ?? P.psi)));
+      c.hdg = far || !Number.isFinite(c.hdg) ? P.psi : c.hdg + dpsi * (1 - Math.exp(-dt / 2.5));
+      const yaw = c.yaw + (c.mode === 'chase' ? c.hdg : 0);
       const d = c.dist;
       // a camera boat rides the swell slower than the yacht: follow the heave through a ~1.5 s low-pass so
       // the horizon does not bob with every wave, and never let the lens dip under the sea in front of it
