@@ -21,9 +21,9 @@ const FOAM_N = 512;   // persistent-foam map resolution (texels a side)
 // they leave). The crest compression's z-score passes a threshold on a share of the sea set from the cover;
 // how much of the water that share whitens (the foam is aerated patches and lace, not paint) was measured
 // by rendering (tools/verify-foam.mjs), which fixed these: WC_PA, the crests' share for the active whitecaps
-// (water shader), WC_PB and WC_PE, the foam map's source (its share grows a little faster than the cover:
-// the patches of a light sea's small whitecaps overlap less).
-const WC_PA = 0.4, WC_PB = 0.58, WC_PE = 0.4;
+// (water shader; past 30 kn a larger share, as the storm's big breakers overlap in their own patches), WC_PB
+// and WC_PE, the foam map's source (its share grows faster than the cover: a storm's patches overlap).
+const WC_PA = 0.4, WC_PB = 0.45, WC_PE = 0.6;
 // short waves break on the crests of the long ones (the modulation of whitecap cover by the energetic waves:
 // Dulov, Kudryavtsev & Bol'shakov 2002, most of it at and just ahead of the long crest), so whitecaps gather
 // in bands along the big crests with the troughs between mostly clear: the weight of the long waves'
@@ -77,23 +77,20 @@ vec4 leanB(float e, float hc, vec2 g, vec3 T, float Bd) {
   float f = Dl < 0.0 ? clamp((jd - 0.25) / -Dl, 0.0, 1.0) : 1.0;
   return vec4(uBrk.w * B * e * e * ie * f, c0 * f, Dl * f, B);
 }
-// the whitecap measure shared by the water and the persistent-foam pass: a z-score of crest compression
-// (1 - Jacobian, long waves) plus the short waves riding them (which bits break). Scaled by the spread of
-// every wave (T) though a pixel may resolve only some of them (R): the drawn part keeps its place in the
-// distribution and the rest is returned as variance. R, T = (var 1-J, var Cs + 0.16 var Cd, cov(1-J, Cs))
-vec2 crestZV(float J, float Csd, vec3 R, vec3 T) {
-  float a = 0.5 / sqrt(T.x + 1e-5), b = 0.85 / sqrt(T.y + 1e-5);
-  return vec2((a * (1.0 - J) + b * Csd) / 1.3, max(dot(vec3(a * a, b * b, 2.0 * a * b), T - R), 0.0) / 1.69);
-}
-float crestZ(float J, float sJ2, float Cs, float sS2, float Cd, float sd2) {
-  vec3 T = vec3(sJ2, sS2 + 0.16 * sd2, 0.0); return crestZV(J, Cs + 0.4 * Cd, T, T).x;
-}
 ${WC_GLSL}
-// the whitecap z-score with the long waves' crests in it (WC_G): e1, eH the first-order elevation and its
-// Hilbert partner (their sd Hs / 4); unit variance kept, and the unresolved variance v scaled with it
-vec2 crestMod(vec2 zv, float e1, float eH, float Hs) {
-  float eN = clamp((0.9 * e1 - 0.4 * eH) / max(0.246 * Hs, 0.02), -3.0, 3.0), k = inversesqrt(1.0 + ${WC_G} * ${WC_G});
-  return vec2((zv.x + ${WC_G.toFixed(3)} * eN) * k, zv.y * k * k);
+// The whitecap measure shared by the water and the persistent-foam pass: a score of crest compression
+// (1 - Jacobian, Jc: long waves) plus the short waves riding them (Csd: which bits break). Scaled by the spread
+// of every wave (T) though a pixel may resolve only some of them (R): the drawn part keeps its place in the
+// distribution and the rest is returned as variance. R, T = (var 1-J, var Cs + 0.16 var Cd, cov(1-J, Cs)).
+// With the long waves' crests in it (WC_G; e1, eH: the first-order elevation and its Hilbert partner, sd Hs / 4
+// each, for a little of the front face), and scaled to unit variance so that a threshold invTail(p) marks a
+// share p of the sea: the compression is largest on the long crests, so the two are correlated (CE: cov(1 - J,
+// e1), cov(Cs, e1) of every wave). Returns the score and the unresolved part's variance on the same scale.
+vec2 crestScore(float Jc, float Csd, vec3 R, vec3 T, float e1, float eH, float Hs, vec2 CE) {
+  float a = 0.5 / sqrt(T.x + 1e-5), b = 0.85 / sqrt(T.y + 1e-5), se = 0.985 * max(0.25 * Hs, 0.005);
+  float eN = clamp((0.9 * e1 - 0.4 * eH) / se, -3.5, 3.5);
+  float g = ${WC_G.toFixed(3)}, s2 = a * a * T.x + b * b * T.y + 2.0 * a * b * T.z + g * g + 2.0 * g * 0.9 * (a * CE.x + b * CE.y) / se;
+  return vec2((a * Jc + b * Csd + g * eN) * inversesqrt(s2), max(dot(vec3(a * a, b * b, 2.0 * a * b), T - R), 0.0) / s2);
 }
 // hash without sin() (whose precision varies by GPU and blocks up at large arguments), lattice wrapped
 float hash(vec2 p){ p = mod(p, 4096.0); vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -382,6 +379,7 @@ export class Renderer {
           // analytic Gerstner normal + Jacobian (crest sharpness) for whitecaps: the crests this pixel resolves
           // (R), and the spread of all of them (T) for the rest, which it can only show as a mean
           vec3 n = vec3(0.0, 1.0, 0.0); float J = 1.0, sJ2 = 0.0, Cs = 0.0, sS2 = 0.0, sC = 0.0, sJ2T = 0.0, sS2T = 0.0, sCT = 0.0, lostF = 0.0;
+          vec2 sCE = vec2(0.0);                                              // cov(1 - J, elevation), cov(Cs, elevation)
           float e1 = 0.0, eH = 0.0; vec2 gH = vec2(0.0), g2 = vec2(0.0);    // second order: height, Hilbert partner, slopes
           bool hr = cstHasRef(x0);
           vec2 rw = vec2(rgWin(0, x0), rgWin(1, x0)), rq = rw * vec2(uRgA[0].w, uRgA[1].w);
@@ -410,6 +408,7 @@ export class Renderer {
             J -= jS; sJ2 += jR * jR * 0.5; sJ2T += jT * jT * 0.5; lostF += (WAt * WAt - WF * WF) * 0.5;
             float ws = smoothstep(80.0, 20.0, 6.2832 / kw);                  // the short waves break on the long crests
             Cs += ws * jS; sS2 += ws * ws * jR * jR * 0.5; sS2T += ws * ws * jT * jT * 0.5; sC += ws * jR * jR * 0.5; sCT += ws * jT * jT * 0.5;
+            sCE += vec2(1.0, ws) * jT * WAt / kw * 0.5;
             e1 += fa * w.x; eH += fa * w.y; gH += u * kfa * w.x; g2 -= u * 4.0 * b.y * qs * kfa * fa * w.x * w.y;
             }
           }
@@ -609,7 +608,7 @@ export class Renderer {
           // of crest compression (1 - Jacobian) against its local spread
           float Wc = wcCover(lw);
           // long waves say where (their crests), the short waves riding them say exactly which bits break
-          vec2 zv = crestMod(crestZV(J, Cs + 0.4 * Cd, vec3(sJ2, sS2 + 0.16 * sdR, sC), vec3(sJ2T, sS2T + 0.16 * sdT, sCT)), e1, eH, uHs);
+          vec2 zv = crestScore(1.0 - J, Cs + 0.4 * Cd, vec3(sJ2, sS2 + 0.16 * sdR, sC), vec3(sJ2T, sS2T + 0.16 * sdT, sCT), e1, eH, uHs, sCE);
           float zc = zv.x;
           // foam texture is fixed in the water (x0 is the undisplaced, Lagrangian position): it rides the
           // orbital motion of the waves and moves with their mean (Stokes) drift, as the foam pass does
@@ -653,17 +652,22 @@ export class Renderer {
           float ya = sw.y + 14.0 * (qn(sw * vec2(0.005, 0.012)) - 0.5) + 4.0 * (qn(sw * vec2(0.025, 0.05) + 5.0) - 0.5);
           float fwY = length(vec2(dFdx(ya), dFdy(ya)));
           if (Wc > 2e-4) {
-            float zA = invTail(${WC_PA} * Wc);                                 // active breaking crests
+            float zA = invTail(${WC_PA} * Wc * max(1.0, pow(Wc / 0.043, 0.3)));  // active breaking crests
             // (the crests a pixel cannot resolve still break: their variance zv.y widens the threshold, so a
             // far crest carries its share of the whitecaps and the flat far sea the mean of them all)
             // (their cover, and the whitecap itself aerated white water, dense where it breaks hardest and lacy at
             // its edges: a crest far past the threshold, a rogue's, is still torn foam and not paint)
             float cw = ssV(zA + 0.1, 0.35, min(zc, zA + 0.9) + (f1 - 0.5) * 1.2 + (f2 - 0.5) * 0.5, zv.y + 1.44 * v1 + 0.25 * v2);   // (in patches along a crest, not along all of it)
             float act = cw > 0.003 ? aerated(q, fq, 0.5 * cw) : 0.0;                 // (aerated's cover is ~1.2 c)
-            // residual foam: thinning lace around the crests, and (beyond the foam pass) patches of old foam
-            float vb, big = sfbmV(sw * vec2(0.02, 0.05) + vec2(0.0, 3.3), fpQ(vec2(0.02, 0.05), eRf, eT, fl, pr), vb);
-            float thrB = 0.5 + 0.12 * invTail(clamp(0.6 * Wc, 1e-4, 0.5));
-            float resid = max(ssV(zA - 0.3, 0.3, zc, zv.y), ssV(thrB + 0.025, 0.055, big, vb) * (1.0 - pm)) * 0.35 * lace;
+            // residual foam: thinning lace around the crests
+            float resid = ssV(zA - 0.3, 0.3, zc, zv.y) * 0.35 * lace;
+            // and beyond the foam map (and without it, ?q=low) the foam the whitecaps have left: patches of old foam
+            // lying flat, the map's share of the cover (env.js WC: 1 - WC.A). A share 1.2 Wc of the sea by the
+            // quantile of an fbm (mean 0.516, sd 0.141) at a quarter of the whitecaps' scale, the lace inside them
+            // ~0.6 of it white
+            float vb, big = sfbmV(q * 0.25 + vec2(5.1, 2.7), fq * 0.25, vb);
+            float thrB = 0.516 + 0.141 * invTail(clamp(1.2 * Wc, 1e-4, 0.5));
+            float oldF = ssV(thrB, 0.055, big, vb) * (1.0 - pm) * (0.35 + 0.5 * lace);
             // gale: foam blown into streaks along the wind (Beaufort 8 and up): narrow lines, rows ~9 m apart (and
             // from Beaufort 9 a second, fainter family between them) that meander; each line wanders a little
             // along its length, varies in width (a hand's breadth to a metre), and is beaded and broken by warped
@@ -705,7 +709,7 @@ export class Renderer {
             streak *= st * (0.55 + 0.45 * lace);
             // (a breaking crest churns the streaks it runs over into its own white water, and a steep compressed
             // face tears them up: they lie on the gentler slopes between)
-            foam = max(act, resid); foamFlat = streak * (0.8 + 0.2 * hur) * (1.0 - smoothstep(0.05, 0.35, lb.w)) * smoothstep(0.35, 0.75, J);
+            foam = max(act, resid); foamFlat = max(streak * (0.8 + 0.2 * hur) * (1.0 - smoothstep(0.05, 0.35, lb.w)) * smoothstep(0.35, 0.75, J), oldF);
           }
           foamFlat = max(foamFlat, pers);
           // depth-limited breaking on real bathymetry
@@ -805,7 +809,7 @@ export class Renderer {
           // with the rogue groups and under the same local limits; where the depth breaks the waves, their crests
           bool hr = cstHasRef(p);
           vec2 rw = vec2(rgWin(0, p), rgWin(1, p)), rq = rw * vec2(uRgA[0].w, uRgA[1].w);
-          float J = 0.0, sJ2 = 0.0, Cs = 0.0, sS2 = 0.0, e1 = 0.0, eH = 0.0, sK = 0.0;
+          float J = 0.0, sJ2 = 0.0, Cs = 0.0, sS2 = 0.0, sC = 0.0, e1 = 0.0, eH = 0.0, sK = 0.0; vec2 sCE = vec2(0.0);
           for (int i = 0; i < ${MAXW}; i++) { if (i >= uWn) break;
             vec4 a = uWa[i]; vec4 b = uWb[i];
             for (int r = 0; r < 2; r++) {
@@ -816,13 +820,14 @@ export class Renderer {
               vec4 w = wcomp(i, cos(th), sin(th), rw, rq);
               J += kw * fa * w.w; sJ2 += b.y * b.y * WA * WA * 0.5;
               float ws = smoothstep(80.0, 20.0, 6.2832 / kw);
-              Cs += ws * kw * fa * w.w; sS2 += ws * ws * b.y * b.y * WA * WA * 0.5;
+              Cs += ws * kw * fa * w.w; sS2 += ws * ws * b.y * b.y * WA * WA * 0.5; sC += ws * b.y * b.y * WA * WA * 0.5;
+              sCE += vec2(1.0, ws) * b.y * WA * b.x * cw.w * 0.5;
               e1 += cw.w * w.x; eH += cw.w * w.y; sK += b.y * kw * b.x * cw.w;
             }
           }
           vec3 Lm = seaLimits(hd, e1, eH, sK);
           float cq = Lm.x * Lm.y;
-          J = 1.0 - cq * J; sJ2 *= cq * cq; Cs *= cq; sS2 *= cq * cq; e1 *= Lm.x * shore; eH *= Lm.x * shore;
+          J = 1.0 - cq * J; sJ2 *= cq * cq; Cs *= cq; sS2 *= cq * cq; sC *= cq * cq; e1 *= Lm.x * shore; eH *= Lm.x * shore; sCE *= cq * Lm.x * shore;
           // a breaking crest (WaveField._lean's B) leaves a sheet of foam on the water it has run over
           float Ea = sqrt(e1 * e1 + eH * eH), ph = atan(e1, -eH);
           float brk = smoothstep(uBrk.y, uBrk.z, uBrk.x * Ea); brk *= brk * smoothstep(0.6, 1.0, ph) * (1.0 - smoothstep(1.7, 2.1, ph));
@@ -833,7 +838,7 @@ export class Renderer {
           vec2 xd = p - uFoamOff, pr = vec2(-uFlow.y, uFlow.x);
           vec2 sw = vec2(dot(xd, uFlow), dot(xd, pr));
           float f1 = sfbmA(vec2(sw.x * 0.28, sw.y * 0.6) / uFoamK, cell.x * 0.28 / uFoamK);
-          float act = Wc > 2e-4 ? smoothstep(invTail(pB) - 0.15, invTail(pB) + 0.4, crestMod(vec2(crestZ(J, sJ2, Cs, sS2, 0.0, 0.0), 0.0), e1, eH, uHs).x + (f1 - 0.5) * 1.1) : 0.0;
+          float act = Wc > 2e-4 ? smoothstep(invTail(pB) - 0.15, invTail(pB) + 0.4, crestScore(1.0 - J, Cs, vec3(sJ2, sS2, sC), vec3(sJ2, sS2, sC), e1, eH, uHs, sCE).x + (f1 - 0.5) * 1.1) : 0.0;
           // spilling breakers in the surf zone leave their foam behind them
           act = max(act, uHasMap * smoothstep(0.85, 1.1, Lm.z) * (0.6 + 0.4 * f1));
           // Langmuir windrows: cross-wind convergence onto the water shader's streak lines (same rows)
@@ -892,8 +897,10 @@ export class Renderer {
   }
   // one step of the foam map (and, at any quality, the drift of the foam texture)
   _updateFoam(t, env, boats, player) {
-    const dt0 = this.foamT === null ? 0 : t - this.foamT;
-    const jump = this.foamT === null || dt0 < 0 || dt0 > 5;
+    // (== null: without the foam map, ?q=low, foamT was never set, and t - undefined made the texture's drift
+    // NaN for good: every procedural foam pattern there collapsed to its mean)
+    const dt0 = this.foamT == null ? 0 : t - this.foamT;
+    const jump = this.foamT == null || !(dt0 >= 0) || dt0 > 5;
     this.foamT = t;
     // (up to a second a step: the carrying is semi-Lagrangian and the spreading clamped, so a slow frame
     // or time warp keeps the foam's lifetimes in sim time instead of stretching them)
