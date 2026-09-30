@@ -244,6 +244,7 @@ console.log('\n7. Sails');
     const env = makeSteadyEnv(kn * KT);
     const b = new Boat('blackwatch', { sailModel: 'strip' }); b.reset(0, 0, 0); b.u = 0;
     const D = new Damage(b); D.age = 5;
+    D.fail = () => {};   // the sail's fatigue alone: a pinned boat rolling ±25° in a gale can lose her mast first, chaotically
     let tTear = null, t = 0;
     while (t < lim && tTear === null) { run(b, D, env, 5, () => { b.ctrl.main = 1; b.ctrl.jib = 1; b.ctrl.stay = 1; b.lines.main = 1; }, null, () => { b.psi = 0; b.r = 0; b.x = 0; b.z = 0; }); t += 5; if (D.sails.main.tear > 0) tTear = t; }
     return { D, tTear, t };
