@@ -212,12 +212,14 @@ function buildStations(C, nStations) {
 // orbital acceleration (accAt(x, o): o.a along, o.l to starboard, o.v up) for the diffraction (added-mass)
 // part, both decaying as e^{k z} to the section's centroid depth (k = ka, the acceleration spectrum's mean).
 // (FA*: sum vol a; FAn, FAm: its moments about x = 0 (yaw, pitch); FAk: the lateral part's roll moment arm.)
+// smith: the factor on the lateral slope where it tilts the waterline (the hydrostatic roll moment in the wave: the
+// pressure at the hull's depth, js/physics.js); the Froude-Krylov and diffraction loads carry their own e^{kz}.
 // Heave and pitch in strip theory (HullHydro: each station's 2-D added mass a33, only while it is wet): M33, M35, M55
 // = sum a33 (1, x, x^2); F33, F35 = sum a33 a_w (1, x), the diffraction load of the water's vertical acceleration
 // (o.v); W33, W35 = sum a33 w (1, x), the water's vertical velocity (o.w) weighted the same way, what the radiation
 // damping acts against. Each section feels the water at its own station, so waves shorter than the hull cancel
 // along it instead of being felt at one point.
-function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt, accAt, ka = 0) {
+function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt, accAt, ka = 0, smith = 1) {
   const cp = Math.cos(phi), sp = Math.sin(phi), ac = ACC;
   let V = 0, My = 0, Mx = 0, girthLen = 0, xmin = 1e9, xmax = -1e9, FKx = 0, FKy = 0, FKn = 0;
   let FAx = 0, FAy = 0, FAn = 0, FAz = 0, FAm = 0, FAk = 0;
@@ -229,7 +231,7 @@ function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, sl
     const zw = eta - heave - st.x * pitch;
     let A = 0, Ay = 0, Az = 0, girth = 0;
     for (let q = 0; q < st.polys.length; q++) {
-      const r = clipArea(st.polys[q], sp, cp, zw, sl);
+      const r = clipArea(st.polys[q], sp, cp, zw, sl * smith);
       A += r.A; Ay += r.Ay; Az += r.Az; girth += r.girth;
       Vh[q] += r.A * st.dx;
     }
@@ -292,8 +294,8 @@ export class HullHydro {
     this.restWetted = r.girthLen; this.restLwl = Math.max(0.5, r.lwl); this.restV = r.V;
     this.A33 = r.M33; this.A35 = r.M35; this.A55 = r.M55;          // at rest, level (kg, kg m, kg m^2)
   }
-  immerse(heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt = null, accAt = null, ka = 0) {
-    return immerseStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt, accAt, ka);
+  immerse(heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt = null, accAt = null, ka = 0, smith = 1) {
+    return immerseStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt, accAt, ka, smith);
   }
   waterline(heave, pitch, phi, etaAt, slopeLatAt) { return waterlineStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt); }
 }

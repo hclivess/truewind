@@ -625,6 +625,19 @@ export class AIHelm {
     if (sameTack && off > 10 * DEG && slow > 0.3 && !turning && b.sailBy.jib && b.sailBy.main) b.ctrl.main = Math.max(b.ctrl.main, 0.35 + 0.5 * slow);
     const kp = 2.4 * this.skill, kd = 1.6;
     let cmd = clamp(kp * err - kd * b.r, -0.8, 0.8);
+    // A helmsman feels the helm go light as the blade stalls and eases it until it bites again: more helm on a stalled
+    // rudder only brakes her while she rounds up anyway (autopilots carry a rudder limit for the same reason). In a
+    // seaway the leeway, the yaw rate and the helm add at the blade: a Catalina 30 beating in 20 kn stalled hers at
+    // 12 degrees of helm as a wave threw her bow up, and with 28 on held it stalled until she lay head to wind
+    const ast = d.rudAst, al = d.rudAlpha, rmax = b.cls.rudder.max * (b.rudderLim ?? 1);
+    if (ast && Number.isFinite(al) && Math.abs(al) > 0.9 * ast && Math.sign(al) === Math.sign(b.rudder) && Math.sign(cmd) === Math.sign(b.rudder)) {
+      const cmax = Math.max(0.05, (Math.abs(b.rudder) - (Math.abs(al) - 0.8 * ast)) / rmax);
+      if (Math.abs(cmd) > cmax) cmd = Math.sign(cmd) * cmax;
+    }
+    // and when the helm is hard over while she rounds up, the crew dumps the main (its pull aft is what turns her
+    // into the wind), sheeting in again as she answers (autoTrim, next step)
+    const upNow = Math.abs(wrap(twd - b.psi)), upWant = Math.abs(wrap(twd - desired));
+    if (Math.abs(cmd) > 0.4 && upNow < upWant - 6 * DEG && upNow < 110 * DEG && b.sailBy.main && !this.backing) b.ctrl.main = Math.max(b.ctrl.main, 0.6);
     const twa = wrap(twd - b.psi);
     // in irons / going astern: the rudder works backwards; the jib is backed by hauling the lazy sheet
     // across on the other winch (a una-rig pushes the boom out by hand)

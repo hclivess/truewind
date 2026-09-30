@@ -413,6 +413,7 @@ export const planingOf = (C) => C.planing ?? (C.group === 'dinghy' ? 1 : 0);
 // axis at its height z, so it adds rho_a pi/4 integral c(z)^2 (z - zG)^2 dz, taken at 0.7 of that for a
 // low-aspect-ratio triangle's tip losses. Air is 1/840 of water, but the sails are big and high: on a 30 ft yacht
 // ~15-20 % of its roll inertia, on a dinghy more (the working sails; a gennaker is off most of the time).
+const m_g = (m) => Math.max(1, m * G);
 function sailRollAddedInertia(C, zG) {
   let I = 0;
   for (const s of C.sails) {
@@ -460,8 +461,34 @@ export class Boat {
     this.m33 = this.mass + this.hydro.A33;
     this.Iyy = MP.Iyy;
     this.kRoll = RHO_W * G * this.Awp * (C.beam * C.beam / 12);
-    this.cRoll = 2 * 0.07 * Math.sqrt(Math.max(1, this.mass * G * 0.6) * this.Ixx);
+    // the hull's own roll damping (eddy making and wave radiation of the canoe body: the keel's, the rudder's and the
+    // sails' come from their own forces), a damping ratio of 0.07 about the boat's real metacentric height, from the
+    // drawn hull's righting moment at 2 degrees (it was sized for a GM of 0.6 m whatever the boat: 0.03-0.04 on the
+    // stiff ones). Bare-hull yacht roll decay tests give 0.05-0.1 (Klaka, Penrose, Horsley & Renilson 2005)
+    {
+      const m = this.mass, V = m / RHO_W, ph = 2 * DEG;
+      let z = 0, r;
+      for (let i = 0; i < 40; i++) { r = this.hydro.immerse(z, 0, ph, () => 0, () => 0, {}); z += (r.V - V) / this.Awp * 0.8; }
+      const RM = RHO_W * G * r.My - C.massHull * G * (C.zG ?? 0) * Math.sin(ph) - this.crewMass * G * (C.crewZ ?? 0) * Math.sin(ph);
+      this.GM = clamp(RM / (m * G * Math.sin(ph)), 0.2, 10);
+    }
+    this.cRoll = 2 * 0.07 * Math.sqrt(m_g(this.mass) * this.GM * (this.Ixx + this.IxxAir));
     this._hy = {}; this._ws7 = []; for (let i = 0; i < 7; i++) this._ws7.push({});
+    // the sea at each station's waterline edges, port and starboard (the roll's wave slope across the section: step)
+    this._wsP = []; this._wsS = []; for (let i = 0; i < 7; i++) { this._wsP.push({}); this._wsS.push({}); }
+    this._slC = new Float64Array(7);
+    { // each sample station's waterline half-breadth at rest (across both hulls of a multihull)
+      const wl = this.hydro.waterline(0, 0, 0, () => 0, () => 0), st = this.hydro.stations;
+      this._yb7 = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+        const x = C.sternX + (C.bowX - C.sternX) * i / 6;
+        let best = 0, dmin = 1e9;
+        for (let j = 0; j < st.length; j++) {
+          let yb = 0; const q = wl[j].pts; for (let k = 0; k < q.length; k += 2) yb = Math.max(yb, Math.abs(q[k]));
+          const dd = Math.abs(st[j].x - x); if (dd < dmin - 1e-9 && yb > 0.02) { dmin = dd; best = yb; }
+        }
+        return Math.max(0.1, best);
+      });
+    }
     this.sails = C.sails;
     this.sailBy = {};
     for (const s of C.sails) this.sailBy[s.key] = s;
@@ -838,6 +865,23 @@ export class Boat {
     const W7 = this._ws7, xs7 = this._xs7 || (this._xs7 = [0, 1, 2, 3, 4, 5, 6].map(i => C.sternX + (C.bowX - C.sternX) * i / 6));
     if (env.wavesOn) {
       for (let i = 0; i < 7; i++) env.waves.sample(this.x + fx * xs7[i], this.z + fz * xs7[i], t, W7[i]);
+      // Roll: the wave slope a section feels is not the surface's slope at its centreline. Integrated over the
+      // section (Froude-Krylov), the heeling moment of a wave across a waterline of half-breadth b goes as
+      // integral y eta dy, which Simpson's rule over (-b, 0, b) makes (eta_s - eta_p) / 2b: the chord across the
+      // waterline. A wave long against the beam gives its full slope; one as short as the beam about none, where the
+      // tangent at the centreline gave all of it (and the slope spectrum is mostly those short waves). The pressure
+      // under the hull is also the wave's at depth, e^{kz}: the Smith effect, at the canoe body's centre of buoyancy
+      // with the velocity spectrum's mean k (Lewandowski, "The Dynamics of Marine Craft" (2004) 5.4: the effective wave
+      // slope coefficient; Journee & Massie ch. 6; Lloyd, "Seakeeping" (1989) ch. 11).
+      {
+        const smith = Math.exp(-(env.waves.kv || 0) * 0.4 * (C.canoeDraft || 0.3)), yb7 = this._yb7;
+        for (let i = 0; i < 7; i++) {
+          const yb = yb7[i], xa = this.x + fx * xs7[i], za = this.z + fz * xs7[i];
+          const P = env.waves.sample(xa - sx * yb, za - sz * yb, t, this._wsP[i]), S = env.waves.sample(xa + sx * yb, za + sz * yb, t, this._wsS[i]);
+          this._slC[i] = (S.h - P.h) / (2 * yb);
+        }
+        this._smith = smith;
+      }
       wv = W7[3];
       waveH = wv.h;
       slopeAlong = wv.sx * fx + wv.sz * fz;
@@ -850,7 +894,7 @@ export class Boat {
       for (let i = 0; i < 7; i++) { const wt = i === 0 || i === 6 ? 1 / 12 : 1 / 6; ox += W7[i].vx * wt; oz += W7[i].vz * wt; }
       ox = ox * e1 + dr.x * e2; oz = oz * e1 + dr.z * e2;
       orbU = ox * fx + oz * fz; orbV = ox * sx + oz * sz;
-    } else for (let i = 0; i < 7; i++) { W7[i].h = 0; W7[i].sx = 0; W7[i].sz = 0; W7[i].vy = 0; }
+    } else for (let i = 0; i < 7; i++) { W7[i].h = 0; W7[i].sx = 0; W7[i].sz = 0; W7[i].vy = 0; this._slC[i] = 0; }
 
     const vgx = this.u * fx + this.v * sx + cur.x, vgz = this.u * fz + this.v * sz + cur.z;
     this.vgx = vgx; this.vgz = vgz;
@@ -987,11 +1031,15 @@ export class Boat {
     const hy = this.hydro;
     const interp7 = (arr, key, x) => { const f = clamp((x - C.sternX) / (C.bowX - C.sternX) * 6, 0, 5.999), i = Math.floor(f), w = f - i; return arr[i][key] * (1 - w) + arr[i + 1][key] * w; };
     const etaAt = (x) => interp7(W7, 'h', x);
-    const slLat = (x) => (interp7(W7, 'sx', x) * sx + interp7(W7, 'sz', x) * sz);
+    const slC = this._slC;
+    const slLat = (x) => { const f = clamp((x - C.sternX) / (C.bowX - C.sternX) * 6, 0, 5.999), i = Math.floor(f), w = f - i; return slC[i] * (1 - w) + slC[i + 1] * w; };
     const slAl = (x) => (interp7(W7, 'sx', x) * fx + interp7(W7, 'sz', x) * fz);
     // the orbital acceleration along the hull (body axes): the diffraction (added-mass) wave loads
-    const accAt = wv ? (x, o) => { const ax = interp7(W7, 'ax', x), az = interp7(W7, 'az', x); o.a = ax * fx + az * fz; o.l = ax * sx + az * sz; o.v = interp7(W7, 'ay', x); o.w = interp7(W7, 'vy', x); } : null;
-    const imm = hy.immerse(this.heave, this.pitch, this.phi, etaAt, slLat, this._hy, slAl, accAt, wv ? env.waves.ka || 0 : 0);
+    // (the lateral acceleration the section feels, -g times the slope across it: at the surface of a linear wave the
+    // water's horizontal acceleration is -g grad eta, and averaged over the section as the slope is, not the point
+    // value at the centreline, which the short waves' w^2 dominate; the lengthwise one from the samples)
+    const accAt = wv ? (x, o) => { const ax = interp7(W7, 'ax', x), az = interp7(W7, 'az', x); o.a = ax * fx + az * fz; o.l = -G * slLat(x); o.v = interp7(W7, 'ay', x); o.w = interp7(W7, 'vy', x); } : null;
+    const imm = hy.immerse(this.heave, this.pitch, this.phi, etaAt, slLat, this._hy, slAl, accAt, wv ? env.waves.ka || 0 : 0, wv ? this._smith ?? 1 : 1);
     // the water at a foil (body station xb, depth zb < 0): the local orbital velocity there and the drift
     const wo = this._wo || (this._wo = { u: 0, v: 0 });
     const waterAt = (xb, zb) => {
@@ -1034,7 +1082,7 @@ export class Boat {
       keelCl = fc.cl;
       const q = 0.5 * RHO_W * V2 * g.area;
       const kx = q * (fc.cl * vl / V - fc.cd * ul / V), kn = q * (-fc.cl * ul / V - fc.cd * vl / V);
-      X += kx; Y += kn * cphi; K += kn * zk; N += g.x * kn * cphi;
+      X += kx; Y += kn * cphi; K += kn * zk; N += g.x * kn * cphi; d.Kkeel = kn * zk;
       // the bulb: a body of revolution's friction and form drag, low down
       if (S.bulb && g.imm > 0.5 && (this.keelEff ?? 1) > 0.5) { const Db = bulbDrag(S.bulb, ul); X -= Db; d.bulbDrag = Db; }
       d.Nkeel = g.x * kn * cphi; d.keelCl = fc.cl;
@@ -1075,7 +1123,7 @@ export class Boat {
         vent += fc.vent / nb; cav += fc.cav / nb; stall = stall || fc.stalled; imm += g.imm / nb; if (!k) a0 = al;
       }
       X += rx; Y += rn * cphi; K += K0; N += N0;
-      d.Nrud = N0; d.rudAlpha = a0; d.eps = eps;
+      d.Nrud = N0; d.rudAlpha = a0; d.eps = eps; d.rudAst = fc.ast;
       d.rudderX = rx; d.rudderY = rn * cphi; d.rudderStall = stall; d.rudderLoad = Math.abs(rn);
       d.rudderVent = imm * (1 - vent); d.rudderVentilated = vent; d.rudderCav = cav; d.rudderImm = imm; d.rudderKick = this.rudSt[0].kick;
       // what the helm feels: the stock torque through the tiller or the wheel (+ = the blade pushing toward more angle)
@@ -1169,6 +1217,7 @@ export class Boat {
     const Fb = RHO_W * G * imm.V;
     K -= RHO_W * G * imm.My;
     K += (this.mHull ?? C.massHull) * G * (this.zG ?? C.zG) * sphi;          // (less, and higher, with the keel gone)
+    d.Kwave = -RHO_W * G * imm.My + (this.mHull ?? C.massHull) * G * (this.zG ?? C.zG) * sphi;   // (buoyancy and weight: hydrostatic in the wave)
     K -= this.cRoll * this.p;
     if (this.righting) {
       if (C.multihull) K -= (Math.sign(this.phi) || 1) * this.crewMass * G * (C.hullSpacing * 0.75) * Math.abs(cphi) ** 0.3; // hanging off the righting line
@@ -1178,14 +1227,14 @@ export class Boat {
     d.fkX = wv ? RHO_W * G * imm.FKx : 0;
     d.diffX = 0; d.diffY = 0; d.brkF = 0;
     if (wv) {
-      X += RHO_W * G * imm.FKx; Y += RHO_W * G * imm.FKy * cphi; N += RHO_W * G * imm.FKn * cphi;
+      X += RHO_W * G * imm.FKx; Y += RHO_W * G * imm.FKy * cphi; N += RHO_W * G * imm.FKn * cphi; d.Nfk = RHO_W * G * (imm.FKn - (this.xG || 0) * imm.FKy) * cphi;   // (about the CG: see the integration)
       // diffraction: a body in accelerating water feels (rho V + m_a) a (G. I. Taylor 1928); Froude-Krylov
       // above is the rho V a (at the surface -grad p / rho = g grad eta), this is the added mass's m_a a,
       // section by section with its depth decay, at the class's added-mass coefficients (sway, surge); the
       // heave part goes to the heave equation below. Big waves heave, surge and roll the boat by the
       // inertia of their water, not only by where their surface is.
       const Dx = C.amX * RHO_W * imm.FAx, Dy = C.amY * RHO_W * imm.FAy;
-      X += Dx; Y += Dy * cphi; N += C.amY * RHO_W * imm.FAn * cphi; K += C.amY * RHO_W * imm.FAk;
+      X += Dx; Y += Dy * cphi; N += C.amY * RHO_W * imm.FAn * cphi; K += C.amY * RHO_W * imm.FAk; d.Ndiff = C.amY * RHO_W * (imm.FAn - (this.xG || 0) * imm.FAy) * cphi; d.Kdiff = C.amY * RHO_W * imm.FAk;
       d.diffX = Dx; d.diffY = Dy;
       // ---- a breaking crest (WaveField.sample: brk on the upper front quarter of a steep crest). Its top is a
       // jet of water moving at about the crest's phase speed c = g / w (the lip of a plunger, the roller of a
@@ -1247,6 +1296,12 @@ export class Boat {
     if (E) { X += E.X; Y += E.Y; N += E.N; K += E.K; }
     // ---- integrate rigid body ----
     const m11 = this.m11, m22 = this.m22;
+    // (yaw about the centre of gravity: the hull floats level with its centre of gravity over its centre of buoyancy,
+    // xG from the origin the forces' arms are measured from, so a side force through it (a wave's, all at the centre of
+    // buoyancy) turns nothing. Taken about the origin it did: in a beam sea a 30 ft yacht's hull, whose waves' side
+    // force is all at x = xG ~ -0.3 m, felt a yaw moment of 2 kN m where slender-body theory has none. Sailing
+    // steadily the side forces sum to nothing and this is zero)
+    N -= (this.xG || 0) * Y;
     let du = (X + m22 * this.v * this.r) / m11;
     let dv = (Y - m11 * this.u * this.r) / m22;
     let dr = N / this.Izz;
@@ -1353,8 +1408,10 @@ export class Boat {
       if (this.engine) My += this.engine.My;                                     // thrust low (bow up), the engine's weight
       if (wv) My += this._brkMy || 0;                                            // a breaker's jet
       My += (this.u > 0 ? 1 : 0) * 0.5 * RHO_W * uw * uw * C.beam * C.lwl * 0.004 * sstep(0.35, 0.6, Fn); // bow lift near planing
-      // the coupled heave-pitch inertia (the added mass's centre is not at the origin: A35)
-      const a11 = disp + M33, a12 = M35, a22 = this.Iyy + M55, det = a11 * a22 - a12 * a12;
+      // the coupled heave-pitch inertia about the origin the moments are taken about: neither the added mass's centre
+      // (A35) nor the boat's own centre of gravity (xG, where her weight acts) is at it
+      const xg = this.xG || 0;
+      const a11 = disp + M33, a12 = M35 + disp * xg, a22 = this.Iyy + disp * xg * xg + M55, det = a11 * a22 - a12 * a12;
       const zdd = (F * a22 - a12 * My) / det, tdd = (a11 * My - a12 * F) / det;
       this.heaveV += zdd * dt;
       this.heave += this.heaveV * dt;
@@ -1464,6 +1521,12 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
   // heel: a trim that followed them within a roll period, ~4 s, pumped the roll: heel and telltales over ~3 s there)
   const runT = lerp(0.5, 3, sstep(120 * DEG, 160 * DEG, awa));
   tt.over = lerp(tt.over, over, clamp(dt / runT, 0, 1));
+  // (and upwind too the sheets go to the wind's trend over a second or two, not to each roll: the masthead's own
+  // motion swings the apparent wind +-10 degrees at the roll's period in a seaway, and a trim that followed it within a
+  // third of a second pumped the heeling moment in step with the roll, and the helm with it. The telltales a crew
+  // trims by show it too, but no hand on a sheet follows a 3 s cycle; the loss in a steady wind is nil)
+  tt.awa = lerp(tt.awa ?? awa, awa, clamp(dt / lerp(1.5, 3, sstep(120 * DEG, 160 * DEG, awa)), 0, 1));
+  const awaT = Math.abs(awa - tt.awa) > 25 * DEG ? (tt.awa = awa) : tt.awa;   // (a tack or a gybe: at once)
   for (const s of C.sails) {
     if (s.kind === 'spin' && boat.genDeploy < 0.5) continue;
     if (s.kind === 'loose' && boat.genDeploy >= 0.5) continue;
@@ -1479,10 +1542,11 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
     // as aInd; the strip model only knows the headsail's downwash on the main
     const aInd = d.strips[s.key] ? d.strips[s.key].aInd : undefined;
     let aT;
-    if (s.key === 'main') aT = (15 + aoaBias) * DEG - over * 7 * DEG + (aInd ?? 0.055 * boat._clHead);
+    const overT = over > tt.over + 0.5 ? over : tt.over;   // (the heel's trend; a knockdown still eases at once)
+    if (s.key === 'main') aT = (15 + aoaBias) * DEG - overT * 7 * DEG + (aInd ?? 0.055 * boat._clHead);
     else if (s.kind === 'spin') aT = (21 + aoaBias) * DEG + (aInd ?? 0);
-    else aT = (13 + aoaBias) * DEG - over * 3 * DEG + (aInd ?? 0);
-    const want = awa - aT - midTw;
+    else aT = (13 + aoaBias) * DEG - overT * 3 * DEG + (aInd ?? 0);
+    const want = awaT - aT - midTw;
     // A cloth sail goes where the wind and its sheet put it, not where the sheet's length says, and the lattice
     // gives each strip the angle it really meets: the crew trims by the telltales, easing while the sail
     // meets the wind at more than the angle it wants, hauling in while less (attached strips only: a stalled
