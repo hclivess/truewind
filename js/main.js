@@ -31,6 +31,7 @@ import { TrafficView } from './traffic-render.js';
 import { fleetLevels, clothBudget } from './fleet.js';
 import { Gear } from './gear.js';            // damage, anchor, mooring lines, man overboard, crew fatigue
 import { GearVis } from './gear-render.js';
+import { WildlifeView } from './wildlife-render.js';   // birds, dolphins, whales, turtles and sharks (visual only)
 import { Autopilot } from './autopilot.js';       // the smart autopilot and its coach (a learning aid)
 
 // every boat's sail model: cloth (cloth shaped by the wind and the rig, forces from a vortex lattice over it; the
@@ -97,6 +98,7 @@ class Game {
     this.coachText = pref('tw-coach') !== '0';
     this.gear = new Gear(this);                               // damage, anchoring, mooring, MOB, fatigue
     this.gearVis = new GearVis(this.renderer, this);
+    this.wildlife = new WildlifeView(this.renderer, this);
     this.audio = new Audio();
     try { this.audio.vol = cleanVol(JSON.parse(pref('tw-vol') || 'null')); } catch (e) { /* corrupt: every channel at full */ }
     this.net = new Net(this);
