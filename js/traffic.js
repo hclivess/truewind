@@ -27,6 +27,13 @@ export const VESSELS = {
   ship:     { L: 130, B: 21, H: 32, kn: [9, 12], power: true, name: 'ship' },
 };
 export const DENSITY = { off: 0, light: 0.35, normal: 0.7, busy: 1 };
+// a cruising yacht motors in light air: below 6 kn of true wind she furls and motors (a 10 m cruiser makes 2-3 kn
+// under sail in 4-5 kn of wind, and her crew want to get somewhere), above 7.5 kn she sails again
+export const MOTOR_KT = 6, SAIL_KT = 7.5;
+// sound signals (COLREG Rule 34 and Annex III): seconds of each blast. A short blast is about 1 s, a prolonged
+// one 4-6 s; five or more short and rapid blasts: "I do not understand your intentions / doubt that you are
+// taking sufficient action to avoid collision" (34(d)); one short: "I am altering my course to starboard" (34(a))
+export const BLASTS = { doubt: [1, 1, 1, 1, 1], starboard: [1], prolonged: [5] };
 
 // ------------------------------------------------------------------ OpenStreetMap: query and bake
 export function trafficQuery(lat, lon, R = MAP_RADIUS + 600) {
@@ -147,7 +154,16 @@ export class NavGrid {
   }
   cell(x, z) { const M = this.M; return clamp(Math.floor((z + this.R) / this.c), 0, M - 1) * M + clamp(Math.floor((x + this.R) / this.c), 0, M - 1); }
   center(k) { return [-this.R + (k % this.M + 0.5) * this.c, -this.R + (((k / this.M) | 0) + 0.5) * this.c]; }
-  open(k, need) { return this.clr[k] >= need && !this.block[k]; }
+  open(k, need) { return this.clr[k] >= need && !this.block[k] && !(this.shoal && this.shoal[k]); }
+  // cells too shallow for a deep-draught ship (at chart datum where the chart has one): closed while she plans
+  shoalMask(depth) {
+    const c = this._shoals || (this._shoals = new Map());
+    if (c.has(depth)) return c.get(depth);
+    const M = this.M, W = this.world, m = new Uint8Array(M * M);
+    if (!W.open) for (let k = 0; k < M * M; k++) if (this.clr[k] > 0) { const [x, z] = this.center(k); if ((W.chartDepthAt && W.bed ? Math.min(W.depthAt(x, z), W.chartDepthAt(x, z)) : W.depthAt(x, z)) < depth) m[k] = 1; }
+    c.set(depth, m);
+    return m;
+  }
   blockDisc(x, z, r) {
     const M = this.M, n = Math.ceil(r / this.c) + 1, k0 = this.cell(x, z), i0 = k0 % M, j0 = (k0 / M) | 0;
     for (let j = Math.max(0, j0 - n); j <= Math.min(M - 1, j0 + n); j++) for (let i = Math.max(0, i0 - n); i <= Math.min(M - 1, i0 + n); i++) {
@@ -170,7 +186,7 @@ export class NavGrid {
     return { comp, big: size.indexOf(Math.max(0, ...size)) };
   }
   // (labelled once per clearance a vessel type needs)
-  comps(need) { const c = this._comps || (this._comps = new Map()); if (!c.has(need)) c.set(need, this.label(need)); return c.get(need); }
+  comps(need, deep = 0) { const c = this._comps || (this._comps = new Map()), key = need + '/' + deep; if (!c.has(key)) { this.shoal = deep ? this.shoalMask(deep) : null; c.set(key, this.label(need)); this.shoal = null; } return c.get(key); }
   // nearest open cell (breadth-first over rings), or -1
   snap(k, need, maxR = 40) {
     if (this.open(k, need)) return k;
@@ -193,12 +209,14 @@ export class NavGrid {
       const x = ax + (bx - ax) * i / n, z = az + (bz - az) * i / n;
       if (Math.abs(x) > this.R - 5 || Math.abs(z) > this.R - 5) return false;
       if (!this.world.open && this.world.sdfAt(x, z) < need) return false;
-      if (this.block[this.cell(x, z)]) return false;
+      const k = this.cell(x, z);
+      if (this.block[k] || (this.shoal && this.shoal[k])) return false;
     }
     return true;
   }
   // water path from a to b: [x, z, x, z, ...] or null
-  plan(ax, az, bx, bz, need = 10, maxExp = 120000) {
+  plan(ax, az, bx, bz, need = 10, maxExp = 120000, deep = 0) {
+    if (deep) { this.shoal = this.shoalMask(deep); try { return this.plan(ax, az, bx, bz, need, maxExp, 0); } finally { this.shoal = null; } }
     const M = this.M, clr = this.clr;
     const s = this.snap(this.cell(ax, az), need), g = this.snap(this.cell(bx, bz), need);
     if (s < 0 || g < 0) return null;
@@ -267,7 +285,7 @@ export class NavGrid {
 }
 
 // ------------------------------------------------------------------ a rail: a polyline followed by arc length
-class Rail {
+export class Rail {
   constructor(pts) {
     const n = pts.length / 2;
     this.p = Float64Array.from(pts); this.cum = new Float64Array(n);
@@ -330,7 +348,7 @@ export class Traffic {
     this.k = typeof opts.density === 'number' ? opts.density : DENSITY[opts.density ?? 'normal'] ?? 0.7;
     this.rnd = mulberry32((opts.seed ?? 1) * 7919 + 17);
     this.keepOut = opts.keepOut || [];
-    this.twd = opts.twd ?? 0;
+    this.twd = opts.twd ?? 0; this.tws = opts.tws ?? 6;
     this.vessels = []; this.moored = []; this.movers = [];
     this.t = 0; this.events = [];
     if (this.k <= 0) return;
@@ -657,14 +675,55 @@ export class Traffic {
       for (let i = 0; i < Math.round(3 * this.k); i++) this.addWanderer(i === 0 ? 'ship' : 'yacht');
       return;
     }
+    // big ships coming and going on the deep water: in from the edge of the chart, out at the far side
+    const lake = !(this.data.ferries || []).length && !(this.data.anchorages || []).some(a => !a.small) && this.world.maxDepth > 30;
+    if (!lake) { const nt = this.k >= 0.9 ? 2 : this.k > 0.2 ? 1 : 0; for (let i = 0; i < nt; i++) this.addTransit(i); }
     // the rest scale with the size of the harbours: how many boats live here
     const home = this.vessels.filter(v => v.mode !== 'rail').length;
     const n = Math.round(clamp(6 + home * 0.07, 6, 34) * this.k);
-    const lake = !(this.data.ferries || []).length && !(this.data.anchorages || []).some(a => !a.small) && this.world.maxDepth > 30;
     for (let i = 0; i < n; i++) {
       const q = r();
       this.addWanderer(q < 0.42 ? 'yacht' : q < 0.64 ? 'motor' : q < 0.82 ? 'rib' : lake ? 'motor' : 'fishing');
     }
+  }
+  // A ship in transit: a deep-draught vessel on the channel from one edge of the chart to another, kept to water
+  // deeper than her draught and 2 m under the keel (at chart datum: the banks a ship cannot cross at any tide),
+  // through the middle of the channel. At the far edge she is gone for a while, then comes back the other way.
+  // She is constrained by her draught (COLREG 18(d), and Rule 9(b): small craft shall not impede her): she
+  // stands on for small craft and sounds five short blasts at one standing into her way.
+  addTransit(i) {
+    const r = this.rnd, W = this.world, nav = this.nav;
+    const v = this.make('ship', { mode: 'rail', transit: true, scale: 0.75 + r() * 0.5 });
+    v.need = 40; v.draught = clamp(v.L / 19, 4.5, 9); v.deep = Math.ceil(v.draught + 2);
+    v.cruise = (v.T.kn[0] + r() * (v.T.kn[1] - v.T.kn[0])) * KT;
+    const C = nav.comps(v.need, v.deep), sizes = new Map();
+    for (let k = 0; k < C.comp.length; k++) if (C.comp[k] >= 0) sizes.set(C.comp[k], (sizes.get(C.comp[k]) || 0) + 1);
+    const edge = (comp) => {
+      for (let t = 0; t < 600; t++) {
+        const side = Math.floor(r() * 4), a = (r() * 2 - 1) * (W.R - 300), e = W.R - 260;
+        const x = side === 0 ? e : side === 1 ? -e : a, z = side === 2 ? e : side === 3 ? -e : a, k = nav.cell(x, z);
+        if (C.comp[k] === comp && !this.kept(x, z, 300)) return [x, z, side];
+      }
+      return null;
+    };
+    for (const [comp, n] of [...sizes].sort((a, b) => b[1] - a[1]).slice(0, 2)) {
+      if (n < 400) break;
+      for (let tries = 0; tries < 8; tries++) {
+        const a = edge(comp), b = edge(comp);
+        if (!a || !b || a[2] === b[2] || hyp(a[0] - b[0], a[1] - b[1]) < 2500) continue;
+        const pts = nav.plan(a[0], a[1], b[0], b[1], v.need, nav.M * nav.M, v.deep);
+        if (!pts) continue;
+        v.rail = new Rail(pts); v.fwd = true;
+        if (v.rail.L < 2500) continue;
+        v.s = (0.15 + 0.6 * ((i * 0.5 + r() * 0.5) % 1)) * v.rail.L; v.u = v.cruise;
+        v.rail.at(v.s, v); v.psi = v.rail.heading(v.s, v.L * 0.5);
+        v.stuck = 0; v.lastS = v.s;
+        this.movers.push(v);
+        return v;
+      }
+    }
+    this.vessels.splice(this.vessels.indexOf(v), 1);
+    return null;
   }
   // a point of open water: near the harbours, or anywhere with room
   pickWater(need, nearTo = null, maxR = 3500, comp = -1) {
@@ -715,7 +774,10 @@ export class Traffic {
       if (!first && hyp(pts[0] - v.x, pts[1] - v.z) > 0.01) pts = [v.x, v.z, ...pts];
       if (!first) v.off = 0;
       v.sails = false;
-      if (v.type === 'yacht') {
+      // (light air: the yacht motors; the wind back up, she sails)
+      if (v.type === 'yacht') v.lightAir = (this.tws ?? 6) < (v.lightAir ? SAIL_KT : MOTOR_KT) * KT;
+      v.lightT = 0;
+      if (v.type === 'yacht' && !v.lightAir) {
         // under sail where there is room to tack; motoring where there is not
         const z = tackRoute(this.nav, pts, twd, 48 * DEG, v.need);
         if (z) { pts = z; v.sails = true; }
@@ -758,18 +820,33 @@ export class Traffic {
     const q = this.queue;
     if (q && q.length) {
       const v = q.shift(); v.queued = false;
-      const keep = v.dwell > 1e8 ? 0 : v.dwell;
-      v.dwell = this.newLeg(v, false, this.twd) ? Math.max(keep, 2 + this.rnd() * 20) : 30;
+      if (v.midLeg && !(v.dwell > 0)) { v.midLeg = false; v.stuck = 0; this.newLeg(v, false, this.twd); }
+      else {
+        v.midLeg = false;
+        const keep = v.dwell > 1e8 ? 0 : v.dwell;
+        v.dwell = this.newLeg(v, false, this.twd) ? Math.max(keep, 2 + this.rnd() * 20) : 30;
+      }
     }
     for (const v of this.movers) this.move(v, dt, t, env, boats, o);
   }
   // a new leg is planned later (one A* a frame, so a frame never hitches on several), meanwhile the boat waits
-  replan(v) { if (!v.queued) { v.queued = true; (this.queue || (this.queue = [])).push(v); } v.dwell = Math.max(v.dwell || 0, 1e9); }
+  // (mid-leg — the wind died, shifted, she was held up — she carries on along the old leg until the new one is
+  // planned: she stopped dead for it, from 6 kn in one frame)
+  replan(v) {
+    if (!v.queued) { v.queued = true; (this.queue || (this.queue = [])).push(v); }
+    if (v.rail && v.s < v.rail.L - 0.5) v.midLeg = true;
+    else { v.midLeg = false; v.dwell = Math.max(v.dwell || 0, 1e9); }
+  }
   move(v, dt, t, env, boats, o) {
     const W = this.world, r = this.rnd;
     if (v.dwell > 0) {                            // alongside at a terminal, or away past the edge of the chart
       v.dwell -= dt; v.u = 0;
-      if (v.dwell <= 0) { v.hidden = false; if (v.ferry) { v.rail = v.rail.reversed(); v.s = 0; v.fwd = !v.fwd; } }
+      if (v.dwell <= 0) {
+        if (v.ferry && !v.hidden && v.type !== 'chain') this.horn(v, 'prolonged');   // (leaving the berth)
+        v.hidden = false;
+        if (v.ferry || v.transit) { v.rail = v.rail.reversed(); v.s = 0; v.fwd = !v.fwd; v.off = -(v.off || 0);   // (her step aside from the track kept where it is: the reversed rail's starboard is the other side — a sideways leap of twice the step)
+          if (v.transit) { v.rail.at(0, v); v.psi = v.rail.heading(0, v.L * 0.5); } }
+      }
       return;
     }
     const rail = v.rail;
@@ -778,6 +855,8 @@ export class Traffic {
         const end = v.fwd ? v.ferry.endB : v.ferry.endA;
         v.dwell = end === 'edge' ? 120 + r() * 240 : v.type === 'chain' ? 50 + r() * 30 : 70 + r() * 110;
         v.hidden = end === 'edge';
+      } else if (v.transit) {
+        v.dwell = 300 + r() * 900; v.hidden = true;                // (out past the edge of the chart)
       } else {
         this.replan(v);
       }
@@ -838,10 +917,13 @@ export class Traffic {
     } else v.heel += (clamp(rate * v.u * 0.35, -0.2, 0.2) * (v.L > 30 ? -0.3 : 1) - v.heel) * clamp(dt * 2, 0, 1);   // (+ = to starboard: a planing hull leans into the turn, a ship out of it)
     v.trim = v.T.power && v.L < 20 ? clamp((v.u - 3) * 0.012, 0, 0.09) : 0;
     // stuck (blocked by traffic for long): replan
-    if (!v.ferry) {
+    if (!v.ferry && !v.transit) {
       if (v.s - v.lastS < 0.2 * dt) v.stuck += dt; else v.stuck = 0;
       v.lastS = v.s;
+      // the wind gone (motor) or back (sail): after half a minute of it
+      if (v.type === 'yacht' && (v.sails ? this.tws < MOTOR_KT * KT : v.lightAir && this.tws > SAIL_KT * KT)) v.lightT = (v.lightT || 0) + dt; else v.lightT = 0;
       if (v.stuck > 90) { v.stuck = 0; this.replan(v); }
+      else if (v.lightT > 30 && !v.queued) { v.lightT = 0; this.replan(v); }
       else if (v.sails && Math.abs(wrap(this.twd - v.twdPlan)) > 35 * DEG && v.s > 50 && !v.queued) this.replan(v);
     }
   }
@@ -850,16 +932,30 @@ export class Traffic {
     this._v = v; this._psi = psi; this._x = x; this._z = z; this._y = 0; this._s = 0;
     this._fx = Math.sin(psi) * v.u; this._fz = -Math.cos(psi) * v.u;
     // (every sailing boat of the game — the player, a race fleet, online sailors — is given room)
+    this._doubt = false; this._sPl = 0;
     for (const b of boats) this.check(b.x, b.z, Math.sin(b.psi) * (b.u || 0), -Math.cos(b.psi) * (b.u || 0), b.cls ? b.cls.loa : 8, true, true);
     for (const w of this.movers) if (w !== v && !w.hidden && !(w.dwell > 0) && Math.abs(w.x - x) < 500 && Math.abs(w.z - z) < 500) this.check(w.x, w.z, Math.sin(w.psi) * w.u, -Math.cos(w.psi) * w.u, w.L, !!w.sails, false);
+    // sound signals for the sailors of the game (a vessel in sight of them): five short blasts from a ship one of
+    // them stands into the way of; one short from a power vessel altering to starboard to keep clear of one
+    if (this._doubt) this.horn(v, 'doubt');
+    else if (v.T.power && v.L >= 12 && this._sPl > 0.35 && !(v.stepOut > 0.2) && v.u > 1.5) this.horn(v, 'starboard');
     v.yieldTo = this._y; v.stepOut = this._s;
+  }
+  // a sound signal (main.js plays it from where the vessel is): one a minute at most from a vessel
+  horn(v, kind) {
+    if (this.t - (v.hornT ?? -1e9) < (kind === 'doubt' ? 45 : 60)) return;
+    v.hornT = this.t;
+    this.events.push({ type: 'horn', kind, v, blasts: BLASTS[kind], t: this.t });
+    if (this.events.length > 50) this.events.splice(0, this.events.length - 50);   // (nobody listening: a test)
   }
   check(ox, oz, ovx, ovz, oL, osail, player) {
     const v = this._v, psi = this._psi, dx = ox - this._x, dz = oz - this._z, d = hyp(dx, dz);
     if (d > 400 + v.L) return;
     const rvx = ovx - this._fx, rvz = ovz - this._fz, rv2 = rvx * rvx + rvz * rvz;
     const tc = rv2 > 1e-4 ? clamp(-(dx * rvx + dz * rvz) / rv2, 0, 90) : 0;
-    const cpa = hyp(dx + rvx * tc, dz + rvz * tc), safe = (v.L + oL) * 0.6 + (player ? 25 : 12);
+    // (the give-way vessel keeps well clear: a sailing boat is passed at 30 m and more, hull to hull; it was 12 m
+    // between centres plus lengths, a motor boat crossing a yacht's bow at 14 kn 13 m off her)
+    const cpa = hyp(dx + rvx * tc, dz + rvz * tc), safe = (v.L + oL) * 0.6 + (player ? 30 : osail ? 28 : 14);
     if (cpa > safe || (tc > 60 && d > safe * 2)) return;
     const brg = wrap(Math.atan2(dx, -dz) - psi);                // + = on my starboard side
     const ahead = Math.abs(brg) < 100 * DEG;
@@ -871,11 +967,18 @@ export class Traffic {
     let give = player || (iPower ? osail || (brg > -30 * DEG && brg < 112.5 * DEG) : osail && v.twa < 0);
     if (!player && v.L > 30 && oL < 20) give = false;
     if (!player && v.L < 20 && oL > 30) give = true;
+    // a ship in the channel, constrained by her draught, stands on for small craft (the player too: it is theirs to
+    // keep out of her way), sounds five short blasts at one standing into danger, and acts herself only at the last
+    if (v.transit && oL < 30) { give = false; if (player && tc < 150 && d < 900) this._doubt = true; }
     if (d < safe * 1.2 && ahead) give = true;                  // too close: whoever sees it acts
     if (!give) return;
     const urg = clamp(1 - (tc * Math.max(v.u, 0.5)) / (8 * v.L + 120), 0, 1) * clamp(1.6 - cpa / safe, 0, 1);
     if (urg > this._y) this._y = urg;
-    if (ahead && urg > this._s) this._s = urg;
+    // a step to starboard for one ahead or on the starboard side (head-on, crossing from starboard); one crossing
+    // from port is let by, slowing to pass astern of her (stepping to starboard ran alongside her, ahead of her bow)
+    const crossPort = brg < -20 * DEG && (ovx * Math.cos(psi) + ovz * Math.sin(psi)) > 0.3;
+    if (ahead && !crossPort && urg > this._s) this._s = urg;
+    if (player && ahead && !crossPort && urg > this._sPl) this._sPl = urg;
   }
 
   // Sailing boats against the traffic: a hull (capsule) against every vessel near it. The boat is pushed off

@@ -123,7 +123,7 @@ class Game {
     this.t = 0;
     this.boats = [];
     this.showLaylines = true;
-    this.trafficView = new TrafficView(this.renderer.scene);
+    this.trafficView = new TrafficView(this.renderer.scene, { low: this.renderer.low });     // (a weak GPU: fewer boats in full detail)
     this.trafficView.seaKeep = (x, z) => this.renderer.seaKeepAt(x, z);     // (the traffic rides the sea as it is drawn)
     this.buildMenu();
     this.bindInput();
@@ -488,7 +488,7 @@ class Game {
       const data = await this.loadTraffic(v), keepOut = [{ x: player.x, z: player.z, r: 50 }];
       const C = this.course;
       if (C) { const r = Math.max(220, Math.hypot(C.committee.x - C.pin.x, C.committee.z - C.pin.z) / 2 + 120); for (let s = -250; s <= C.L + 150; s += 120) keepOut.push({ x: C.origin.x + C.ux * s, z: C.origin.z + C.uz * s, r }); }
-      try { this.traffic = new Traffic(world, data, { density: dens, seed: cond.seed, twd: cond.twd * DEG, keepOut, venue: v.id, piers: this.obstacles || [] }); } catch (e) { console.error('traffic', e); }
+      try { this.traffic = new Traffic(world, data, { density: dens, seed: cond.seed, twd: cond.twd * DEG, tws: cond.tws * KT, keepOut, venue: v.id, piers: this.obstacles || [] }); } catch (e) { console.error('traffic', e); }
     }
     this.trafficView.setTraffic(this.traffic);
   }
@@ -1351,6 +1351,15 @@ class Game {
       let dTr = tDraw - (this._tDraw ?? tDraw);
       if (!(dTr >= 0 && dTr <= (steps + 1) * PHYS_DT + 1e-9)) dTr = steps * PHYS_DT;   // (a new session, a clock resync)
       this.traffic.update(dTr, tDraw, this.env, this.boats);
+      // the vessels' sound signals (a ship's five short blasts at a boat in her way, a ferry leaving her berth), heard
+      // from where they are; the doubt signal at the player is said too
+      for (const e of this.traffic.events.splice(0)) {
+        if (e.type !== 'horn' || this.idle || this.timeWarp > 2) continue;
+        const c = this.renderer.camera, d = Math.hypot(e.v.x - c.position.x, e.v.z - c.position.z), m = c.matrixWorld.elements;
+        this.audio.shipHorn(e.v.L, e.blasts, d, ((e.v.x - c.position.x) * m[0] + (e.v.z - c.position.z) * m[2]) / Math.max(1, d));
+        const p = this.player;
+        if (e.kind === 'doubt' && p && Math.hypot(e.v.x - p.x, e.v.z - p.z) < 1000) this.hud.toast(`Five short blasts from ${this.traffic.describe(e.v)}: keep clear of her, she cannot turn out of the channel`, 4);
+      }
       const night = clamp((-this.renderer.sunDir.y + 0.02) / 0.12, 0, 1);
       this.trafficView.update(dt, tDraw, this.env, this.renderer.camera, night, this.renderer.r.domElement.height);
     }
