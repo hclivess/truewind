@@ -40,6 +40,7 @@ import { helmSpec, stockTorque, helmForce, helmFeel, rudderStep } from './helm.j
 import { massProps } from './massprops.js';
 import { FAMOUS } from './classes/famous.js';
 import { RACE } from './classes/race.js';
+import { SPEED } from './classes/speed.js';
 import { rrOverHump } from './classes/util.js';
 // (Math.hypot allocates when V8 does not inline it: these do not)
 const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
@@ -269,7 +270,7 @@ export const CLASSES = {
   },
 };
 // production and famous boats (js/classes/*.js)
-for (const C of [...RACE, ...FAMOUS]) CLASSES[C.id] = C;
+for (const C of [...RACE, ...FAMOUS, ...SPEED]) CLASSES[C.id] = C;
 // headsails are set on stays that run from the tack up to the mast: the head sits at the mast, so the
 // luff's rake is the horizontal distance from the tack to the mast (a free-flying gennaker keeps its own; a sail on
 // its own mast, a mizzen, keeps its, as does a sail marked fixedRake). A raked mast (mastRake: m aft at the masthead,
@@ -290,7 +291,7 @@ for (const C of Object.values(CLASSES)) {
   if (M.trav) { const h = Math.atan2(M.track.half, goose(C).x - M.track.x); M.trav = [-h, h]; }
 }
 // (the menu shows them in this order within their groups: C.group, js/main.js CLASS_GROUPS)
-export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat', ...RACE.map(C => C.id), ...FAMOUS.map(C => C.id)];
+export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat', ...RACE.map(C => C.id), ...FAMOUS.map(C => C.id), ...SPEED.map(C => C.id)];
 // sheets the crew trims (a boomed sail's sheet is keyed by the sail: a mizzen has its own)
 const SHEETS = ['main', 'jib', 'stay', 'lazy', 'mizzen'];
 
@@ -302,6 +303,14 @@ export const STRIP_W = [0.43, 0.34, 0.23];
 export const sailHooks = { make: null, defaultModel: null, polarAngle: null };
 // boomOverload(boat, ratio): the main boom bent past its section's strength (the damage model hooks in here)
 export const boatHooks = { boomOverload: null };
+// js/speedcraft.js registers the speed machines here (a class with C.speed: a rigid wing, foils and planing pods, one
+// rigid body in six degrees of freedom): make(C, opts) builds one, polarAngle its VPP, autoTrim its pilot's wing trim
+export const craftHooks = { make: null, polarAngle: null, autoTrim: null };
+// a boat of class C: a sailing boat (Boat), or a speed machine (js/speedcraft.js)
+export function makeBoat(cls, opts = {}) {
+  const C = typeof cls === 'string' ? CLASSES[cls] : cls;
+  return (C.speed && craftHooks.make && craftHooks.make(C, opts)) || new Boat(C, opts);
+}
 export const REEF = [{ a: 1, l: 1 }, { a: 0.76, l: 0.84 }, { a: 0.56, l: 0.69 }];
 // area / luff factors at a continuous reef position (reefing is a procedure, not a switch)
 export function reefAt(pos) {
@@ -1448,6 +1457,7 @@ export class Boat {
 // boat is; board height; (AI only) reefs.
 const AK = {}, SK = {};   // (the telltale and slack filters' keys, one string per sail)
 export function autoTrim(boat, dt, aoaBias = 0, full = true) {
+  if (boat.speedCraft) { if (craftHooks.autoTrim) craftHooks.autoTrim(boat, dt, aoaBias); return; }
   const C = boat.cls, d = boat.diag, c = boat.ctrl;
   const awa = Math.abs(d.awaMid ?? Math.PI);
   const tws = (d.tws ?? 5) / KT;
@@ -1678,6 +1688,7 @@ export function vppStart(b, twsMS, twaDeg, gen) {
 // For cloth sails the polar is the one baked offline from the cloth model itself (js/sail/surrogate.js); what is
 // simulated here, at 50 Hz, is the strip model (the fallback sails, level L2)
 export function solvePolarAngle(C, twsMS, twaDeg, opts = {}) {
+  if (C.speed) return craftHooks.polarAngle ? craftHooks.polarAngle(C, twsMS, twaDeg, opts) : { twa: twaDeg, bsp: 0, vmg: 0 };
   const model = opts.sailModel ?? sailHooks.defaultModel ?? 'strip';
   if (model !== 'strip' && sailHooks.polarAngle) { const r = sailHooks.polarAngle(C, twsMS, twaDeg); if (r) return r; }
   opts = { ...opts, sailModel: 'strip' };
