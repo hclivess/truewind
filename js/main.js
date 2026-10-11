@@ -18,6 +18,8 @@ import { Vector3 as THREE_V } from 'three';
 import { Rigging } from './rigging.js';
 import { work, letFly as flyLine, handlerOf, lineName, handRate, tackleOf } from './linehandlers.js';
 import { Crew } from './crew.js';
+import { AutoGlow } from './autoglow.js';
+const C_TILLER = (b) => (b.cls.hw && b.cls.hw.helm) || 'Tiller';
 import { sunPosition } from './sky.js';
 import './sail/sailsim.js';   // (registers the cloth / lattice sail model with physics.js)
 import { SailGovernor, setSailLevel, sailsFlown } from './governor.js';
@@ -1384,7 +1386,14 @@ class Game {
       const hid = (this.hoverGrab && this.hoverGrab.id) || this.panelHover || null;
       vis.rigging.highlight(hid);
       this.renderer.updateGrabMarkers(show ? vis.rigging.grabs() : [], hid, GRAB_PX);
-    }
+      // what the automatic crew / weight / autopilot is working glows on deck and in the panel (js/autoglow.js); the
+      // labels by the parts go with the coach's text
+      if (vis) {
+        if (!this._autoGlow || this._autoGlow.vis !== vis) { if (this._autoGlow) this._autoGlow.dispose(); this._autoGlow = new AutoGlow(vis, vis.rigging); }
+        if (this.crew) this._autoGlow.update(this.crew.hl, this.t, this.renderer.camera, show && this.coachText !== false, vis.wheel ? 'Wheel' : C_TILLER(p));
+        else this._autoGlow.clear();
+      }
+    } else if (this._autoGlow) this._autoGlow.clear();
     { const pl = this.skyPlace(); this.renderer.setClock(this.netEpoch !== null ? Date.now() : (this.clockBase ?? Date.now()) + this.t * 1000, pl.lat, pl.lon); }
     this.renderer.update(dt, tDraw, { env: this.env, boats: this.boats, player: p });
     if (!this.idle && this.running) {
@@ -1458,6 +1467,7 @@ class Game {
     // automatic trim: the crew does what autoTrim wants through the real lines and hardware (js/crew.js), so the panel,
     // the cleats, the winches and the sounds show it working (the idle demo's too; the autopilot's trim below as well)
     const cr = this.crew || (this.crew = new Crew());
+    cr.pre(b);                                                    // (what the automation touches lights up on deck: js/autoglow.js)
     if ((b.auto.trim || this.idle) && !b.unmanned && !apOn) { cr.begin(b); autoTrim(b, dt, 0, true); cr.end(b, dt); }
     if (apOn) {
       if (b.unmanned || b.sunk || (b.anchor && b.anchor.state !== 'up' && b.anchor.state !== 'weighing') || (b.moor && b.moor.tied)) this.disengageAutopilot(b.unmanned ? 'Autopilot off — crew overboard' : 'Autopilot off');
@@ -1474,6 +1484,7 @@ class Game {
       }
     }
     if (this.idle) this.idleHelm(dt);
+    cr.post(b, dt, apOn || this.idle);
     for (const ai of this.ais) {
       const i = this.boats.indexOf(ai.b);
       ai.update(dt, this.t, this, this.race ? this.race.racers[i] : null, this.course, this.targets ? { up: this.targets.up.twa, dn: this.targets.dn.twa } : null);
