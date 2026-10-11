@@ -79,3 +79,50 @@ export class SailGovernor {
   // after a switch: a new cloth's first steps (its matrix factorised) are no measure of what it costs
   after() { this.hold = Math.max(this.hold, GOV.after); this.holdN = Math.max(this.holdN, GOV.afterFrames); }
 }
+
+// ---- the reflection ladder: the sea's planar reflection of the scene (reflect.js), its target a fraction of the
+// drawing buffer (scale); the last rung draws none (the sea reflects
+// the sky alone). A desktop GPU stays on rung 0; ?q=low starts on rung 2.
+export const REFL_LEVELS = [
+  { scale: 0.5 },
+  { scale: 0.35 },
+  { scale: 0.25 },
+  { scale: 0 },
+];
+// It goes by the frame time alone, and only when the frames are slow: a frame over `slow` ms (under ~42 fps) held
+// for `over` seconds steps down a rung; frames under `fast` ms for `under` seconds step back up (never above the
+// start rung), each failed climb doubling the wait (no see-saw between two rungs). A step down that did not make
+// the frames faster (by `gain`, judged `judge` s after it: a device slow for the physics' or the fleet's sake, not
+// the mirror's) is taken back at once, and no other is tried for `futile` s (doubling): the reflection is not
+// given up for nothing. Long frames (a shader compiling, the tab away) are ignored, and the first `hold` seconds
+// after a start or a change do not count. A device that draws at 60 fps never leaves its rung.
+export const RGOV = { slow: 24, fast: 14, over: 2.5, under: 20, hold: 3, longMs: 120, judge: 2, gain: 0.9, futile: 60 };
+export class ReflGovernor {
+  constructor(start = 0, n = REFL_LEVELS.length) { this.start = start; this.n = n; this.level = start; this.fails = 0; this.nFutile = 0; this.reset(); }
+  reset() { this.ema = 0; this.over = 0; this.under = 0; this.hold = RGOV.hold; this.climbedFrom = -1; this.probe = null; this.wait = 0; }
+  // one frame of frameMs wall ms; returns the new rung when it changes, else null
+  frame(frameMs) {
+    if (!(frameMs > 0) || frameMs > RGOV.longMs) return null;
+    const s = frameMs / 1000;
+    if (this.wait > 0) this.wait -= s;
+    if (this.hold > 0) { this.hold -= s; this.ema = frameMs; this.over = this.under = 0; return null; }
+    this.ema += (frameMs - this.ema) * Math.min(1, s * 3);
+    if (this.probe && (this.probe.t += s) > RGOV.judge) {
+      const p = this.probe; this.probe = null;
+      if (this.ema > RGOV.gain * p.ema) { this.wait = RGOV.futile * 2 ** Math.min(this.nFutile++, 4); return this.set(p.from); }
+    }
+    if (this.ema > RGOV.slow) { this.over += s; this.under = 0; }
+    else if (this.ema < RGOV.fast) { this.under += s; this.over = 0; }
+    else this.over = this.under = 0;
+    if (this.over > RGOV.over && this.level < this.n - 1 && this.wait <= 0 && !this.probe) {
+      // a drop right after a climb: the climb failed, the next one waits longer
+      if (this.climbedFrom === this.level + 1) this.fails++;
+      const ema = this.ema, from = this.level, l = this.set(this.level + 1);
+      this.probe = { from, ema, t: 0 };
+      return l;
+    }
+    if (this.under > RGOV.under * 2 ** Math.min(this.fails, 4) && this.level > this.start) { this.climbedFrom = this.level; return this.set(this.level - 1); }
+    return null;
+  }
+  set(l) { this.level = l; this.hold = RGOV.hold; this.over = this.under = 0; return l; }
+}
