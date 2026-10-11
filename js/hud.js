@@ -6,6 +6,7 @@ import { drawTrafficMap } from './traffic.js';
 import { RULE_SHORT } from './rules.js';
 import { lineStatus, ropeLook, ropeKey, lineName, HANDLERS, specOf, lineSpecs, lineLoad, handLoad, tackleOf } from './linehandlers.js';
 import { ropeCSS } from './linegear.js';
+import { HudLayout } from './hudlayout.js';
 
 // a small drawing of each kind of line handler for the panel (16 x 12, in the text colour)
 const ICONS = {
@@ -54,6 +55,8 @@ export class HUD {
     $('#rig-adv').addEventListener('click', () => this.setRigAdvanced(!$('#rig').classList.contains('adv')));
     this.setRigAdvanced(pref('tw-rig-adv') === '1', false);
     this.setRigCollapsed(pref('tw-rig-collapsed') === '1', false);
+    // the player's own panel layout (moved / hidden panels): the clear middle and the rig's height measured afresh
+    this.layout = new HudLayout(() => { this._nmBox = null; this._rigMH = null; });
   }
   setRigCollapsed(on, save = true) {
     const r = $('#rig'); r.classList.toggle('collapsed', on);
@@ -319,11 +322,18 @@ export class HUD {
     $('#eng-fuel').textContent = `${fmt(e.lh, 1)} L/h`;
   }
 
-  // the rig panel lives between the race card and the bottom edge: never under the standings
+  // the rig panel lives between the race card and the bottom edge: never under the standings. Moved (HUD layout), it
+  // reaches from where it is anchored to the far edge of the window; the race card counts only while it is above it
   fitRig() {
-    const rc = $('#race-card').getBoundingClientRect(), rig = $('#rig');
-    const bottomGap = window.innerHeight - rig.getBoundingClientRect().bottom;
-    const mh = Math.max(160, Math.floor(window.innerHeight - rc.bottom - 10 - bottomGap));
+    const rig = $('#rig'), H = window.innerHeight, a = this.layout && this.layout.placed('rig');
+    let mh;
+    if (a) mh = Math.max(160, Math.floor(H - (a.ay === 'm' ? 0 : Math.max(0, a.dy)) - 12));
+    else {
+      const rc = $('#race-card').getBoundingClientRect(), R = rig.getBoundingClientRect();
+      const above = rc.width > 0 && rc.right > R.left && rc.left < R.right && rc.top < R.top + 40;
+      const bottomGap = H - R.bottom;
+      mh = Math.max(160, Math.floor(H - (above ? rc.bottom + 10 : 12) - bottomGap));
+    }
     if (this._rigMH !== mh) { this._rigMH = mh; rig.style.maxHeight = mh + 'px'; }
   }
 
