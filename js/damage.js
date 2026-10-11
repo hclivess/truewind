@@ -68,6 +68,9 @@ export const CLOTH_STRENGTH = {
   dacronCruise: { S: 70e3, plies: 3, age: 0.75, T0: 14400 }, dacronDinghy: { S: 45e3, plies: 3, age: 0.75, T0: 10800 },
   laminate: { S: 90e3, plies: 3, age: 0.75, T0: 4500 }, canvas: { S: 55e3, plies: 3, age: 0.75, T0: 10800 },
   nylon: { S: 6e3, plies: 1.5, age: 0.5, T0: 180 },
+  // a J Class's 3Di-type string laminate (est.: ~5x a 40-footer's laminate per width, as its stiffness, js/sail/specs.js)
+  superLaminate: { S: 450e3, plies: 3, age: 0.85, T0: 4500 },
+  superNylon: { S: 36e3, plies: 1.5, age: 0.6, T0: 400 },
 };
 export const STRESS_CONC = 3;          // corner patches: the grid does not resolve them
 export const SEAM = 0.65;              // a sewn seam holds ~65% of the cloth

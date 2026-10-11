@@ -115,14 +115,17 @@ class ClothRig {
     for (let j = 0; j < nv; j++) cloth.setKinematic(cloth.node(0, j), true);
     // headboard: stiff bars along the head row (it swings with the sail, it does not fold); on a gaff sail that
     // is the gaff itself. A spritsail's head is cloth and tape, held out at the peak by the sprit
+    // (a superyacht's sail, cloth stiffer than a laminate's: its headboard, tapes and leech cord in proportion, so the
+    // leech of a 45 m luff does not stretch a fifth under its load; 1 for every cloth up to a laminate)
+    const big = this.big = Math.max(1, mat.warp / 600e3);
     if (s.rig === 'sprit') for (let i = 0; i < nu - 1; i++) { const a = cloth.node(i, nv - 1), b = cloth.node(i + 1, nv - 1); cloth.addDistance(a, b, this._rd(a, b), 1.5e5 / this._rd(a, b), true); }
     else for (let i = 0; i < nu - 1; i++) {
-      const w = s.rig === 'gaff' ? 1e6 : 3e5;
+      const w = (s.rig === 'gaff' ? 1e6 : 3e5) * big;
       const a = cloth.node(i, nv - 1), b = cloth.node(i + 1, nv - 1); cloth.addDistance(a, b, this._rd(a, b), w);
       if (i + 2 < nu) { const c2 = cloth.node(i + 2, nv - 1); cloth.addDistance(a, c2, this._rd(a, c2), w); }
     }
     // leech and foot tapes: the sail's edges are bound with tape that carries the leech and foot tension
-    this.tapeEA = 1.5e5;
+    this.tapeEA = 1.5e5 * big;
     for (let j = 0; j < nv - 1; j++) { const a = cloth.node(nu - 1, j), b = cloth.node(nu - 1, j + 1); cloth.addDistance(a, b, this._rd(a, b), this.tapeEA / this._rd(a, b), true); }
     for (let i = 0; i < nu - 1; i++) { const a = cloth.node(i, 0), b = cloth.node(i + 1, 0); cloth.addDistance(a, b, this._rd(a, b), this.tapeEA / this._rd(a, b), true); }
     this.needPose = true; this.side = 1; this.sincePose = 0;
@@ -602,7 +605,7 @@ export class JibRig extends ClothRig {
     const ym = Math.max(0.25, this.footLen * Math.sin(s.min) * 1.05);
     this.leadY = Math.min(ym, C.beam * 0.45);
     this.leads = [[0, this.leadY, this.leadZ], [0, -this.leadY, this.leadZ]];     // starboard, port
-    this.sheets = this.leads.map((L) => cloth.addRope(this.clew, 1, [0, 0, 0], L, 10, 1.5e5));
+    this.sheets = this.leads.map((L) => cloth.addRope(this.clew, 1, [0, 0, 0], L, 10, 1.5e5 * (s.ropeK ?? 1)));   // (s.ropeK: a big boat's sheets, as the main's)
     // what the jib wraps round when it crosses: the mast, and on the Blackwatch the inner forestay (the leech
     // is left out: on a rig whose jib head is at the mast it runs down the mast's front, and caught on the
     // capsule it would pin the clew)

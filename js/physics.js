@@ -1689,7 +1689,8 @@ export function solvePolarAngle(C, twsMS, twaDeg, opts = {}) {
     const b = new Boat(C, opts);
     vppStart(b, twsMS, twaDeg, gen);
     let acc = 0, n = 0;
-    const steps = 50 * 40;
+    // (40 s settles a keelboat; a 170 t J Class takes ~2 min to reach her speed from the start's: C.vppSecs)
+    const steps = 50 * (C.vppSecs ?? 40);
     for (let i = 0; i < steps; i++) {
       autoTrim(b, dt, bias);
       b.step(dt, env, i * dt);

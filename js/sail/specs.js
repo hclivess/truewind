@@ -43,6 +43,12 @@ export const MATERIALS = {
   // heavy cruising / traditional cloth (a replica gaff rig's cream or tanbark sails: soft, heavy, stretchy on the bias)
   canvas: { warp: 150e3, fill: 210e3, bias: 14e3, rho: 0.42, D: 3e-3, layout: 'crosscut' },
   nylon: { warp: 25e3, fill: 25e3, bias: 4e3, rho: 0.045, D: 5e-5, layout: 'radial' },
+  // a superyacht's moulded laminate (a J Class's 3Di / string sails, est.): the membrane carries tension in proportion
+  // to its chord (q x radius of curvature), so a 20 m chord wants ~5x the stiffness per width of a 4 m one to hold the
+  // same strain; ~1 kg/m^2 (a J's 490 m^2 main weighs ~0.5 t)
+  superLaminate: { warp: 3.2e6, fill: 1.8e6, bias: 6e5, rho: 0.95, D: 0.05, layout: 'radial' },
+  // its spinnaker's heavy nylon (a ~940 m^2 kite: est. 2.5 oz, panels doubled at the corners)
+  superNylon: { warp: 140e3, fill: 140e3, bias: 22e3, rho: 0.11, D: 2e-4, layout: 'radial' },
 };
 export function clothMaterial(C, s) {
   if (s.cloth) return MATERIALS[s.cloth];            // (a class may name its cloth per sail, or for the boat)

@@ -23,6 +23,8 @@
 //            (bronze or plain bushings, ~6.5%); default ball, plain on a classic boat
 //   d, fibre rope diameter (mm) and fibre, 'polyester' (double braid) | 'dyneema' (core): its stretch
 //   leads    turning blocks between the tackle and the handler (default 1: the block the tail leaves by)
+//   powered  a winch or ram driven by the boat's hydraulics or electrics (a superyacht's): m of line a second it takes
+//            in at the handler whatever the load (up to the gear's rating: the class's lines' max), eases as fast
 // and ropeStyle: 'modern' (default: coloured braid) | 'classic' (cream polyester, the colour as a tracer).
 //
 // ---- The model. b.locks[k] is the crew's intent (cleated or not: the panel, the deck and the auto crew set
@@ -189,7 +191,8 @@ export function handLoad(b, k, hauling) {
 // null for a sheet on a winch (the winch hauls it: a fixed length per handle turn)
 export const HAND_SPEED = 1.6, HAUL = 300;
 export function handRate(b, k, hauling) {
-  const tk = tackleOf(b.cls, specKey(b, k));
+  const tk = tackleOf(b.cls, specKey(b, k)), pw = specOf(b, k).powered;
+  if (pw) return pw / (tk.purchase * tk.travel);                      // driven: the pump, not the hands, sets the pace
   if (tk.winch && (k === 'jib' || k === 'lazy')) return null;
   const v = HAND_SPEED / (tk.purchase * tk.travel);
   return hauling ? v / (1 + (handLoad(b, k, true) / HAUL) ** 2) : v;

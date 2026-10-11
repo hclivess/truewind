@@ -29,7 +29,8 @@ async function sailAngle(cls, twsKn, twa, secs) {
     // settles over ~25 s, and a big overlapping genoa started eased out could fly round the forestay first.)
     const w = new Boat(C, { sailModel: 'strip' }), sdt = 1 / 50;
     vppStart(w, twsKn * KT, twa, gen);
-    for (let i = 0; i < 50 * 45; i++) { autoTrim(w, sdt, bias); w.step(sdt, env, i * sdt); w.r = 0; w.psi = twa * DEG; w.rudder = 0; }
+    // (a heavy boat's own settle time, C.vppSecs: a 170 t J Class is still gathering way after 45 s)
+    for (let i = 0; i < 50 * Math.max(45, C.vppSecs ?? 0); i++) { autoTrim(w, sdt, bias); w.step(sdt, env, i * sdt); w.r = 0; w.psi = twa * DEG; w.rudder = 0; }
     const u0 = Number.isFinite(w.u) && !w.capsized ? Math.max(1.0, w.u) : b.u;
     if (u0 > 1.0) {
       Object.assign(b.ctrl, w.ctrl); Object.assign(b.lines, w.lines); for (const k in b.booms) b.booms[k].a = w.booms[k].a;

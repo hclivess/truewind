@@ -345,7 +345,7 @@ export { linesFor };
 function hullGeometry(C, Lx, P = 0) {
   const part = typeof P === 'number' ? { y: P, sy: 1, sz: 1, szTop: 1, dz: 0, t0: 0, t1: 1 } : P, yOff = part.y;
   const H = Lx.H;
-  const NS = 64;
+  const NS = C.hullStations ?? 64;            // (a long hull: more, so its overhangs' curves are drawn smooth)
   const L0 = C.sternX, L1 = C.bowX;
   const stations = [];
   for (let s = 0; s <= NS; s++) {
@@ -556,7 +556,8 @@ const SAILCLOTH = {
   cat: { cloth: 0xf2f1ec, kind: 'dacron', bands: ['#1f4fa3', '#1f8a4c', '#f2c318', '#f07c1a', '#d4262c'], num: '#111317', logo: '#111317', trans: 0.3, rough: 0.58 },
 };
 // (a class may give one sail its own cloth: s.sailcloth, e.g. a black laminate main over a white jib)
-const clothOf = (C, s) => s.kind === 'spin' ? { cloth: s.color, kind: 'nylon', num: '#ffffff', logo: '#ffffff', trans: 0.45, rough: 0.5 } : (s.sailcloth || SAILCLOTH[C.id] || C.sailcloth || SAILCLOTH.dinghy);
+// (s.spinBands: a spinnaker in horizontal bands of colour, [[v0, v1, '#rgb'], ...] from the head (0) to the foot (1))
+const clothOf = (C, s) => s.kind === 'spin' ? { cloth: s.color, kind: 'nylon', num: '#ffffff', logo: '#ffffff', trans: 0.45, rough: 0.5, spinBands: s.spinBands } : (s.sailcloth || SAILCLOTH[C.id] || C.sailcloth || SAILCLOTH.dinghy);
 // One cloth texture per class and sail, shared by both faces and every boat of the class. The sail
 // number and insignia are a small decal atlas per number (DECAL), drawn by the sail shader into fixed
 // rectangles of the cloth, mirrored on the face that needs it (starboard number higher, as class
@@ -604,6 +605,7 @@ function sailTexture(C, s) {
       for (let x = 0; x < w; x += 22) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x + h * 0.25, h); g.stroke(); }
       for (let x = -h * 0.25; x < w; x += 22) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x - h * 0.2 + h * 0.45, h); g.stroke(); }
     } else if (cl.kind === 'nylon') {
+      if (cl.spinBands) for (const [v0, v1, c] of cl.spinBands) { g.fillStyle = c; g.fillRect(0, h * v0, w, h * (v1 - v0)); }
       // gennaker: horizontal panels, a radial head, a lighter centre band
       for (let y = h * 0.28; y < h; y += panelPx * 1.1) seam(y, 0.16);
       g.strokeStyle = 'rgba(0,0,0,0.14)'; g.lineWidth = 2;
@@ -669,7 +671,7 @@ function sailTexture(C, s) {
     for (const x of [10, w - 13]) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
     g.setLineDash([]);
     // draft stripes on the racing sails
-    if (cl.kind === 'laminate' && s.kind !== 'spin') {
+    if (cl.kind === 'laminate' && s.kind !== 'spin' && !cl.noDraftStripes) {
       g.fillStyle = 'rgba(20,32,60,0.75)';
       for (const f of [0.25, 0.5, 0.75]) { const y = h * (1 - f); g.fillRect(w * 0.1, y - 3, w * 0.9, 6); }
     }
