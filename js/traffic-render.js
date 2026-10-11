@@ -212,12 +212,14 @@ function yachtModel(variant = 0, near = true) {
   const st = body.hull(top, L, T.B, modern ? 1.0 : 1.05, 0.55, modern ? { transom: 0.92, rake: 0.05, sheer: 0.06, fine: 0.62, deck: NONSKID } : { transom: 0.78, rake: 0.4, sheer: 0.16, fine: 0.8, deck: NONSKID });
   const bowZ = -L / 2 - (modern ? 0.02 : 0.25), sternZ = L / 2;
   // stripes: the cove line (or a dark sheer band) and the boot top
-  body.band(st, 0.13, 0.19, modern ? 0x30353b : 0x1d3557, 0.012);
+  // (far off — past 320 m, where a yacht is 30 pixels long — a stripe, a window, a coaming or a toe rail is under a
+  // pixel: the far model leaves them out and costs about what the old box model did)
+  if (near) body.band(st, 0.13, 0.19, modern ? 0x30353b : 0x1d3557, 0.012);
   if (modern) body.band(st, 0.35, 0.75, GLASS, 0.013, [-1.6, 1.6]);        // (hull windows)
   // the coachroof: a raked front, windows along it, a hatch on top
   const cz0 = modern ? -3.3 : -2.9, cz1 = modern ? 0.9 : 0.8, cw = modern ? 1.12 : 1.02, y0 = edgeAt(st, -1).f - 0.04, yr = y0 + (modern ? 0.4 : 0.5);
   body.house([[-cw * 0.5, cz0], [-cw * 0.92, cz0 + 0.8], [-cw, cz0 + 2], [-cw, cz1], [cw, cz1], [cw, cz0 + 2], [cw * 0.92, cz0 + 0.8], [cw * 0.5, cz0]], y0, yr, WHITE,
-    { ix: 0.08, iz: 0.06, dz: 0.18, capHex: 0xece8dc, bands: modern ? [{ on: 'side', f0: 0.3, f1: 0.82, hex: GLASS, u0: 0.03, u1: 0.97 }, { on: 'front', f0: 0.35, f1: 0.8, hex: GLASS }] : [{ on: 'side', f0: 0.38, f1: 0.72, hex: GLASS, n: 3, gap: 0.08, u0: 0.12, u1: 0.9 }, { on: 'front', f0: 0.4, f1: 0.75, hex: GLASS, u0: 0.15, u1: 0.85 }] });
+    { ix: 0.08, iz: 0.06, dz: 0.18, capHex: 0xece8dc, bands: !near ? [{ on: 'side', f0: 0.38, f1: 0.75, hex: GLASS, u0: 0.1, u1: 0.9 }] : modern ? [{ on: 'side', f0: 0.3, f1: 0.82, hex: GLASS, u0: 0.03, u1: 0.97 }, { on: 'front', f0: 0.35, f1: 0.8, hex: GLASS }] : [{ on: 'side', f0: 0.38, f1: 0.72, hex: GLASS, n: 3, gap: 0.08, u0: 0.12, u1: 0.9 }, { on: 'front', f0: 0.4, f1: 0.75, hex: GLASS, u0: 0.15, u1: 0.85 }] });
   const mz = modern ? -1.2 : -0.9;
   if (near) {
     body.box(0.55, 0.06, 0.55, 0, yr + 0.03, cz0 + 0.9, 0x3a4048);                       // forehatch (smoked)
@@ -226,16 +228,16 @@ function yachtModel(variant = 0, near = true) {
   }
   // the sprayhood over the companionway (and on the modern one a bimini over the helm)
   const canvas = modern ? 0x5b6168 : 0x22324c;
-  body.house([[-0.85, cz1 - 0.55], [-0.88, cz1 + 0.25], [0.88, cz1 + 0.25], [0.85, cz1 - 0.55]], yr - 0.02, yr + 0.55, canvas, { ix: 0.06, iz: 0.55, dz: 0.28, bands: [{ on: 'front', f0: 0.25, f1: 0.75, hex: 0x46525e, n: 2, gap: 0.06 }] });
+  body.house([[-0.85, cz1 - 0.55], [-0.88, cz1 + 0.25], [0.88, cz1 + 0.25], [0.85, cz1 - 0.55]], yr - 0.02, yr + 0.55, canvas, { ix: 0.06, iz: 0.55, dz: 0.28, bands: near ? [{ on: 'front', f0: 0.25, f1: 0.75, hex: 0x46525e, n: 2, gap: 0.06 }] : [] });
   // the cockpit: teak seats and sole between the coamings, the wheel(s) on a pedestal
   const yc = edgeAt(st, 2.2).f;
   body.box(1.95, 0.03, 2.9, 0, yc + 0.01, cz1 + 1.55, TEAK);
-  for (const s of [1, -1]) body.box(0.08, 0.32, 2.7, s * 1.08, yc + 0.15, cz1 + 1.4, modern ? 0xd9d6cc : TEAK);
+  if (near) for (const s of [1, -1]) body.box(0.08, 0.32, 2.7, s * 1.08, yc + 0.15, cz1 + 1.4, modern ? 0xd9d6cc : TEAK);
   const wz = sternZ - (modern ? 1.0 : 1.6);
   for (const wx of modern ? [-0.75, 0.75] : [0]) {
+    if (!near) continue;
     body.cyl(0.07, 0.06, 0.62, wx, yc, wz + 0.15, 0xd8d8d2, 'y', 6);
-    if (near) body.ring([wx, yc + 0.68, wz], modern ? 0.38 : 0.42, 0.018, 0x2c2f33, 'z', 12).rod([wx, yc + 0.68, wz - 0.03], [wx, yc + 0.68, wz + 0.1], 0.03, 0.03, 0x2c2f33, 4);
-    else body.box(0.06, 0.8, 0.06, wx, yc + 0.68, wz, 0x2c2f33);
+    body.ring([wx, yc + 0.68, wz], modern ? 0.38 : 0.42, 0.018, 0x2c2f33, 'z', 12).rod([wx, yc + 0.68, wz - 0.03], [wx, yc + 0.68, wz + 0.1], 0.03, 0.03, 0x2c2f33, 4);
   }
   if (modern && near) {   // the bimini: a frame of two hoops and a canvas top
     for (const z of [cz1 + 0.35, cz1 + 1.9]) body.poly([[-1.05, yc + 0.3, z], [-0.95, yc + 1.85, z], [0.95, yc + 1.85, z], [1.05, yc + 0.3, z]], 0.012, STEEL, 3);
@@ -246,7 +248,7 @@ function yachtModel(variant = 0, near = true) {
   // rails: stanchions and lifelines, pulpit, pushpit
   if (near) guardRails(body, st, bowZ + 1.15, sternZ - 0.5, modern ? 6 : 6, 0.62, 0xc9ced3, bowZ, sternZ);
   // the toe rail
-  body.band(st, -0.05, 0.0, modern ? 0x9aa0a6 : TEAK, -0.01);
+  if (near) body.band(st, -0.05, 0.0, modern ? 0x9aa0a6 : TEAK, -0.01);
   // the rig: mast, spreaders, shrouds, stays, boom and its vang
   const spar = modern ? 0x24272b : STEEL, ym = yr, sy = ym + (H - ym) * 0.55, ys2 = ym + (H - ym) * 0.8;
   body.cyl(0.09, 0.06, H - ym, 0, ym, mz, spar, 'y', near ? 8 : 6);
@@ -258,7 +260,7 @@ function yachtModel(variant = 0, near = true) {
   for (const s of [1, -1]) {
     const tip = [s * 0.95, sy, mz + 0.12], tip2 = [s * 0.6, ys2, mz + 0.06];
     body.rod([0, sy, mz], tip, 0.03, 0.02, spar, 4);
-    if (modern) body.rod([0, ys2, mz], tip2, 0.025, 0.018, spar, 4);
+    if (modern && near) body.rod([0, ys2, mz], tip2, 0.025, 0.018, spar, 4);
     body.rod([s * chp[0], chp[1], chp[2]], tip, 0.009, 0.009, STEEL, 3);
     if (modern) { body.rod(tip, tip2, 0.008, 0.008, STEEL, 3); body.rod(tip2, [0, H - 0.6, mz], 0.007, 0.007, STEEL, 3); }
     else body.rod(tip, [0, H - 0.4, mz], 0.008, 0.008, STEEL, 3);
@@ -284,12 +286,12 @@ function yachtModel(variant = 0, near = true) {
   // fenders alongside (three a side, white), the black ball forward at anchor
   if (near) for (const s of [1, -1]) for (const z of [-2, 0.2, 2.2]) { const e = edgeAt(st, z); fend.cyl(0.11, 0.11, 0.5, s * (e.b + 0.12), e.f - 0.75, z, 0xf4f4f0, 'y', 8); fend.rod([s * (e.b + 0.12), e.f - 0.25, z], [s * (e.b - 0.05), e.f + 0.05, z], 0.006, 0.006, 0x1d3557, 3); }
   ball.box(0.4, 0.4, 0.4, 0, H * 0.45, bowZ * 0.6 + mz * 0.4, 0x111111, 0.6).box(0.4, 0.4, 0.4, 0, H * 0.45 + 0.05, bowZ * 0.6 + mz * 0.4, 0x111111, 1.4);
-  return { hull: top.geo(), body: body.geo(), boom: boomP.geo(), cover: cover.geo(), main: sailGeo(H - ym - 1.6, 3.9 + (modern ? 0.4 : 0), modern ? 0.09 : 0.1, false, modern), jib: sailGeo(H - (modern ? 2.0 : 3.0), L * (modern ? 0.36 : 0.44), 0.12, true), fenders: near ? fend.geo() : null, ball: ball.geo(), mainAt: [0, ym + 0.8, mz], jibAt: [0, edgeAt(st, bowZ + 0.3).f + 0.05, bowZ + 0.25], jibAxis: new THREE.Vector3(0, H - (modern ? 0.4 : 1.2) - edgeAt(st, bowZ + 0.3).f, mz - bowZ - 0.25).normalize() };
+  return { hull: top.geo(), body: body.geo(), boom: boomP.geo(), cover: cover.geo(), main: sailGeo(H - ym - 1.6, 3.9 + (modern ? 0.4 : 0), modern ? 0.09 : 0.1, false, modern, near), jib: sailGeo(H - (modern ? 2.0 : 3.0), L * (modern ? 0.36 : 0.44), 0.12, true, false, near), fenders: near ? fend.geo() : null, ball: ball.geo(), mainAt: [0, ym + 0.8, mz], jibAt: [0, edgeAt(st, bowZ + 0.3).f + 0.05, bowZ + 0.25], jibAxis: new THREE.Vector3(0, H - (modern ? 0.4 : 1.2) - edgeAt(st, bowZ + 0.3).f, mz - bowZ - 0.25).normalize() };
 }
 // a sail: luff up the local y axis, foot aft along +z, camber toward +x (the deepest at 40 % of the chord, flatter
 // aloft, the leech twisted off); square: a modern square-top main's roach
-function sailGeo(luff, foot, depth, jib = false, square = false) {
-  const nu = 8, nv = 10, p = [], idx = [];
+function sailGeo(luff, foot, depth, jib = false, square = false, fine = true) {
+  const nu = fine ? 8 : 4, nv = fine ? 10 : 5, p = [], idx = [];
   for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
     const v = j / nv, u = i / nu, ch = foot * (jib ? 1 - v : 1 - v * (square ? 0.72 : 0.9) + (square ? 0 : 0.12 * Math.sin(Math.PI * v) * (1 - v)));
     const prof = Math.sin(Math.PI * Math.pow(u, 0.75)), twist = u * u * 0.1 * v;
@@ -304,8 +306,8 @@ function sailGeo(luff, foot, depth, jib = false, square = false) {
 function motorModel(near = true) {
   const T = VESSELS.motor, top = new Acc(), b = new Acc(), fend = new Acc(), L = T.L;
   const st = b.hull(top, L, T.B, 1.35, 0.7, { transom: 0.92, rake: 0.8, sheer: 0.25, fine: 0.55, flat: 0.25, bottom: 0x2b2f38, deck: 0xe8e6e0 });
-  b.band(st, 0.18, 0.3, 0x30353b, 0.013).band(st, -0.06, 0.0, 0xd6d3cb, -0.02);
-  b.band(st, 0.45, 0.7, GLASS, 0.013, [-1.5, 2.2]);                                         // hull windows
+  b.band(st, 0.18, 0.3, 0x30353b, 0.013);
+  if (near) b.band(st, -0.06, 0.0, 0xd6d3cb, -0.02).band(st, 0.45, 0.7, GLASS, 0.013, [-1.5, 2.2]);   // rubbing strake, hull windows
   const yd = edgeAt(st, 0).f - 0.05;
   // the saloon: raked windscreen, dark glass all round; the flybridge on top with its screen, helm and bimini
   b.house([[-1.0, -2.6], [-1.5, -1.4], [-1.55, 2.4], [1.55, 2.4], [1.5, -1.4], [1.0, -2.6]], yd, yd + 1.25, WHITE, { ix: 0.06, iz: 0.12, dz: 0.35, bands: [{ on: 'all', f0: 0.3, f1: 0.88, hex: GLASS, u0: 0.03, u1: 0.97 }] });
@@ -711,7 +713,7 @@ export class TrafficView {
       const was = new Set(G.nearList), now = new Set(want);
       for (const v of G.nearList) if (!now.has(v)) { v._near = false; v._dirty = true; }
       for (const v of want) if (!was.has(v)) { v._near = true; v._dirty = true; }
-      G.nearList = want;
+      G.nearList = want; G.pickN = fr;
       want.forEach((v, j) => this._colour(G.near, j, v));
       for (const k in G.near) { G.near[k].count = want.length; if (G.near[k].instanceColor) G.near[k].instanceColor.needsUpdate = true; }
     }
@@ -725,12 +727,14 @@ export class TrafficView {
         if (v.hidden) { this._write(far, i, v, null); v._hid = true; continue; }
         v._hid = false;
         e.set(v.pitch, -v.psi, -v.roll); q.setFromEuler(e); p.set(v.x, v.heave, v.z); s.setScalar(v.scale);
-        m.compose(p, q, s); (v._mat || (v._mat = new THREE.Matrix4())).copy(m);
+        m.compose(p, q, s); (v._mat || (v._mat = new THREE.Matrix4())).copy(m); v._nw = fr;
         this._write(far, i, v, v._near ? null : m, G.mf);
       }
       for (const k in far) far[k].instanceMatrix.needsUpdate = true;
       if (G.near) {
-        G.nearList.forEach((v, j) => this._write(G.near, j, v, v.hidden ? null : v._mat || null, G.mn));
+        // (only the boats that moved, or all when the set was picked anew: a marina's berthed boats stand still)
+        const all = G.pickN === fr;
+        G.nearList.forEach((v, j) => { if (all || v._nw === fr || v.hidden) this._write(G.near, j, v, v.hidden ? null : v._mat || null, G.mn); });
         for (const k in G.near) G.near[k].instanceMatrix.needsUpdate = true;
       }
     }
@@ -778,7 +782,7 @@ export class TrafficView {
         const age = t - c.t, w = c.B * 0.45 + age * c.sp * 0.33;
         // (on the drawn sea itself: it lay at half the height of six of its waves, under the crests, and the
         // wakes behind the traffic were hidden in the water)
-        if (c.h === undefined || (i + this.frameN) % 3 === 0) c.h = this._seaH(env, c.x, c.z, t) + 0.1;
+        if (c.h === undefined || (i + this.frameN) % 4 === 0) c.h = this._seaH(env, c.x, c.z, t) + 0.1;
         const h = c.h;
         const a = clamp(c.sp / 5, 0, 1) * Math.exp(-age / (4 + c.B * 0.3)) * (i === 0 ? 0 : 1);
         const o3 = k * 3; P[o3] = c.x + c.px * w; P[o3 + 1] = h; P[o3 + 2] = c.z + c.pz * w; P[o3 + 3] = c.x - c.px * w; P[o3 + 4] = h; P[o3 + 5] = c.z - c.pz * w;
@@ -787,7 +791,7 @@ export class TrafficView {
       // the bow wave: white water peeling off both bows and along the hull, by the Froude number (a ferry at 14 kn
       // throws a big one, a trawler at 2 kn none); it spreads at the Kelvin angle's pace aft of the stem
       const Fn = v.u / Math.sqrt(9.81 * Math.max(3, v.L)), ab = clamp((Fn - 0.12) * 3.5, 0, 1) * (v.type === 'chain' ? 0 : 1);
-      const sx = Math.cos(v.psi), sz = Math.sin(v.psi), upd = ab > 0 && (mi + this.frameN) % 2 === 0;
+      const sx = Math.cos(v.psi), sz = Math.sin(v.psi), upd = ab > 0 && v._d < 900 && (mi + this.frameN) % 3 === 0;
       for (let i = 0; i < BN; i++) {
         const f = i / (BN - 1), along = v.L * (0.5 - 0.62 * f), k = bb + i * 2, o3 = k * 3;
         const w = v.B * 0.5 * Math.sin(Math.min(1, 0.25 + f * 1.6) * Math.PI / 2) + v.L * f * 0.1 * (0.4 + ab);

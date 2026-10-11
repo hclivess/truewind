@@ -125,7 +125,8 @@ class Game {
     this.t = 0;
     this.boats = [];
     this.showLaylines = true;
-    this.trafficView = new TrafficView(this.renderer.scene, { low: this.renderer.low });     // (a weak GPU: fewer boats in full detail)
+    // (a weak GPU, a phone or a tablet: fewer boats in full detail, and only close by)
+    this.trafficView = new TrafficView(this.renderer.scene, { low: this.renderer.low || matchMedia('(pointer: coarse)').matches });
     this.trafficView.seaKeep = (x, z) => this.renderer.seaKeepAt(x, z);     // (the traffic rides the sea as it is drawn)
     this.buildMenu();
     this.bindInput();
