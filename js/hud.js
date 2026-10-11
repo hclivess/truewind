@@ -173,6 +173,7 @@ export class HUD {
     this.pumpCrew();
     this.updateWork(b, dt);
     this.updateNextMark(b);
+    this.flashRig();
     if (this.acc < 0.1) return;
     this.acc = 0;
     const d = b.diag, C = b.cls;
@@ -436,6 +437,28 @@ export class HUD {
     else if (k === 'vang' && S.main.vang === 'none') txt = 'none';
     else txt = `${Math.round(v * 100)}%`;
     return { txt, frac: clamp(frac, 0, 1) };
+  }
+  // the row of the line the automatic crew / autopilot is working lights with it on deck (js/autoglow.js), and the
+  // button for the way it went (Trim / Ease, Port / Stbd ...); a reef its chip. Inline styles: nothing to rebuild.
+  flashRig() {
+    const hl = this.g.crew && this.g.player && this.g.player.auto && this.g.crew.hl, F = this._flash || (this._flash = {});
+    for (const k in F) if (!hl || !hl[k] || !(hl[k].a > 0.01)) { const f = F[k]; if (f.row) { f.row.style.background = ''; if (f.btn) f.btn.style.boxShadow = ''; } delete F[k]; }
+    if (!hl) return;
+    for (const k in hl) {
+      const e = hl[k]; if (!(e.a > 0.01)) continue;
+      let f = F[k];
+      if (!f || !(f.row && f.row.isConnected) || f.dir !== e.dir) {
+        if (f && f.btn) f.btn.style.boxShadow = '';
+        const row = k === 'helm' ? document.getElementById('o-helm')?.closest('.ln') : k === 'reef' ? document.querySelector(`#rig-body [data-reef="${this.g.player.ctrl.reef | 0}"]`) : k === 'throttle' ? document.getElementById('eng-thr') : document.querySelector(`#rig-body .ln[data-k="${k}"]`);
+        f = F[k] = { row, dir: e.dir, btn: row && row.classList.contains('ln') ? row.querySelector(`.nbtn[data-d="${e.dir}"]`) : null };
+      }
+      if (!f.row) continue;
+      const a = Math.round(e.a * 100) / 100;
+      if (f.a === a) continue;
+      f.a = a;
+      f.row.style.background = `rgba(255,179,92,${(0.2 * a).toFixed(3)})`;
+      if (f.btn) f.btn.style.boxShadow = `0 0 0 1px rgba(255,179,92,${(0.9 * a).toFixed(2)}), 0 0 8px rgba(255,179,92,${(0.6 * a).toFixed(2)})`;
+    }
   }
   updateRig(b) {
     const d = b.diag, S = b.sailBy;

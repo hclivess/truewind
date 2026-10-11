@@ -18,6 +18,8 @@ import { Vector3 as THREE_V } from 'three';
 import { Rigging } from './rigging.js';
 import { work, letFly as flyLine, handlerOf, lineName, handRate, tackleOf } from './linehandlers.js';
 import { Crew } from './crew.js';
+import { AutoGlow } from './autoglow.js';
+const C_TILLER = (b) => (b.cls.hw && b.cls.hw.helm) || 'Tiller';
 import { sunPosition } from './sky.js';
 import './sail/sailsim.js';   // (registers the cloth / lattice sail model with physics.js)
 import { SailGovernor, setSailLevel, sailsFlown } from './governor.js';
@@ -132,6 +134,7 @@ class Game {
     this.resize();
     this.last = performance.now();
     requestAnimationFrame((t) => this.frame(t));
+    this.backgroundClock();
     // idle scene behind the menu
     this.startSession(true).catch(e => console.error(e));
   }
@@ -1001,10 +1004,11 @@ class Game {
       this.keys.delete(k); if (e.code) this.keys.delete('#' + e.code); if (e.key === 'Shift') this.keys.delete('Shift');
     });
     window.addEventListener('blur', () => this.keys.clear());
-    // a background tab stops drawing frames: silence the sea too, and bring it back on return
+    // a background tab stops drawing frames but the sea goes on (Game.backgroundClock), and so does its sound;
+    // coming back, a context the browser suspended meanwhile is woken
     document.addEventListener('visibilitychange', () => {
       const ctx = this.audio.ctx; if (!ctx) return;
-      if (document.hidden) ctx.suspend(); else if (this.audio.on && this.running) ctx.resume();
+      if (!document.hidden && this.audio.on && this.running && ctx.state === 'suspended') ctx.resume();
     });
     const cv = $('#view');
     let drag = null;
@@ -1310,6 +1314,34 @@ class Game {
   }
 
   // ------------------------------------------------------------ loop
+  // the sea does not stop when you look away: a hidden or minimised window gets no animation frames, so a
+  // worker's clock (a page's own timers are throttled to once a second or a minute in the background; a worker's
+  // are not) steps the physics to real time without drawing. Pause stays the Pause button's (P) alone.
+  backgroundClock() {
+    let w;
+    try { w = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 100)'], { type: 'text/javascript' }))); }
+    catch (e) { return; }
+    w.onmessage = () => {
+      const now = performance.now();
+      if (!document.hidden) { this._bgLast = null; return; }
+      const last = this._bgLast ?? now; this._bgLast = now; this.last = now;
+      if (!this.env || !this.player || !this.running) return;
+      const dt = Math.min(1, Math.max(0, (now - last) / 1000));
+      if (this.netEpoch !== null) {
+        const target = Date.now() / 1000 - this.netEpoch;
+        if (target - this.t > 2 || target < this.t - 2) { this.t = target; this.acc = 0; } else this.acc = target - this.t;
+      } else this.acc = (Number.isFinite(this.acc) ? this.acc : 0) + (this.paused ? 0 : dt * this.timeWarp);
+      let steps = 0; const maxSteps = Math.ceil(1.2 * this.timeWarp / PHYS_DT);
+      while (this.acc >= PHYS_DT && steps < maxSteps) {
+        for (const b of this.boats) { b._prev = { x: b.x, z: b.z, psi: b.psi, heave: b.heave, pitch: b.pitch, phi: b.phi }; snapRig(b); }
+        this.step(PHYS_DT); this.acc -= PHYS_DT; steps++;
+      }
+      if (steps >= maxSteps) this.acc = 0;
+      if (this.traffic && steps) { this.traffic.update(steps * PHYS_DT, this.t, this.env, this.boats); this._tDraw = this.t; }
+      if (this.env.tick(this.t)) this.renderer.setWaves(this.env.waves);
+      if (this.audio && this.audio.on) this.audio.update(this.player, dt, this.renderer.rainNow || 0);   // (the wind and water heard as they change)
+    };
+  }
   frame(now) {
     requestAnimationFrame((t) => this.frame(t));
     const frameMs = now - this.last;
@@ -1393,7 +1425,14 @@ class Game {
       const hid = (this.hoverGrab && this.hoverGrab.id) || this.panelHover || null;
       vis.rigging.highlight(hid);
       this.renderer.updateGrabMarkers(show ? vis.rigging.grabs() : [], hid, GRAB_PX);
-    }
+      // what the automatic crew / weight / autopilot is working glows on deck and in the panel (js/autoglow.js); the
+      // labels by the parts go with the coach's text
+      if (vis) {
+        if (!this._autoGlow || this._autoGlow.vis !== vis) { if (this._autoGlow) this._autoGlow.dispose(); this._autoGlow = new AutoGlow(vis, vis.rigging); }
+        if (this.crew) this._autoGlow.update(this.crew.hl, this.t, this.renderer.camera, show && this.coachText !== false, vis.wheel ? 'Wheel' : C_TILLER(p));
+        else this._autoGlow.clear();
+      }
+    } else if (this._autoGlow) this._autoGlow.clear();
     { const pl = this.skyPlace(); this.renderer.setClock(this.netEpoch !== null ? Date.now() : (this.clockBase ?? Date.now()) + this.t * 1000, pl.lat, pl.lon); }
     this.renderer.update(dt, tDraw, { env: this.env, boats: this.boats, player: p });
     if (!this.idle && this.running) {
@@ -1467,6 +1506,7 @@ class Game {
     // automatic trim: the crew does what autoTrim wants through the real lines and hardware (js/crew.js), so the panel,
     // the cleats, the winches and the sounds show it working (the idle demo's too; the autopilot's trim below as well)
     const cr = this.crew || (this.crew = new Crew());
+    cr.pre(b);                                                    // (what the automation touches lights up on deck: js/autoglow.js)
     if ((b.auto.trim || this.idle) && !b.unmanned && !apOn) { cr.begin(b); autoTrim(b, dt, 0, true); cr.end(b, dt); }
     if (apOn) {
       if (b.unmanned || b.sunk || (b.anchor && b.anchor.state !== 'up' && b.anchor.state !== 'weighing') || (b.moor && b.moor.tied)) this.disengageAutopilot(b.unmanned ? 'Autopilot off — crew overboard' : 'Autopilot off');
@@ -1483,6 +1523,7 @@ class Game {
       }
     }
     if (this.idle) this.idleHelm(dt);
+    cr.post(b, dt, apOn || this.idle);
     for (const ai of this.ais) {
       const i = this.boats.indexOf(ai.b);
       ai.update(dt, this.t, this, this.race ? this.race.racers[i] : null, this.course, this.targets ? { up: this.targets.up.twa, dn: this.targets.dn.twa } : null);
