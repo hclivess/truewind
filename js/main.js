@@ -134,6 +134,7 @@ class Game {
     this.resize();
     this.last = performance.now();
     requestAnimationFrame((t) => this.frame(t));
+    this.backgroundClock();
     // idle scene behind the menu
     this.startSession(true).catch(e => console.error(e));
   }
@@ -1022,10 +1023,11 @@ class Game {
       this.keys.delete(k); if (e.code) this.keys.delete('#' + e.code); if (e.key === 'Shift') this.keys.delete('Shift');
     });
     window.addEventListener('blur', () => this.keys.clear());
-    // a background tab stops drawing frames: silence the sea too, and bring it back on return
+    // a background tab stops drawing frames but the sea goes on (Game.backgroundClock), and so does its sound;
+    // coming back, a context the browser suspended meanwhile is woken
     document.addEventListener('visibilitychange', () => {
       const ctx = this.audio.ctx; if (!ctx) return;
-      if (document.hidden) ctx.suspend(); else if (this.audio.on && this.running) ctx.resume();
+      if (!document.hidden && this.audio.on && this.running && ctx.state === 'suspended') ctx.resume();
     });
     const cv = $('#view');
     let drag = null;
@@ -1331,6 +1333,34 @@ class Game {
   }
 
   // ------------------------------------------------------------ loop
+  // the sea does not stop when you look away: a hidden or minimised window gets no animation frames, so a
+  // worker's clock (a page's own timers are throttled to once a second or a minute in the background; a worker's
+  // are not) steps the physics to real time without drawing. Pause stays the Pause button's (P) alone.
+  backgroundClock() {
+    let w;
+    try { w = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 100)'], { type: 'text/javascript' }))); }
+    catch (e) { return; }
+    w.onmessage = () => {
+      const now = performance.now();
+      if (!document.hidden) { this._bgLast = null; return; }
+      const last = this._bgLast ?? now; this._bgLast = now; this.last = now;
+      if (!this.env || !this.player || !this.running) return;
+      const dt = Math.min(1, Math.max(0, (now - last) / 1000));
+      if (this.netEpoch !== null) {
+        const target = Date.now() / 1000 - this.netEpoch;
+        if (target - this.t > 2 || target < this.t - 2) { this.t = target; this.acc = 0; } else this.acc = target - this.t;
+      } else this.acc = (Number.isFinite(this.acc) ? this.acc : 0) + (this.paused ? 0 : dt * this.timeWarp);
+      let steps = 0; const maxSteps = Math.ceil(1.2 * this.timeWarp / PHYS_DT);
+      while (this.acc >= PHYS_DT && steps < maxSteps) {
+        for (const b of this.boats) { b._prev = { x: b.x, z: b.z, psi: b.psi, heave: b.heave, pitch: b.pitch, phi: b.phi }; snapRig(b); }
+        this.step(PHYS_DT); this.acc -= PHYS_DT; steps++;
+      }
+      if (steps >= maxSteps) this.acc = 0;
+      if (this.traffic && steps) { this.traffic.update(steps * PHYS_DT, this.t, this.env, this.boats); this._tDraw = this.t; }
+      if (this.env.tick(this.t)) this.renderer.setWaves(this.env.waves);
+      if (this.audio && this.audio.on) this.audio.update(this.player, dt, this.renderer.rainNow || 0);   // (the wind and water heard as they change)
+    };
+  }
   frame(now) {
     requestAnimationFrame((t) => this.frame(t));
     const frameMs = now - this.last;
