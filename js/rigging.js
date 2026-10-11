@@ -865,7 +865,7 @@ export class Rigging {
       this._onDeck.add(p); return p;
     };
     const bank = (i) => { const cx0 = this.clutchX; return [dk(cx0 + 0.13, 0.06 + i * 0.062), V(cx0 + 0.7, 0.06 + i * 0.062, vis.deckH(cx0, 0.1))]; };   // a bank on the aft end of the cabin top
-    if (h === 'clutch' && this.cabinLines && this.cabinLines.includes(k)) return bank(this.cabinLines.indexOf(k));
+    if ((h === 'clutch' || h === 'lock') && this.cabinLines && this.cabinLines.includes(k)) return bank(this.cabinLines.indexOf(k));
     switch (k) {
       case 'main': {
         if (this.ratchet) return [this.ratchet.position, V(hw.ratchetX + 1, 0, hw.ratchetZ)];

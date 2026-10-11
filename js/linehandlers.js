@@ -67,6 +67,9 @@ export const HANDLERS = {
   // push-button traveller car: a sprung plunger drops into holes in the track; push the button to move the car,
   // it stops only at a hole
   pinStop: { name: 'Push-button car', icon: 'pinStop', slip: Infinity, lockT: 0.4, releaseT: 0.3, release: 'dump', oneWay: false, holes: 11, op: 'let the plunger drop into a hole / push the button' },
+  // halyard lock aloft (a Karver-type hook at the hounds, est. for a grand-prix boat): the ring on the halyard drops into
+  // the hook and the lock takes the sail's whole load; the tail's jammer at the pit only hoists and trips it (drawn)
+  lock: { name: 'Halyard lock', icon: 'clutch', slip: Infinity, lockT: 2.0, releaseT: 1.5, release: 'dump', oneWay: false, op: 'hoist past the hook and ease onto it / take the load up and trip it' },
   // self-tailing winch: three turns on the drum and the jaws on top hold it; out of the jaws it is eased by hand
   // round the drum (letting it fly throws the turns off)
   selfTailer: { name: 'Self-tailing winch', icon: 'selfTailer', slip: Infinity, wraps: 3, lockT: 0.3, releaseT: 0.5, release: 'ease', oneWay: true, winch: true, op: 'flick it into the jaws / pull it out and ease round the drum' },
