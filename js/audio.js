@@ -11,9 +11,24 @@ export function rainLevels(r, o = {}) {
   o.pat = 0.45 * Math.min(1, 3 * r) * (1 - 0.4 * hv); o.drum = 0.5 * hv * hv * (3 - 2 * hv); o.roar = 0.22 * hv * hv;
   return o;
 }
+// The mixer: a master volume and a channel per kind of sound, each a slider position 0..1 (1: the level as made).
+// amb: the wind in the rig, the sea along the hull, rain and thunder; gear: flogging sails, the boom's and the hull's
+// slams, the lines' winches, blocks and cleats; eng: every engine heard (yours and the other boats'); sig: the race
+// horn and beeps; life: the birds' calls, the whales' blows, splashes (js/wildlife-render.js)
+export const CHANNELS = [['master', 'Master'], ['amb', 'Wind & sea'], ['gear', 'Sails & gear'], ['eng', 'Engines'], ['sig', 'Horn & signals'], ['life', 'Wildlife']];
+// a slider position to a gain: squared, so the travel follows loudness rather than amplitude (half way is -12 dB)
+export function volGain(v) { v = Math.max(0, Math.min(1, +v || 0)); return v * v; }
+// a stored mix, checked (it comes from storage): every channel 0..1, a missing or bad one at full
+export function cleanVol(o) {
+  const out = {};
+  for (const [k] of CHANNELS) { const v = o && typeof o === 'object' ? o[k] : undefined; out[k] = Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1; }
+  return out;
+}
+const MASTER = 0.7;   // the master gain at full: the level the compressor was set for
 export class Audio {
   constructor() {
     this.ctx = null; this.on = true; this.acc = 0;
+    this.vol = cleanVol(null);
     // the renderer fires 'truewind:thunder' when a strike's sound reaches the camera (render.js _lightning)
     if (typeof window !== 'undefined') window.addEventListener('truewind:thunder', (e) => this.thunder(e.detail));
   }
@@ -67,13 +82,16 @@ export class Audio {
     const ctx = this.ctx = new AC({ latencyHint: 'playback' });
     const src = (buf, rate = 1) => { const s = ctx.createBufferSource(); s.buffer = buf; s.loop = true; s.playbackRate.value = rate; s.start(); return s; };
     const nA = this._noise(ctx, 7.3, 1), nB = this._noise(ctx, 5.1, 7), nC = this._noise(ctx, 6.7, 13);
-    this.master = ctx.createGain(); this.master.gain.value = 0.7;
+    this.master = ctx.createGain(); this.master.gain.value = MASTER * volGain(this.vol.master);
     const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 3;
     this.master.connect(comp); comp.connect(ctx.destination);
-    const chain = (buf, rate, type, f, q) => {
+    // the channels (CHANNELS): every sound goes through one of these into the master
+    this.bus = {};
+    for (const [k] of CHANNELS) if (k !== 'master') { const g = this.bus[k] = ctx.createGain(); g.gain.value = volGain(this.vol[k]); g.connect(this.master); }
+    const chain = (buf, rate, type, f, q, bus = this.bus.amb) => {
       const flt = ctx.createBiquadFilter(); flt.type = type; flt.frequency.value = f; flt.Q.value = q;
       const g = ctx.createGain(); g.gain.value = 0;
-      src(buf, rate).connect(flt); flt.connect(g); g.connect(this.master);
+      src(buf, rate).connect(flt); flt.connect(g); g.connect(bus);
       return { flt, g };
     };
     this.wind = chain(nA, 1, 'bandpass', 400, 0.6);
@@ -81,10 +99,10 @@ export class Audio {
     this.water = chain(nC, 1, 'lowpass', 900, 0.5);
     this.hiss = chain(nB, 1.3, 'highpass', 2500, 0.3);
     // flogging: band-limited noise amplitude-modulated by a smooth LFO (sine), no gating clicks
-    const fl = chain(nC, 1.0, 'lowpass', 380, 0.5);
+    const fl = chain(nC, 1.0, 'lowpass', 380, 0.5, this.bus.gear);
     this.flog = fl;
     const mod = ctx.createGain(); mod.gain.value = 0.55;
-    fl.g.disconnect(); fl.g.connect(mod); mod.connect(this.master);
+    fl.g.disconnect(); fl.g.connect(mod); mod.connect(this.bus.gear);
     const lfo = ctx.createOscillator(); lfo.frequency.value = 6;
     const lfoDepth = ctx.createGain(); lfoDepth.gain.value = 0.25;
     lfo.connect(lfoDepth); lfoDepth.connect(mod.gain); lfo.start();
@@ -96,6 +114,15 @@ export class Audio {
     this.rainRoar = chain(nC, 0.8, 'lowpass', 450, 0.5);
     this.rainPat = chain(this._drops(ctx, 5.3, 41, 45, false), 1, 'highpass', 300, 0.5);
     this.rainDrum = chain(this._drops(ctx, 3.7, 77, 260, true), 1, 'highpass', 70, 0.5);
+  }
+
+  // a channel's (or the master's) slider, 0..1: glides there in 50 ms
+  setVolume(k, v) {
+    if (!(k in this.vol)) return;
+    this.vol[k] = Math.max(0, Math.min(1, +v || 0));
+    if (!this.ctx) return;
+    const p = k === 'master' ? this.master.gain : this.bus[k].gain, g = (k === 'master' ? MASTER : 1) * volGain(this.vol[k]);
+    p.cancelScheduledValues(this.ctx.currentTime); p.setTargetAtTime(g, this.ctx.currentTime, 0.05);
   }
 
   // called every frame; parameters glide at 10 Hz with long time constants. rain: the rain rate at the
@@ -149,8 +176,8 @@ export class Audio {
     const noise = (off, len, loop) => { const n = ctx.createBufferSource(); n.buffer = this._white; n.loop = loop; n.start(t0, off); n.stop(t0 + len); return n; };
     const filt = (type, f, q = 0.7) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; };
     const out = (p) => {
-      if (!ctx.createStereoPanner) return this.master;
-      const n = ctx.createStereoPanner(); n.pan.value = Math.max(-1, Math.min(1, p)); n.connect(this.master);
+      if (!ctx.createStereoPanner) return this.bus.amb;
+      const n = ctx.createStereoPanner(); n.pan.value = Math.max(-1, Math.min(1, p)); n.connect(this.bus.amb);
       return n;
     };
     const shade = 1 + 0.35 * Math.min(0, front);
@@ -190,13 +217,87 @@ export class Audio {
     this.lastThunder = { d, dur, fc, at: t0, pan: rp };
   }
 
+  // Wildlife (js/wildlife-render.js), through the Wildlife channel: a gull's or a tern's call, a whale's blow, a
+  // dolphin's or a turtle's breath, a splash, a breach. d: the distance (m): heard d / 343 s after it happened,
+  // quieter by 1/d beyond 10 m and duller far off (the air takes the highs); pan -1..1; gain 0..1; seed varies it.
+  // At most six at once (a flock taking off is a few calls, not forty).
+  wildlife(kind, d = 50, pan = 0, gain = 1, seed = 1) {
+    if (!this.ctx || !this.on || !this.bus || !this.bus.life || this.ctx.state !== 'running') return;
+    if ((this._wlv || 0) >= 6) return;
+    const ctx = this.ctx, att = gain * Math.min(1, 10 / Math.max(d, 1));
+    if (att < 0.004) return;
+    let s = (seed >>> 0) + 0x9e3779b9; const rnd = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296;
+    const t0 = ctx.currentTime + 0.03 + d / 343;
+    if (!this._wlNoise) {
+      const n = ctx.sampleRate * 2, b = ctx.createBuffer(1, n, ctx.sampleRate), x = b.getChannelData(0);
+      for (let i = 0; i < n; i++) x[i] = Math.random() * 2 - 1;
+      this._wlNoise = b;
+    }
+    const out = ctx.createGain(); out.gain.value = att;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 800 + 15000 * Math.exp(-d / 500);
+    const pn = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.createGain();
+    if (pn.pan) pn.pan.value = Math.max(-1, Math.min(1, pan));
+    out.connect(lp); lp.connect(pn); pn.connect(this.bus.life);
+    let end = t0;
+    const env = (g, a, at, dur, atk = 0.015) => { g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(a, at + atk); g.gain.exponentialRampToValueAtTime(0.0001, at + dur); end = Math.max(end, at + dur); };
+    const noise = (at, dur, type, f, q, a, atk) => {
+      const src = ctx.createBufferSource(); src.buffer = this._wlNoise; src.loop = true;
+      const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
+      const g = ctx.createGain(); env(g, a, at, dur, atk);
+      src.connect(fl); fl.connect(g); g.connect(out); src.start(at, rnd() * 1.5); src.stop(at + dur + 0.05);
+      return fl;
+    };
+    // a call note: a harmonic-rich tone through the syrinx's formant, its pitch falling (f0 -> f1, peaking at fp)
+    const note = (at, dur, f0, fp, f1, form, a, rasp = 0) => {
+      const o = ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f0, at); o.frequency.linearRampToValueAtTime(fp, at + dur * 0.3); o.frequency.linearRampToValueAtTime(f1, at + dur);
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = form; bp.Q.value = 1.1;
+      const g = ctx.createGain(); env(g, a, at, dur, 0.02);
+      o.connect(bp); bp.connect(g);
+      if (rasp) {   // (a harsh call: the note amplitude-modulated, buzzy)
+        const am = ctx.createGain(); am.gain.value = 0.5; const lfo = ctx.createOscillator(); lfo.frequency.value = rasp; const dg = ctx.createGain(); dg.gain.value = 0.5;
+        lfo.connect(dg); dg.connect(am.gain); g.connect(am); am.connect(out); lfo.start(at); lfo.stop(at + dur + 0.05);
+      } else g.connect(out);
+      o.start(at); o.stop(at + dur + 0.05);
+    };
+    switch (kind) {
+      case 'gull': case 'gullDeep': {     // a herring gull's "kyow" notes, a big gull's deeper
+        const k = kind === 'gullDeep' ? 0.68 : 1, n = 1 + Math.floor(rnd() * 5);
+        for (let i = 0; i < n; i++) { const at = t0 + i * (0.3 + 0.08 * rnd()); note(at, 0.22 + 0.08 * rnd(), 950 * k, 1350 * k, 800 * k, 2300 * k, 0.32); }
+        break;
+      }
+      case 'gullSmall': { const n = 1 + Math.floor(rnd() * 2); for (let i = 0; i < n; i++) note(t0 + i * 0.42, 0.34, 1500, 1750, 1150, 2600, 0.28, 55); break; }   // "kree-ar"
+      case 'laugh': { const n = 5 + Math.floor(rnd() * 5); for (let i = 0; i < n; i++) note(t0 + i * (0.15 + 0.012 * i), 0.11, 1050, 1200, 900, 2100, 0.3); break; }   // a laughing gull's "ha-ha-ha"
+      case 'tern': case 'ternDeep': { const k = kind === 'ternDeep' ? 0.55 : 1; note(t0, 0.38, 2900 * k, 3100 * k, 2100 * k, 3300 * k, 0.26, 70 * k); break; }   // "kee-arr"
+      case 'blow': {    // a whale's explosive exhalation, the inhalation after it
+        noise(t0, 1.3, 'bandpass', 520, 0.6, 0.9, 0.04); noise(t0, 0.9, 'lowpass', 1800, 0.5, 0.35, 0.03);
+        noise(t0 + 1.5, 0.75, 'bandpass', 1100, 0.8, 0.22, 0.12);
+        break;
+      }
+      case 'puff': noise(t0, 0.2, 'bandpass', 1400, 0.7, 0.5, 0.008); break;
+      case 'splash': {
+        noise(t0, 0.45, 'lowpass', 2600, 0.5, 0.6, 0.005);
+        const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.setValueAtTime(320, t0); o.frequency.exponentialRampToValueAtTime(110, t0 + 0.09); env(g, 0.25, t0, 0.12, 0.003); o.connect(g); g.connect(out); o.start(t0); o.stop(t0 + 0.15);
+        break;
+      }
+      case 'breach': {
+        const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.setValueAtTime(70, t0); o.frequency.exponentialRampToValueAtTime(38, t0 + 0.5); env(g, 0.9, t0, 0.7, 0.01); o.connect(g); g.connect(out); o.start(t0); o.stop(t0 + 0.75);
+        noise(t0, 2.6, 'lowpass', 900, 0.5, 0.8, 0.02);
+        break;
+      }
+      default: return;
+    }
+    this._wlv = (this._wlv || 0) + 1;
+    setTimeout(() => { this._wlv--; try { out.disconnect(); } catch (e) { /* gone */ } }, (end - ctx.currentTime + 0.3) * 1000);
+  }
+
   thump(a) {
     if (!this.ctx) return;
     const ctx = this.ctx, t = ctx.currentTime;
     const o = ctx.createOscillator(), g = ctx.createGain();
     o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.25);
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.55 * a, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
-    o.connect(g); g.connect(this.master); o.start(t); o.stop(t + 0.4);
+    o.connect(g); g.connect(this.bus.gear); o.start(t); o.stop(t + 0.4);
   }
   horn(long = false) {
     if (!this.ctx || !this.on) return;
@@ -206,14 +307,14 @@ export class Audio {
       o.type = 'sawtooth'; o.frequency.value = f;
       const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400;
       g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.16, t + 0.05); g.gain.setValueAtTime(0.16, t + dur); g.gain.linearRampToValueAtTime(0, t + dur + 0.12);
-      o.connect(lp); lp.connect(g); g.connect(this.master); o.start(t); o.stop(t + dur + 0.2);
+      o.connect(lp); lp.connect(g); g.connect(this.bus.sig); o.start(t); o.stop(t + dur + 0.2);
     }
   }
   beep() {
     if (!this.ctx || !this.on) return;
     const ctx = this.ctx, t = ctx.currentTime + 0.02, o = ctx.createOscillator(), g = ctx.createGain();
     o.frequency.value = 880; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
-    o.connect(g); g.connect(this.master); o.start(t); o.stop(t + 0.2);
+    o.connect(g); g.connect(this.bus.sig); o.start(t); o.stop(t + 0.2);
   }
   // winch ratchet click
   click() {
@@ -221,7 +322,7 @@ export class Audio {
     const ctx = this.ctx, t = ctx.currentTime + 0.01, o = ctx.createOscillator(), g = ctx.createGain();
     o.type = 'square'; o.frequency.value = 2400;
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.025);
-    o.connect(g); g.connect(this.master); o.start(t); o.stop(t + 0.04);
+    o.connect(g); g.connect(this.bus.gear); o.start(t); o.stop(t + 0.04);
   }
 
   // Lines: a winch's pawls clicking as its drum turns (the click rate from the drum's speed; under load slower, heavier
@@ -289,7 +390,7 @@ export class Audio {
     const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.createGain();
     if (!pan.pan) pan.pan = { setTargetAtTime() {} };
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7000; lp.Q.value = 0.9;
-    lp.connect(pan); pan.connect(out); out.connect(this.master);
+    lp.connect(pan); pan.connect(out); out.connect(this.bus.gear);
     V = { out, pan, lp, whirr: 0, wg: { gain: { value: 0, setTargetAtTime() {} } } };
     map.set(k, V);
     return V;
@@ -367,7 +468,7 @@ export class Audio {
     const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.createGain();
     if (!pan.pan) pan.pan = { setTargetAtTime() {} };
     const out = ctx.createGain(); out.gain.value = 0;
-    tone.connect(lp); bark.connect(lp); st.connect(lp); lp.connect(pan); pan.connect(out); out.connect(this.master);
+    tone.connect(lp); bark.connect(lp); st.connect(lp); lp.connect(pan); pan.connect(out); out.connect(this.bus.eng);
     const oscs = [o1, o2, am, so, sAm, ns];
     for (const o of oscs) o.start(t);
     return { o1, o2, am, tone, bark, st, lp, pan, out, oscs, end: 0 };

@@ -6,9 +6,13 @@ import { drawTrafficMap } from './traffic.js';
 import { RULE_SHORT } from './rules.js';
 import { lineStatus, ropeLook, ropeKey, lineName, HANDLERS, specOf, lineSpecs, lineLoad, handLoad, tackleOf } from './linehandlers.js';
 import { ropeCSS } from './linegear.js';
+import { HudLayout } from './hudlayout.js';
 
 // a small drawing of each kind of line handler for the panel (16 x 12, in the text colour)
 const ICONS = {
+  // a captive winch: the drum below the deck line, the line down into it; a hydraulic ram: cylinder and rod
+  captive: '<path d="M1 5h14"/><rect x="4.5" y="6.5" width="7" height="4.5" rx="1"/><path d="M8 1v8"/>',
+  ram: '<rect x="1.5" y="4" width="8" height="4" rx="1"/><path d="M9.5 6h5M14.5 4v4"/>',
   cam: '<circle cx="5" cy="6" r="3.2"/><circle cx="11" cy="6" r="3.2"/><path d="M1 11.3h14"/>',
   clam: '<path d="M2 2l6 8 6-8M4.3 3.4l1.4 1.9M11.7 3.4l-1.4 1.9M6.4 2.6l1 1.4M9.6 2.6l-1 1.4"/>',
   jam: '<path d="M1.5 2.5h3.2l3.3 6 3.3-6h3.2l-5.4 8.5h-2.2z" fill="currentColor" stroke="none"/>',
@@ -54,6 +58,8 @@ export class HUD {
     $('#rig-adv').addEventListener('click', () => this.setRigAdvanced(!$('#rig').classList.contains('adv')));
     this.setRigAdvanced(pref('tw-rig-adv') === '1', false);
     this.setRigCollapsed(pref('tw-rig-collapsed') === '1', false);
+    // the player's own panel layout (moved / hidden panels): the clear middle and the rig's height measured afresh
+    this.layout = new HudLayout(() => { this._nmBox = null; this._rigMH = null; });
   }
   setRigCollapsed(on, save = true) {
     const r = $('#rig'); r.classList.toggle('collapsed', on);
@@ -172,6 +178,7 @@ export class HUD {
     this.pumpCrew();
     this.updateWork(b, dt);
     this.updateNextMark(b);
+    this.flashRig();
     if (this.acc < 0.1) return;
     this.acc = 0;
     const d = b.diag, C = b.cls;
@@ -321,11 +328,18 @@ export class HUD {
     $('#eng-fuel').textContent = `${fmt(e.lh, 1)} L/h`;
   }
 
-  // the rig panel lives between the race card and the bottom edge: never under the standings
+  // the rig panel lives between the race card and the bottom edge: never under the standings. Moved (HUD layout), it
+  // reaches from where it is anchored to the far edge of the window; the race card counts only while it is above it
   fitRig() {
-    const rc = $('#race-card').getBoundingClientRect(), rig = $('#rig');
-    const bottomGap = window.innerHeight - rig.getBoundingClientRect().bottom;
-    const mh = Math.max(160, Math.floor(window.innerHeight - rc.bottom - 10 - bottomGap));
+    const rig = $('#rig'), H = window.innerHeight, a = this.layout && this.layout.placed('rig');
+    let mh;
+    if (a) mh = Math.max(160, Math.floor(H - (a.ay === 'm' ? 0 : Math.max(0, a.dy)) - 12));
+    else {
+      const rc = $('#race-card').getBoundingClientRect(), R = rig.getBoundingClientRect();
+      const above = rc.width > 0 && rc.right > R.left && rc.left < R.right && rc.top < R.top + 40;
+      const bottomGap = H - R.bottom;
+      mh = Math.max(160, Math.floor(H - (above ? rc.bottom + 10 : 12) - bottomGap));
+    }
     if (this._rigMH !== mh) { this._rigMH = mh; rig.style.maxHeight = mh + 'px'; }
   }
 
@@ -428,6 +442,28 @@ export class HUD {
     else if (k === 'vang' && S.main.vang === 'none') txt = 'none';
     else txt = `${Math.round(v * 100)}%`;
     return { txt, frac: clamp(frac, 0, 1) };
+  }
+  // the row of the line the automatic crew / autopilot is working lights with it on deck (js/autoglow.js), and the
+  // button for the way it went (Trim / Ease, Port / Stbd ...); a reef its chip. Inline styles: nothing to rebuild.
+  flashRig() {
+    const hl = this.g.crew && this.g.player && this.g.player.auto && this.g.crew.hl, F = this._flash || (this._flash = {});
+    for (const k in F) if (!hl || !hl[k] || !(hl[k].a > 0.01)) { const f = F[k]; if (f.row) { f.row.style.background = ''; if (f.btn) f.btn.style.boxShadow = ''; } delete F[k]; }
+    if (!hl) return;
+    for (const k in hl) {
+      const e = hl[k]; if (!(e.a > 0.01)) continue;
+      let f = F[k];
+      if (!f || !(f.row && f.row.isConnected) || f.dir !== e.dir) {
+        if (f && f.btn) f.btn.style.boxShadow = '';
+        const row = k === 'helm' ? document.getElementById('o-helm')?.closest('.ln') : k === 'reef' ? document.querySelector(`#rig-body [data-reef="${this.g.player.ctrl.reef | 0}"]`) : k === 'throttle' ? document.getElementById('eng-thr') : document.querySelector(`#rig-body .ln[data-k="${k}"]`);
+        f = F[k] = { row, dir: e.dir, btn: row && row.classList.contains('ln') ? row.querySelector(`.nbtn[data-d="${e.dir}"]`) : null };
+      }
+      if (!f.row) continue;
+      const a = Math.round(e.a * 100) / 100;
+      if (f.a === a) continue;
+      f.a = a;
+      f.row.style.background = `rgba(255,179,92,${(0.2 * a).toFixed(3)})`;
+      if (f.btn) f.btn.style.boxShadow = `0 0 0 1px rgba(255,179,92,${(0.9 * a).toFixed(2)}), 0 0 8px rgba(255,179,92,${(0.6 * a).toFixed(2)})`;
+    }
   }
   updateRig(b) {
     const d = b.diag, S = b.sailBy;

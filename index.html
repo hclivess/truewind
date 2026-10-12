@@ -49,7 +49,7 @@
       <button class="chip" id="tb-chart" title="Chart and waypoints (Tab)" aria-label="Chart" aria-pressed="false">Chart</button>
       <button class="chip" id="tb-pilot" title="Autopilot: sail to the waypoint or the next mark, with a coach (Shift+O)" aria-label="Autopilot" aria-pressed="false">Pilot</button>
       <button class="chip" id="tb-rig" title="Rig panel" aria-label="Rig panel" aria-pressed="true">Rig</button>
-      <button class="chip" id="tb-sound" title="Sound (O)" aria-label="Sound" aria-pressed="true">Snd</button>
+      <button class="chip" id="tb-sound" title="Sound and volume (O: on / off)" aria-label="Sound and volume" aria-pressed="true" aria-haspopup="dialog" aria-expanded="false">Snd</button>
       <button class="chip" id="tb-help" title="Help (?)" aria-label="Help">?</button>
     </div>
   </section>
@@ -86,6 +86,11 @@
     <header><span class="eyebrow">Chart</span><span id="chart-title" class="muted"></span><span class="grow"></span><span id="chart-scale" class="muted small"></span>
       <button class="chip" id="chart-labels" title="Names and light characteristics" aria-pressed="true">Labels</button><button class="chip" id="chart-centre" title="Follow the boat">Boat</button><button class="chip" id="chart-clear" title="Clear the waypoint">Clear WP</button><button class="chip" id="chart-coach" title="The autopilot's coach text on / off" aria-pressed="true">Coach</button><button class="chip" id="chart-close" title="Close (Tab / Esc)">Close</button></header>
     <div class="chart-wrap"><canvas id="chart-cv" aria-label="Chart: click or tap to set a waypoint"></canvas><div id="chart-tip" hidden></div></div>
+  </section>
+
+  <section id="snd-pop" class="panel" hidden role="dialog" aria-label="Sound and volume">
+    <header><span class="eyebrow">Sound</span><button class="chip" id="snd-on" aria-pressed="true" title="Sound on / off (O)">On</button></header>
+    <div id="snd-mix"></div>
   </section>
 
   <div id="keys" class="muted"></div>
@@ -197,6 +202,7 @@
     </div>
     <footer class="menu-foot">
       <button id="start" class="btn primary">Cast off</button>
+      <button id="hud-arrange" class="btn ghost" hidden title="Move, hide or reset the panels on screen (Shift+L in game)">Arrange HUD</button>
       <button id="resume" class="btn ghost" hidden>Resume</button>
       <span class="muted small">Maps © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · Weather: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> · <a href="https://github.com/hclivess/truewind" target="_blank" rel="noopener">Source</a></span>
     </footer>
@@ -242,7 +248,8 @@
       <div>Damage<span>Loads break gear: shrouds part, sails tear or blow out, collisions and groundings hole the hull and she takes water (pump, or she sinks), a rudder bends, a keel can go. The Boat section of the rig panel shows it all, with the crew's strength (hiking and grinding tire them) — and Damage: off.</span></div>
       <div><kbd>-</kbd> <kbd>=</kbd><span>Time warp, up to ×8 (free sail, or racing until 20 s before the gun)</span></div>
       <div><kbd>P</kbd> <kbd>Esc</kbd><span>Pause (not online) · menu (<kbd>Esc</kbd> first closes the help, the chart or the results)</span></div>
-      <div><kbd>O</kbd> <kbd>?</kbd><span>Sound on / off · this help (also <kbd>F1</kbd>, <kbd>Shift</kbd>+<kbd>H</kbd>)</span></div>
+      <div><kbd>O</kbd> <kbd>?</kbd><span>Sound on / off (<b>Snd</b> on the toolbar: volume of each kind of sound) · this help (also <kbd>F1</kbd>, <kbd>Shift</kbd>+<kbd>H</kbd>)</span></div>
+      <div><kbd>Shift</kbd>+<kbd>L</kbd><span>Arrange the HUD (or <b>Arrange HUD</b> in the menu): drag any panel where you want it, hide the ones you don't need, reset to the default layout. Kept on this device</span></div>
       <div>Mouse<span>Drag to look around, wheel to zoom. Click the map to set a waypoint.</span></div>
       <div>Touch<span>Drag to look around, pinch to zoom, tap the map for a waypoint. Hold ◀ ▶ to steer and Trim / Ease for the sheets; the third row works one more line (tap its name for the next: traveler, vang, weight, board…). Tap a rope, winch or cleat on deck to grab it. Rig opens every line.</span></div>
     </div>

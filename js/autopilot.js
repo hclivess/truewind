@@ -75,18 +75,26 @@ export class Autopilot {
     if (key !== this.tgtKey) {
       this.tgtKey = key; this.arrived = false; this.shooting = false; this.vaneTwa = null; this.keySaid = null;
       this.tname = T0.label ? (T0.label === 'Waypoint' ? 'the waypoint' : T0.label) : 'the waypoint';
-      // a waypoint on the land or the shallows: the nearest water she can float in, and she stops there
+      // a waypoint on the land or the shallows: the nearest water she can float in, and she stops there (with room
+      // round it to heave to: the first spot deep enough lay on the very edge of the shallows, and her probes
+      // turned her off and back onto it all the way in)
       this.T = { x: T0.x, z: T0.z };
       if (w && !w.open && (w.sdfAt(T0.x, T0.z) < 3 || w.depthAt(T0.x, T0.z) < keel)) {
-        const d0 = w.sdfAt(T0.x, T0.z) < 0 ? 0 : w.depthAt(T0.x, T0.z);
+        const d0 = w.sdfAt(T0.x, T0.z) < 0 ? 0 : w.depthAt(T0.x, T0.z), R0 = Math.max(2 * L, 12);
+        const room = (x, z) => { for (let q = 0; q < 8; q++) if (w.depthAt(x + Math.cos(q * Math.PI / 4) * R0, z + Math.sin(q * Math.PI / 4) * R0) < keel) return false; return true; };
         found: for (let r = 10; r < 1500; r += 10) for (let a = 0; a < 6.28; a += 12 / r) {
           const x = T0.x + Math.cos(a) * r, z = T0.z + Math.sin(a) * r;
-          if (w.sdfAt(x, z) > 8 && w.depthAt(x, z) > keel + 0.5) { this.T = { x, z }; break found; }
+          if (w.sdfAt(x, z) > 8 && w.depthAt(x, z) > keel + 0.5 && room(x, z)) { this.T = { x, z }; break found; }
         }
         this.say('shallowWp', `${cap(this.tname)} is in ${d0 < 0.3 ? 'no water' : d0.toFixed(1) + ' m of water'}, too shallow for our ${b.cls.draft.toFixed(1)} m keel: we stop ${Math.round(Math.hypot(this.T.x - T0.x, this.T.z - T0.z))} m short, in water we can float in.`, t);
       }
       this.route = w && !w.open ? this.planRoute(w, this.T, keel) : null;
       if (this.route && this.route.length > 1) this.say('route', `Routing round the ${this.routeWhy}: ${this.route.length} legs, the first to ${pad3(Math.atan2(this.route[0][0] - b.x, -(this.route[0][1] - b.z)))}° (${distTxt(Math.hypot(this.route[0][0] - b.x, this.route[0][1] - b.z))}). A straight line to ${this.tname} would cross it.`, t);
+    }
+    // the tide falling under a waypoint chosen in water she could float in: chosen again (each half minute)
+    if (w && !w.open && t - (this.depthT ?? -99) > 30) {
+      this.depthT = t;
+      if (w.depthAt(this.T.x, this.T.z) < keel) { this.tgtKey = null; return this.toPoint(dt, t, sim, T0); }
     }
     const T = this.T, dist = Math.hypot(T.x - b.x, T.z - b.z), twd = waterTwd(b);
     // there: heave to (luffing, sheets eased) until she drifts off it, then sail back
@@ -112,28 +120,49 @@ export class Autopilot {
       if (b.sailBy.gennaker) b.ctrl.gen = false;
       h.steer(dt, brg, true); this.mode = 'shoot'; return;
     }
-    h.goal = goal;
+    h.goal = goal; h.goalEnd = this.T;
     h.update(dt, t, sim, null, null, this.targets);
     this.mode = h.mode;
   }
-  // the route's next point: the farthest one in clear water on a straight line (checked each second), or the waypoint
+  // the route's next point: the farthest one in clear water on a straight line (checked each second), or the waypoint.
+  // Off the route (a beat's tacks, the tide, the shallows turned from) with land or shallows now between her and its
+  // next point, or with no route and the straight line to the waypoint now crossing them, she plans again from where
+  // she is (at most every 20 s); a route found again much as it was is not news.
   nextGoal(sim, t) {
-    if (!this.route) return this.T;
     const b = this.b, w = sim.world, keel = b.cls.draft + 1, near = Math.max(40, 5 * b.cls.loa);
+    if (w && !w.open && t - (this.replanT ?? -99) > 20 && t - (this.skipT ?? -9) > 1) {
+      const P = this.route ? this.route[0] : [this.T.x, this.T.z];
+      if (Math.hypot(P[0] - b.x, P[1] - b.z) > near && !this.clearRun(w, b.x, b.z, P[0], P[1], keel)) {
+        this.replanT = t;
+        const was = this.route, r = this.planRoute(w, this.T, keel);
+        if (r) {
+          this.route = r;
+          const same = was && Math.hypot(was[0][0] - r[0][0], was[0][1] - r[0][1]) < 60;
+          if (!same) this.say('route', `${was ? 'Re-routing' : 'Routing'} round the ${this.routeWhy} from here: ${r.length} legs, the first to ${pad3(Math.atan2(r[0][0] - b.x, -(r[0][1] - b.z)))}° (${distTxt(Math.hypot(r[0][0] - b.x, r[0][1] - b.z))}). ${was ? 'We have been set off the old one' : `The straight line to ${this.tname} crosses it now`}.`, t, 30);
+        }
+      }
+    }
+    if (!this.route) return this.T;
     if (t - (this.skipT ?? -9) > 1) {
       this.skipT = t; let moved = false;
       while (this.route.length > 1 && (Math.hypot(this.route[0][0] - b.x, this.route[0][1] - b.z) < near || this.clearRun(w, b.x, b.z, this.route[1][0], this.route[1][1], keel))) { this.route.shift(); moved = true; }
-      if (this.route.length <= 1) { this.route = null; if (moved) this.say('leg', `Clear water to ${this.tname} now: sailing straight for it.`, t); return this.T; }
-      if (moved) this.say('leg', `Next leg: round to ${pad3(Math.atan2(this.route[0][0] - b.x, -(this.route[0][1] - b.z)))}° (${distTxt(Math.hypot(this.route[0][0] - b.x, this.route[0][1] - b.z))}), keeping to the deep water.`, t);
+      if (this.route.length <= 1 && (Math.hypot(this.route[0][0] - b.x, this.route[0][1] - b.z) < near || this.clearRun(w, b.x, b.z, this.T.x, this.T.z, keel))) { this.route = null; this.say('leg', `Clear water to ${this.tname} now: sailing straight for it.`, t); return this.T; }
+      // (each turn of the route is not news by itself: a leg called at most every 15 s)
+      if (moved) this.say('leg', `Next leg: round to ${pad3(Math.atan2(this.route[0][0] - b.x, -(this.route[0][1] - b.z)))}° (${distTxt(Math.hypot(this.route[0][0] - b.x, this.route[0][1] - b.z))}), keeping to the deep water.`, t, 15);
     }
     const p = this.route[0];
     if (!this.goalPt || this.goalPt.x !== p[0] || this.goalPt.z !== p[1]) this.goalPt = { x: p[0], z: p[1] };
     return this.goalPt;
   }
+  // a straight run in clear water: 15 m off the shore and the keel's depth (with a metre to spare) every 10 m; the
+  // last 60 m into a point closer in than that (a waypoint off a beach) may come as close as the point itself
   clearRun(w, ax, az, bx, bz, keel) {
     if (!w || w.open) return true;
-    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 10));
-    for (let i = 0; i <= n; i++) { const x = ax + (bx - ax) * i / n, z = az + (bz - az) * i / n; if (w.sdfAt(x, z) < 15 || w.depthAt(x, z) < keel) return false; }
+    const L = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(L / 10)), endS = Math.min(15, Math.max(2, w.sdfAt(bx, bz) * 0.8));
+    for (let i = 0; i <= n; i++) {
+      const x = ax + (bx - ax) * i / n, z = az + (bz - az) * i / n, need = (n - i) * L / n < 60 ? endS : 15;
+      if (w.sdfAt(x, z) < need || w.depthAt(x, z) < keel) return false;
+    }
     return true;
   }
   planRoute(w, T, keel) {
@@ -142,7 +171,9 @@ export class Autopilot {
     // (what is in the way: land, or only the shallows)
     let land = false; for (let i = 0; i <= 60; i++) if (w.sdfAt(b.x + (T.x - b.x) * i / 60, b.z + (T.z - b.z) * i / 60) < 0) land = true;
     this.routeWhy = land ? 'land' : 'shallows';
-    const g = w._apGrid && w._apGrid.keel === keel && w._apGrid.world === w ? w._apGrid : (w._apGrid = new RouteGrid(w, keel));
+    // (the grid's shallows are the tide's of now: built again once the level has moved 30 cm)
+    const lv = w.tide ? Math.round(w.levelAt(b.x, b.z) / 0.3) : 0;
+    const g = w._apGrid && w._apGrid.keel === keel && w._apGrid.world === w && w._apGrid.lv === lv ? w._apGrid : (w._apGrid = Object.assign(new RouteGrid(w, keel), { lv }));
     const pts = g.plan(b.x, b.z, T.x, T.z, 25, g.M * g.M);
     if (!pts) return null;
     const r = []; for (let i = 2; i + 1 < pts.length; i += 2) r.push([pts[i], pts[i + 1]]);
@@ -218,12 +249,16 @@ export class Autopilot {
       } else if (e.k === 'gen') {
         const gn = (b.sailBy.gennaker && b.sailBy.gennaker.label || 'gennaker').toLowerCase(), awa = dg(b.diag.awaMid ?? b.diag.awa ?? 0);
         if (e.up) this.say('gen', `Hoisting the ${gn}: ${awa > 90 ? 'apparent wind is aft of the beam' : `the wind is ${dg(e.twa)}° off the bow, broad enough to carry it`}, and it pulls far harder than the jib there.`, t, 6);
-        else this.say('gen', `Dropping the ${gn}: ${e.why === 'bottom' ? `the leeward mark is close — down before we round and head up` : e.why === 'beat' ? `we're heading upwind, and it can't set that close to the wind` : `at ${dg(e.twa)}° off the wind it's too close to set (it wants ${e.from}° or more)`}.`, t, 6);
+        else this.say('gen', `Dropping the ${gn}: ${e.why === 'bottom' ? (this.o && this.o.racer ? `the leeward mark is close — down before we round and head up` : `${this.tname || 'the waypoint'} is close — down in good time, before we get there`) : e.why === 'beat' ? `we're heading upwind, and it can't set that close to the wind` : `at ${dg(e.twa)}° off the wind it's too close to set (it wants ${e.from}° or more)`}.`, t, 6);
       } else if (e.k === 'reef') {
         const heel = dg(b.phi);
         this.say('reef', e.to > e.from ? `Reefing${e.to > 1 ? ' again' : ''}: ${Math.round(e.tws)} kn and ${heel}° of heel — a smaller main keeps her on her feet and the helm light.` : `Shaking out ${e.to ? 'a' : 'the'} reef: down to ${Math.round(e.tws)} kn, she wants the sail back.`, t);
       } else if (e.k === 'shoal') {
-        this.say('shoal', `Shallows on our track (${e.depth.toFixed(1)} m ahead, we draw ${b.cls.draft.toFixed(1)} m): ${e.off >= 180 ? 'no clear heading — turning for the deepest water' : `steering ${e.off}° off to keep water under the keel`}.`, t, 20);
+        this.shoalOn = true;
+        this.say('shoal', `Shallows on our track (${e.depth.toFixed(1)} m ahead, we draw ${b.cls.draft.toFixed(1)} m): ${e.off >= 180 ? 'no clear heading — turning for the deepest water' : `steering ${e.off}° off to keep water under the keel`}.`, t, 30);
+      } else if (e.k === 'shoalClear') {
+        if (this.shoalOn && e.held > 8) this.say('shoalClear', `Clear of the shallows: back on course for ${this.tn()}.`, t, 45);
+        this.shoalOn = false;
       } else if (e.k === 'give') {
         const nm = e.o.name || 'the other boat', rs = WHY[e.rule] || RULE_SHORT[e.rule] || `rule ${e.rule}`;
         const txt = e.rule === '18.2' ? `Giving ${nm} mark-room (rule 18.2): she's inside us at the mark.`
@@ -242,12 +277,16 @@ export class Autopilot {
     const key = m === 'reach' ? (tw < this.up + 10 * DEG ? 'beat' : tw > this.dn - 8 * DEG ? 'run' : 'reach:' + pointOf(Math.max(tw, 52 * DEG))) : m;
     if (key !== this.keySeen) { this.keySeen = key; this.keyT = t; }
     const first = this.keySaid === null;
-    if (key !== this.keySaid && (t - this.keyT > (first ? 0.6 : 3) || ['penalty', 'capsized'].includes(m))) {
+    // (one reach for another, a beam reach for a close one as the shallows turn her a few degrees off and back, is
+    // said once it has held ten seconds, and not within half a minute of the last such line)
+    const minor = key.startsWith('reach:') && (this.keySaid || '').startsWith('reach:');
+    if (key !== this.keySaid && (t - this.keyT > (first ? 0.6 : minor ? 10 : 3) || ['penalty', 'capsized'].includes(m))) {
       const prevTw = this.keyTw; this.keySaid = key; this.keyTw = tw;
+      const quiet = minor && t - (this.lastSaid.mode ?? -1e9) < 30;
       // (rounding a mark the point of sailing changes by the second: the rounding's own line says it)
       const rr = this.o && this.o.racer, CC = this.o && this.o.course, lg = rr && CC && CC.legs[rr.leg];
       const atMark = lg && lg.type === 'mark' && this.markSaid === rr.leg && Math.hypot(lg.mark.x - b.x, lg.mark.z - b.z) < 6 * b.cls.loa + 30;
-      if (!atMark) this.sayMode(key.split(':')[0], tw, prevTw, first, t, brg, twd);
+      if (!atMark && !quiet) this.sayMode(key.split(':')[0], tw, prevTw, first, t, brg, twd);
     }
     // mark rounding (racing)
     const r = this.o && this.o.racer, C = this.o && this.o.course;

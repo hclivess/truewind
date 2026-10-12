@@ -73,6 +73,13 @@ export const HANDLERS = {
   // winch + cam cleat beside it (J/70: Harken B8 / SnubbAir with cam cleats): two turns on the drum, then the cam
   winchCam: { name: 'Winch + cam', icon: 'winchCam', slip: 'cam', wraps: 2, lockT: 0.3, releaseT: 0.3, release: 'ease', oneWay: true, winch: true, op: 'drop it into the cam / lift it out and ease round the drum' },
   // plain winch + horn cleat (traditional): the tail is held by hand round the drum until it is made fast
+  // captive winch (Rondal, Harken, Lewmar captive: a hydraulic drum below deck, the line led to it through a deck
+  // sheave): push-button in and out at the drum's line speed (vMax m/s light, slowing toward its rated pull), it holds
+  // anything and never needs casting off: easing is the drum running out under power. Nothing for a hand to tail
+  captive: { name: 'Captive winch (hydraulic)', icon: 'captive', slip: Infinity, lockT: 0.1, releaseT: 0.1, release: 'ease', oneWay: true, powered: true, vMax: 0.9, op: 'push-button: in / out' },
+  // hydraulic ram (a vang, backstay or outhaul cylinder; a hydraulic halyard tensioner): pumped on or bled off from the
+  // panel, it holds its pressure
+  ram: { name: 'Hydraulic ram', icon: 'ram', slip: Infinity, lockT: 0.1, releaseT: 0.1, release: 'ease', oneWay: true, powered: true, vMax: 0.05, op: 'panel: pump on / bleed off' },
   winchHorn: { name: 'Winch + horn cleat', icon: 'winchHorn', slip: Infinity, wraps: 3, lockT: 3.0, releaseT: 1.5, release: 'ease', oneWay: false, winch: true, op: 'figure-eights on the horn / cast off and ease round the drum' },
 };
 export const LINE_NAMES = { main: 'Mainsheet', jib: 'Jib sheet', lazy: 'Lazy jib sheet', gen: 'Gennaker sheet', stay: 'Staysail sheet', trav: 'Traveller', vang: 'Vang', cunn: 'Cunningham', outhaul: 'Outhaul', backstay: 'Backstay', jibHalyard: 'Jib halyard', tackLine: 'Tack line', mizzen: 'Mizzen sheet', fore: 'Foresheet' };
@@ -128,7 +135,7 @@ export function handlerOf(b, k) { return HANDLERS[specOf(b, k).handler]; }
 // tackle stretches: n parts of it between the blocks plus the lead to the handler, a total lengthInTackle, each
 // part carrying load / n, so at the load the tackle is a spring of stiffness n^2 EA / lengthInTackle.
 const SHEAVE = { ball: { e: 0.975, f0: 1.5 }, plain: { e: 0.935, f0: 4 } };
-const FIBRE_E = { polyester: 2.1e3, dyneema: 2.0e4 };                 // N/mm^2: rope EA / area at working loads
+const FIBRE_E = { polyester: 2.1e3, dyneema: 2.0e4, ram: 2.0e5 };     // N/mm^2: rope EA / area at working loads (ram: a hydraulic cylinder's steel rod)
 const ROPE_D = { main: 8, jib: 8, lazy: 8, gen: 7, stay: 8, mizzen: 8, fore: 8, trav: 6, vang: 6, cunn: 5, outhaul: 5, backstay: 5, jibHalyard: 6, tackLine: 6 };
 // metres of line at the load over the control's range (the boom end's travel for the mainsheet)
 export function lineTravel(C, k) {
@@ -191,9 +198,18 @@ export function handLoad(b, k, hauling) {
 export const HAND_SPEED = 1.6, HAUL = 300;
 export function handRate(b, k, hauling) {
   const tk = tackleOf(b.cls, specKey(b, k));
+  // (a powered handler moves the line at its own speed, slowing toward its rated pull: no hands on it)
+  const H = handlerOf(b, k);
+  if (H.powered) return poweredRate(b, k, H, tk);
   if (tk.winch && (k === 'jib' || k === 'lazy')) return null;
   const v = HAND_SPEED / (tk.purchase * tk.travel);
   return hauling ? v / (1 + (handLoad(b, k, true) / HAUL) ** 2) : v;
+}
+// a hydraulic winch or ram: its line speed (H.vMax light) through the purchase, falling to a third at its rated pull
+// (the class's sheetPower, or the line's own max)
+export function poweredRate(b, k, H = handlerOf(b, k), tk = tackleOf(b.cls, specKey(b, k))) {
+  const rated = specOf(b, k).max ?? (b.cls.sheetPower || 800), ld = clamp01(lineLoad(b, k) / rated);
+  return H.vMax * (1 - 0.67 * ld) / Math.max(0.05, tk.purchase * tk.travel);
 }
 // the key of the spec line k uses now (the jib control is the gennaker sheet while it flies)
 const specKey = (b, k) => ((k === 'jib' || k === 'lazy') && b.genDeploy > 0.5 && lineSpecs(b.cls).gen ? 'gen' : k);
@@ -309,6 +325,7 @@ export function work(b, k, trimming) {
   const H = handlerOf(b, k), st = b.lh[k];
   b.held[k] = 0.3;
   if (H.hand) { b.locks[k] = true; return 1; }                         // in the hand: nothing to open
+  if (H.powered) { b.locks[k] = true; return 1; }                      // a button: the drum or ram runs both ways
   if (trimming && H.oneWay) { b.locks[k] = true; return 1; }
   if (b.locks[k] !== false) { b.locks[k] = false; st.auto = true; }
   return st.s === 'free' ? 1 : 0;

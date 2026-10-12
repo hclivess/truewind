@@ -43,6 +43,9 @@ export const MATERIALS = {
   laminate: { warp: 600e3, fill: 350e3, bias: 120e3, rho: 0.18, D: 4e-3, layout: 'radial' },
   // heavy cruising / traditional cloth (a replica gaff rig's cream or tanbark sails: soft, heavy, stretchy on the bias)
   canvas: { warp: 150e3, fill: 210e3, bias: 14e3, rho: 0.42, D: 3e-3, layout: 'crosscut' },
+  // a superyacht's membrane (North 3Di / 3DL for a 40 m yacht's 400 m^2 main: est. ~5x a 35 ft laminate's stiffness per
+  // width and ~0.9 kg/m^2, for the loads per width that grow with the sail's size)
+  superMembrane: { warp: 3.0e6, fill: 1.6e6, bias: 6e5, rho: 0.9, D: 4e-2, layout: 'radial' },
   nylon: { warp: 25e3, fill: 25e3, bias: 4e3, rho: 0.045, D: 5e-5, layout: 'radial' },
 };
 export function clothMaterial(C, s) {
