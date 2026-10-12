@@ -65,5 +65,28 @@ export function fleetIdentities(seed, n, nation = '') {
   }
   return out;
 }
+// A class's own fleet (C.fleet: { name, teams: [{ name, number, hull, kite, ... }] }, e.g. the TP52's 52 Super
+// Series teams): racing that class lines you up against those boats, as they are, in the order the seed deals them;
+// a fleet bigger than the teams is filled from the names above. `exclude`: a team the player sails as (its name),
+// left out of the fleet. Each entry is { name, number, team } (team: the class's record, its colours; null for the
+// filled-in boats).
+export function classFleetIdentities(C, seed, n, nation = '', exclude = '') {
+  const teams = ((C && C.fleet && C.fleet.teams) || []).filter((t) => t.name !== exclude);
+  if (!teams.length) return fleetIdentities(seed, n, nation).map((x) => ({ ...x, team: null }));
+  const rnd = mulberry32((seed | 0) * 7919 + 29), pool = teams.slice();
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  const out = pool.slice(0, n).map((t) => ({ name: t.name, number: t.number, team: t }));
+  if (n > out.length) {
+    const taken = new Set([...teams.map((t) => t.name), exclude]), nums = new Set(teams.map((t) => t.number));
+    for (const x of fleetIdentities(seed, n + teams.length + 1, nation)) {
+      if (out.length >= n) break;
+      if (!taken.has(x.name) && !nums.has(x.number)) out.push({ ...x, team: null });
+    }
+  }
+  return out;
+}
+// the class's team of that name (the player sailing as one of them), or null
+export const classTeam = (C, name) => ((C && C.fleet && C.fleet.teams) || []).find((t) => t.name === name) || null;
+
 // the national letters a venue's boats mostly carry
 export const VENUE_NATION = { solent: 'GBR', sfbay: 'USA', newport: 'USA', kiel: 'GER', sydney: 'AUS', auckland: 'NZL', marseille: 'FRA', garda: 'ITA', progreso: 'MEX', meredith: 'USA' };

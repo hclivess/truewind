@@ -1,5 +1,5 @@
 import { Environment, KT, DEG } from '../js/env.js';
-import { Boat, solvePolar, vmgTargets, wrap } from '../js/physics.js';
+import { Boat, solvePolar, vmgTargets, wrap, CLASSES } from '../js/physics.js';
 import '../js/sail/sailsim.js';   // the game's sail model (cloth by default; SAILS=strip for the strip model)
 import { loadBakedPolars } from '../js/sail/surrogate.js';
 import { VENUES, World } from '../js/world.js';
@@ -21,11 +21,13 @@ env.wind.sample = (x,z,t,o)=>{ base(x,z,t,o); o.speed *= world.shelterAt(x,z); r
 await loadBakedPolars(cls);   // (the cloth sails' polar, as the game has it)
 const polar = solvePolar(cls, v.windKt*KT); const vt = vmgTargets(polar);
 console.log('targets up', vt.up.twa, 'dn', vt.dn.twa);
-const course = new Course(world, env.wind.twd, { length: 800, laps: 1, lineLength: 60 + 14 * +nb });   // (the game's line: longer for a bigger fleet)
+// (the game's line: longer for a bigger fleet, a place of 1.4 lengths each for a big boat; LEN=m: the leg, else 800)
+const place = Math.max(14, 1.4 * CLASSES[cls].loa);
+const course = new Course(world, env.wind.twd, { length: +(process.env.LEN ?? 800), laps: 1, lineLength: 60 + place * +nb });
 console.log('course len', course.L.toFixed(0), 'origin', course.origin.x.toFixed(0), course.origin.z.toFixed(0), 'depth at W', world.depthAt(course.windward.x, course.windward.z).toFixed(1));
 const boats = [], ais = [];   // (the AI fleet sails at L1 in the game: LOD=0/1/2 to change it; a big fleet has only
 // the NCLOTH nearest the camera in cloth, the rest on the strip model: NCLOTH=n puts boats n.. at L2)
-for (let i=0;i<+nb;i++){ const b=new Boat(cls,{id:i, lod: i < +(process.env.NCLOTH ?? 1e9) ? +(process.env.LOD ?? 1) : 2}); const off=(i-(+nb)/2)*Math.min(16, 2*course.half/(+nb+1)); b.reset(course.origin.x - course.ux*150 + course.rx*off, course.origin.z - course.uz*150 + course.rz*off, env.wind.twd+Math.PI/2); boats.push(b); const a=new AIHelm(b,{seed: SEED, startFrac:i/(+nb), skill: 0.85+0.03*i}); a.targetsUpBsp=vt.up.bsp; ais.push(a);}
+for (let i=0;i<+nb;i++){ const b=new Boat(cls,{id:i, lod: i < +(process.env.NCLOTH ?? 1e9) ? +(process.env.LOD ?? 1) : 2}); const off=(i-(+nb)/2)*Math.min(Math.max(16, place), 2*course.half/(+nb+1)); b.reset(course.origin.x - course.ux*150 + course.rx*off, course.origin.z - course.uz*150 + course.rz*off, env.wind.twd+Math.PI/2); boats.push(b); const a=new AIHelm(b,{seed: SEED, startFrac:i/(+nb), skill: 0.85+0.03*i}); a.targetsUpBsp=vt.up.bsp; ais.push(a);}
 const race = new Race(course, boats, { countdown: 90 });
 // TRAFFIC=light|normal|busy: the harbour traffic around the race, kept off the course as in the game
 let traffic = null, bumps = 0;
