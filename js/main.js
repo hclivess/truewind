@@ -528,6 +528,7 @@ class Game {
     const realTide = !!tide && (idle || S.tide !== 'steady');
     if (tide) tide.still = !realTide;
     world.setBathy(geo && geo.bathy, tide);
+    if (!v.open) world.dredgeHarbours(await this.loadTraffic(v));     // (marinas afloat at low water, before anything is drawn)
     this.tide = tide;
     this.obstacles = ((geo && geo.piers) || []).filter(p => p.kind !== 'bridge' || (() => { let wet = 0; for (let i = 0; i < p.pts.length; i += 2) if (world.sdfAt(p.pts[i], p.pts[i + 1]) > 0) wet++; return wet > 0; })());
     const online = S.mode === 'online' && !idle;
