@@ -152,7 +152,10 @@ export default {
     // square-top main (head 2.0 m), 98 m2 (the rule's maximum), E 7.2 m (est.; 7.0 the minimum); no reefs racing
     { key: 'main', kind: 'boom', area: 98, luff: 20.4, foot: 7.2, head: 2.0, depth: [0.11, 0.13, 0.12], twistMax: 20 * DEG,
       cd0: 0.055, ARe: 6.2, min: 1.5 * DEG, max: 75 * DEG, trav: [-8 * DEG, 12 * DEG], Iboom: 1700, boomMass: 45, reefs: 0,
-      vangBend: 0.05, sheetBend: 0.04, ropeK: 8, color: 0x2a2c30 },
+      vangBend: 0.05, sheetBend: 0.04, ropeK: 8, color: 0x2a2c30,
+      // batten pockets (J.5.3: at most 10, 4 full length): four full-length above, two leech battens below (est.), in
+      // the membrane's own dark cloth
+      pockets: [[0.13, 0.3], [0.27, 0.32], [0.42, 1], [0.58, 1], [0.73, 1], [0.87, 1]], pocketTint: 'rgba(255,255,255,0.1)' },
     // non-overlapping jib, 66 m2 (the maximum), LP 6.30 m, its foot sweeping the deck; the forestay to the hounds (I)
     { key: 'jib', kind: 'loose', area: 66, tackX: JIB_TACK[0], tackZ: JIB_TACK[1], luff: HOUNDS - 0.18 - JIB_TACK[1], foot: 6.4, head: 0.12, footRise: 0.02,
       rake: JIB_TACK[0] - (MAST_FRONT + 0.06), depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 6.0, min: 6.5 * DEG, max: 40 * DEG, sagK: 0.8, color: 0x2a2c30, window: false },

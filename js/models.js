@@ -684,7 +684,7 @@ function sailTexture(C, s) {
         const y = h * (1 - f), L = w * len, dy = slope(y) * len;
         g.save(); g.translate(0, y); g.rotate(Math.atan2(dy, L));
         const Lr = Math.hypot(L, dy);
-        g.fillStyle = 'rgba(255,255,255,0.45)'; g.fillRect(0, -9, Lr, 18);
+        g.fillStyle = s.pocketTint ?? 'rgba(255,255,255,0.45)'; g.fillRect(0, -9, Lr, 18);   // (s.pocketTint: pockets of the membrane's own colour)
         g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(0, -10, Lr, 2); g.fillRect(0, 8, Lr, 2); g.fillRect(Lr - 6, -10, 6, 20);
         g.restore();
       }
