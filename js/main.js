@@ -589,7 +589,13 @@ class Game {
       this.renderer.setMarks(course.marks(), course.committee);
     } else {
       let x = 0, z = 0, hdg = twd + Math.PI / 2;
-      if (v.spawn) { [x, z] = P.fwd(v.spawn.lat, v.spawn.lon); hdg = v.spawn.heading * DEG; }
+      if (v.spawn) {
+        [x, z] = P.fwd(v.spawn.lat, v.spawn.lon); hdg = v.spawn.heading * DEG;
+        // the venue's heading is the harbour's, not the day's wind's: never start her in irons (within 50 deg of
+        // the wind), but on the beam reach nearest it
+        const off = Math.atan2(Math.sin(hdg - twd), Math.cos(hdg - twd));
+        if (Math.abs(off) < 50 * DEG) hdg = twd + (off >= 0 ? 1 : -1) * Math.PI / 2;
+      }
       else if (!world.open) { const c = world.findCourse(twd, 400); x = c.x; z = c.z; }
       if (online) { const a = Math.random() * 6.28, r = 40 + Math.random() * 120; x += Math.cos(a) * r; z += Math.sin(a) * r; }
       [x, z] = safe(x, z, cls.draft + 0.6);
