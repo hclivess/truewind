@@ -184,6 +184,7 @@ export class Autopilot {
     const b = this.b, c = b.ctrl, tack = Math.sign(wrap(twd - b.psi)) || 1;
     c.main = 1; if (b.sailBy.jib) c.jib = 1; if (b.sailBy.stay) c.stay = 1; if ('mizzen' in c) c.mizzen = 1;
     c.gen = false; c.lazy = 1; c.pushBoom = 0; this.helm.genNoted = false;
+    if ('trav' in c) c.trav = lerp(c.trav, 1, clamp(dt * 2, 0, 1));   // the car run down to leeward too (the upwind trim leaves it up: she sails on)
     const err = wrap(twd - tack * 50 * DEG - b.psi), cmd = clamp(2 * err - 1.5 * b.r, -0.6, 0.6);
     c.helm = lerp(c.helm, b.u < -0.1 ? -cmd : cmd, clamp(dt * 6, 0, 1));
     this.helm.desired = twd - tack * 50 * DEG;

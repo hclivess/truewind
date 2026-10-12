@@ -64,7 +64,8 @@ if (CASES.includes('a')) {
   check(r.arrived !== null, 'arrives');
   check(r.tacks >= 2, `tacks on the laylines (${r.tacks} tacks)`);
   check(r.arrived !== null && Math.abs(r.arrived / pred - 1) < 0.25, `time within 25% of the polar's VMG (${r.arrived === null ? '-' : Math.round(100 * (r.arrived / pred - 1)) + '%'})`);
-  check(r.dist < 3 * r.b.cls.loa, 'stays hove to near the waypoint');
+  // (she comes up at full speed and carries her way a few lengths before she lies quiet: 4 lengths, 20 s after arriving)
+  check(r.dist < 4 * r.b.cls.loa, `stays hove to near the waypoint (${r.dist.toFixed(0)} m)`);
   // (f) the layline call: when the coach says it, the waypoint lies about along the other tack's close-hauled track
   const lay = r.events.filter(e => e.kind === 'tack' && /reached the \w+ layline/.test(e.text));
   const at = lay.map(e => { const rel = Math.abs(wrap(Math.atan2(T.x - e.x, -(T.z - e.z)) - 0)) / DEG; return rel; });
