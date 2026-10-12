@@ -301,10 +301,12 @@ The newer classes against published data, in 12 kn (cloth sails, baked polars; m
 |---|---|---|---|---|---|---|
 | J/24 | ORC GER 907 | 4.23 / 4.18 (+1%) | 6.73 / 6.43 (+5%) | 6.58 / 6.43 (+2%) | 5.85 / 5.87 (0%) | 5.74 / 5.27 (+9%) |
 | J/122 | ORC *J-Curve* | 5.31 / 5.33 (0%) | 8.73 / 8.30 (+5%) | 8.80 / 8.43 (+4%) | 7.59 / 7.61 (0%) | 6.58 / 6.59 (0%) |
+| TP52 | ORC *Caballo Loco* BRA 5211 (2026) | 7.29 / 7.02 (+4%) | 11.88 / 11.73 (+1%) | 12.32 g / 11.86 (+4%) | 9.35 g / 9.93 (−6%) | 8.10 / 8.60 (−6%) |
 | Nordic Folkboat | ORC NED 866 (non-spinnaker) | 3.55 / 3.49 (+2%) | 5.69 / 5.72 (−1%) | 5.42 / 5.53 (−2%) | 4.56 / 4.89 (−7%) | 4.21 / 4.46 (−6%) |
 
 - **J/24:** within 5% upwind, reaching and at 150°, 9% fast on a run under the spinnaker; it sails 40° (heading) where the certificate's course is 40°, but with 5.5° of leeway.
 - **J/122:** within 1% upwind and downwind, 4–5% fast reaching under the asymmetric (8% before the hump was fixed).
+- **TP52:** within 4% upwind and reaching in 12 kn, 6% slow deep under the asymmetric. In 6 kn it is 15% slow upwind (VMG 4.33 against 5.07) and 13% slow at 150°; in 20 kn it reaches at 16.4 kn at 120° under the asymmetric against 15.41 (+7%), runs at VMG 13.90 against 13.71, but beats at VMG 6.73 against 7.60 (−11%) at 35° of heel, overpowered where the real crew flatten her at about 25°.
 - **Folkboat:** within 2% upwind and reaching; 6–7% slow deep, where ORC credits a jib poled out on a whisker pole, which the sim does not rig (see below).
 
 In 20 kn, against the same certificates (the old tables' speeds in brackets): the J/24 reaches at 8.0 kn at 90° against 7.37 (+9%; was 10.5), 7.8 kn at 120° against 8.39 (−7%; was 12.8) and runs at VMG 7.07 against 6.79; the J/122 does 9.4 kn at 90° against 9.01 (+4%; was 10.0), 12.3 kn at 120° under the asymmetric against 10.18 (+21%; was 13.6) and 9.3 at 150° against 9.17; the Folkboat 6.7 kn at 90° against 6.50 and 6.6 at 120° against 6.49; the sportboat 10.4 kn at 90° against the J/70's 8.53 (+22%; was 12.6), 13.4 kn at 120° under the gennaker against 10.75 (+25%; was 14.5) and 9.8 kn at 150° against 10.88. Upwind in 20 kn the keelboats beat at 32° of heading with 9–12° of leeway at 27–30° of heel, which the heading-reckoned VMG does not charge (the J/24's 5.11 against the certificate's 4.34 is 4.60 over the water).
