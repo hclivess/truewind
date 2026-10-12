@@ -91,6 +91,7 @@ export class HUD {
     else rows.push(['pushBoom', 'Push boom out', { css: '#9aa1a8' }]);
     if (S.gennaker) rows.push(['tackLine', S.gennaker.pole ? 'Pole height' : 'Tack line', rc('tackLine')]);
     if (C.hasBoard) rows.push(['board', C.keel.pivot ? 'Centreboard' : 'Daggerboard', { css: '#f2f2ef' }]);
+    if (b.hfoils) rows.push(['flap', 'T-foil flap', { css: '#2a2d31' }]);   // (a foiler's take-off control)
     if (S.main.brake) rows.push(['brake', 'Boom brake', { css: '#c9a227' }]);
     rows.push(['hike', 'Weight on rail', { css: '#d33f49' }]);
     let h = `<div class="rg"><h3>Sails ${''}</h3>`;
@@ -104,7 +105,7 @@ export class HUD {
     h += `</div><div class="rg"><h3>Lines <span class="muted" style="font-weight:500;letter-spacing:.02em;text-transform:none">or grab them on deck (7)</span></h3><div class="lines">`;
     // every control is here as press-and-hold buttons, and on deck as the real line / car / winch
     const BTN = { main: ['Trim', 'Ease'], jib: ['Trim', 'Ease'], lazy: ['Haul', 'Ease'], pushBoom: ['Port', 'Stbd'], stay: ['Trim', 'Ease'], mizzen: ['Trim', 'Ease'], trav: ['Windward', 'Leeward'], vang: ['−', '+'], cunn: ['−', '+'],
-      outhaul: ['−', '+'], backstay: ['−', '+'], brake: ['Off', 'On'], jibHalyard: ['−', '+'], jibLead: ['Fwd', 'Aft'], tackLine: ['Down', 'Ease'], board: ['Up', 'Down'], hike: ['In', 'Out'] };
+      outhaul: ['−', '+'], backstay: ['−', '+'], brake: ['Off', 'On'], jibHalyard: ['−', '+'], jibLead: ['Fwd', 'Aft'], tackLine: ['Down', 'Ease'], board: ['Up', 'Down'], hike: ['In', 'Out'], flap: ['Down', 'Up'] };
     const btns = (k) => `<span class="nb"><button class="nbtn" data-k="${k}" data-d="-1">${BTN[k][0]}</button><button class="nbtn" data-k="${k}" data-d="1">${BTN[k][1]}</button></span>`;
     // what holds the line (its handler's icon and state: js/linehandlers.js): click to make fast / cast off
     const lockable = new Set(b.locks ? Object.keys(b.locks) : []);
@@ -434,6 +435,7 @@ export class HUD {
     else if (k === 'lazy') { txt = b.backedByLazy ? `backed · ${Math.round((1 - b.lines.lazy) * 100)}%` : v > 0.95 ? 'slack' : `${Math.round((1 - v) * 100)}% in`; frac = 1 - v; }
     else if (k === 'pushBoom') { txt = v ? (v < 0 ? 'to port' : 'to starboard') : '—'; frac = Math.abs(v); }
     else if (k === 'board') txt = `${Math.round(v * 100)}% down`;
+    else if (k === 'flap') { const F = (b.cls.hydrofoils || []).find((f) => f.flap); txt = F ? `${Math.round((F.flap[0] + (F.flap[1] - F.flap[0]) * v) / DEG)}°` : '–'; }
     else if (k === 'jibLead') txt = `${Math.round(v * 100)}% aft`;
     else if (k === 'vang' && S.main.vang === 'none') txt = 'none';
     else txt = `${Math.round(v * 100)}%`;
@@ -618,7 +620,7 @@ export class HUD {
     const k = w.k, C = b.cls, L = ropeLook(C, ropeKey(C, k)), sp = lineSpecs(C)[k], st = b.lh && b.lh[k];
     const { txt, frac } = this.rowValue(b, k), ls = st ? lineStatus(b, k) : null;
     const tk = sp ? tackleOf(C, k) : null, load = sp ? lineLoad(b, k) : 0, hand = sp ? handLoad(b, k, true) : 0;
-    const name = k === 'jibLead' ? 'Jib car' : k === 'board' ? (C.keel.pivot ? 'Centreboard' : 'Daggerboard') : lineName(b, k);
+    const name = k === 'flap' ? 'T-foil flap' : k === 'jibLead' ? 'Jib car' : k === 'board' ? (C.keel.pivot ? 'Centreboard' : 'Daggerboard') : lineName(b, k);
     const shapeKey = ['jib', 'jibLead', 'jibHalyard', 'lazy'].includes(k) ? (b.genDeploy > 0.5 ? null : S0(b)) : k === 'stay' ? 'stay' : ['main', 'trav', 'vang', 'cunn', 'outhaul', 'backstay'].includes(k) ? 'main' : null;
     const sh = shapeKey && b.diag.shape[shapeKey];
     const shape = sh ? `${shapeKey === 'main' ? 'Main' : shapeKey === 'stay' ? (b.sailBy.stay.label ?? 'Staysail') : (b.sailBy.jib.label ?? 'Jib')}: depth ${fmt(sh[1].d * 100, 1)}% · draft ${Math.round(sh[1].f * 100)}% · twist ${Math.round((sh[2].tw || 0) / DEG)}°` : '';

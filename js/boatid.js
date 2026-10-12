@@ -66,4 +66,4 @@ export function fleetIdentities(seed, n, nation = '') {
   return out;
 }
 // the national letters a venue's boats mostly carry
-export const VENUE_NATION = { solent: 'GBR', sfbay: 'USA', newport: 'USA', kiel: 'GER', sydney: 'AUS', auckland: 'NZL', marseille: 'FRA', garda: 'ITA', progreso: 'MEX', meredith: 'USA' };
+export const VENUE_NATION = { solent: 'GBR', sfbay: 'USA', newport: 'USA', kiel: 'GER', sydney: 'AUS', auckland: 'NZL', marseille: 'FRA', garda: 'ITA', progreso: 'MEX', meredith: 'USA', walvis: 'NAM' };

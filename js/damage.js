@@ -213,7 +213,7 @@ export function tubeYield(r, t, sy) { return sy * Math.PI * r * r * t; }
 // what the seabed is: 'rock' | 'gravel' | 'sand' | 'mud'. Charted dangers (seamark rock / wreck / obstruction)
 // are rock within ~40 m; within 60 m of an OSM beach it is sand; steep shores (the land rises fast) are rock near
 // the shore; else the venue's bottom (by region) with patches
-export const VENUE_BED = { progreso: 'sand', solent: 'mud', sfbay: 'mud', garda: 'gravel', sydney: 'sand', kiel: 'sand',
+export const VENUE_BED = { walvis: 'sand', progreso: 'sand', solent: 'mud', sfbay: 'mud', garda: 'gravel', sydney: 'sand', kiel: 'sand',
   newport: 'gravel', auckland: 'mud', marseille: 'rock', meredith: 'mud', open: 'sand' };
 export const BED_STRUCT = { rock: 0.8, gravel: 0.4, sand: 0.12, mud: 0.03 };   // share of the strike energy into the structure
 export function makeSeabed(world, venue, dangers = [], beaches = []) {

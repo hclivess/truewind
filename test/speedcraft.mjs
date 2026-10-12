@@ -8,6 +8,8 @@
 //     the mile in 23-26 kn, 65.45 in 27-29); held under ~70 kn by the foil's cavitation ("just over 65": the team);
 //     nothing much in light air; no unrealistic upwind ability
 //  5. one tack: with the wind on her port side she cannot make way
+//  6. l'Hydroptère: her record speed in 30 kn, both tacks, not flying in light air, flying on her leeward foil, a
+//     surface-piercing foil ventilating
 import { CLASSES, makeSteadyEnv, solvePolarAngle, makeBoat } from '../js/physics.js';
 import { SpeedCraft, speedAutoTrim, speedHelm, craftMass } from '../js/speedcraft.js';
 import { coef, planeCoef, cnKirchhoff, surfState } from '../js/hydrofoil.js';
@@ -90,6 +92,26 @@ function run(tws, twa, secs = 30) {
   const r = run(26, -100, 20);
   check(r.cap || r.u < 10, `wind on her port side: ${r.cap ? 'capsized' : `${r.u.toFixed(1)} kn`} — she sails on starboard tack only`);
   check(makeBoat(C) instanceof SpeedCraft, 'makeBoat builds her as a speed machine');
+}
+// 6. l'Hydroptère: a sailing trimaran on surface-piercing foils (js/physics.js Boat with C.hydrofoils)
+{
+  const H = CLASSES.hydroptere, v = (tws, twa) => solvePolarAngle(H, tws * KT, twa);
+  const r30 = v(30, 120), r12 = v(12, 110), rp = v(30, -120);
+  check(r30.bsp / KT > 46 && r30.bsp / KT < 56 && Math.abs(r30.heel) < 10, `l'Hydroptère, 30 kn at 120 deg: ${(r30.bsp / KT).toFixed(1)} kn, heel ${r30.heel.toFixed(1)} deg (51.36 kn over 500 m in 30 kn, WSSRC 2009)`);
+  check(Math.abs(rp.bsp - r30.bsp) / r30.bsp < 0.03, `she sails both tacks: ${(rp.bsp / KT).toFixed(1)} kn on the other`);
+  check(r12.bsp / KT < 20, `12 kn: ${(r12.bsp / KT).toFixed(1)} kn, not flying`);
+  // flying on the leeward foil, the windward one light, the hull clear; the ride height found by the immersed span
+  const b = makeBoat(H, { sailModel: 'strip' }), env = makeSteadyEnv(30 * KT), dt = 1 / 60;
+  const { vppStart, autoTrim } = await import('../js/physics.js');
+  vppStart(b, 30 * KT, 120, false);
+  for (let i = 0; i < 40 / dt; i++) { autoTrim(b, dt, 0); b.step(dt, env, i * dt); b.r = 0; b.psi = 120 * DEG; b.rudder = 0; }
+  const F = b.diag.hfoils, lee = F[0].lift > F[1].lift ? F[0] : F[1], win = lee === F[0] ? F[1] : F[0];
+  check(b.diag.displaced < 100 && lee.imm > 0.2 && lee.imm < 0.9 && win.lift < 0.2 * lee.lift, `flying: hulls ${b.diag.displaced.toFixed(0)} kg in the water, the leeward foil ${(lee.lift / 1000).toFixed(1)} kN at ${(lee.imm * 100).toFixed(0)}% immersed, the windward ${(win.lift / 1000).toFixed(1)} kN; heave ${b.heave.toFixed(2)} m`);
+  // a foil ventilating from the surface past its inception angle loses its lift at once
+  const sec = { kind: 'naca', tc: 0.09, chord: 0.7, water: true }, st = surfState(), o = {};
+  let c2, c3; const s3 = surfState();
+  for (let k = 0; k < 6; k++) { c2 = coef(sec, st, 16 * DEG, 12, 4, 0.6, true, 0.2, o); c3 = coef(sec, s3, 16 * DEG, 12, 4, 0.6, false, 0.2, {}); }
+  check(c2.vent > 0.9 && c3.vent < 0.01 && c2.cl < 0.6 * c3.cl, `a foil at 16 deg, 23 kn: piercing the surface it ventilates (cl ${c2.cl.toFixed(2)}), sealed below it holds (cl ${c3.cl.toFixed(2)})`);
 }
 console.log(fails ? `${fails} FAILED` : 'all speed-craft checks passed');
 process.exit(fails ? 1 : 0);

@@ -796,6 +796,9 @@ class Game {
 
   // the crew sets the sails for the initial heading before handing over
   presetTrim(b) {
+    // (a speed machine is let go from the tow with her wing set by the pilot: js/speedcraft.js speedAutoTrim takes it
+    // from there)
+    if (b.speedCraft) { b.ctrl.main = b.lines.main = b.cls.speed.trim0 ?? 0.3; return; }
     b.reefPos = b.ctrl.reef | 0;   // reefs tied in at the dock are already in, not being tied in
     const keep = { x: b.x, z: b.z, psi: b.psi };
     // (four seconds at the physics step: cloth sails need the game's step to settle)
@@ -853,7 +856,7 @@ class Game {
   onWaypoint() { this.renderer.setMarks(this.waypoint && !this.waypoint.ghost ? [this.waypoint] : [], null); }   // (a MOB mark is only on the plotter)
 
   userTouched(k) {
-    const trimKeys = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibLead', 'jibHalyard', 'tackLine', 'board'];
+    const trimKeys = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibLead', 'jibHalyard', 'tackLine', 'board', 'flap'];
     if (trimKeys.includes(k) && this.player.auto.trim) { this.player.auto.trim = false; this.hud.toast(this.autopilot && this.autopilot.engaged ? 'Automatic trim off — you trim, the autopilot steers' : 'Automatic trim off — you have the sheets'); }
     if ((k === 'hike' || k === 'crewAft') && this.player.auto.hike) { this.player.auto.hike = false; this.hud.toast('Automatic weight off — you place your weight'); }
   }

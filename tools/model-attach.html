@@ -13,7 +13,9 @@
 </head><body><pre id="out">running...</pre>
 <script type="module">
 import * as THREE from 'three';
-import { Boat, CLASSES, CLASS_ORDER, makeSteadyEnv, autoTrim } from '../js/physics.js';
+import { Boat, makeBoat as newBoat, CLASSES, CLASS_ORDER, makeSteadyEnv, autoTrim } from '../js/physics.js';
+import '../js/speedcraft.js';
+import '../js/boats/speedcraft-model.js';
 import { buildBoatModel, updateBoatModel, Kit } from '../js/models.js';
 import '../js/boats/detailed.js';
 import { Rigging } from '../js/rigging.js';
@@ -45,13 +47,13 @@ Kit.prototype.build = function (parent, cast) {
 
 // (o.ai: a fleet boat as the game draws one far off: strip-model sails, no line handlers)
 function makeBoat(id, o = {}) {
-  const b = new Boat(id, o.ai ? { id: 3, name: 'AI', sailModel: 'strip', lod: 2 } : o.cloth ? { id: 0, name: 'QA', sailModel: 'cloth', lod: 0 } : { id: 0, name: 'QA' });
+  const b = newBoat(id, o.ai ? { id: 3, name: 'AI', sailModel: 'strip', lod: 2 } : o.cloth ? { id: 0, name: 'QA', sailModel: 'cloth', lod: 0 } : { id: 0, name: 'QA' });
   const env = makeSteadyEnv(o.tws ?? 5);
   b.reset(0, 0, o.heading ?? 0.8);
   for (let i = 0; i < (o.steps ?? 90); i++) { autoTrim(b, 1 / 60); b.step(1 / 60, env, i / 60); b.x = 0; b.z = 0; }
   rec.length = 0; recording = true;
   const vis = buildBoatModel(b, { player: !o.ai, name: o.ai ? 'Fleet' : 'Quality', number: o.ai ? '23' : '7' });
-  vis.rigging = new Rigging(b, vis, { player: !o.ai, hardware: true });     // (as js/render.js addBoat: a fleet boat's line hardware too)
+  vis.rigging = vis.speed ? { update() {}, highlight() {}, grabs: () => [], ropes: [], cleats: {}, winches: [] } : new Rigging(b, vis, { player: !o.ai, hardware: true });     // (as js/render.js addBoat: a fleet boat's line hardware too)
   vis.player = !o.ai;
   vis.engineVis = buildEngineModel(b, vis);
   recording = false;

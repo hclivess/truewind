@@ -14,7 +14,8 @@
 // Wikimedia Commons photographs (2010 livery: white hull, the name in black italic script, charcoal carbon sails with
 // white battens; foils sloping down and inboard from the float ends, a Λ seen from ahead; the T-foil on a transom
 // bracket). WSSRC newsletters 177, 178 via sailspeedrecords.com.
-// ESTIMATES (est.): no foil area, chord or section is published. Foil chord 0.6 m at the root tapering to 0.42 m;
+// ESTIMATES (est.): no foil area, chord or section is published. Foil chord 0.85 m at the root tapering to 0.6 m (a
+// carbon foil 6 m long weighing 380 kg is about that size: ~0.25 m³ of laminate at ~1.6 t/m³ for a 9% section);
 // a 9% section cambered for a design lift of 0.25 (the EPFL work shaped the sections against cavitation: a section
 // with its cavitation bucket at its working lift, est.), zero-lift angle -2°; incidence 2° (fixed, set ashore: not found
 // whether it can be trimmed under way); the hull and
@@ -34,18 +35,18 @@ const foil = (side) => ({
   name: side > 0 ? 'stbd foil' : 'port foil', side,
   // from its arm at the float, down and inboard at 45°, 5.5 m, then the winglet (straight down, 0.6 m)
   root: [FOIL_X, side * (FLOAT_Y - 0.55), 1.05], span: [0, -side * Math.cos(DIH), -Math.sin(DIH)], len: 5.5,
-  chord: [0.6, 0.42], chord0: [-1, 0, 0], liftTo: [0, -side, 1], sec: { kind: 'naca', tc: 0.09, alpha0: 2 * DEG, clDesign: 0.25 }, inc: 2 * DEG, n: 10,
+  chord: [0.85, 0.6], chord0: [-1, 0, 0], liftTo: [0, -side, 1], sec: { kind: 'naca', tc: 0.09, alpha0: 2 * DEG, clDesign: 0.25 }, inc: 2 * DEG, n: 10,
 });
 const winglet = (side) => {
   const f = foil(side), tip = f.root.map((v, k) => v + f.span[k] * f.len);
-  return { name: (side > 0 ? 'stbd' : 'port') + ' winglet', side, root: tip, span: [0, 0, -1], len: 0.6, chord: [0.42, 0.3], chord0: [-1, 0, 0], liftTo: [0, side, 0], sec: { kind: 'naca', tc: 0.08 }, inc: 0, n: 2, endPlate: 0.5, pierce: false };
+  return { name: (side > 0 ? 'stbd' : 'port') + ' winglet', side, root: tip, span: [0, 0, -1], len: 0.6, chord: [0.6, 0.4], chord0: [-1, 0, 0], liftTo: [0, side, 0], sec: { kind: 'naca', tc: 0.08 }, inc: 0, n: 2, endPlate: 0.5, pierce: false };
 };
 
 export default {
   id: 'hydroptere', group: 'speed', name: "l'Hydroptère",
   blurb: "Alain Thébault's foiling trimaran (1994): 18.3 m long, 24 m wide, on two surface-piercing foils sloping in at 45° from her floats and a T-foil rudder. She lifts out at about 15-20 kn and flies on her leeward foil; 51.36 kn over 500 m in 2009. A foil that ventilates drops her; in 2008 she capsized at 56 kn.",
   specs: 'LOA 18.28 m · Beam 24 m · Floats 6.7 m · 7.5 t · Mast 27 m · Main 195 m² · Solent 105 m² · Foils 3.5 m draft · 500 m record 51.36 kn',
-  lwl: 17.6, loa: 18.28, beam: 24, hullBeam: 1.9, bowX: 9.3, sternX: -8.98, freeboard: 1.05, canoeDraft: 0.6, wetted: 16, draft: 3.5,
+  lwl: 17.6, loa: 18.28, beam: 24, hullBeam: 1.9, bowX: 9.3, sternX: -8.98, freeboard: 1.05, canoeDraft: 0.6, wetted: 26, draft: 3.5,
   amas: { y: FLOAT_Y, tube: { r: 0.62, z: 0.66 }, sy: 1, sz: 1, szTop: 1, dz: 0, t0: (-4.6 + 8.98) / 18.28, t1: (2.1 + 8.98) / 18.28, beams: [BEAM_F, BEAM_A], netZ: 1.25 },
   wheel: { x: -5.0, r: 0.55, h: 0.8 }, mastR: 0.17, wingMast: true, reefTime: 90, reefWind: [24, 32], speedMax: 40,
   engine: null,
@@ -59,8 +60,9 @@ export default {
   // residuary resistance / weight: slender hulls (the Southampton-series level the Mariner's trimaran uses); flying,
   // it goes with the hull's immersed volume (js/physics.js)
   rr: [[0.1, 0.0004], [0.2, 0.002], [0.3, 0.0076], [0.35, 0.0145], [0.4, 0.024], [0.45, 0.034], [0.5, 0.04], [0.6, 0.045], [0.7, 0.047], [0.8, 0.05], [1.0, 0.054], [1.2, 0.058], [1.5, 0.065]],
-  // the main hull's own lateral plane (no board: her foils resist leeway), a long low fin of the canoe body's depth
-  keel: { x: 0.2, z: -0.3, area: 3.2, ARe: 0.45, stall: 26 * DEG, cd0: 0.013, span: 0.6, chord: 10, long: true },
+  // the main hull's own lateral plane (no board: her foils resist leeway), a long low fin of the hull's 1.3 m draft
+  // (official), the canoe body and its skeg (est.)
+  keel: { x: 0.2, z: -0.65, area: 5.0, ARe: 0.6, stall: 26 * DEG, cd0: 0.013, span: 1.3, chord: 8, long: true },
   // the T-foil's strut, hung on a transom bracket (3.3 m strut: fr.wikipedia), steered by the wheels
   rudder: { x: -9.25, z: -1.35, area: 0.95, ARe: 3.4, stall: 15 * DEG, cd0: 0.01, max: 25 * DEG, span: 2.7, chord: 0.35, loadRef: 6000, transom: true },
   hullLat: { area: 4.0, cd: 0.9, z: -0.25 },

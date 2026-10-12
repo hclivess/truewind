@@ -46,6 +46,8 @@ It runs in any modern browser with WebGL, with no install and no build step.
 | **Melges 24** | The 1993 sportboat that made the type: 794 kg, a lead bulb on a lifting fin, a carbon mast, a retractable bowsprit and a 62 m² asymmetric. |
 | **Slocum's Spray** | The rebuilt oyster sloop in which Joshua Slocum sailed alone round the world (1895–98): beamy, shallow and heavy, a gaff main, a jib on a long bowsprit, and the jigger (mizzen) he added in Patagonia, which made her a yawl. |
 | **Moitessier's Joshua** | Bernard Moitessier's red steel ketch (Knocker, 1962) of *La Longue Route*: a canoe stern with the rudder outboard for the wind-vane, wooden telegraph-pole masts with ratlines, a plank bowsprit, and the two glass domes on the doghouse from which he steered and kept watch. No engine. |
+| **Vestas Sailrocket 2** | Paul Larsen's speed-record craft (2011), holder of the outright 500 m world sailing speed record, 65.45 kn (Walvis Bay, 24 Nov 2012), and the nautical mile, 55.32 kn. 12.2 m by 12.2 m, 275 kg: a rigid wing leaning 30° to windward at the end of a beam, a base-ventilated foil to windward of the fuselage whose line of force is the wing's, three planing floats, the pilot in the nose. Not a boat with sails but a rigid body of wing, foils and floats in six degrees of freedom (`js/speedcraft.js`, `js/hydrofoil.js`): she sails level because the two lines of force are one, only on starboard tack (on the other the wing cannot meet the wind and the foil pulls the wrong way), needs ~20 kn of wind and a tow to start (R), and runs at about 2.4 times the wind until her foil cavitates. The panel times the 500 m and the nautical mile as the WSSRC does. |
+| **l'Hydroptère** | Alain Thébault's foiling trimaran (1994): 18.3 m, 24 m wide, 7.5 t, on two surface-piercing foils sloping in at 45° from her floats and a T-foil rudder; 51.36 kn over 500 m in 2009. A sailing boat with cloth sails flying on foils simulated in strips at their depths: she finds her own ride height from her immersed span, flies on her leeward foil with the windward float clear, and her crew trims the T-foil's flap. A foil that ventilates drops her; overpowered she can capsize, as she did in 2008. |
 
 The menu groups them (dinghies and skiffs, keelboats, multihulls, cruisers, classics) under tabs, with a search box; the chosen boat's specifications and description show below the list.
 
@@ -65,6 +67,7 @@ These venues use real OpenStreetMap coastlines, lakes and piers, surveyed bathym
 - Hauraki Gulf
 - Rade de Marseille
 - Lake Meredith (Texas)
+- Walvis Bay (Namibia): the speed strip where Sailrocket 2 set her records, the south-westerly over a sand spit (depths from GMRT 4.5's 450 m grid with the game's coastal profile: the strip's own shallows are finer than the survey; the real tide from the Walvis Bay gauge, no tidal streams baked)
 - The Southern Ocean (Drake Passage: a westerly gale over a big westerly swell)
 - Open water
 

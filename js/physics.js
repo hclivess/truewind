@@ -1508,7 +1508,9 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
   // (a hand that leans on it as the pitch is off and as it moves, and settles where it holds her: proportional,
   // rate and a slow integral that does not wind up against the stops)
   if (boat.hfoils) {
-    const c = boat.ctrl, g = (12 / Math.max(12, Math.abs(boat.u))) ** 2, e = boat.pitch - 0.5 * DEG;
+    // (to take off the crew lifts her bow, ~3.5 deg, with the flap — "it controls the take-off" — so the foils meet the
+    // water at more angle, and levels her as she flies: est.)
+    const c = boat.ctrl, g = (12 / Math.max(12, Math.abs(boat.u))) ** 2, e = boat.pitch - lerp(3.5, 0.5, sstep(8, 16, boat.u)) * DEG;
     const raw = 0.5 + (boat._flapI || 0) + (e * 4 + (boat.pitchV || 0) * 1.2) * g;
     if ((raw > 0 && raw < 1) || (raw >= 1 && e < 0) || (raw <= 0 && e > 0)) boat._flapI = clamp((boat._flapI || 0) + e * 0.6 * g * dt, -0.5, 0.5);
     c.flap = lerp(c.flap ?? 0.5, clamp(raw, 0, 1), clamp(dt * 3, 0, 1));
