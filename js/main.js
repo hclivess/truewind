@@ -5,7 +5,7 @@ import { Boat, CLASSES, CLASS_ORDER, autoTrim, solvePolarAngle, POLAR_TWAS, vmgT
 import { VENUES, World, makeProjection, fetchVenueGeo, fetchLiveWind } from './world.js';
 import { fetchSeamarks } from './seamarks.js';
 import { Nav } from './nav.js';
-import { cleanSailNo, validateSailNo, cleanBoatName, validateBoatName, fleetIdentities, VENUE_NATION } from './boatid.js';
+import { cleanSailNo, validateSailNo, cleanBoatName, validateBoatName, classFleetIdentities, classTeam, VENUE_NATION } from './boatid.js';
 import { Course, Race, AIHelm, aiRandom, applyWindShadow, resolveCollisions } from './race.js';
 import { RuleEngine, RULE_SHORT } from './rules.js';
 import { Renderer } from './render.js';
@@ -73,7 +73,7 @@ const C_RIGHT = (b) => (b.cls.multihull ? 8 : 4); // grab radius on screen, also
 // the menu's class groups (a class's C.group)
 const CLASS_GROUPS = [['dinghy', 'Dinghies & skiffs'], ['keelboat', 'Keelboats'], ['multihull', 'Multihulls'], ['cruiser', 'Cruisers'], ['classic', 'Classics'], ['legend', 'Legends']];
 const camDist = (C) => C.camDist ?? (C.id === 'dinghy' ? 8 : C.loa < 5.5 && !C.multihull ? 10 : C.loa > 9 ? 17 : 12);
-const courseLen = (C) => C.courseLen ?? (C.id === 'dinghy' ? 600 : C.loa > 9 ? 1200 : 800);
+const courseLen = (C) => C.courseLen ?? (C.id === 'dinghy' ? 600 : C.loa > 9 ? 1200 : 800);   // (C.courseLen: the class's own racing's leg)
 // the touch pad's third line (in order of use), with the labels for its two buttons (d = -1, +1)
 const TOUCH_LINES = { stay: ['Stay', 'Trim', 'Ease', 'Staysail sheet'], trav: ['Trav', 'Up', 'Down', 'Traveler'], hike: ['Hike', 'In', 'Out', 'Crew weight'],
   vang: ['Vang', '−', '+', 'Vang'], tackLine: ['Tack', 'Down', 'Ease', 'Gennaker tack line'], backstay: ['Bstay', '−', '+', 'Backstay'], board: ['Board', 'Up', 'Down', 'Daggerboard'], pushBoom: ['Boom', 'Port', 'Stbd', 'Push the boom out'] };
@@ -217,6 +217,7 @@ class Game {
   refreshMenu() {
     document.querySelectorAll('#boat-list .card[data-cls]').forEach(c => { const on = c.dataset.cls === this.settings.cls; c.classList.toggle('on', on); c.setAttribute('aria-pressed', String(on)); });
     { const C = CLASSES[this.settings.cls], dl = document.getElementById('cls-detail'); if (C && dl) dl.innerHTML = `<span class="t">${C.name}</span><span class="s">${C.specs}</span><span class="d">${C.blurb}</span>`; }
+    if (this.syncTeams) this.syncTeams();
     document.querySelectorAll('#venue-list .card').forEach(c => c.classList.toggle('on', c.dataset.v === this.settings.venue));
     document.querySelectorAll('.seg-b[data-mode]').forEach(b => { const on = b.dataset.mode === this.settings.mode; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
     document.querySelectorAll('.seg-b[data-weather]').forEach(b => { const on = b.dataset.weather === this.settings.weather; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
@@ -350,18 +351,29 @@ class Game {
   bindBoatId() {
     const nm = $('#boat-name'), sn = $('#sail-no'), msg = $('#boat-id-msg'); if (!nm || !sn) return;
     nm.value = this.settings.boatName || ''; sn.value = this.settings.sailNo || '';
+    // a class with its own fleet (C.fleet: the TP52's 52 Super Series teams) offers its teams as names: one picked
+    // sails as that team (its sail number, its colours, and it leaves the AI fleet), or keep your own name
+    let dl = document.getElementById('team-names');
+    if (!dl) { dl = document.createElement('datalist'); dl.id = 'team-names'; nm.after(dl); }
     const check = () => {
-      const a = validateBoatName(nm.value), b = validateSailNo(sn.value);
+      const a = validateBoatName(nm.value), b = validateSailNo(sn.value), team = a.ok && classTeam(CLASSES[this.settings.cls], a.value);
       nm.classList.toggle('bad', !a.ok); sn.classList.toggle('bad', !b.ok);
-      msg.textContent = !a.ok ? a.msg : !b.ok ? b.msg : ''; msg.classList.toggle('bad', !a.ok || !b.ok);
+      msg.textContent = !a.ok ? a.msg : !b.ok ? b.msg : team ? `Sailing as ${team.name} (${team.nation}): the team's colours, ${team.number} on the main unless you give your own number` : ''; msg.classList.toggle('bad', !a.ok || !b.ok);
       if (a.ok) this.settings.boatName = a.value;
       if (b.ok) this.settings.sailNo = b.value;
+    };
+    this.syncTeams = () => {
+      const C = CLASSES[this.settings.cls], T = (C && C.fleet && C.fleet.teams) || [];
+      dl.innerHTML = T.map(t => `<option value="${t.name}">${t.number} · ${C.fleet.name}</option>`).join('');
+      if (T.length) nm.setAttribute('list', 'team-names'); else nm.removeAttribute('list');
+      nm.placeholder = T.length ? `Boat name, or a ${C.fleet.name} team` : 'Boat name';
+      check();
     };
     nm.addEventListener('input', () => { const v = cleanBoatName(nm.value); if (v !== nm.value) nm.value = v; check(); });
     sn.addEventListener('input', () => { const v = cleanSailNo(sn.value); if (v !== sn.value) sn.value = v; check(); });
     sn.addEventListener('change', () => { const b = validateSailNo(sn.value); if (b.ok) sn.value = b.value; });
     nm.addEventListener('change', () => { const a = validateBoatName(nm.value); if (a.ok) nm.value = a.value; });
-    check();
+    this.syncTeams();
   }
   async castOff() {
     this.audio.on = this.settings.sound;
@@ -538,6 +550,7 @@ class Game {
     $('#results').hidden = true;
     const cls = CLASSES[S.cls];
     const player = new Boat(cls, { id: 0, name: this.settings.boatName || 'You', sailModel: SAIL_MODEL, lod: SAIL_MODEL === 'strip' ? 2 : this.sailLevelFor(cls) });
+    const myTeam = classTeam(cls, this.settings.boatName);      // (the player sailing as one of the class's teams)
     if (SAIL_MODEL !== 'strip') await loadBakedPolars(cls.id);      // (the cloth sails' polar: data/sails/<class>.json)
     player.auto.trim = S.autoTrim; player.auto.hike = S.autoHike;
     // in a blow the crew ties in the reefs before leaving (shaking one out is a keypress away)
@@ -560,24 +573,28 @@ class Game {
       return [x, z];
     };
     if (S.mode === 'race' && !idle) {
-      const course = new Course(world, twd, { length: courseLen(cls), laps: S.laps, lineLength: 60 + (cls.lineSpacing ?? 14) * (Math.min(S.fleet, cls.raceFleetMax ?? Infinity) + 1) });
+      // (the boats lie along the line bow to stern before the start: the class's own spacing, or 14 m, or 1.4 lengths
+      // for a big boat)
+      const place = cls.lineSpacing ?? Math.max(14, 1.4 * cls.loa);
+      const course = new Course(world, twd, { length: courseLen(cls), laps: S.laps, lineLength: 60 + place * (Math.min(S.fleet, cls.raceFleetMax ?? Infinity) + 1) });
       this.course = course;
       // (a class may cap its fleet: a superyacht's one-design start is a handful of her sisters, spaced by her beam)
       const n = Math.min(S.fleet, cls.raceFleetMax ?? Infinity);
       const spots = [];
       for (let i = 0; i <= n; i++) {
-        const off = (i - n / 2) * Math.min(cls.lineSpacing ?? 16, 2 * course.half / (n + 1));   // (a big fleet packs closer on a line the water shortened)
+        const off = (i - n / 2) * Math.min(cls.lineSpacing ?? Math.max(16, place), 2 * course.half / (n + 1));   // (a big fleet packs closer on a line the water shortened)
         spots.push([course.origin.x - course.ux * 170 + course.rx * off, course.origin.z - course.uz * 170 + course.rz * off]);
       }
       player.reset(spots[0][0], spots[0][1], twd + Math.PI / 2);
       this.presetTrim(player);
-      const ids = fleetIdentities(cond.seed, n, VENUE_NATION[v.id] || '');
+      // (a class with its own fleet races against it: the TP52 against the 52 Super Series teams, js/boatid.js)
+      const ids = classFleetIdentities(cls, cond.seed, n, VENUE_NATION[v.id] || '', myTeam ? myTeam.name : '');
       // a big fleet: only as many boats in cloth as the frame budget carries, the nearest (the rest on the strip
       // model; fleetSwap then moves the cloth to whichever boats are near the camera)
       const L = this._sailLevel, nCloth = L && L.ms ? clothBudget(n, L.ms, L.ms1 ?? L.ms * 0.6, (L.ms1 ?? L.ms * 0.6) * 0.1) : n;
       for (let i = 1; i <= n; i++) {
         const b = new Boat(cls, { id: i, name: ids[i - 1].name, sailModel: SAIL_MODEL, lod: i <= Math.max(nCloth, 6) ? this.fleetSailLevel() : 2 });
-        b.sailNo = ids[i - 1].number;
+        b.sailNo = ids[i - 1].number; b.team = ids[i - 1].team;
         b.reset(spots[i][0], spots[i][1], twd + Math.PI / 2);
         b.auto.hike = true;
         this.boats.push(b);
@@ -608,7 +625,10 @@ class Game {
     }
     // engines: on the bracket for free sailing, stowed below for racing where the class rules say so (the sportboat's)
     for (const b of this.boats) if (b.engine) b.engine.setStowed(S.mode === 'race' && !idle);
-    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (this.settings.sailNo || cls.sailNo || (cls.id === 'blackwatch' ? '79' : '7')) : (b.sailNo || String(100 + b.id * 7)), name: b === player ? this.settings.boatName : b.name, hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9] });
+    // (a team's boat, the player's or the fleet's, in the team's colours: its hull and its sails, js/boatid.js)
+    const look = (t) => t ? { hullColor: t.hull, sailLook: t.sails, bowNumber: t.bow, bowNumberColor: t.bowColor } : null;
+    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (this.settings.sailNo || (myTeam && myTeam.number) || cls.sailNo || (cls.id === 'blackwatch' ? '79' : '7')) : (b.sailNo || String(100 + b.id * 7)), name: b === player ? this.settings.boatName : b.name,
+      hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9], ...look(b === player ? myTeam : b.team) });
     await this.buildTraffic(v, world, cond, player);
     this.hud.buildRig(player);
     this.gear.setSession();

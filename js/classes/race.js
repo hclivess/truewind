@@ -9,4 +9,5 @@ import j122 from './j122.js';
 import i470 from './i470.js';
 import skiff49er from './skiff49er.js';
 import mariner from './mariner.js';
-export const RACE = [folkboat, j24, star, j122, i470, skiff49er, mariner];
+import tp52 from './tp52.js';          // (the TP52 carries its own model: drawn by js/boats/detailed.js)
+export const RACE = [folkboat, j24, star, j122, tp52, i470, skiff49er, mariner];
