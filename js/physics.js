@@ -318,12 +318,33 @@ export function reefAt(pos) {
   const i = Math.max(0, Math.min(1, Math.floor(pos))), f = Math.max(0, Math.min(2, pos)) - i;
   return { a: lerp(REEF[i].a, REEF[Math.min(2, i + 1)].a, f), l: lerp(REEF[i].l, REEF[Math.min(2, i + 1)].l, f) };
 }
+// A furling headsail rolled in with the reefs (s.furlReef: the fraction of it left set at reef 0, 1, 2: a big yacht rolls
+// her jib a turn or two on its hydraulic furler as she reefs the main), at a reef position
+export function furlAt(s, pos) {
+  const F = s.furlReef; if (!F) return 1;
+  const i = Math.max(0, Math.min(1, Math.floor(pos))), f = Math.max(0, Math.min(2, pos)) - i;
+  return lerp(F[i], F[Math.min(2, i + 1)], f);
+}
+// the headsail as set at furl fraction f: rolled round its stay, its foot and leech come in, its luff stays
+export const furledSail = (s, f) => (f >= 0.999 ? s : { ...s, foot: s.foot * f, head: (s.head || 0) * f, area: s.area * f, furled: f });
 // seconds for the crew to put in (or shake out) one reef
 // A headsail's foot angle (fraction of its min..max range) for its sheet eased to e. The sheet runs from the clew
 // to a lead on deck: eased, it lets the clew rise as much as go out, so the foot opens slowly at first (the cloth
 // jib's clew angle for a given sheet, sportboat on a reach: 8, 11, 15, 22, 35 degrees for e = 0 .. 1; the strip
 // model used to open it linearly, 9 to 42, and stalled the jib the cloth held drawing)
 export const jibEaseAngle = (e) => e * e;
+// The reef a crew puts in (C.autoReef: a class whose crew reefs as the wind gets up, a big yacht's in-boom or in-mast
+// furling main rolled down by its motor): { up: [first, second] true wind (kn) close-hauled, off: [...] reaching and
+// running }, between the two by the wind's angle (a superyacht reefs her main from ~19-20 kn of true wind upwind,
+// rather than twist its head off; off the wind she carries full sail longer). tws in kn, twa in rad
+export function autoReefFor(C, tws, twa, cur = 0) {
+  const R = C.autoReef; if (!R || !(C.sails.find((s) => s.key === 'main') || {}).reefs) return 0;
+  const f = sstep(60 * DEG, 110 * DEG, twa), r1 = lerp(R.up[0], R.off[0], f), r2 = lerp(R.up[1], R.off[1], f), h = R.hyst ?? 1.5;
+  const want = tws > r2 ? 2 : tws > r1 ? 1 : 0;
+  // (hysteresis: a reef goes in at its wind and comes out 1.5 kn below it, not with every puff and lull)
+  if (want < cur && tws > (cur === 2 ? r2 : r1) - h) return cur;
+  return Math.min(want, C.sails.find((s) => s.key === 'main').reefs);
+}
 export function reefTime(C) { return C.reefTime ?? (C.id === 'blackwatch' ? 70 : 45); }
 
 // ---------------------------------------------------------------------------------------------
@@ -745,7 +766,7 @@ export class Boat {
       if (key === 'main') { pivotX = C.mastX + (s.rig === 'lateen' ? s.tackFwd : 0); pivotZ = C.boomZ; areaF = reef.a; luff = s.luff * reef.l; }
       else { pivotX = s.tackX; pivotZ = s.tackZ; }
     } else if (s.kind === 'loose') {
-      areaF = genDef && genDef.replaces === key ? 1 - this.genDeploy : 1;
+      areaF = (genDef && genDef.replaces === key ? 1 - this.genDeploy : 1) * furlAt(s, this.reefPos);
       pivotX = s.tackX; pivotZ = s.tackZ;
       baseAngle = this.side.jib * lerp(s.min, s.max, jibEaseAngle(this.lines.jib)); side = Math.sign(this.side.jib) || 1;
       flogging = 1 - sstep(0.55, 0.95, Math.abs(this.side.jib));
@@ -1122,11 +1143,12 @@ export class Boat {
       // the lateral force at zero helm: lee helm); a rudder hung on the keel's trailing edge acts more like a flap
       const dxk = Math.max(0, C.keel.x - F.x), sk = 2 * (this.keelS.span || 1);
       const eps = keelCl / (Math.PI * d.keelARe) * (1 + dxk / Math.sqrt(dxk * dxk + sk * sk)) * (ul > 0 ? 1 : 0) * (F.transom ? 0.35 : 1);
-      // one blade, or two on a catamaran (each on its own hull: the weather one lifts out as the hull flies)
+      // one blade, or two: a catamaran's on its hulls (the weather one lifts out as the hull flies), a monohull's twin
+      // spades F.y either side of the centreline (heeled, the windward blade rises toward the surface)
       const nb = F.twin ? 2 : 1;
       let rx = 0, rn = 0, K0 = 0, N0 = 0, Q = 0, vent = 0, cav = 0, stall = false, imm = 0, a0 = 0;
       for (let k = 0; k < nb; k++) {
-        const yb = F.twin ? (k ? 1 : -1) * C.hullSpacing / 2 : 0, g = this._rg2[k], st = this.rudSt[k];
+        const yb = F.twin ? (k ? 1 : -1) * (F.y ?? C.hullSpacing / 2) : 0, g = this._rg2[k], st = this.rudSt[k];
         foilGeom(S, 1, st.kick, zwAt, cphi, sphi, yb, ul, g);
         const vl = (this.v - wvv + this.r * g.x + this.p * g.z) * cphi * (1 - (F.wake ?? 0.08));
         const V2 = ul * ul + vl * vl, V = Math.sqrt(V2) + 1e-9;
@@ -1151,7 +1173,7 @@ export class Boat {
     // ---- a foiler's lifting foils: each strip at its own depth in the local sea, its own flow (the boat's motion in all
     // six senses, the waves' orbital water); their force and moments into surge, sway, roll and yaw here, heave and pitch
     // below. A surface-piercing foil lifts by what is under water: she finds her ride height by herself.
-    let foilFz = 0, foilMy = 0;
+    let foilFz = 0, foilMy = 0, kF = 0;
     if (this.hfoils) {
       const r0 = this._r0 || (this._r0 = [0, 0, 0]), kv = wv ? env.waves.kv || 0 : 0;
       const relVel = (p, S, o) => {
@@ -1172,11 +1194,11 @@ export class Boat {
         Sf.forces(relVel, depth, RHO_W, r0, dt);
         const F = Sf.F, M = Sf.M;
         const fy = F[1] * cphi - F[2] * sphi, fzd = F[1] * sphi + F[2] * cphi;
-        X += F[0]; Y += fy; K += M[0]; N += M[2]; foilFz -= fzd; foilMy += M[1];
+        X += F[0]; Y += fy; K += M[0]; N += M[2]; foilFz -= fzd; foilMy += M[1]; kF += M[0];
         const q = fd[i] || (fd[i] = {});
         q.name = F0.name; q.lift = -fzd; q.side = fy; q.drag = -F[0]; q.imm = Sf.diag.imm; q.vent = Sf.diag.vent; q.cav = Sf.diag.cav; q.alpha = Sf.diag.alpha;
       }
-      d.foilLift = foilFz;
+      d.foilLift = foilFz; d.Kfoil = kF;
     }
     {
       // a planing monohull rises onto its run and dries its forward sections, once it is over its hump (the Delft
@@ -1521,11 +1543,15 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
   const C = boat.cls, d = boat.diag, c = boat.ctrl;
   const awa = Math.abs(d.awaMid ?? Math.PI);
   const tws = (d.tws ?? 5) / KT;
+  // (a crew that reefs as the wind rises: C.autoReef)
+  if (full && C.autoReef) c.reef = autoReefFor(C, tws, Math.abs(wrap(boat.psi - (d.twd ?? 0))), c.reef | 0);
   // overpowered: heeled past the target, or the bow being driven under (a multihull flying a hull has all its pitch
   // stiffness on one bow: the drive trims it down until it trips over the bow; a crew eases before the bow buries)
   // (the heel that overpowers is to leeward, the sails' doing: rolling to windward on a run, the death roll, easing
   // the main (and hauling it again as the boat rolls back) pumps the roll; running, the crew holds the sheets steady)
-  const lee = -Math.sign(d.awaMid ?? 0) || 1, heelLee = boat.phi * lee * (1 - sstep(140 * DEG, 170 * DEG, awa));
+  // (a foiler's crew watches the roll as much as the heel: flying on one foil she heels fast, and the main is eased as the
+  // heel starts to come, not when it has: 0.6 s of lead)
+  const lee = -Math.sign(d.awaMid ?? 0) || 1, heelLee = (boat.phi + (boat.hfoils ? 0.6 * (boat.p || 0) : 0)) * lee * (1 - sstep(140 * DEG, 170 * DEG, awa));
   // (a foiler is overpowered by her pitch long before her heel: the drive, high up, pitches her bow down against the
   // T-foil's elevator, and the crew eases as the elevator nears the end of its flap (or boils), and when her lifting
   // foils start to cavitate)
@@ -1537,6 +1563,18 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
   const over = clamp(Math.max((heelLee - C.targetHeel) / ((C.overHeel ?? 10) * DEG), (-(boat.pitch || 0) - 6 * DEG) / (6 * DEG), foilOver), 0, 1.5);
   const k = clamp(dt * 1.5, 0, 1);
   const upwind = 1 - sstep(55 * DEG, 95 * DEG, awa);
+  // the main's twist as the crew reads it: its sections' angles to leeward of the boom. (The cloth's own measure is
+  // signed by the camber's side: a head backed by the headsail or turned inside out read as twisted to windward, and
+  // the rules below took the vang off and eased the sheet for more twist, which backed it further: a 40 m main went
+  // round that loop until it flogged)
+  const twMain = (i) => { const shp = d.shape.main, st = d.strips.main; return shp && st && shp[i] ? wrap(shp[i].ang - (st.baseAngle ?? boat.booms.main.a)) * lee : null; };
+  // the main backed: its sections meeting the wind at a negative angle (to windward) while the headsail draws; the
+  // crew sees the luff bubbling behind the jib's leech
+  const tb = boat._tt || (boat._tt = { over: 0 });
+  { const st = d.strips.main, jst = d.strips.jib;
+    let am = 0; if (st) for (let i = 0; i < 3; i++) am += (st[i].alpha || 0) * lee * STRIP_W[i];
+    const jibOn = !!(jst && boat.sailBy.jib && boat.genDeploy < 0.5 && (jst[1].cl || 0) > 0.4);
+    tb.bw = lerp(tb.bw ?? 0, jibOn && upwind > 0.5 ? clamp(-am / (4 * DEG), 0, 1) : 0, clamp(dt * 1.5, 0, 1)); }
   const power = clamp((tws - 7) / 11, 0, 1);            // 0 = light: full shape, 1 = heavy: flat
   const flat = clamp(power + over * 0.6, 0, 1);
   const clothMain = boat.sailSys && boat.sailSys.owns && boat.sailSys.owns('main');
@@ -1549,13 +1587,15 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
     c.outhaul = lerp(c.outhaul, lerp(clothMain ? 0 : 0.25, lerp(0.35, 1, flat), shapeUp), k);
     c.cunn = lerp(c.cunn, lerp(0, flat, shapeUp), k);
     if (C.hasBackstay) c.backstay = lerp(c.backstay, lerp(0.05, lerp(0.15, 1, flat), shapeUp), k);
-    const twTop = clothMain && boat.sailBy.main.trav && d.shape.main ? d.shape.main[2].tw : null;
+    const twTop = clothMain && boat.sailBy.main.trav && d.shape.main ? twMain(2) : null;
     if (clothMain && shapeUp > 0.5 && Number.isFinite(twTop)) {
       // a cloth main on a traveller upwind: the vang (with the sheet) sets the leech twist to the sailmaker's target,
       // about 11 degrees at the top batten, more when overpowered to spill wind from the head (as crews set it by
       // eye: the speed barely changes with it, the look of the sail does). (The una-rig dinghy's vang is its leech
       // and mast-bend control in one: it keeps its rule, which is also its fastest.)
-      c.vang = clamp(c.vang + clamp(twTop - (11 + 8 * over) * DEG, -0.1, 0.1) * k * 1.5, 0, 1);
+      // (backed, the head's twist says nothing: the vang holds)
+      // (overpowered, the leech opens only a little more: the traveller and the reefs depower, not a head twisted off)
+      c.vang = clamp(c.vang + clamp(twTop - (11 + 3 * over) * DEG, -0.1, 0.1) * k * 1.5 * (1 - clamp(2 * tb.bw, 0, 1)), 0, 1);
     } else {
       // (off the wind the vang holds the leech: a cloth main twists off as far as its vang lets it, so it goes on
       // harder than the strip model's twist rule needed)
@@ -1571,7 +1611,8 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
       const st = d.strips.jib, sd = st.side || Math.sign(boat.side.jib) || 1;
       if (st[0].state && st[2].state) {
         const diff = clamp(((st[0].alpha || 0) - (st[2].alpha || 0)) * sd, -0.3, 0.3) + over * 0.05;
-        c.jibLead = clamp(c.jibLead - diff * k * 0.6, 0, 1);
+        // (and aft while its leech backs the main: the car aft opens the leech, the slot with it)
+        c.jibLead = clamp(c.jibLead - diff * k * 0.6 + tb.bw * k * 0.25, 0, 1);
       }
     } else c.jibLead = lerp(c.jibLead, lerp(0.4, 0.85, flat) * upwind + 0.55 * (1 - upwind), k);
     c.jibHalyard = lerp(c.jibHalyard, lerp(0.3, 0.9, flat), k);
@@ -1643,7 +1684,9 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
       const sd = (awa < 150 * DEG ? -Math.sign(d.awaMid) : 0) || st.side || Math.sign(st.baseAngle || (s.kind === 'boom' ? boat.booms[s.key].a : boat.side.jib)) || 1;
       let a = 0; for (let i = 0; i < 3; i++) a += clamp((st[i].alpha || 0) * sd, -0.3, 0.6) * STRIP_W[i];
       const ak = AK[key] || (AK[key] = 'a_' + key); tt[ak] = lerp(tt[ak] ?? a, a, clamp(dt / (runT - 0.4), 0, 1)); a = tt[ak];
-      if (s.key === 'main' && s.trav) {
+      // (upwind, a main on a traveller with a vang is trimmed by the car and its leech below: travUp)
+      const travUp = s.key === 'main' && !!s.trav && !!s.track && shapeUp > 0.5 && s.vang !== 'none' && !!sh.main;
+      if (s.key === 'main' && s.trav && !travUp) {
         const sheetEase = clamp(0.06 + 0.25 * flat * upwind + (1 - upwind) * 0.3, 0, 1);
         c.trav = lerp(c.trav, clamp((want - sheetEase * (s.max - s.trav[1]) - s.trav[0]) / (s.trav[1] - s.trav[0]), 0, 1), k * 2);
       }
@@ -1653,7 +1696,9 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
       const ease0 = tt[key] ?? 0;
       // (a kite is eased hardest: its sheet is the crew's main depower reaching, and it drives the bow down most)
       // (a main on a traveller track: its sheet lets the boom out faster than linearly, js/boom.js, so half the ease)
-      tt[key] = clamp(tt.over, 0, 1.5) * (s.key === 'main' ? (s.track && s.trav ? 0.12 : 0.25) : s.kind === 'spin' ? 0.3 : 0.1);
+      // (C.overEase: a class whose crew eases harder overpowered: a foiler flying on one foil, where the heel the sails
+      // put in is the one thing that can tip her over)
+      tt[key] = clamp(tt.over, 0, 1.5) * (s.key === 'main' ? (s.track && s.trav ? 0.12 : 0.25) : s.kind === 'spin' ? 0.3 : 0.1) * (C.overEase ?? 1);
       // (pinched, the main is eased to let the bow fall off: for a cloth main only when really stopped head to
       // wind, since in light air a slow boat sails close-hauled at these angles and an eased main just stops it)
       const pinchedC = awa < 28 * DEG && boat.u < 0.7;
@@ -1664,8 +1709,26 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
       if (s.key === 'main' && s.track && shapeUp > 0.5 && sh.main) {
         // (the top batten's twist breathes with the sheet it answers to: the crew goes by its trend over a couple of
         // seconds, or sheet and twist chase each other round a cycle)
-        tt.twTop = lerp(tt.twTop ?? sh.main[2].tw, clamp(sh.main[2].tw, -10 * DEG, 30 * DEG), clamp(dt * 0.5, 0, 1));
+        tt.twTop = lerp(tt.twTop ?? twMain(2), clamp(twMain(2), -10 * DEG, 30 * DEG), clamp(dt * 0.5, 0, 1));
         const e = (11 + 8 * over) * DEG - tt.twTop;
+        if (travUp) {
+          // Upwind with a traveller, as a crew trims a main: the car carries its angle to the wind (by the telltales,
+          // and down to leeward as she heels past her target: the aim above), the sheet its leech: in until the top
+          // batten stands at the twist the sailmaker wants, ~11 degrees, eased past that only as the head must spill
+          // wind when she is overpowered. With the car hard down and still meeting the wind at too much, the sheet
+          // lets the boom out further; past that she reefs (C.autoReef). (Before, the car went where the strip
+          // model's sheet rule put it, mostly hard up, and the sheet carried the angle: a 40 m main was eased by the
+          // telltales until its head stood at 30-45 degrees of twist, luffed and was backed by the jib)
+          const range = s.trav[1] - s.trav[0], t0 = c.trav;
+          c.trav = clamp(c.trav + dA / range * k * 0.4, 0, 1);
+          const spill = dA - (c.trav - t0) * range / (k * 0.4 || 1);
+          // (backed by the jib, the twist reads nothing: the leech holds)
+          let leech = clamp(e - 5 * over * DEG, -0.3, 0.3) * k * 0.3 * (1 - clamp(2 * tt.bw, 0, 1));
+          // (with the car hard down and still overpowered, the sheet is the angle now: the vang holds the leech)
+          if (t0 >= 0.999 && tt.over > 0.3) leech = Math.max(0, leech);
+          c.main = clamp(c.main + leech + ((t0 >= 0.999 && spill > 0) || (t0 <= 0.001 && spill < 0) ? spill / (s.max - s.min) * k * 0.4 : 0), 0, 1);
+          continue;
+        }
         if (s.vang === 'none' && s.trav) {
           // No vang (the Hobie's fully battened main): upwind the sheet is its leech, and a vangless main eased flogs
           // with its boom lifted. So the sheet stays hard, eased only as far as the head needs to twist off, and the
@@ -1679,7 +1742,8 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
         // where the sheet pulls nearly straight down on the leech (a Laser sheeted to its horse off the transom, any
         // main sheeted hard over its car with the vang off), the sailor eases a little to let the head twist off;
         // closing it is the vang's
-        if ((s.track.horse || c.vang < 0.05) && e > 0) dA += clamp(2 * e, 0, 0.3);
+        // (not while the jib backs it: eased then, the main only backs further)
+        if ((s.track.horse || c.vang < 0.05) && e > 0) dA += clamp(2 * e, 0, 0.3) * (1 - clamp(2 * tt.bw, 0, 1));
       }
       // a flogging sail (let fly for a luff, or eased past where it fills) swings its boom about well inside where
       // the sheet would hold it, and its telltales read anything: the crew takes in the slack until the sail fills
@@ -1750,6 +1814,8 @@ export function vppStart(b, twsMS, twaDeg, gen) {
   // leech opens and it flogs, and in a blow the boat never gathers way)
   else if (b.sailBy.main.vang === 'none') { b.ctrl.main = b.lines.main = 0.05; b.ctrl.trav = 0.6; }
   b.ctrl.gen = gen; b.genDeploy = gen ? 1 : 0; b.genFill = gen ? 1 : 0;
+  // (a crew that reefs in a breeze (C.autoReef) sets out reefed, as from the dock: the VPP measures the reefed boat)
+  if (b.cls.autoReef) { b.ctrl.reef = autoReefFor(b.cls, twsMS / KT, twaDeg * DEG); b.reefPos = b.ctrl.reef; }
   return b;
 }
 
@@ -1768,7 +1834,9 @@ export function solvePolarAngle(C, twsMS, twaDeg, opts = {}) {
     const b = new Boat(C, opts);
     vppStart(b, twsMS, twaDeg, gen);
     let acc = 0, n = 0;
-    const steps = 50 * 40;
+    // (40 s settles a yacht of a few tonnes; a heavy one (C.vppSecs: a 185 t superyacht's speed has a time constant of
+    // ~25 s) is still gathering way at the end of it)
+    const steps = 50 * (C.vppSecs ?? 40);
     for (let i = 0; i < steps; i++) {
       autoTrim(b, dt, bias);
       b.step(dt, env, i * dt);

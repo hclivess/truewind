@@ -17,7 +17,7 @@
 // ESTIMATES (est.): no foil area, chord or section is published. Foil chord 0.85 m at the root tapering to 0.6 m (a
 // carbon foil 6 m long weighing 380 kg is about that size: ~0.25 m³ of laminate at ~1.6 t/m³ for a 9% section);
 // a 9% section cambered for a design lift of 0.25 (the EPFL work shaped the sections against cavitation: a section
-// with its cavitation bucket at its working lift, est.), zero-lift angle -2°; incidence 2° (fixed, set ashore: not found
+// with its cavitation bucket at its working lift, est.), zero-lift angle -2°; incidence -0.5° to the hull's datum (fixed, set ashore: not found; chosen so she flies with her hull 1-2 m clear and the leeward float near the water as photographed, with the T-foil deep enough to hold her pitch:
 // whether it can be trimmed under way); the hull and
 // float lines, the beam stations, the mass split and centre of gravity, the elevator's span (2.2 m) and chord; the crew
 // of 6 (4-10 sail her; 11 aboard for the records). The sailing displacement is taken as the official 7.5 t, crew in.
@@ -35,7 +35,7 @@ const foil = (side) => ({
   name: side > 0 ? 'stbd foil' : 'port foil', side,
   // from its arm at the float, down and inboard at 45°, 5.5 m, then the winglet (straight down, 0.6 m)
   root: [FOIL_X, side * (FLOAT_Y - 0.55), 1.05], span: [0, -side * Math.cos(DIH), -Math.sin(DIH)], len: 5.5,
-  chord: [0.85, 0.6], chord0: [-1, 0, 0], liftTo: [0, -side, 1], sec: { kind: 'naca', tc: 0.09, alpha0: 2 * DEG, clDesign: 0.25 }, inc: 2 * DEG, n: 10,
+  chord: [0.85, 0.6], chord0: [-1, 0, 0], liftTo: [0, -side, 1], sec: { kind: 'naca', tc: 0.09, alpha0: 2 * DEG, clDesign: 0.25 }, inc: -0.5 * DEG, n: 10,
 });
 const winglet = (side) => {
   const f = foil(side), tip = f.root.map((v, k) => v + f.span[k] * f.len);
@@ -71,7 +71,7 @@ export default {
   mastX: 1.2, mastHeight: 28.5, boomZ: 2.6, keelBulb: false, houndsF: 0.08,
   // (flying, the crew keeps her within a few degrees of level: heeled further her windward foil lifts out and the
   // leeward one cannot hold her; overHeel: the heel past it at which the crew is fully easing, js/physics.js autoTrim)
-  targetHeel: 3 * DEG, overHeel: 4, canCapsize: true, hasBackstay: false, hasBoard: false, sheetPower: 9000, fullPowerTws: 14,
+  targetHeel: 5 * DEG, overHeel: 6, overEase: 1.5, canCapsize: true, hasBackstay: false, hasBoard: false, sheetPower: 9000, fullPowerTws: 14,
   cloth: 'laminate', battens: { EI: 30, full: true, rows: [0.12, 0.24, 0.36, 0.48, 0.6, 0.72, 0.84, 0.93] },
   sails: [
     // (est. shapes for the official areas: a square-top main on the rotating wing mast, the solent to the masthead)
@@ -100,6 +100,6 @@ export default {
     // the T-foil's horizontal: 2.6 m wide, 0.42 m chord (est.) at the foot of the 3.3 m strut (3.0 m under the waterline), its flap the take-off control (crew:
     // ctrl.flap); flying, it carries a down-load (the drive, high up, pitches her bow down): a thin section cambered
     // for it (est.)
-    { name: 'elevator', root: [-8.9, -1.3, -3.06], span: [0, 1, 0], len: 2.6, chord: [0.42, 0.42], chord0: [-1, 0, 0], liftTo: [0, 0, 1], sec: { kind: 'naca', tc: 0.08, alpha0: -1 * DEG, clDesign: -0.08 }, inc: 0, flap: [-6 * DEG, 6 * DEG], n: 4, endPlate: 0.3, pierce: false },
+    { name: 'elevator', root: [-8.9, -1.3, -3.06], span: [0, 1, 0], len: 2.6, chord: [0.42, 0.42], chord0: [-1, 0, 0], liftTo: [0, 0, 1], sec: { kind: 'naca', tc: 0.08, alpha0: -1 * DEG, clDesign: -0.08 }, inc: 0, flap: [-8 * DEG, 10 * DEG], n: 4, endPlate: 0.3, pierce: false },
   ],
 };

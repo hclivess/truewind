@@ -181,6 +181,37 @@ function boxBlur(F, n, m, r) {
   }
 }
 
+// The shoreline as pieces at most a cell long [ax, az, bx, bz, ...], each turned so the land lies to its left as the
+// label grid has it either side (the coastline ways and the water polygons' rings alike; a piece with the same on
+// both sides, a river polygon's edge out in the sea, say, is no shore and is left out)
+function boundaryPieces(geo, lab, N, cs, R) {
+  const out = [];
+  if (!geo) return out;
+  const at = (x, z) => { const i = Math.floor((x + R) / cs), j = Math.floor((z + R) / cs); return i < 0 || j < 0 || i >= N || j >= N ? 0 : lab[j * N + i]; };
+  const lim = R + 6 * cs;
+  const add = (line) => {
+    for (let s = 0; s + 3 < line.length; s += 2) {
+      const ax = line[s], az = line[s + 1], bx = line[s + 2], bz = line[s + 3], dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz);
+      if (L < 1e-6) continue;
+      if ((ax < -lim && bx < -lim) || (ax > lim && bx > lim) || (az < -lim && bz < -lim) || (az > lim && bz > lim)) continue;
+      const nx = dz / L, nz = -dx / L, n = Math.ceil(L / cs);
+      for (let q = 0; q < n; q++) {
+        const x0 = ax + dx * q / n, z0 = az + dz * q / n, x1 = ax + dx * (q + 1) / n, z1 = az + dz * (q + 1) / n, mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
+        let sc = 0;
+        for (const o of [0.6, 1.2, 2]) {
+          const l = at(mx + nx * cs * o, mz + nz * cs * o), r = at(mx - nx * cs * o, mz - nz * cs * o);
+          sc += (l === 1) - (l === 2) - (r === 1) + (r === 2);
+        }
+        if (sc >= 2) out.push(x0, z0, x1, z1);
+        else if (sc <= -2) out.push(x1, z1, x0, z0);
+      }
+    }
+  };
+  for (const e of geo.coast || []) add(e.pts || e);
+  for (const poly of geo.water || []) for (const ring of poly) add(ring);
+  return out;
+}
+
 // ---------------------------------------------------------------------------------------------
 export class World {
   constructor(venue, geo, opts = {}) {
@@ -287,33 +318,66 @@ export class World {
         }
       }
     }
-    this.finish();
+    this.finish(geo);
   }
 
-  finish() {
-    const N = this.N, lab = this.lab, cs = this.cs;
-    // signed distance to shore (m): + over water, - over land. Two-pass chamfer transform per side.
-    const INF = 1e9;
-    const dw = new Float32Array(N * N), dl = new Float32Array(N * N);
-    for (let k = 0; k < N * N; k++) { dw[k] = lab[k] === 2 ? INF : 0; dl[k] = lab[k] === 1 ? INF : 0; }
-    const chamfer = (d) => {
-      const a = 1, b = Math.SQRT2;
-      for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-        const k = j * N + i; let v = d[k]; if (v === 0) continue;
-        if (i > 0) v = Math.min(v, d[k - 1] + a);
-        if (j > 0) { v = Math.min(v, d[k - N] + a); if (i > 0) v = Math.min(v, d[k - N - 1] + b); if (i < N - 1) v = Math.min(v, d[k - N + 1] + b); }
-        d[k] = v;
+  // The signed distance to shore (m): + over water, - over land. Within a few cells of the shore it is the exact
+  // distance to the coastline itself (the OSM ways and the water polygons' rings, each piece's land side read off the
+  // label grid), so the zero contour, which the terrain, the sea's colour and surf, the chart and the physics all draw
+  // or feel, is the real shoreline and not the staircase of the label cells' edges; further out a chamfer
+  // transform carries it on.
+  finish(geo = null) {
+    const N = this.N, lab = this.lab, cs = this.cs, R = this.R, NN = N * N;
+    // the shoreline pieces (no longer than a cell), oriented land to the left, from the label grid on either side
+    const segs = this.open ? [] : boundaryPieces(geo, lab, N, cs, R);
+    const B = 4 * cs, B2 = B * B;                            // the band of exact distances, either side
+    const bd = new Float32Array(NN).fill(Infinity), bpx = new Float32Array(NN), bpz = new Float32Array(NN);
+    const bsg = new Int8Array(NN), bperp = new Float32Array(NN);
+    for (let q = 0; q < segs.length; q += 4) {
+      const ax = segs[q], az = segs[q + 1], bx = segs[q + 2], bz = segs[q + 3], ex = bx - ax, ez = bz - az, L2 = ex * ex + ez * ez;
+      if (L2 < 1e-6) continue;
+      const L = Math.sqrt(L2);
+      const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - B + R) / cs - 0.5)), i1 = Math.min(N - 1, Math.ceil((Math.max(ax, bx) + B + R) / cs - 0.5));
+      const j0 = Math.max(0, Math.floor((Math.min(az, bz) - B + R) / cs - 0.5)), j1 = Math.min(N - 1, Math.ceil((Math.max(az, bz) + B + R) / cs - 0.5));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const x = -R + (i + 0.5) * cs, z = -R + (j + 0.5) * cs;
+        const t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / L2)), px = ax + ex * t, pz = az + ez * t;
+        const d2 = (x - px) * (x - px) + (z - pz) * (z - pz); if (d2 > B2) continue;
+        const d = Math.sqrt(d2);
+        const cr = ((z - az) * ex - (x - ax) * ez) / L;   // + to the right of the piece: the water side
+        const k = j * N + i, o = bd[k];
+        // (at a shared corner both pieces are as near: the one whose line the point is further off has the true side)
+        if (d < o - 1e-3 || (d < o + 1e-3 && Math.abs(cr) > Math.abs(bperp[k]))) { bd[k] = d; bpx[k] = px; bpz[k] = pz; bsg[k] = cr >= 0 ? 1 : -1; bperp[k] = cr; }
       }
-      for (let j = N - 1; j >= 0; j--) for (let i = N - 1; i >= 0; i--) {
-        const k = j * N + i; let v = d[k]; if (v === 0) continue;
-        if (i < N - 1) v = Math.min(v, d[k + 1] + a);
-        if (j < N - 1) { v = Math.min(v, d[k + N] + a); if (i < N - 1) v = Math.min(v, d[k + N + 1] + b); if (i > 0) v = Math.min(v, d[k + N - 1] + b); }
-        d[k] = v;
+    }
+    // in the band the side is the shoreline's: the label grid follows it (a cell straddling the line goes to the
+    // side its centre is on)
+    for (let k = 0; k < NN; k++) if (bd[k] < Infinity) lab[k] = bsg[k] > 0 ? 2 : 1;
+    // out from the band, each side: a chamfer transform (two sweeps) from the band's exact distances; a label edge no
+    // piece accounts for is a shore at its cell's edge, as before
+    const a1 = cs, a2 = cs * Math.SQRT2;
+    const side = (me) => {
+      const D = new Float32Array(NN);
+      for (let k = 0; k < NN; k++) { const inB = bd[k] < Infinity; D[k] = inB ? (lab[k] === me ? bd[k] : Infinity) : lab[k] === me ? Infinity : -cs * 0.5; }
+      for (let j = 0; j < N; j++) for (let i = 0, k = j * N; i < N; i++, k++) {
+        if (lab[k] !== me || bd[k] < Infinity) continue;
+        let v = D[k];
+        if (i > 0) v = Math.min(v, D[k - 1] + a1);
+        if (j > 0) { v = Math.min(v, D[k - N] + a1); if (i > 0) v = Math.min(v, D[k - N - 1] + a2); if (i < N - 1) v = Math.min(v, D[k - N + 1] + a2); }
+        D[k] = v;
       }
+      for (let j = N - 1; j >= 0; j--) for (let i = N - 1, k = j * N + N - 1; i >= 0; i--, k--) {
+        if (lab[k] !== me || bd[k] < Infinity) continue;
+        let v = D[k];
+        if (i < N - 1) v = Math.min(v, D[k + 1] + a1);
+        if (j < N - 1) { v = Math.min(v, D[k + N] + a1); if (i < N - 1) v = Math.min(v, D[k + N + 1] + a2); if (i > 0) v = Math.min(v, D[k + N - 1] + a2); }
+        D[k] = v;
+      }
+      return D;
     };
-    chamfer(dw); chamfer(dl);
-    const sdf = new Float32Array(N * N);
-    for (let k = 0; k < N * N; k++) sdf[k] = lab[k] === 2 ? Math.min(dw[k], 5000 / cs) * cs - cs * 0.5 : -Math.min(dl[k], 5000 / cs) * cs + cs * 0.5;
+    const dw = side(2), dl = side(1);
+    const sdf = new Float32Array(NN);
+    for (let k = 0; k < NN; k++) sdf[k] = lab[k] === 2 ? Math.min(dw[k], 5000) : -Math.min(dl[k], 5000);
     this.sdf = sdf;
     this.windDir = null;
   }

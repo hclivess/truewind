@@ -33,6 +33,7 @@ import { TrafficView } from './traffic-render.js';
 import { fleetLevels, clothBudget } from './fleet.js';
 import { Gear } from './gear.js';            // damage, anchor, mooring lines, man overboard, crew fatigue
 import { GearVis } from './gear-render.js';
+import { WildlifeView } from './wildlife-render.js';   // birds, dolphins, whales, turtles and sharks (visual only)
 import { Autopilot } from './autopilot.js';       // the smart autopilot and its coach (a learning aid)
 
 // every boat's sail model: cloth (cloth shaped by the wind and the rig, forces from a vortex lattice over it; the
@@ -73,8 +74,8 @@ const C_RIGHT = (b) => (b.cls.multihull ? 8 : 4); // grab radius on screen, also
 // chase-camera distance and windward-leeward course length for a class: by its size
 // the menu's class groups (a class's C.group)
 const CLASS_GROUPS = [['dinghy', 'Dinghies & skiffs'], ['keelboat', 'Keelboats'], ['multihull', 'Multihulls'], ['cruiser', 'Cruisers'], ['classic', 'Classics'], ['speed', 'Speed records']];
-const camDist = (C) => (C.id === 'dinghy' ? 8 : C.loa < 5.5 && !C.multihull ? 10 : C.loa > 9 ? 17 : 12);
-const courseLen = (C) => (C.id === 'dinghy' ? 600 : C.loa > 9 ? 1200 : 800);
+const camDist = (C) => C.camDist ?? (C.id === 'dinghy' ? 8 : C.loa < 5.5 && !C.multihull ? 10 : C.loa > 9 ? 17 : 12);
+const courseLen = (C) => C.courseLen ?? (C.id === 'dinghy' ? 600 : C.loa > 9 ? 1200 : 800);
 // the touch pad's third line (in order of use), with the labels for its two buttons (d = -1, +1)
 const TOUCH_LINES = { stay: ['Stay', 'Trim', 'Ease', 'Staysail sheet'], trav: ['Trav', 'Up', 'Down', 'Traveler'], hike: ['Hike', 'In', 'Out', 'Crew weight'],
   vang: ['Vang', '−', '+', 'Vang'], tackLine: ['Tack', 'Down', 'Ease', 'Gennaker tack line'], backstay: ['Bstay', '−', '+', 'Backstay'], board: ['Board', 'Up', 'Down', 'Daggerboard'], pushBoom: ['Boom', 'Port', 'Stbd', 'Push the boom out'] };
@@ -99,6 +100,7 @@ class Game {
     this.coachText = pref('tw-coach') !== '0';
     this.gear = new Gear(this);                               // damage, anchoring, mooring, MOB, fatigue
     this.gearVis = new GearVis(this.renderer, this);
+    this.wildlife = new WildlifeView(this.renderer, this);
     this.audio = new Audio();
     try { this.audio.vol = cleanVol(JSON.parse(pref('tw-vol') || 'null')); } catch (e) { /* corrupt: every channel at full */ }
     this.net = new Net(this);
@@ -136,6 +138,7 @@ class Game {
     this.resize();
     this.last = performance.now();
     requestAnimationFrame((t) => this.frame(t));
+    this.backgroundClock();
     // idle scene behind the menu
     this.startSession(true).catch(e => console.error(e));
   }
@@ -561,12 +564,13 @@ class Game {
     // (a speed machine sails one tack only: it cannot race round a course; it runs speed trials instead)
     if (cls.speed && S.mode === 'race' && !idle) setTimeout(() => this.hud.toast(`${cls.name} sails on one tack only: no course racing — speed trial instead (500 m and nautical mile, as the WSSRC times them)`, 5), 3800);
     if (S.mode === 'race' && !idle && !cls.speed) {
-      const course = new Course(world, twd, { length: courseLen(cls), laps: S.laps, lineLength: 60 + 14 * (S.fleet + 1) });
+      const course = new Course(world, twd, { length: courseLen(cls), laps: S.laps, lineLength: 60 + (cls.lineSpacing ?? 14) * (Math.min(S.fleet, cls.raceFleetMax ?? Infinity) + 1) });
       this.course = course;
-      const n = S.fleet;
+      // (a class may cap its fleet: a superyacht's one-design start is a handful of her sisters, spaced by her beam)
+      const n = Math.min(S.fleet, cls.raceFleetMax ?? Infinity);
       const spots = [];
       for (let i = 0; i <= n; i++) {
-        const off = (i - n / 2) * Math.min(16, 2 * course.half / (n + 1));   // (a big fleet packs closer on a line the water shortened)
+        const off = (i - n / 2) * Math.min(cls.lineSpacing ?? 16, 2 * course.half / (n + 1));   // (a big fleet packs closer on a line the water shortened)
         spots.push([course.origin.x - course.ux * 170 + course.rx * off, course.origin.z - course.uz * 170 + course.rz * off]);
       }
       player.reset(spots[0][0], spots[0][1], twd + Math.PI / 2);
@@ -590,7 +594,13 @@ class Game {
       this.renderer.setMarks(course.marks(), course.committee);
     } else {
       let x = 0, z = 0, hdg = twd + Math.PI / 2;
-      if (v.spawn) { [x, z] = P.fwd(v.spawn.lat, v.spawn.lon); hdg = v.spawn.heading * DEG; }
+      if (v.spawn) {
+        [x, z] = P.fwd(v.spawn.lat, v.spawn.lon); hdg = v.spawn.heading * DEG;
+        // the venue's heading is the harbour's, not the day's wind's: never start her in irons (within 50 deg of
+        // the wind), but on the beam reach nearest it
+        const off = Math.atan2(Math.sin(hdg - twd), Math.cos(hdg - twd));
+        if (Math.abs(off) < 50 * DEG) hdg = twd + (off >= 0 ? 1 : -1) * Math.PI / 2;
+      }
       else if (!world.open) { const c = world.findCourse(twd, 400); x = c.x; z = c.z; }
       if (online) { const a = Math.random() * 6.28, r = 40 + Math.random() * 120; x += Math.cos(a) * r; z += Math.sin(a) * r; }
       [x, z] = safe(x, z, cls.draft + 0.6);
@@ -1027,10 +1037,11 @@ class Game {
       this.keys.delete(k); if (e.code) this.keys.delete('#' + e.code); if (e.key === 'Shift') this.keys.delete('Shift');
     });
     window.addEventListener('blur', () => this.keys.clear());
-    // a background tab stops drawing frames: silence the sea too, and bring it back on return
+    // a background tab stops drawing frames but the sea goes on (Game.backgroundClock), and so does its sound;
+    // coming back, a context the browser suspended meanwhile is woken
     document.addEventListener('visibilitychange', () => {
       const ctx = this.audio.ctx; if (!ctx) return;
-      if (document.hidden) ctx.suspend(); else if (this.audio.on && this.running) ctx.resume();
+      if (!document.hidden && this.audio.on && this.running && ctx.state === 'suspended') ctx.resume();
     });
     const cv = $('#view');
     let drag = null;
@@ -1336,6 +1347,34 @@ class Game {
   }
 
   // ------------------------------------------------------------ loop
+  // the sea does not stop when you look away: a hidden or minimised window gets no animation frames, so a
+  // worker's clock (a page's own timers are throttled to once a second or a minute in the background; a worker's
+  // are not) steps the physics to real time without drawing. Pause stays the Pause button's (P) alone.
+  backgroundClock() {
+    let w;
+    try { w = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 100)'], { type: 'text/javascript' }))); }
+    catch (e) { return; }
+    w.onmessage = () => {
+      const now = performance.now();
+      if (!document.hidden) { this._bgLast = null; return; }
+      const last = this._bgLast ?? now; this._bgLast = now; this.last = now;
+      if (!this.env || !this.player || !this.running) return;
+      const dt = Math.min(1, Math.max(0, (now - last) / 1000));
+      if (this.netEpoch !== null) {
+        const target = Date.now() / 1000 - this.netEpoch;
+        if (target - this.t > 2 || target < this.t - 2) { this.t = target; this.acc = 0; } else this.acc = target - this.t;
+      } else this.acc = (Number.isFinite(this.acc) ? this.acc : 0) + (this.paused ? 0 : dt * this.timeWarp);
+      let steps = 0; const maxSteps = Math.ceil(1.2 * this.timeWarp / PHYS_DT);
+      while (this.acc >= PHYS_DT && steps < maxSteps) {
+        for (const b of this.boats) { b._prev = { x: b.x, z: b.z, psi: b.psi, heave: b.heave, pitch: b.pitch, phi: b.phi }; snapRig(b); }
+        this.step(PHYS_DT); this.acc -= PHYS_DT; steps++;
+      }
+      if (steps >= maxSteps) this.acc = 0;
+      if (this.traffic && steps) { this.traffic.update(steps * PHYS_DT, this.t, this.env, this.boats); this._tDraw = this.t; }
+      if (this.env.tick(this.t)) this.renderer.setWaves(this.env.waves);
+      if (this.audio && this.audio.on) this.audio.update(this.player, dt, this.renderer.rainNow || 0);   // (the wind and water heard as they change)
+    };
+  }
   frame(now) {
     requestAnimationFrame((t) => this.frame(t));
     const frameMs = now - this.last;

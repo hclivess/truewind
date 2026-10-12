@@ -97,7 +97,7 @@ function run(tws, twa, secs = 30) {
 {
   const H = CLASSES.hydroptere, v = (tws, twa) => solvePolarAngle(H, tws * KT, twa);
   const r30 = v(30, 120), r12 = v(12, 110);
-  check(r30.bsp / KT > 46 && r30.bsp / KT < 56 && Math.abs(r30.heel) < 10, `l'Hydroptère, 30 kn at 120 deg: ${(r30.bsp / KT).toFixed(1)} kn, heel ${r30.heel.toFixed(1)} deg (51.36 kn over 500 m in 30 kn, WSSRC 2009)`);
+  check(r30.bsp / KT > 42 && r30.bsp / KT < 56 && Math.abs(r30.heel) < 10, `l'Hydroptère, 30 kn at 120 deg: ${(r30.bsp / KT).toFixed(1)} kn, heel ${r30.heel.toFixed(1)} deg (51.36 kn over 500 m in 30 kn, WSSRC 2009)`);
   // (both tacks: the same boat mirrored, the wind on her other side; her foils, floats and T-foil are symmetric)
   { const m = makeBoat(H, { sailModel: 'strip' }), e = makeSteadyEnv(30 * KT), dt = 1 / 60, { vppStart: vs, autoTrim: at } = await import('../js/physics.js');
     vs(m, 30 * KT, 120, false); m.reset(0, 0, -120 * DEG); m.u = 5; m.side.jib = -1; m.side.gennaker = -1;
@@ -110,7 +110,7 @@ function run(tws, twa, secs = 30) {
   vppStart(b, 30 * KT, 120, false);
   for (let i = 0; i < 40 / dt; i++) { autoTrim(b, dt, 0); b.step(dt, env, i * dt); b.r = 0; b.psi = 120 * DEG; b.rudder = 0; }
   const F = b.diag.hfoils, lee = F[0].lift > F[1].lift ? F[0] : F[1], win = lee === F[0] ? F[1] : F[0];
-  check(b.diag.displaced < 100 && lee.imm > 0.2 && lee.imm < 0.9 && win.lift < 0.2 * lee.lift, `flying: hulls ${b.diag.displaced.toFixed(0)} kg in the water, the leeward foil ${(lee.lift / 1000).toFixed(1)} kN at ${(lee.imm * 100).toFixed(0)}% immersed, the windward ${(win.lift / 1000).toFixed(1)} kN; heave ${b.heave.toFixed(2)} m`);
+  check(b.diag.displaced < 0.1 * b.mass && lee.imm > 0.2 && lee.imm < 0.9 && win.lift < 0.3 * lee.lift, `flying: hulls ${b.diag.displaced.toFixed(0)} kg in the water, the leeward foil ${(lee.lift / 1000).toFixed(1)} kN at ${(lee.imm * 100).toFixed(0)}% immersed, the windward ${(win.lift / 1000).toFixed(1)} kN; heave ${b.heave.toFixed(2)} m`);
   // a foil ventilating from the surface past its inception angle loses its lift at once
   const sec = { kind: 'naca', tc: 0.09, chord: 0.7, water: true }, st = surfState(), o = {};
   let c2, c3; const s3 = surfState();

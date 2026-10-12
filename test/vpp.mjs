@@ -4,7 +4,7 @@ import '../js/speedcraft.js';     // (the speed machines' VPP)
 import { loadBakedPolars } from '../js/sail/surrogate.js';
 // cloth sails: the polars baked by tools/bake-sail-surrogate.mjs (data/sails/); SAILS=strip: the strip model's VPP
 const KT=0.514444;
-const classes = process.argv[2] ? [process.argv[2]] : CLASS_ORDER;
+const classes = process.argv[2] ? [process.argv[2]] : CLASS_ORDER;   // (the speed machines' polars: js/speedcraft.js, test/speedcraft.mjs)
 for (const cls of classes) await loadBakedPolars(cls);
 for (const cls of classes) for (const tws of [6,12,20]) {
   const t0=Date.now();

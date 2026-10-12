@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { whitecapCover } from './env.js';
 
 const DROPS = 2400, PATCHES = 520, Q = 16, RWS = 7;
+const SIDES = 6;                      // bow sheets and hull lines: two sides of up to three hulls
 export const NOISE = /* glsl */`   // also the ?q=low wake ribbon's (render.js)
 // hash without sin() (at world coordinates x 26 its precision ran out and the foam broke into blocks)
 vec2 fh(vec2 p){ p = mod(p, 4096.0); vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy) * 2.0 - 1.0; }
@@ -183,13 +184,13 @@ export class HullSplash {
     this.patches = new THREE.Mesh(pg, M.patch); this.patches.frustumCulled = false; this.patches.renderOrder = 2;
     scene.add(this.patches);
     this.pNext = 0; this._ws = {};
-    // bow-wave sheets: up to 4 (two sides of up to two hulls), Q stations x RWS rows each
-    const nv = 4 * Q * RWS;
+    // bow-wave sheets: two sides of up to three hulls (a cat's two, a trimaran's main hull and floats), Q stations x RWS rows each
+    const nv = SIDES * Q * RWS;
     const bg = new THREE.BufferGeometry();
     this.bPos = new Float32Array(nv * 3); this.bUV = new Float32Array(nv * 2); this.bH = new Float32Array(nv);
     bg.setAttribute('position', new THREE.BufferAttribute(this.bPos, 3)); bg.setAttribute('uvq', new THREE.BufferAttribute(this.bUV, 2)); bg.setAttribute('hgt', new THREE.BufferAttribute(this.bH, 1));
     const bi = [];
-    for (let s = 0; s < 4; s++) for (let q = 0; q < Q - 1; q++) for (let r = 0; r < RWS - 1; r++) {
+    for (let s = 0; s < SIDES; s++) for (let q = 0; q < Q - 1; q++) for (let r = 0; r < RWS - 1; r++) {
       const a = (s * Q + q) * RWS + r, b = a + RWS; bi.push(a, b, a + 1, a + 1, b, b + 1);
     }
     bg.setIndex(bi);
@@ -198,13 +199,13 @@ export class HullSplash {
     // the thin hull line (boat frame)
     this.maxSt = 32;
     const fg = new THREE.BufferGeometry();
-    this.fpos = new Float32Array(this.maxSt * 4 * 2 * 3); this.fa = new Float32Array(this.maxSt * 4 * 2);
-    const across = new Float32Array(this.maxSt * 4 * 2); for (let i = 0; i < across.length; i += 2) { across[i] = 0; across[i + 1] = 1; }
+    this.fpos = new Float32Array(this.maxSt * SIDES * 2 * 3); this.fa = new Float32Array(this.maxSt * SIDES * 2);
+    const across = new Float32Array(this.maxSt * SIDES * 2); for (let i = 0; i < across.length; i += 2) { across[i] = 0; across[i + 1] = 1; }
     fg.setAttribute('position', new THREE.BufferAttribute(this.fpos, 3));
     fg.setAttribute('a', new THREE.BufferAttribute(this.fa, 1));
     fg.setAttribute('across', new THREE.BufferAttribute(across, 1));
     const idx = [];
-    for (let side = 0; side < 4; side++) for (let i = 0; i < this.maxSt - 1; i++) { const a = (side * this.maxSt + i) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    for (let side = 0; side < SIDES; side++) for (let i = 0; i < this.maxSt - 1; i++) { const a = (side * this.maxSt + i) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     fg.setIndex(idx);
     this.foam = new THREE.Mesh(fg, M.line); this.foam.frustumCulled = false; this.foam.renderOrder = 2;
     vis.inner.add(this.foam);
@@ -237,7 +238,10 @@ export class HullSplash {
     const bvx = b.vgx || 0, bvz = b.vgz || 0;
     const u = Math.max(0, b.u), G = 9.81;
     const nS = Math.min(wl.length, this.maxSt);
-    const offs = C.multihull ? [-C.hullSpacing / 2, C.hullSpacing / 2] : [0];
+    // each hull's own waterline: the crossings within its own half-breadth (a limit of the boat's whole beam
+    // let a cat's inboard side take the other hull's outer edge, and a trimaran's main hull its float's)
+    const offs = this._offs || (this._offs = C.multihull ? [-C.hullSpacing / 2, C.hullSpacing / 2] : C.amas ? [0, -C.amas.y, C.amas.y] : [0]);
+    const halfW = this._halfW || (this._halfW = offs.map((o) => C.amas && o !== 0 ? 1.6 * (C.amas.tube ? C.amas.tube.r * 1.2 : 0.8) : 0.8 * (C.multihull || C.amas ? (C.hullBeam ?? C.beam) : C.beam)));
     const fp = this.fpos, fa = this.fa;
     fa.fill(0);
     this.bH.fill(0);
@@ -250,7 +254,7 @@ export class HullSplash {
         const st = wl[s], pts = st.pts; let best = null;
         for (let k = 0; k < pts.length; k += 2) {
           const y = pts[k] - offs[h];
-          if (Math.sign(y) === sideSign && Math.abs(y) < C.beam && (!best || Math.abs(y) > Math.abs(best[0] - offs[h]))) best = [pts[k], pts[k + 1]];
+          if (Math.sign(y) === sideSign && Math.abs(y) < halfW[h] && (!best || Math.abs(y) > Math.abs(best[0] - offs[h]))) best = [pts[k], pts[k + 1]];
         }
         if (best) cr.push({ s, x: st.x, t: st.t, y: best[0], z: best[1] });
       }

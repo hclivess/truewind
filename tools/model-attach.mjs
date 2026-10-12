@@ -16,6 +16,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const freePort = () => new Promise(r => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 const args = process.argv.slice(2);
 const si = args.indexOf('--shots'), shots = si >= 0 ? args.splice(si, 2)[1] : null;
+// --tol=0.024: parts within 2.4 cm touch (sampled at 2 cm): for a superyacht, whose surfaces at 1 cm do not fit in memory
+const ti = args.findIndex((a) => a.startsWith('--tol=')), tol = ti >= 0 ? args.splice(ti, 1)[0].split('=')[1] : null;
 const classes = args;
 // views for the screenshots: [name, yaw, pitch, dist (x LOA), target x (x LOA from the CG), target z]
 const VIEWS = [['q34', 0.75, 0.28, 1.25, 0, 0.35], ['side', 1.5708, 0.05, 1.2, 0, 0.35], ['deckfwd', 0.5, 0.55, 0.45, 0.25, 0.1],
@@ -30,7 +32,7 @@ let floating = 0;
 try {
   const p = await b.newPage({ viewport: { width: 960, height: 600 } });
   const errs = []; p.on('pageerror', e => errs.push(String(e)));
-  await p.goto(`http://127.0.0.1:${port}/tools/model-attach.html`, { timeout: 600000 });
+  await p.goto(`http://127.0.0.1:${port}/tools/model-attach.html${tol ? `?tol=${tol}` : ''}`, { timeout: 600000 });
   await p.waitForFunction(() => window.__ready || window.__done, null, { timeout: 600000 });
   const ids = classes.length ? classes : await p.evaluate(() => window.__classes);
   for (const id of ids) {

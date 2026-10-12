@@ -344,7 +344,7 @@ export class RigStructure {
   constructor(boat, spec = null) {
     const C = boat.cls;
     this.boat = boat; this.C = C;
-    const R = this.spec = spec || C.rigSpec || RIG_DATA[C.id] || genericRig(C);
+    const R = this.spec = spec || C.rigStructure || RIG_DATA[C.id] || genericRig(C);   // (C.rigSpec is the damage model's table: js/damage.js)
     this.axisX = C.mastX + 0.03;
     // the most a line on the boom carries (its purchase times what the crew can pull): the vang and the sheet
     this.lineMax = R.lineMax ?? 2 * (C.sheetPower || 700);

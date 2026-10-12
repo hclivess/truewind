@@ -15,6 +15,8 @@ import { loadLand, buildTerrain, buildScenery, setSceneryNight, tickScenery } fr
 import { SkySystem, SKY_LUT_GLSL, CLOUD_GLSL, withCloudShadows, sunPosition, MIST_U } from './sky.js';
 import { strikes, flashAt, thunderDue, thunderBearing, boltSegments, convection, heatFromSun, mist, mistTau } from './wx.js';
 import { SeamarkLayer } from './seamark-render.js';
+import { PlanarReflection, REFL_GLSL } from './reflect.js';
+import { ReflGovernor } from './governor.js';
 
 const MAXW = 20;
 const FOAM_N = 512;   // persistent-foam map resolution (texels a side)
@@ -227,6 +229,7 @@ export class Renderer {
   resize(w, h) {
     this.r.setSize(w, h, false);
     this.skySys.resize(w, h, this.r.getPixelRatio());
+    if (this.refl) this.refl.resize(w * this.r.getPixelRatio(), h * this.r.getPixelRatio());
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
   }
 
@@ -280,6 +283,12 @@ export class Renderer {
       fogColor: { value: new THREE.Color(0xb7c8d4) }, fogDensity: { value: 0.00011 },
       uEnv: { value: this.skySys.cubeRT.texture }, uAmbF: { value: 1 }, uLightDir: { value: this.skySys.lightV }, uSkyRT: this.skySys.compU.uSkyTex, uSkyVP: this.skySys.marchDome.material.uniforms.uPrevVP,
     };
+    // the scene's reflection (reflect.js): rung 0 of the ladder on a desktop, rung 2 with ?q=low; ?refl=0..3 sets it
+    // (and holds it there: no governor)
+    const rq = new URLSearchParams(location.search).get('refl');
+    this.refl = new PlanarReflection(THREE, this.r, rq !== null ? +rq : this.low ? 2 : 0);
+    this.reflGov = rq !== null ? null : new ReflGovernor(this.refl.level);
+    Object.assign(uniforms, this.refl.U);
     // the sky's shared uniforms (table, clouds, sun colour) are the same objects
     for (const k of ['uSkyLUT', 'uLutDir', 'uNoise', 'uWeather', 'uWOff', 'uCover', 'uCloudBase', 'uCloudThick', 'uCloudTime', 'uCells', 'uSunCol']) uniforms[k] = this.skySys.U[k];
     // the boats' own waves (hullwaves.js): simulated on a grid around the player, or (?q=low, or no float
@@ -353,6 +362,7 @@ export class Renderer {
         ${HWDEF}
         ${SKY_LUT_GLSL}
         ${CLOUD_GLSL}
+        ${REFL_GLSL}
         uniform vec3 uSunDir; uniform vec3 uSunCol; uniform samplerCube uEnv; uniform float uAmbF; uniform vec3 uLightDir; uniform sampler2D uSkyRT; uniform mat4 uSkyVP;
         uniform vec3 uCam; uniform sampler2D uGust; uniform vec2 uGustO; uniform float uGustS;
         uniform vec2 uFlow; uniform float uWind; uniform float uHs; uniform float uJSig; uniform float uLmin;
@@ -532,6 +542,8 @@ export class Renderer {
             float rw = smoothstep(0.0, 0.1, min(re.x, re.y)) * (1.0 - smoothstep(1.5, 3.5, gloss));
             if (rw > 0.0) refl = mix(refl, texture2D(uSkyRT, ruv).rgb, rw);
           }
+          // and over the sky, the scene's reflection: boats, sails, land, buildings, lights (reflect.js)
+          refl = reflScene(refl, vPos, R, sig, dist, abs(V0.y));
           float shadow = cloudShadow(vec3(x0.x, 0.0, x0.y), uLightDir);
           // sun: GGX microfacet reflection with the roughness above (a sharp glint on a calm sea, a long
           // broken path of glitter on a rough one)
@@ -775,6 +787,8 @@ export class Renderer {
           gl_FragColor = vec4(col, 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
+          // dithered to the 8-bit output (triangular, +-1 LSB): no banding in the slow gradients of a calm sea's sky
+          gl_FragColor.rgb += (hash(gl_FragCoord.xy) + hash(gl_FragCoord.yx + 17.0) - 1.0) / 255.0;
         }`,
     });
     this.water = new THREE.Mesh(g, m);
@@ -1437,7 +1451,21 @@ export class Renderer {
     else if (this.forceArrows) this.forceArrows.visible = false;
     if (this.seamarks) this.seamarks.update(dt, t, this.camera, env, this.sunDir.y, this.scene.fog.density || 0, this.r.getPixelRatio(), this.r.domElement.clientHeight || 800);
     if (this.hooks) for (const h of this.hooks) h(dt, t, sim);      // (js/gear-render.js: wrecks, rodes, lines, MOB marker)
+    this._renderReflection();
     this.r.render(this.scene, this.camera);
+  }
+
+  // the sea's mirror (reflect.js), on the rung of the ladder the frame rate allows (governor.js ReflGovernor):
+  // drawn without the sea itself, the sky (the water has its own), the rain and what lies flat on the water
+  _renderReflection() {
+    const now = performance.now(), fm = now - (this._reflT ?? now); this._reflT = now;
+    if (this.reflGov) { const l = this.reflGov.frame(fm); if (l !== null) this.refl.setLevel(l); }
+    const h = this._reflHide || (this._reflHide = []);
+    h.length = 0; h.push(this.water, this.skySys.dome, this.rain);
+    for (const w of this.wakes.values()) h.push(w.mesh);
+    for (const vis of this.boats.values()) if (vis.splash) h.push(vis.splash.foam, vis.splash.patches);
+    if (this.grabRings) h.push(...this.grabRings);
+    this.refl.render(this.scene, this.camera, h);
   }
 
   _updateCamera(dt, b, env, t) {

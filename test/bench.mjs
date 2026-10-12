@@ -4,7 +4,7 @@
 import { Boat, autoTrim, makeSteadyEnv, CLASSES } from '../js/physics.js';
 import { attachSails } from '../js/sail/sailsim.js';
 const KT = 0.514444, DEG = Math.PI / 180;
-const classes = process.argv[2] && process.argv[2] !== 'all' ? [process.argv[2]] : Object.keys(CLASSES);
+const classes = process.argv[2] && process.argv[2] !== 'all' ? [process.argv[2]] : Object.keys(CLASSES).filter((id) => !CLASSES[id].speed);   // (the speed machines: test/speedcraft.mjs)
 const models = (process.argv[3] || 'strip,vlm,cloth0,cloth1').split(',');
 const dt = 1 / 120, warm = 600, N = 1200;
 for (const cls of classes) {

@@ -10,7 +10,7 @@
 // Run: node test/crew.mjs [class]
 import { Boat, autoTrim, makeSteadyEnv, CLASS_ORDER } from '../js/physics.js';
 import { Crew } from '../js/crew.js';
-import { lineSpecs } from '../js/linehandlers.js';
+import { lineSpecs, HANDLERS } from '../js/linehandlers.js';
 const KT = 0.514444, DEG = Math.PI / 180;
 let fails = 0;
 const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (!ok) fails++; };
@@ -53,9 +53,10 @@ for (const cls of classes) {
     check(Math.abs(c.u - a.u) / a.u < 0.05, `${cls} at ${twa}° TWA: the crew's hands sail at ${c.u.toFixed(2)} kn, autoTrim alone ${a.u.toFixed(2)} kn`);
     const used = Object.entries(c.states).filter(([, s]) => s.has('free') || s.has('releasing')).map(([k]) => k);
     // (a line held in the hand through a ratchet block, a Laser's mainsheet, has no cleat to open)
-    const hand = ['main', 'jib'].filter((k) => c.b.lh[k] && ['ratchet'].includes(lineSpecs(c.b.cls)[k]?.handler));
+    // (nor a line on a powered captive winch or ram: it runs out under power, never cast off: a superyacht's)
+    const hand = ['main', 'jib'].filter((k) => c.b.lh[k] && (['ratchet'].includes(lineSpecs(c.b.cls)[k]?.handler) || HANDLERS[lineSpecs(c.b.cls)[k]?.handler]?.powered));
     check((used.length > 0 || hand.length > 0) && Object.values(c.b.lh).every((s) => s.s !== 'free' || !c.b.locks[Object.keys(c.b.lh).find((k) => c.b.lh[k] === s)]),
-      `${cls} at ${twa}°: cleats opened to ease (${used.join(', ') || 'none'}${hand.length ? `; in the hand: ${hand.join(', ')}` : ''}) and made fast again`);
+      `${cls} at ${twa}°: cleats opened to ease (${used.join(', ') || 'none'}${hand.length ? `; in the hand or on a powered winch: ${hand.join(', ')}` : ''}) and made fast again`);
     const fast = Object.keys(c.over), worst = Object.entries(a.jump).sort((x, y) => y[1] - x[1])[0];
     check(!fast.length, `${cls} at ${twa}° then ${twa + 40}°: every control moves at a crew's pace (${fast.length ? 'too fast: ' + fast.map((k) => `${k} ${c.jump[k].toFixed(2)}x`).join(', ') : 'none faster than its hands / tackle / winch'}; autoTrim alone ${worst ? `moves the ${worst[0]} ${worst[1].toFixed(0)}x faster than that` : 'within it'})`);
     const per = {}; for (const m of c.said) per[m.key] = (per[m.key] || 0) + 1;
