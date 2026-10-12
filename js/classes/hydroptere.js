@@ -63,8 +63,9 @@ export default {
   // the main hull's own lateral plane (no board: her foils resist leeway), a long low fin of the hull's 1.3 m draft
   // (official), the canoe body and its skeg (est.)
   keel: { x: 0.2, z: -0.65, area: 5.0, ARe: 0.6, stall: 26 * DEG, cd0: 0.013, span: 1.3, chord: 8, long: true },
-  // the T-foil's strut, hung on a transom bracket (3.3 m strut: fr.wikipedia), steered by the wheels
-  rudder: { x: -9.25, z: -1.35, area: 0.95, ARe: 3.4, stall: 15 * DEG, cd0: 0.01, max: 25 * DEG, span: 2.7, chord: 0.35, loadRef: 6000, transom: true },
+  // the T-foil's strut (3.3 m: fr.wikipedia), at the transom (on a bracket there, drawn here with its stock through the
+  // hull's stern: est.), steered by the wheels; 2.6 m of it below the hull
+  rudder: { x: -8.85, z: -1.78, area: 0.91, ARe: 3.4, stall: 15 * DEG, cd0: 0.01, max: 25 * DEG, span: 2.6, chord: 0.35, loadRef: 6000 },
   hullLat: { area: 4.0, cd: 0.9, z: -0.25 },
   windage: { area: 22, z: 2.2, cd: 0.9 },
   mastX: 1.2, mastHeight: 28.5, boomZ: 2.6, keelBulb: false, houndsF: 0.08,
@@ -88,17 +89,17 @@ export default {
     keel: [[0, -0.1], [0.08, -0.42], [0.4, -0.6], [0.75, -0.5], [0.93, -0.1], [1, 0.45]],
     bilge: 2.0, dead: 0.45, flare: 0.6, tumble: 0.04, crown: 0.18, stemX: 0.25, transomRake: -0.03,
   },
-  insignia: '',
+  insignia: '', nameColor: '#151515',   // (her name in black italic script on the white hull: the 2009-2010 photographs)
   sailcloth: { cloth: 0x2b2d31, kind: 'laminate', num: '#e8e8e8', logo: '#e8e8e8', trans: 0.12, rough: 0.4 },
   hull: { color: 0xf4f4f2, stripe: 0xc8202a, levels: [0.05, 0.05, -1, -1], deck: 0xd8dadb, boot: 0x1d1f22, bootTop: 0xf4f4f2, sectionN: 2.2, transom: 0.7, bowRake: 0.1, sheer: 0.05,
-    noNumber: true, lifelines: false, deckTint: '#d6d8d9', extension: false, name: "l'Hydroptère",
+    noNumber: true, lifelines: false, deckTint: '#d6d8d9', extension: false, name: "l'Hydroptère", nameOnMain: true,
     cockpit: { t0: 0.1, t1: 0.3, w: 0.55, sole: 0.75 }, cabin: { t0: 0.32, t1: 0.52, h: 0.42, w: 0.7 } },
   hw: { trav: [-3.4, 2.2], winch: [-4.4, 0.85], jibTrack: [1.0, -1.2, 0.9], boomS: 0.93, clutchX: -0.2, cabinWinch: [-0.4, 0.6] },
   // ---- the foils (js/hydrofoil.js Surface, driven in js/physics.js Boat.step)
   hydrofoils: [foil(1), foil(-1), winglet(1), winglet(-1),
-    // the T-foil's horizontal: 2.6 m wide, 0.42 m chord (est.) at the strut's foot, its flap the take-off control (crew:
+    // the T-foil's horizontal: 2.6 m wide, 0.42 m chord (est.) at the foot of the 3.3 m strut (3.0 m under the waterline), its flap the take-off control (crew:
     // ctrl.flap); flying, it carries a down-load (the drive, high up, pitches her bow down): a thin section cambered
     // for it (est.)
-    { name: 'elevator', root: [-9.3, -1.3, -2.65], span: [0, 1, 0], len: 2.6, chord: [0.42, 0.42], chord0: [-1, 0, 0], liftTo: [0, 0, 1], sec: { kind: 'naca', tc: 0.08, alpha0: -1 * DEG, clDesign: -0.08 }, inc: 0, flap: [-6 * DEG, 6 * DEG], n: 4, endPlate: 0.3, pierce: false },
+    { name: 'elevator', root: [-8.9, -1.3, -3.06], span: [0, 1, 0], len: 2.6, chord: [0.42, 0.42], chord0: [-1, 0, 0], liftTo: [0, 0, 1], sec: { kind: 'naca', tc: 0.08, alpha0: -1 * DEG, clDesign: -0.08 }, inc: 0, flap: [-6 * DEG, 6 * DEG], n: 4, endPlate: 0.3, pierce: false },
   ],
 };

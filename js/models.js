@@ -904,10 +904,14 @@ export function buildBoatModel(boat, opts = {}) {
     const w = Lx.bDeck(0) * 1.5;
     // the boat's name (the player's, or the fleet's); unnamed boats keep the class default; the home port
     // line only on the player's Blackwatch
-    const name = opts.name || (C.id === 'blackwatch' ? 'Blackwatch' : C.id === 'sportboat' ? (opts.number ? '#' + opts.number : 'S23') : '');
+    const name = opts.name || C.hull.name || (C.id === 'blackwatch' ? 'Blackwatch' : C.id === 'sportboat' ? (opts.number ? '#' + opts.number : 'S23') : '');
     const port = C.id === 'blackwatch' && (opts.player || !opts.name) ? 'PROGRESO, YUC.' : '';
     const mat = new THREE.MeshStandardMaterial({ map: transomDecal(C, name, port), transparent: true, roughness: 0.4 });
-    if (C.amas && name) {
+    if (C.amas && name && C.hull.nameOnMain) {
+      // a trimaran whose name is on her main hull's topsides, both sides, amidships (l'Hydroptère's)
+      const hw = 3.2, P0 = hullParts(C).find((q) => q.y === 0);
+      for (const sd of [-1, 1]) inner.add(new THREE.Mesh(onSide(nameStrip(hw, sd), -1.0, Lx.sheer(0.45) * 0.6, sd, partSideY(C, Lx, P0), 0.008), mat));
+    } else if (C.amas && name) {
       // a trimaran: on the outboard topsides of both floats, aft
       // (laid onto the float's topsides, which curve in toward its ends and round over to its deck)
       const A = C.amas, hw = 2.2, xa = lerp(C.sternX, C.bowX, A.t0 + 0.08), ta = 0.08, floats = hullParts(C).filter((P) => P.y !== 0);

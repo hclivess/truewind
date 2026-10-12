@@ -661,7 +661,10 @@ class Game {
     const twd = cond.twd * DEG;
     world.updateShelter(twd);
     // waves: fetch-limited by the real coastline upwind of the sailing area
-    const fetchM = world.open ? 60000 : world.fetchAt(0, 0, twd, 6000);
+    // (a venue whose sailing is in one sheltered spot, v.seaAt 'spawn', raises its sea over the fetch there: the Walvis Bay
+    // speed strip's flat water in the lee of its spit, not the lagoon's chop at the venue's centre)
+    const sp0 = v && v.seaAt === 'spawn' && v.spawn ? makeProjection(v.lat, v.lon).fwd(v.spawn.lat, v.spawn.lon) : [0, 0];
+    const fetchM = world.open ? 60000 : world.fetchAt(sp0[0], sp0[1], twd, 6000);
     // open ocean: effectively unlimited fetch, the sea limited by the storm's duration (env.js STORM_H)
     const fetchKm = world.open ? 2000 : fetchM >= 6000 ? 25 : Math.max(0.4, fetchM / 1000);
     const clock0 = this.settings.mode === 'online' && cond.epoch ? cond.epoch * 1000 : this.clockFor();
@@ -1642,6 +1645,10 @@ class Game {
       else this.hud.alert(null);
       return;
     }
+    // (a foiler flying: her T-foil near the surface, a foil boiling, heeled past the point where her windward foil holds)
+    const hf = !b.capsized && b.hfoils && b.diag.hfoils ? b.diag.hfoils : null, fly = hf && (b.diag.displaced || 0) < 0.2 * b.mass;
+    if (fly && hf.some((f) => /elevator/.test(f.name || '') && f.imm < 0.7)) { this.hud.alert('T-foil coming out of the water — ease the main, come down', true); return; }
+    if (fly && Math.abs(b.phi) > 12 * DEG) { this.hud.alert('Flying heeled on the leeward foil — ease or bear away before the T-foil lifts out', true); return; }
     if (b.capsized && b.righting) this.hud.alert(`Righting… ${Math.round(Math.abs(b.phi) * 57.3)}° — keep your weight out`, true);
     else if (b.capsized && !b.unmanned) this.hud.alert('Capsized — press R to stand on the board and right her', true);
     else if (this.gear.alert()) { const a = this.gear.alert(); this.hud.alert(a.msg, a.bad); }

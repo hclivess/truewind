@@ -70,9 +70,8 @@ export class SpeedCraft {
     const parts = [...S.parts, { m: C.crewN * C.crewEach, p: S.pilot, r: [0.25, 0.25, 0.3], pilot: true }].map((q) => ({ ...q, p: [q.p[0] - o[0], q.p[1] - o[1], q.p[2]] }));
     const mp = craftMass(parts);
     this.mass = mp.M; this.crewMass = C.crewN * C.crewEach; this.cg = mp.cg;
-    // (added mass: the pods' and foils' water is small against the craft's own; a little in heave and roll keeps the
-    // stiff planing contact well conditioned, ~10% in heave as for a planing hull at speed: Faltinsen 2005, "
-    // Hydrodynamics of high-speed marine vehicles" ch. 9)
+    // (added mass: the floats' and foils' water is small against the craft's own: 2% in surge, 8% in sway, 10% in heave,
+    // est., the order of a planing hull's at speed: Faltinsen 2005, "Hydrodynamics of high-speed marine vehicles" ch. 9)
     this.I = mp.I; this.Iinv = inv3(mp.I);
     this.mAdd = [0.02 * mp.M, 0.08 * mp.M, 0.1 * mp.M];
     this.massProps = mp;
@@ -116,7 +115,6 @@ export class SpeedCraft {
     this.reefPos = 0; this.reefSlack = 0; this.reefing = false; this.genDeploy = 0; this.genFill = 0; this.backedByLazy = false;
     this.log = 0; this.t = 0; this.slam = 0; this.slamEvents = 0;
     // float her at rest: the heave where the pods carry her weight, level
-    const S = this.cls.speed;
     // (h: the origin's depth below the surface; a pod's keel at the transom is k[2] + h deep)
     let h = 0;
     for (let it = 0; it < 200; it++) {

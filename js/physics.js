@@ -523,6 +523,9 @@ export class Boat {
     // a foiler's lifting foils (C.hydrofoils: l'Hydroptère's): surfaces in strips at their depths (js/hydrofoil.js), the
     // class's geometry (z up) turned into the body frame the surfaces work in (SNAME: z down)
     const dn = (q) => [q[0], q[1], -q[2]];
+    // (the sails' centre of effort, for a foiler's pitch: each working sail's triangle centroid, a third of the way up its
+    // luff, weighted by its area)
+    { let a = 0, m = 0; for (const s of C.sails) { if (s.kind === 'spin' || s.replaces) continue; const z0 = s.tackZ ?? C.boomZ; a += s.area; m += s.area * (z0 + s.luff / 3); } this._ceZ = a > 0 ? m / a : C.boomZ + 2.3; }
     this.hfoils = C.hydrofoils ? C.hydrofoils.map((F) => new Surface({ ...F, root: dn(F.root), span: dn(F.span), chord0: dn(F.chord0 || [-1, 0, 0]), liftTo: dn(F.liftTo || [0, 0, 1]), water: true, n: F.n || 6 })) : null;
     this.keelSt = foilState(); this.rudSt = [foilState(), foilState()];
     this._kg = {}; this._rg2 = [{}, {}]; this._rc = {};
@@ -1452,9 +1455,9 @@ export class Boat {
       // bow driven under: green water on the foredeck pushes it down (moment = x * Fz)
       if (imm.deckSub > 0 && uw > 0) { const Fz = -0.5 * RHO_W * uw * uw * C.beam * 0.4 * imm.deckSub; My += C.bowX * 0.6 * Fz; X -= 0.5 * RHO_W * uw * uw * C.beam * 0.15 * imm.deckSub; }
       d.myHs = My - foilMy; d.myFoil = foilMy;
-      // (a foiler's: the drive at the sails' own centre of effort, the height of their heeling moment over their side
-      // force, above her origin: her foils' drags carry their own moments; flying, there is no hull drag low down)
-      const armD = this.hfoils ? clamp(Math.abs(sailK) / Math.max(1, Math.abs(sailY)), 2, C.mastHeight) : C.boomZ + 2.3;
+      // (a foiler's: the drive at the sails' centre of effort, above her origin (this._ceZ): her foils' drags carry their own
+      // moments; flying, there is no hull drag low down)
+      const armD = this.hfoils ? this._ceZ : C.boomZ + 2.3;
       My -= sailX * armD;                                                       // drive high, drag low: bow down
       if (this.engine) My += this.engine.My;                                     // thrust low (bow up), the engine's weight
       if (wv) My += this._brkMy || 0;                                            // a breaker's jet

@@ -1,5 +1,6 @@
 import { solvePolar, vmgTargets, CLASS_ORDER } from '../js/physics.js';
 import '../js/sail/sailsim.js';   // the game's sail model (cloth by default; SAILS=strip for the strip model)
+import '../js/speedcraft.js';     // (the speed machines' VPP)
 import { loadBakedPolars } from '../js/sail/surrogate.js';
 // cloth sails: the polars baked by tools/bake-sail-surrogate.mjs (data/sails/); SAILS=strip: the strip model's VPP
 const KT=0.514444;

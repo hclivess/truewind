@@ -32,10 +32,13 @@ export const VENUES = [
   // (the speed strip: Paul Larsen's "hammer head beach between two lagoons", 1.04 nmi long, sailed along its north
   // shore with the wind over the beach (Vestas Sailrocket 2's records, Nov 2012: sailrocket.com node/650); the strong
   // south-westerly sea breeze of the Benguela coast, 23-29 kn on the record days (node/623, 650, 672); its direction,
-  // ~190°, from the course: a starboard-tack reach of ~100-110° true along the beach, which runs ~75-80°, est.)
-  { id: 'walvis', name: 'Walvis Bay', place: 'Speed strip, Walvis Bay, Namibia', lat: -22.962, lon: 14.468, R: 6000, wind: 190, windKt: 25, depth: 4,
-    spawn: { lat: -22.959, lon: 14.448, heading: 80 },
-    note: 'The speed strip where Vestas Sailrocket 2 set the 500 m record (65.45 kn, 2012): flat water along a sand spit, the south-westerly over the beach.' },
+  // ~190°, from the course: a starboard-tack reach of ~100° true (99° on 12 Nov, node/623) along the beach, whose north
+  // shore runs east-west for 1.9 km, 14.452-14.470°E (OSM): the strip, 200 m off it in ~2.5 m of water; est.; the
+  // spit is low bare sand a metre or two high: it flattens the water to leeward and takes little of the wind, shelter
+  // 0.12 against the general 0.5, est.)
+  { id: 'walvis', name: 'Walvis Bay', place: 'Speed strip, Walvis Bay, Namibia', lat: -22.962, lon: 14.468, R: 6000, wind: 190, windKt: 25, depth: 4, shelter: 0.12, seaAt: 'spawn',
+    spawn: { lat: -22.957, lon: 14.452, heading: 90 },
+    note: 'The speed strip where Vestas Sailrocket 2 set the 500 m record (65.45 kn, 2012): flat water along a sand spit, the south-south-westerly blowing over the beach.' },
   { id: 'southern', name: 'Southern Ocean', place: 'Drake Passage, south of Cape Horn', lat: -57.5, lon: -66.5, wind: 285, windKt: 45, swell: 7, depth: 4000, open: true, preset: true,
     note: 'The Furious Fifties: a westerly gale with nothing to stop it, a big swell from the west under the local sea, and now and then a rogue.' },
   { id: 'open', name: 'Open Water', place: 'No land in sight', lat: 0, lon: 0, wind: 0, windKt: 12, depth: 200, open: true, note: 'Just you, the wind and the waves.' },
@@ -459,10 +462,13 @@ export class World {
     this.windDir = dir;
     const M = 96, R = this.R, c = 2 * R / M;
     const g = new Float32Array(M * M);
+    // (a venue's land can shelter less than the general half: a low bare sand spit (venue.shelter: the most it takes
+    // off the wind) hardly slows a wind blowing over it)
+    const sh = (this.venue && this.venue.shelter) ?? 0.5;
     for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) {
       const x = -R + (i + 0.5) * c, z = -R + (j + 0.5) * c;
       const f = this.open ? 99999 : this.fetchAt(x, z, dir, 2500);
-      g[j * M + i] = 0.5 + 0.5 * (1 - Math.exp(-f / 700));
+      g[j * M + i] = 1 - sh + sh * (1 - Math.exp(-f / 700));
     }
     this.shelter = g; this.shelterM = M;
     return true;

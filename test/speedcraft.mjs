@@ -96,9 +96,13 @@ function run(tws, twa, secs = 30) {
 // 6. l'Hydroptère: a sailing trimaran on surface-piercing foils (js/physics.js Boat with C.hydrofoils)
 {
   const H = CLASSES.hydroptere, v = (tws, twa) => solvePolarAngle(H, tws * KT, twa);
-  const r30 = v(30, 120), r12 = v(12, 110), rp = v(30, -120);
+  const r30 = v(30, 120), r12 = v(12, 110);
   check(r30.bsp / KT > 46 && r30.bsp / KT < 56 && Math.abs(r30.heel) < 10, `l'Hydroptère, 30 kn at 120 deg: ${(r30.bsp / KT).toFixed(1)} kn, heel ${r30.heel.toFixed(1)} deg (51.36 kn over 500 m in 30 kn, WSSRC 2009)`);
-  check(Math.abs(rp.bsp - r30.bsp) / r30.bsp < 0.03, `she sails both tacks: ${(rp.bsp / KT).toFixed(1)} kn on the other`);
+  // (both tacks: the same boat mirrored, the wind on her other side; her foils, floats and T-foil are symmetric)
+  { const m = makeBoat(H, { sailModel: 'strip' }), e = makeSteadyEnv(30 * KT), dt = 1 / 60, { vppStart: vs, autoTrim: at } = await import('../js/physics.js');
+    vs(m, 30 * KT, 120, false); m.reset(0, 0, -120 * DEG); m.u = 5; m.side.jib = -1; m.side.gennaker = -1;
+    let acc = 0, n = 0; for (let i = 0; i < 40 / dt; i++) { at(m, dt, 0); m.step(dt, e, i * dt); m.r = 0; m.psi = -120 * DEG; m.rudder = 0; if (i > 30 / dt) { acc += m.u; n++; } }
+    check(Math.abs(acc / n - r30.bsp) / r30.bsp < 0.06, `she sails both tacks: ${(acc / n / KT).toFixed(1)} kn on port, ${(r30.bsp / KT).toFixed(1)} on starboard`); }
   check(r12.bsp / KT < 20, `12 kn: ${(r12.bsp / KT).toFixed(1)} kn, not flying`);
   // flying on the leeward foil, the windward one light, the hull clear; the ride height found by the immersed span
   const b = makeBoat(H, { sailModel: 'strip' }), env = makeSteadyEnv(30 * KT), dt = 1 / 60;

@@ -85,7 +85,8 @@ const wedge = (tb) => [[0, 0], [1, tb / 2], [1, -tb / 2], [0, 0]];
 // a body of revolution (elliptic sections, w x h) along a line from a to b, radius profile r(t) (t 0 at a .. 1 at b)
 function bodyGeom(a, b, r, w = 1, h = 1, n = 40, m = 20) {
   const d = new THREE.Vector3().subVectors(b, a), L = d.length(); d.normalize();
-  const up = new THREE.Vector3(0, 1, 0), side = new THREE.Vector3().crossVectors(d, up).normalize(), u2 = new THREE.Vector3().crossVectors(side, d).normalize();
+  // (a body standing upright, a strut: its sections laid out about the fore-and-aft axis instead)
+  const up = Math.abs(d.y) > 0.9 ? new THREE.Vector3(0, 0, -1) : new THREE.Vector3(0, 1, 0), side = new THREE.Vector3().crossVectors(d, up).normalize(), u2 = new THREE.Vector3().crossVectors(side, d).normalize();
   const pos = [], idx = [], uv = [];
   for (let i = 0; i <= n; i++) {
     const t = i / n, c = a.clone().addScaledVector(d, L * t), rr = Math.max(0.002, r(t));
@@ -271,11 +272,11 @@ export class SpeedSpray extends HullSplash {
     const R = b._rot ? b._rot() : null, wp = {};
     const bvx = b.vgx || 0, bvz = b.vgz || 0, V = Math.hypot(bvx, bvz);
     this._acc = (this._acc || 0) + dt;
-    const rate = clamp(V / 3, 0, 1) * 220 * dt;                // drops a second off one float at speed
+    const rate = clamp(V / 3, 0, 1) * 400 * dt;                // drops a second off one float at speed
     for (const pd of b.pods) {
       const o = pd.out; if (!o || !(o.L > 30) || pd.d <= 0) continue;
       const wl = Math.max(0.05, (o.lam || 0.1) * pd.P.b), x0 = pd.keel[0] + wl;
-      const n = Math.min(12, rate * clamp(o.L / 1500, 0.2, 1.5)) | 0;
+      const n = Math.min(24, rate * clamp(o.L / 1500, 0.2, 1.5)) | 0;
       for (let k = 0; k < n; k++) {
         const side = Math.random() < 0.5 ? -1 : 1, p = b.worldOf([x0 - Math.random() * 0.2, pd.keel[1] + side * pd.P.b * 0.5, pd.keel[2] - 0.02], wp);
         const out = (0.35 + 0.25 * Math.random()) * V, up = (0.12 + 0.18 * Math.random()) * V, back = 0.45 + 0.3 * Math.random();
