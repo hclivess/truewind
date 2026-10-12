@@ -6,12 +6,11 @@ for (const id of Object.keys(CLASSES)) {
   const mass = C.massHull + C.crewN * C.crewEach;
   console.log(`${id}: fullness ${C._fullness.toFixed(2)} depth x${C._depthScale.toFixed(2)}  V ${h.restV.toFixed(3)} m3 (need ${(mass / 1025).toFixed(3)})  wetted ${h.restWetted.toFixed(1)} m2 (table ${C.wetted})  LWL ${h.restLwl.toFixed(2)} (spec ${C.lwl})`);
   // hydrostatic righting arm of the hull (no crew offset), with the boat re-floated at each heel
-  const row = [];
-  // (the re-floating step: the volume error over the waterplane area, so a 170 t hull converges as a dinghy does)
-  const Aw = Math.max(1, (h.immerse(-0.02, 0, 0, () => 0, () => 0, {}).V - h.immerse(0.02, 0, 0, () => 0, () => 0, {}).V) / 0.04);
+  // (each step by the hull's own waterplane: a fixed 8 m^2 overshot a 40 m hull's ~200 m^2 and diverged)
+  const row = [], Awp = Math.max(1, (h.immerse(-0.02, 0, 0, () => 0, () => 0, {}).V - h.immerse(0.02, 0, 0, () => 0, () => 0, {}).V) / 0.04);
   for (const phi of [5, 10, 20, 30, 45, 60, 75, 90]) {
     let z = 0; let r;
-    for (let it = 0; it < 40; it++) { r = h.immerse(z, 0, phi * DEG, () => 0, () => 0, {}); z += (r.V - mass / 1025) / Math.max(8, 0.8 * Aw) * 0.6; }
+    for (let it = 0; it < 40; it++) { r = h.immerse(z, 0, phi * DEG, () => 0, () => 0, {}); z += (r.V - mass / 1025) / Math.max(8, 0.6 * Awp) * 0.6; }
     row.push(`${phi}°:${(-r.My / r.V).toFixed(2)}`);
   }
   console.log('   buoyancy lateral arm (m):', row.join(' '));

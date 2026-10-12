@@ -5,7 +5,7 @@
 // to be worth it, and the jib sheet is let fly in a tack. So the panel's rows, the cleats' states, the winch handle,
 // the ropes and the sounds all show the crew at work — and it says what it did and why (Crew.said, for the HUD's
 // crew line). No three.js here: node runs it (test/crew.mjs).
-import { work, letFly, handRate, handLoad, lineName, tackleOf, RUNS_UP, HAUL, HAND_SPEED } from './linehandlers.js';
+import { work, letFly, handRate, handLoad, handlerOf, lineName, tackleOf, RUNS_UP, HAUL, HAND_SPEED } from './linehandlers.js';
 
 const DEG = Math.PI / 180, KT = 0.514444;
 // the controls the crew works, and its dead bands (control units): it starts when the line is more than on off
@@ -128,6 +128,7 @@ export class Crew {
     if (k === 'jibLead') { const jt = C.hw && C.hw.jibTrack, len = jt ? Math.max(0.15, Math.abs(jt[0] - jt[1])) : 0.4, ld = (b.diag.rig.jibLoad || 0) / (C.sheetPower || 800); return 0.12 / (1 + ld * ld) / len; }
     if (k === 'board') return 0.4 / Math.max(0.4, C.keel && C.keel.span ? C.keel.span : C.draft || 1);
     const hr = handRate(b, k, trimming);
+    if (hr !== null && handlerOf(b, k).powered) return hr;               // a push-button winch or ram: its own speed
     if (hr !== null) return Math.max(hr, SHEET.has(k) ? 0.05 : 0);
     const tk = tackleOf(b.cls, k === 'lazy' ? 'lazy' : b.genDeploy > 0.5 ? 'gen' : 'jib'), L = Math.max(0.3, tk.travel);
     if (!trimming) return 0.5 / L;                                        // surged out round the drum

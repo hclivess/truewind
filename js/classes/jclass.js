@@ -137,57 +137,60 @@ function jClass(o) {
     sheetPower: 60000, reefTime: 180, reefWind: [24, 30],          // (est.: J Class racing stops at ~25 kn; a reef then)
     cloth: 'superLaminate',
     engine: o.engine,
-    // line handling as rigged now: the sheets on big two-speed drum winches on deck driven hydraulically from below
-    // (and by the grinders' pedestals), self-tailing; the mainsheet on a hydraulic captive winch below the aft deck;
-    // traveller, vang, cunningham, outhaul, backstay on hydraulic rams (push-button panel); halyards on captive
-    // winches at the mast foot. powered: metres of line a second the drive takes in, whatever the load up to its rating
+    // line handling as rigged now: the sheets on hydraulic winches (driven from below, the drums on deck, and from the
+    // grinders' pedestals: captive in the line-handler schema, push-button in and out), the mainsheet and the
+    // traveller likewise (Endeavour's on Cariboni rams under the aft deck), the vang, cunningham, outhaul, backstay and
+    // genoa halyard on hydraulic rams from the push-button panel (js/linehandlers.js captive, ram)
     lines: {
-      main: { handler: 'selfTailer', n: 2, at: 'winch', powered: 0.35, d: 22, fibre: 'dyneema' },
-      jib: { handler: 'selfTailer', at: 'winch', powered: 0.5, d: 20, fibre: 'dyneema' },
-      gen: { handler: 'selfTailer', at: 'winch', powered: 0.6, d: 18, fibre: 'dyneema' },
-      trav: { handler: 'selfTailer', n: 1, at: 'deck', powered: 0.25 },
-      vang: { handler: 'selfTailer', n: 1, at: 'deck', powered: 0.05, max: 150000 },
-      cunn: { handler: 'selfTailer', n: 1, at: 'mast', powered: 0.05, max: 60000 },
-      outhaul: { handler: 'selfTailer', n: 1, at: 'boom', powered: 0.05, max: 40000 },
-      backstay: { handler: 'selfTailer', n: 1, at: 'deck', powered: 0.05, max: 200000 },
-      jibHalyard: { handler: 'selfTailer', n: 1, at: 'mast', powered: 0.1, max: 120000 },
-      tackLine: { handler: 'selfTailer', n: 1, at: 'deck', powered: 0.3 },
+      main: { handler: 'captive', n: 2, at: 'winch', d: 22, fibre: 'dyneema' },
+      jib: { handler: 'captive', n: 1, at: 'winch', d: 20, fibre: 'dyneema' },
+      lazy: { handler: 'captive', n: 1, at: 'winch', d: 20, fibre: 'dyneema' },
+      gen: { handler: 'captive', n: 1, at: 'winch', d: 18, fibre: 'dyneema' },
+      trav: { handler: 'captive', n: 1, at: 'car' },
+      vang: { handler: 'ram', n: 1, at: 'deck', max: 150e3, d: 60, fibre: 'ram' },
+      cunn: { handler: 'ram', n: 1, at: 'mast', max: 60e3 },
+      outhaul: { handler: 'ram', n: 1, at: 'boom', max: 40e3 },
+      backstay: { handler: 'ram', n: 1, at: 'deck', max: 200e3 },
+      jibHalyard: { handler: 'ram', n: 1, at: 'mast', max: 120e3 },
+      tackLine: { handler: 'captive', n: 1, at: 'deck' },
     },
     ropeStyle: 'modern',
     sails: [
       { key: 'main', kind: 'boom', area: o.main, luff: o.mastHeight - o.boomZ - 0.7, foot: o.mainFoot, head: 1.4, depth: [0.11, 0.13, 0.12], twistMax: 18 * DEG, roach: 0.05,
         cd0: 0.06, ARe: 5.2, min: 2 * DEG, max: 80 * DEG, trav: [-5 * DEG, 10 * DEG], Iboom: o.boomMass * (o.mainFoot ** 2) / 3, boomMass: o.boomMass, reefs: 2,
         vangBend: 0.02, sheetBend: 0.02, color: o.cloth, boomMat: o.boomMat, boomR: o.boomR, boomWide: o.boomWide, boomDeep: 0.95,
-        pockets: [[0.2, 0.12], [0.35, 0.13], [0.5, 0.14], [0.64, 0.15], [0.78, 0.16], [0.9, 1.0]], ropeK: 10,
+        pockets: [[0.2, 0.12], [0.35, 0.13], [0.5, 0.14], [0.64, 0.15], [0.78, 0.16], [0.9, 1.0]], ropeK: 10, tapeK: 5.33,
         // the mainsheet to a hydraulic traveller across the aft deck (est.: under the boom's after third); the boom a
         // carbon box section (est. EI 2.5e8 N m², yield moment 2.2 MN m); hydraulic rod vang; preventer and no brake
         track: { x: mastX - o.mainFoot * 0.78, z: o.freeboard + 0.25, half: 1.6, s: o.mainFoot * 0.78 }, boomEI: 2.5e8, boomMmax: 2.2e6, vang: 'rope', vangMax: 150000, preventer: 250000 },
       { key: 'jib', kind: 'loose', label: 'Genoa', area: o.genoa, tackX, tackZ, luff: headZ - tackZ, foot: o.genoaFoot, head: 0.4, footRise: 0.25,
-        depth: [0.13, 0.14, 0.12], cd0: 0.045, ARe: 4.0, min: o.genoaMin * DEG, max: 45 * DEG, sagK: 0.7, color: o.cloth, window: false, ropeK: 10 },
+        depth: [0.13, 0.14, 0.12], cd0: 0.045, ARe: 4.0, min: o.genoaMin * DEG, max: 45 * DEG, sagK: 0.7, color: o.cloth, window: false, ropeK: 10, tapeK: 5.33 },
       { key: 'gennaker', kind: 'spin', label: 'Spinnaker', pole: o.pole, replaces: 'jib', area: o.spin, tackX: mastX + 0.07 + o.pole, tackZ: o.freeboard + 4.2,
         luff: o.mastHeight * 0.86, foot: o.pole * 1.75, head: 1.2, rake: o.pole + 0.07,
         depth: [0.2, 0.22, 0.2], cd0: 0.09, ARe: 2.0, min: 16 * DEG, max: 100 * DEG, color: o.spinColor, spinBands: o.spinBands, cloth: 'superNylon', ropeK: 6 },
     ],
     hull: { color: o.hullColor, stripe: o.cove, deck: 0xb08a5c, boot: o.boot, bootTop: o.bootTop, levels: [0.0, 0.045, 0.17, 0.135], rough: 0.2, rubrail: null, wood: o.wood },
-    sailcloth: { cloth: o.cloth, kind: 'laminate', num: o.numColor ?? '#1b1d22', logo: o.numColor ?? '#1b1d22', trans: 0.2, rough: 0.5, noDraftStripes: true },
+    sailcloth: { cloth: o.cloth, kind: 'laminate', num: o.numColor ?? '#1b1d22', logo: o.numColor ?? '#1b1d22', trans: 0.2, rough: 0.5, draft: false },
     // the class insignia: a J over the sail number's letter and digit (JK3: 'J' above 'K3', as the yachts carry it)
     insignia: (g, x, y, cl) => { g.fillStyle = cl.logo; g.font = '700 70px Georgia, "Times New Roman", serif'; g.textAlign = 'center'; g.fillText('J', x, y + 26); },
     // her sail number on the main (with the class's J over it), her own name; the regatta the AI fleet sails when she
     // races (js/main.js): the three of them; the chase camera stands off far enough to see her
     sailNo: o.sailNo, yachtName: o.yachtName, fleet: ['shamrock5', 'velsheda', 'endeavour'], camDist: 1.05 * LOA,
+    // (a J Class windward-leeward: a beat of ~1.5 nm (est.), the start line spaced for 40 m yachts with room between)
+    courseLen: 2800, lineSpacing: 55,
     offsets: lines,
     model: {
       // the helmsman's well round the wheel (a shallow footwell in the flush deck), and the afterguard's pit forward of it
       cockpit: { t0: o.wellT[0], t1: o.wellT[1], w: 0.42, sole: o.freeboard + 0.1 - 0.55, seats: false, coaming: 0.06, coamingMat: 'teak', grating: true },
-      deck: 'laid', deckTone: o.deckTone ?? '#b38b5d', toerail: { bulwark: 0.1, cap: 'teak', color: o.hullColor }, bronze: o.bronze, cleatScale: 2.4, bowCleatX: 1.6,
+      deck: 'teak', deckPlank: 0.06, toerail: { bulwark: 0.1, cap: 'teak', color: o.hullColor }, bronze: o.bronze, cleatScale: 2.4, bowCleatX: 1.6,
       navLights: false,
       cabins: o.houses,
-      steering: { kind: 'wheel', x: X((o.wellT[0] + o.wellT[1]) / 2) - 0.3, r: 0.8, hub: 1.05, rim: 'wood' },
+      steering: { kind: 'wheel', x: X((o.wellT[0] + o.wellT[1]) / 2) - 0.3, r: 0.8, hub: 1.05, rim: 'wood', rimR: 0.032 },
       rudder: { kind: 'keel', hingeX: hingeTop, rake, span: hingeLen, thick: 0.13, taper: 1.0, gap: 0, mat: 'hull' },
       keel: { kind: 'full' },
-      masts: { main: { mat: o.mastLook, r: o.mastR, rTop: o.mastR * 0.62, spreaders: o.spreaders, hounds: headZ, chainIn: 0.92, chainAft: 0.5, wire: 0.012, lowerX: [0.7, -0.7] } },
+      masts: { main: { mat: o.mastLook, r: o.mastR, rTop: o.mastR * 0.62, spreaders: o.spreaders, hounds: headZ, chainIn: 0.92, chainAft: 0.5, wire: 0.012, lowerWire: 0.01, lowerX: [0.7, -0.7] } },
       backstay: { split: false, x: sternX + 0.35, z: o.zStern + 0.02, top: o.mastHeight - 0.1 },
-      runners: { z: headZ - 0.6, x: mastX - o.runnerAft, foot: true }, wireR: 4,
+      runners: { z: headZ - 0.6, x: mastX - o.runnerAft, foot: true, r: 0.01 }, stayR: 0.014,
       windex: false, hullName: { text: o.hullName, t: 0.07, z: o.zStern - 0.2, len: 2.6, color: o.nameColor, font: 'italic 700 78px Georgia, "Times New Roman", serif' },
       extras: ['jDeck'], jDeck: o.deckKit,
     },
