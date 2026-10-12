@@ -1957,7 +1957,8 @@ function updateSail(mesh, boat, s, t) {
     if (s.rig === 'lateen') { const a0 = st.baseAngle ?? 0, dx = s.tackFwd - rake * fv; lx = C.mastX - 0.02 + dx * Math.cos(a0); ly = -dx * Math.sin(a0); }
     const ca = Math.cos(a), sa = Math.sin(a);
     const cx = -ca, cy = sa, nx = sa * side, ny = ca * side;
-    const depth = dd * (1 - 0.8 * flog);
+    // (a gaff sail's head, laced to its spar, is straight: the camber dies away at the gaff)
+    const gv = sp.gaffV ?? (s.rig === 'gaff' ? 1 : null), depth = dd * (1 - 0.8 * flog) * (gv === null ? 1 : Math.min(1, Math.abs(fv - gv) * 6));
     for (let u = 0; u <= NU; u++) {
       const fu = u / NU;
       const camb = fu < ff ? 1 - (1 - fu / ff) ** 2 : 1 - ((fu - ff) / (1 - ff)) ** 2;

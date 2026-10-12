@@ -91,7 +91,10 @@ class ClothRig {
     // rest shape: the sailmaker's moulded sail, chord along -x, camber to starboard, luff round cut in
     const rest = this.rest = new Float64Array(3 * nu * nv);
     for (let j = 0; j < nv; j++) {
-      const v = vRow[j], c = chordAt(s, v, false) * this.kc, d = depthAt(s, v), lr = lr0 * Math.sin(Math.PI * v), rise = planRise({ ...s, footRise: this.footRise }, v);
+      // (the row laced to the gaff is as straight as the spar, and the cloth either side of it flatter: the camber
+      // grows back over a sixth of the luff, as a sail's does from its boom)
+      const gV = this.gaffRow > 0 ? s.gaffV : s.rig === 'gaff' ? 1 : null;
+      const v = vRow[j], c = chordAt(s, v, false) * this.kc, d = depthAt(s, v) * (gV === null ? 1 : Math.min(1, Math.abs(v - gV) * 6)), lr = lr0 * Math.sin(Math.PI * v), rise = planRise({ ...s, footRise: this.footRise }, v);
       for (let i = 0; i < nu; i++) {
         const u = i / (nu - 1), k = 3 * (j * nu + i);
         rest[k] = this.px - this.rake * v + lr * (1 - u) - c * u;
@@ -395,8 +398,20 @@ export class BoomSailRig extends ClothRig {
       // peak halyard: from the peak to its block on the mast above the throat (it lets the gaff swing round the
       // mast with the sail, and sag off to leeward as far as the leech lets it, but not droop)
       const G = s.gaff || s;
+      // the gaff: a rigid spar from the throat (its jaws on the mast, where the luff's node at that height is pinned)
+      // to the peak node, which carries the spar's mass at a fixed length from the throat; the row of the sail laced
+      // to it is held on the straight line between them (linear attachments: a chain of distance constraints let it
+      // bow half a metre between its ends under the sail's load)
+      const th = 3 * (pr * nu);
+      this.throatP = [this.rest[th], this.rest[th + 1], this.rest[th + 2]];
+      this.gaffLen = hyp3(this.rest[pk] - this.rest[th], this.rest[pk + 1] - this.rest[th + 1], this.rest[pk + 2] - this.rest[th + 2]);
+      const gr = s.gaffR ?? 0.045, gm = s.gaffMass ?? 450 * Math.PI * gr * gr * this.gaffLen;
+      this.gaffE = peak; this.gaffRowIdx = pr;
+      cloth.setParticle(peak, cloth.m[peak] + gm, cloth.mg[peak] + gm);
+      cloth.addLength(peak, this.throatP, this.gaffLen, 1e7);
+      for (let i = 1; i < nu - 1; i++) cloth.addAttach(cloth.node(i, pr), peak, i / (nu - 1), this.throatP, 1e6);
       this.peakBlock = [gx - (this.rake || 0) * (G.luff + 0.55 * (G.headRise || 0)) / s.luff, 0, this.pz + G.luff + 0.55 * (G.headRise || 0) + 0.2];
-      this.peakHalyard = cloth.addRope(peak, 1, [0, 0, 0], this.peakBlock, hyp3(this.rest[pk] - gx, this.rest[pk + 1], this.rest[pk + 2] - this.peakBlock[2]), 4e5);
+      this.peakHalyard = cloth.addRope(this.gaffE, 1, [0, 0, 0], this.peakBlock, hyp3(this.rest[pk] - gx, this.rest[pk + 1], this.rest[pk + 2] - this.peakBlock[2]), 4e5);
     } else if (s.rig === 'sprit') {
       // the sprit: a strut from its snotter low on the mast to the peak
       this.snotter = [gx + 0.03, 0, this.pz + s.snotterZ];
@@ -479,6 +494,8 @@ export class BoomSailRig extends ClothRig {
       else if (onStay) { const sg = rs.staySag(s.key) * 4 * v * (1 - v), sd = Math.sign(c.x[1 + 3 * c.node(nu1(this), 0)] || 1); c.pin(n, this.px - this.rake * v - 0.3 * sg, 0.95 * sd * sg, z); }
       else c.pin(n, this.px - this.rake * v + bend * Math.sin(Math.PI * v), 0, z);
     }
+    // (the gaff's jaws ride with the luff's node at the throat)
+    if (this.gaffE) { const n = 3 * c.node(0, this.gaffRowIdx); this.throatP[0] = c.kt[n]; this.throatP[1] = c.kt[n + 1]; this.throatP[2] = c.kt[n + 2]; }
     // outhaul: the clew's place on the boom
     const out = this.isMain ? ctrl.outhaul : 0.5;
     const tc = (this.footLen * (0.965 + 0.05 * out) - this.tackFwd) / this.Lb;
