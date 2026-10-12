@@ -99,6 +99,8 @@ function jClass(o) {
   const rudderX = X(tK - 0.04) - 0.675;
   const crewN = o.crewN, crewEach = 85;
   const lines = jLines({ tA, tF, zBow: o.zBow, zMid: o.freeboard, zStern: o.zStern, tK, draft: o.draft, transomW: o.transomW, transomZ: o.zStern - 0.38, transomRake: 0.55 });
+  // (genoaMin: the closest the genoa sheets, its clew to its car at the rail: a 160% genoa's ~11 deg, Velsheda's and
+  // Endeavour's, Shamrock V's smaller one ~9 deg)
   // the forestay: from the stem head to the mast near its top (the genoa's luff; est. as Velsheda's 2012 photographs)
   const tackX = bowX - 0.35, tackZ = o.zBow + 0.25, headZ = o.mastHeight * o.forestayF;
   const C = {
@@ -119,10 +121,10 @@ function jClass(o) {
     // canoe body's above it, as tools measured them on these lines)
     keel: { x: o.keelX, z: -o.draft / 2, area: o.keelArea, ARe: 2 * o.draft ** 2 / o.keelArea, stall: 24 * DEG, cd0: 0.004, span: o.draft, chord: o.keelArea / o.draft, long: true },
     // the rudder hung on the keel's trailing edge (pintles on the sternpost): no balance, its stock raked aft up through
-    // the counter, a wheel to it through a geared quadrant (est. 3.5 turns lock to lock)
+    // the counter, a wheel to it through a geared quadrant (est. 2.5 turns lock to lock)
     rudder: { x: rudderX, z: -2.7, area: 1.35 * hingeLen, ARe: 1.7, stall: 22 * DEG, cd0: 0.012, max: 35 * DEG, span: hingeLen * Math.cos(rake), chord: 1.35, hung: true,
       foil: { root: 'hull', balance: 0.0, tc: 0.14 } },
-    helm: { type: 'wheel', wheelR: 0.8, turns: 3.5, handMax: 300, friction: 60 },
+    helm: { type: 'wheel', wheelR: 0.8, turns: 2.5, handMax: 300, friction: 60 },
     hullLat: { area: 6, cd: 0.9, z: -0.6 },
     windage: { area: 0.75 * LOA + 0.35 * o.mastHeight, z: 0.3 * o.mastHeight, cd: 1.0 },
     mastX, mastHeight: o.mastHeight, boomZ: o.boomZ, mastR: o.mastR, keelBulb: false,
@@ -161,7 +163,7 @@ function jClass(o) {
         // carbon box section (est. EI 2.5e8 N m², yield moment 2.2 MN m); hydraulic rod vang; preventer and no brake
         track: { x: mastX - o.mainFoot * 0.78, z: o.freeboard + 0.25, half: 1.6, s: o.mainFoot * 0.78 }, boomEI: 2.5e8, boomMmax: 2.2e6, vang: 'rope', vangMax: 150000, preventer: 250000 },
       { key: 'jib', kind: 'loose', label: 'Genoa', area: o.genoa, tackX, tackZ, luff: headZ - tackZ, foot: o.genoaFoot, head: 0.4, footRise: 0.25,
-        depth: [0.13, 0.14, 0.12], cd0: 0.045, ARe: 4.0, min: 8 * DEG, max: 45 * DEG, sagK: 0.7, color: o.cloth, window: false, ropeK: 10 },
+        depth: [0.13, 0.14, 0.12], cd0: 0.045, ARe: 4.0, min: o.genoaMin * DEG, max: 45 * DEG, sagK: 0.7, color: o.cloth, window: false, ropeK: 10 },
       { key: 'gennaker', kind: 'spin', label: 'Spinnaker', pole: o.pole, replaces: 'jib', area: o.spin, tackX: mastX + 0.07 + o.pole, tackZ: o.freeboard + 4.2,
         luff: o.mastHeight * 0.86, foot: o.pole * 1.75, head: 1.2, rake: o.pole + 0.07,
         depth: [0.2, 0.22, 0.2], cd0: 0.09, ARe: 2.0, min: 16 * DEG, max: 100 * DEG, color: o.spinColor, spinBands: o.spinBands, cloth: 'superNylon', ropeK: 6 },
@@ -274,7 +276,7 @@ export const shamrock5 = jClass({
   mastFromStem: 15.4, mastHeight: 46.9, boomZ: 3.75, boomMat: 'wood', boomR: 0.32, boomWide: 1.05, mastR: 0.3, mastWall: 0.009, mastMat: 'carbon', mastLook: 'wood', mastSpec: 'carbon spar ~750 x 600 mm, varnished finish (est.)',
   forestayF: 0.9, rodD: 46, runnerAft: 13.5,
   spreaders: [{ f: 0.2, len: 1.9, sweep: 0 }, { f: 0.4, len: 1.6, sweep: 0 }, { f: 0.6, len: 1.3, sweep: 0 }, { f: 0.79, len: 1.0, sweep: 0 }],
-  main: 420, mainFoot: 18.6, genoa: 336, genoaFoot: 15.6, spin: 792.6, pole: 13.5, boomMass: 1600, sailMass: 900, riggingMass: 1800, rigMass: 7500,
+  main: 420, mainFoot: 18.6, genoa: 336, genoaFoot: 15.6, genoaMin: 9, spin: 792.6, pole: 13.5, boomMass: 1600, sailMass: 900, riggingMass: 1800, rigMass: 7500,
   tanks: 3600, interior: 14000, deckGear: 6000,
   cloth: 0xe9e3d2, spinColor: 0x1f5a3a,
   hullColor: 0x123b2a, cove: 0xc8a24a, boot: 0x2a2b2d, bootTop: 0xe9e4d6, wood: null, nameColor: '#c8a24a', bronze: true,
@@ -296,7 +298,7 @@ export const velsheda = jClass({
   mastFromStem: 12.7, mastHeight: 50.0, boomZ: 3.8, boomMat: 'white', boomR: 0.4, boomWide: 1.15, mastR: 0.33, mastWall: 0.0095, mastMat: 'carbon', mastLook: 'white', mastSpec: 'one-piece carbon spar ~820 x 660 mm, painted (est.)',
   forestayF: 0.92, rodD: 52, runnerAft: 15.5,
   spreaders: [{ f: 0.2, len: 2.0, sweep: 0 }, { f: 0.4, len: 1.7, sweep: 0 }, { f: 0.6, len: 1.4, sweep: 0 }, { f: 0.79, len: 1.05, sweep: 0 }],
-  main: 490, mainFoot: 21.5, genoa: 452, genoaFoot: 20.2, spin: 934.7, pole: 14.0, boomMass: 2000, sailMass: 1100, riggingMass: 2200, rigMass: 8800,
+  main: 490, mainFoot: 21.5, genoa: 452, genoaFoot: 20.2, genoaMin: 11, spin: 934.7, pole: 14.0, boomMass: 2000, sailMass: 1100, riggingMass: 2200, rigMass: 8800,
   tanks: 4000, interior: 16000, deckGear: 7000,
   // (her 3Di main and genoa as sailed since ~2016: charcoal grey; the spinnaker in red, white and blue bands with the
   // JK7 diamond; the hull navy with a gold cove line and a thin red boot top (photographs, Newport 2016, Falmouth 2012))
@@ -319,7 +321,7 @@ export const endeavour = jClass({
   mastFromStem: 13.0, mastHeight: 50.0, boomZ: 3.8, boomMat: 'white', boomR: 0.4, boomWide: 1.15, mastR: 0.33, mastWall: 0.0095, mastMat: 'carbon', mastLook: 'white', mastSpec: 'Southern Spars carbon spar ~820 x 660 mm, painted (est.)',
   forestayF: 0.92, rodD: 52, runnerAft: 15.5,
   spreaders: [{ f: 0.2, len: 2.05, sweep: 0 }, { f: 0.4, len: 1.75, sweep: 0 }, { f: 0.6, len: 1.45, sweep: 0 }, { f: 0.79, len: 1.05, sweep: 0 }],
-  main: 490, mainFoot: 21.5, genoa: 458, genoaFoot: 20.4, spin: 947, pole: 14.0, boomMass: 2000, sailMass: 1100, riggingMass: 1800, rigMass: 8400,
+  main: 490, mainFoot: 21.5, genoa: 458, genoaFoot: 20.4, genoaMin: 11, spin: 947, pole: 14.0, boomMass: 2000, sailMass: 1100, riggingMass: 1800, rigMass: 8400,
   tanks: 4000, interior: 15000, deckGear: 6000,
   // (charcoal 3Di sails as refitted in 2011; the royal 'Endeavour Blue' hull, a white boot top and cove line (est.))
   cloth: 0x3f4349, numColor: '#f1f0eb', spinColor: 0xf2f2ee,
