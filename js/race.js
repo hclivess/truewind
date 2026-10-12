@@ -698,7 +698,9 @@ export class AIHelm {
     // seaway the leeway, the yaw rate and the helm add at the blade: a Catalina 30 beating in 20 kn stalled hers at
     // 12 degrees of helm as a wave threw her bow up, and with 28 on held it stalled until she lay head to wind
     const ast = d.rudAst, al = d.rudAlpha, rmax = b.cls.rudder.max * (b.rudderLim ?? 1);
-    if (ast && Number.isFinite(al) && Math.abs(al) > 0.9 * ast && Math.sign(al) === Math.sign(b.rudder) && Math.sign(cmd) === Math.sign(b.rudder)) {
+    // (not from a standstill: sliding sideways at a knot or two the blade's angle is the leeway's whatever the helm, and
+    // eased to nothing it froze her for minutes, wanting to bear away round onto the other gybe and never turning)
+    if (ast && Number.isFinite(al) && b.u > 0.5 * vT && Math.abs(al) > 0.9 * ast && Math.sign(al) === Math.sign(b.rudder) && Math.sign(cmd) === Math.sign(b.rudder)) {
       const cmax = Math.max(0.05, (Math.abs(b.rudder) - (Math.abs(al) - 0.8 * ast)) / rmax);
       if (Math.abs(cmd) > cmax) cmd = Math.sign(cmd) * cmax;
     }
