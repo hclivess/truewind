@@ -140,7 +140,7 @@ function jClass(o) {
     // traveller, vang, cunningham, outhaul, backstay on hydraulic rams (push-button panel); halyards on captive
     // winches at the mast foot. powered: metres of line a second the drive takes in, whatever the load up to its rating
     lines: {
-      main: { handler: 'selfTailer', n: 2, at: 'deck', powered: 0.35, d: 22, fibre: 'dyneema' },
+      main: { handler: 'selfTailer', n: 2, at: 'winch', powered: 0.35, d: 22, fibre: 'dyneema' },
       jib: { handler: 'selfTailer', at: 'winch', powered: 0.5, d: 20, fibre: 'dyneema' },
       gen: { handler: 'selfTailer', at: 'winch', powered: 0.6, d: 18, fibre: 'dyneema' },
       trav: { handler: 'selfTailer', n: 1, at: 'deck', powered: 0.25 },
@@ -180,7 +180,7 @@ function jClass(o) {
       deck: 'laid', deckTone: o.deckTone ?? '#b38b5d', toerail: { bulwark: 0.1, cap: 'teak', color: o.hullColor }, bronze: o.bronze, cleatScale: 2.4, bowCleatX: 1.6,
       navLights: false,
       cabins: o.houses,
-      steering: { kind: 'wheel', x: X((o.wellT[0] + o.wellT[1]) / 2) - 0.3, r: 0.8, hub: 1.05 },
+      steering: { kind: 'wheel', x: X((o.wellT[0] + o.wellT[1]) / 2) - 0.3, r: 0.8, hub: 1.05, rim: 'wood' },
       rudder: { kind: 'keel', hingeX: hingeTop, rake, span: hingeLen, thick: 0.13, taper: 1.0, gap: 0, mat: 'hull' },
       keel: { kind: 'full' },
       masts: { main: { mat: o.mastLook, r: o.mastR, rTop: o.mastR * 0.62, spreaders: o.spreaders, hounds: headZ, chainIn: 0.92, chainAft: 0.5, wire: 0.012, lowerX: [0.7, -0.7] } },
@@ -191,7 +191,7 @@ function jClass(o) {
     },
     // deck hardware (js/rigging.js): mainsheet traveller [x, half length], boom sheeting point (fraction of the foot),
     // the genoa winches [x, y] (two-speed hydraulic drums, est. 0.42 m drum diameter), genoa car tracks [aft, fwd, y]
-    hw: { trav: [mastX - o.mainFoot * 0.78, 1.6], boomS: 0.78, winch: [o.winchX, 2.15], jibTrack: [o.trackX[0], o.trackX[1], o.beam / 2 - 0.55], clutchX: mastX - 2.2, winchR: 0.21, helm: 'Wheel', bronze: o.bronze },
+    hw: { trav: [mastX - o.mainFoot * 0.78, 1.6, o.freeboard + 0.14], boomS: 0.78, winch: [o.winchX, 2.15], jibTrack: [o.trackX[0], o.trackX[1], o.beam / 2 - 0.55], clutchX: mastX - 2.2, winchR: 0.21, helm: 'Wheel', bronze: o.bronze },
     // the rig as a structure (js/rig-structure.js) and its parts' strengths (js/damage.js) in one table (their keys do
     // not overlap): a keel-stepped carbon spar (Shamrock V's est. carbon too: her 2000 rig's material is not published),
     // four spreader sets, discontinuous rod (V cap shrouds over the top spreader, D diagonals to each spreader root),
@@ -279,8 +279,8 @@ export const shamrock5 = jClass({
   cloth: 0xe9e3d2, spinColor: 0x1f5a3a,
   hullColor: 0x123b2a, cove: 0xc8a24a, boot: 0x2a2b2d, bootTop: 0xe9e4d6, wood: null, nameColor: '#c8a24a', bronze: true,
   houses: [house(0.265, 0.33, 0.55, 0.85, 3), house(0.43, 0.505, 0.42, 0.8, 4)],
-  wellT: [0.155, 0.235], winchX: -2.2, trackX: [-0.5, 2.5],
-  deckKit: { skylights: [0.38, 0.53, 0.65], grinders: [0.245, 0.4], winches: [[0.21, 0.6], [0.3, 0.75], [0.39, 0.8]], hatches: [0.73, 0.85] },
+  wellT: [0.1, 0.17], winchX: -2.2, trackX: [-0.5, 2.5],
+  deckKit: { skylights: [0.38, 0.53, 0.65], grinders: [0.245, 0.4], winches: [[0.235, 0.62], [0.3, 0.75], [0.36, 0.8]], hatches: [0.73, 0.85] },
   // a diesel inboard (est.: her 4,700 l of fuel says she has one; make and power not published), shaft to a
   // feathering three-blade propeller in the aperture ahead of the rudder, offset to port
   engine: { type: 'inboard', model: 'diesel inboard (est.)', kW: 220, rpmMax: 2300, rpmIdle: 650, cyl: 6, fuel: 'diesel', gear: 2.5, wake: 0.25,

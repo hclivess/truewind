@@ -452,7 +452,7 @@ export class Rigging {
     // a mainsheet led to its own winch (a class's lines: main at 'winch'): a winch just forward of the traveller, the
     // self-tailer on its drum (a tailer set on the fiddle block was a ring floating over it)
     if (!C.noWinches && LS.main && LS.main.at === 'winch' && this.car) {
-      const x = hw.travX + 0.45, w = makeWinch(bronze, 0.065);
+      const x = hw.travX + 0.45, w = makeWinch(bronze, C.hw?.winchR ?? 0.065);   // (a big yacht's: its class's winch size)
       w.position.copy(V(x, 0, this.surfaceAt(x, 0, vis.deckH(x, 0) + 0.6) ?? vis.deckH(x, 0))); inner.add(w);
       w.userData.side = 0; this.mainWinch = w;
     }

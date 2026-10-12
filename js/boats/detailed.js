@@ -377,7 +377,8 @@ function buildDetailed(boat, opts = {}) {
         kit.box(M.black(), 0.16, 0.12, 0.06, V(wx + 0.06, 0, hub + 0.06), 0, -0.4);     // compass / instrument binnacle
       } else kit.rod(M.steel(), V(wx + 0.05, y, deckH0(wx + 0.05, y) - 0.02), V(wx + 0.05, y, hub), 0.035, 12, 0.03);
       const w = new THREE.Group(); w.position.copy(V(wx, y, hub));
-      const rim = new THREE.Mesh(new THREE.TorusGeometry(r, 0.018, 8, 40), M.steel()); w.add(rim);
+      // (ST.rim 'wood': a big yacht's varnished wooden rim, thick enough to hold, on the steel spokes)
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(r, ST.rim === 'wood' ? 0.032 : 0.018, 8, 48), ST.rim === 'wood' ? M.varnish() : M.steel()); w.add(rim);
       for (let i = 0; i < 6; i++) { const sp = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, r * 2, 6), M.steel()); sp.rotation.z = i * Math.PI / 6; w.add(sp); }
       const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.08, 12), M.steel()); hb.rotation.x = Math.PI / 2; w.add(hb);
       w.traverse(o => { if (o.isMesh) o.castShadow = true; });
@@ -889,7 +890,7 @@ export const EXTRAS = {
     if (St && St.kind === 'wheel') {
       const x = St.x + 0.75, z0 = deckAt(x, 0);
       kit.box(M.varnish(), 0.9, 0.85, 0.35, V(x, 0, z0 + 0.4), 0, -0.2);
-      kit.box(M.black(), 0.7, 0.32, 0.03, V(x - 0.19, 0, z0 + 0.62), 0, -0.2);
+      kit.box(M.black(), 0.7, 0.32, 0.06, V(x - 0.15, 0, z0 + 0.6), 0, -0.2);         // (its face set into the console's after side)
     }
     // the runners' feet: a padeye with its block on the deck
     if (D.runners) for (const sd of [-1, 1]) {
