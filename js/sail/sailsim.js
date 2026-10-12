@@ -12,7 +12,7 @@
 // What it does not: separated flow. Each spanwise strip's lift is pulled onto a 2-D section polar at its
 // effective angle of attack (decambering: Mukherjee & Gopalarathnam 2006), and the polar's profile drag
 // is added along the local wind.
-import { clamp, lerp, sstep, shapeCoef, STRIP_F, STRIP_W, reefAt, sailHooks } from '../physics.js';
+import { clamp, lerp, sstep, shapeCoef, STRIP_F, STRIP_W, reefAt, sailHooks, furlAt, furledSail } from '../physics.js';
 import { DEG } from '../env.js';
 import { SailLattice } from './vlm.js';
 import { latticeSize } from './specs.js';
@@ -105,6 +105,7 @@ export class SailSystem {
       const y = x.rig && o.sails.find((z) => z.key === x.key);
       if (!y || !y.rig || !y.part.on || y.rig.needPose || y.rig.constructor !== x.rig.constructor || (frozen && !this.fits(y))) continue;
       if (y.rig.reefLevel !== undefined && y.rig.reefLevel !== x.rig.reefLevel) x.rig = new BoomSailRig(this.boat, x.s, this.lod, y.rig.reefLevel);
+      if (y.rig.furlLevel !== undefined && y.rig.furlLevel !== x.rig.furlLevel) { x.rig = new JibRig(this.boat, furledSail(x.s, furlAt(x.s, y.rig.furlLevel)), this.lod); x.rig.furlLevel = y.rig.furlLevel; }
       x.rig.adopt(y.rig, frozen); x.part.on = true; x.side = y.side;
     }
     Object.assign(this.fr, o.fr); if (frozen) this.fr.first = true;
@@ -122,6 +123,7 @@ export class SailSystem {
   fits(y) {
     const b = this.boat, r = y.rig, k = y.key;
     if (r.reefLevel !== undefined && r.reefLevel !== Math.round(b.reefPos * 2) / 2) return false;
+    if (r.furlLevel !== undefined && r.furlLevel !== Math.round(b.reefPos * 2) / 2) return false;
     if (y.s.kind === 'boom') return !!b.booms[k] && Math.sign(r.a) === Math.sign(b.booms[k].a) && Math.abs(r.a - b.booms[k].a) < 15 * DEG;
     return r.side === (Math.sign(y.s.kind === 'spin' ? b.side.gennaker : b.side.jib) || 1);
   }
@@ -233,6 +235,11 @@ export class SailSystem {
       const s = x.s, key = s.key, ds = d.strips[key], sh = d.shape[key];
       const rg = b.sailRig(s, reef, x.rg);
       ds.areaF = rg.areaF; ds.baseAngle = rg.baseAngle; ds.luff = rg.luff;
+      if (x.rig && s.kind === 'loose' && s.furlReef && x.rig.furlLevel !== Math.round(b.reefPos * 2) / 2) {
+        // rolling the jib in (or out) on its furler with the reefs: the cloth that is left set is the sail now
+        const lv = Math.round(b.reefPos * 2) / 2;
+        x.rig = new JibRig(b, furledSail(s, furlAt(s, lv)), this.lod); x.rig.furlLevel = lv; rebuild = true;
+      }
       if (x.rig && key === 'main' && x.rig.reefLevel !== Math.round(b.reefPos * 2) / 2) {
         // tying in (or shaking out) a reef: the cloth above the reef points is the sail now
         const a = x.rig.a;

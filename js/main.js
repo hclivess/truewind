@@ -31,6 +31,7 @@ import { TrafficView } from './traffic-render.js';
 import { fleetLevels, clothBudget } from './fleet.js';
 import { Gear } from './gear.js';            // damage, anchor, mooring lines, man overboard, crew fatigue
 import { GearVis } from './gear-render.js';
+import { WildlifeView } from './wildlife-render.js';   // birds, dolphins, whales, turtles and sharks (visual only)
 import { Autopilot } from './autopilot.js';       // the smart autopilot and its coach (a learning aid)
 
 // every boat's sail model: cloth (cloth shaped by the wind and the rig, forces from a vortex lattice over it; the
@@ -71,8 +72,8 @@ const C_RIGHT = (b) => (b.cls.multihull ? 8 : 4); // grab radius on screen, also
 // chase-camera distance and windward-leeward course length for a class: by its size
 // the menu's class groups (a class's C.group)
 const CLASS_GROUPS = [['dinghy', 'Dinghies & skiffs'], ['keelboat', 'Keelboats'], ['multihull', 'Multihulls'], ['cruiser', 'Cruisers'], ['classic', 'Classics']];
-const camDist = (C) => (C.id === 'dinghy' ? 8 : C.loa < 5.5 && !C.multihull ? 10 : C.loa > 9 ? 17 : 12);
-const courseLen = (C) => (C.id === 'dinghy' ? 600 : C.loa > 9 ? 1200 : 800);
+const camDist = (C) => C.camDist ?? (C.id === 'dinghy' ? 8 : C.loa < 5.5 && !C.multihull ? 10 : C.loa > 9 ? 17 : 12);
+const courseLen = (C) => C.courseLen ?? (C.id === 'dinghy' ? 600 : C.loa > 9 ? 1200 : 800);
 // the touch pad's third line (in order of use), with the labels for its two buttons (d = -1, +1)
 const TOUCH_LINES = { stay: ['Stay', 'Trim', 'Ease', 'Staysail sheet'], trav: ['Trav', 'Up', 'Down', 'Traveler'], hike: ['Hike', 'In', 'Out', 'Crew weight'],
   vang: ['Vang', '−', '+', 'Vang'], tackLine: ['Tack', 'Down', 'Ease', 'Gennaker tack line'], backstay: ['Bstay', '−', '+', 'Backstay'], board: ['Board', 'Up', 'Down', 'Daggerboard'], pushBoom: ['Boom', 'Port', 'Stbd', 'Push the boom out'] };
@@ -97,6 +98,7 @@ class Game {
     this.coachText = pref('tw-coach') !== '0';
     this.gear = new Gear(this);                               // damage, anchoring, mooring, MOB, fatigue
     this.gearVis = new GearVis(this.renderer, this);
+    this.wildlife = new WildlifeView(this.renderer, this);
     this.audio = new Audio();
     try { this.audio.vol = cleanVol(JSON.parse(pref('tw-vol') || 'null')); } catch (e) { /* corrupt: every channel at full */ }
     this.net = new Net(this);
@@ -559,12 +561,13 @@ class Game {
       return [x, z];
     };
     if (S.mode === 'race' && !idle) {
-      const course = new Course(world, twd, { length: courseLen(cls), laps: S.laps, lineLength: 60 + 14 * (S.fleet + 1) });
+      const course = new Course(world, twd, { length: courseLen(cls), laps: S.laps, lineLength: 60 + (cls.lineSpacing ?? 14) * (Math.min(S.fleet, cls.raceFleetMax ?? Infinity) + 1) });
       this.course = course;
-      const n = S.fleet;
+      // (a class may cap its fleet: a superyacht's one-design start is a handful of her sisters, spaced by her beam)
+      const n = Math.min(S.fleet, cls.raceFleetMax ?? Infinity);
       const spots = [];
       for (let i = 0; i <= n; i++) {
-        const off = (i - n / 2) * Math.min(16, 2 * course.half / (n + 1));   // (a big fleet packs closer on a line the water shortened)
+        const off = (i - n / 2) * Math.min(cls.lineSpacing ?? 16, 2 * course.half / (n + 1));   // (a big fleet packs closer on a line the water shortened)
         const below = startBoxBelow(S.countdown);
         spots.push([course.origin.x - course.ux * below + course.rx * off, course.origin.z - course.uz * below + course.rz * off]);
       }
@@ -591,7 +594,13 @@ class Game {
       this.renderer.setMarks(course.marks(), course.committee);
     } else {
       let x = 0, z = 0, hdg = twd + Math.PI / 2;
-      if (v.spawn) { [x, z] = P.fwd(v.spawn.lat, v.spawn.lon); hdg = v.spawn.heading * DEG; }
+      if (v.spawn) {
+        [x, z] = P.fwd(v.spawn.lat, v.spawn.lon); hdg = v.spawn.heading * DEG;
+        // the venue's heading is the harbour's, not the day's wind's: never start her in irons (within 50 deg of
+        // the wind), but on the beam reach nearest it
+        const off = Math.atan2(Math.sin(hdg - twd), Math.cos(hdg - twd));
+        if (Math.abs(off) < 50 * DEG) hdg = twd + (off >= 0 ? 1 : -1) * Math.PI / 2;
+      }
       else if (!world.open) { const c = world.findCourse(twd, 400); x = c.x; z = c.z; }
       if (online) { const a = Math.random() * 6.28, r = 40 + Math.random() * 120; x += Math.cos(a) * r; z += Math.sin(a) * r; }
       [x, z] = safe(x, z, cls.draft + 0.6);

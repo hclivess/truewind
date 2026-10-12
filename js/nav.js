@@ -235,31 +235,59 @@ export class Nav {
   // ------------------------------------------------------------------ chart
   baseImage() {
     if (this.base && this.base.world === this.world) return this.base;
-    const w = this.world, S = w.R > 10000 ? 1536 : 768, R = w.R, cv = document.createElement('canvas'); cv.width = cv.height = S;
-    const ctx = cv.getContext('2d'), img = ctx.createImageData(S, S), band = new Uint8Array(S * S);
-    const BANDS = [0, 2, 5, 10, 20];
+    const w = this.world, S = w.R > 10000 ? 1536 : 768, R = w.R;
+    this.base = { world: this.world, cv: this.paint(-R, -R, 2 * R / S, S, S) };
+    return this.base;
+  }
+  // the chart's colours (land; depth bands below chart datum, drying banks green) over nx × nz samples `step` m apart
+  // from (x0, z0), with the depth contours drawn where the band changes; the coastline from the distance to it,
+  // anti-aliased (land and sea blended across the sample the shore runs through, the line darkest on it), not the
+  // edges of the samples it falls in
+  paint(x0, z0, step, nx, nz) {
+    const w = this.world, cv = document.createElement('canvas'); cv.width = nx; cv.height = nz;
+    const ctx = cv.getContext('2d'), img = ctx.createImageData(nx, nz), band = new Uint8Array(nx * nz);
+    const BANDS = [0, 2, 5, 10, 20], LAND = [238, 222, 166], DRY = [172, 196, 150];
     const PAL = [[150, 196, 224], [176, 212, 236], [204, 228, 244], [226, 240, 249], [246, 250, 252]];
-    for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
-      const x = -R + (i + 0.5) * 2 * R / S, z = -R + (j + 0.5) * 2 * R / S, k = j * S + i;
-      const s = w.sdfAt(x, z);
-      let c;
-      if (s <= 0) { c = [238, 222, 166]; band[k] = 255; }
+    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+      const x = x0 + (i + 0.5) * step, z = z0 + (j + 0.5) * step, k = j * nx + i, o = k * 4;
+      const s = Math.abs(x) > w.R || Math.abs(z) > w.R ? 1e4 : w.sdfAt(x, z);
+      let c = LAND, bi = 255;
       // (charted depth below chart datum: negative = a drying bank, green as on a paper chart)
-      else { const d = w.chartDepthAt(x, z); let bi = 0; while (bi + 1 < BANDS.length && d >= BANDS[bi + 1]) bi++; band[k] = d < 0 ? 254 : bi; c = d < 0 ? [172, 196, 150] : PAL[bi]; }
-      img.data[k * 4] = c[0]; img.data[k * 4 + 1] = c[1]; img.data[k * 4 + 2] = c[2]; img.data[k * 4 + 3] = 255;
+      if (s > -1.5 * step) { const d = w.chartDepthAt(x, z); bi = 0; while (bi + 1 < BANDS.length && d >= BANDS[bi + 1]) bi++; if (d < 0) bi = 254; c = d < 0 ? DRY : PAL[bi]; }
+      band[k] = s <= 0 ? 255 : bi;
+      const a = Math.min(1, Math.max(0, 0.5 - s / step)), line = 0.65 * Math.max(0, 1 - Math.abs(s) / (0.8 * step));
+      for (let ch = 0; ch < 3; ch++) img.data[o + ch] = (c[ch] * (1 - a) + LAND[ch] * a) * (1 - line);
+      img.data[o + 3] = 255;
     }
-    // depth contours and the coastline where the band changes
-    for (let j = 1; j < S; j++) for (let i = 1; i < S; i++) {
-      const k = j * S + i, a = band[k], l = band[k - 1], u = band[k - S];
-      if (a !== l || a !== u) {
-        const coast = a === 255 || l === 255 || u === 255;
-        const o = k * 4, f = coast ? 0.35 : 0.72;
-        img.data[o] *= f; img.data[o + 1] *= f; img.data[o + 2] *= coast ? 0.35 : 0.85;
+    // depth contours where the band changes
+    for (let j = 1; j < nz; j++) for (let i = 1; i < nx; i++) {
+      const k = j * nx + i, a = band[k], l = band[k - 1], u = band[k - nx];
+      if ((a !== l || a !== u) && a !== 255 && l !== 255 && u !== 255) {
+        const o = k * 4;
+        img.data[o] *= 0.72; img.data[o + 1] *= 0.72; img.data[o + 2] *= 0.85;
       }
     }
     ctx.putImageData(img, 0, 0);
-    this.base = { world: this.world, cv };
-    return this.base;
+    return cv;
+  }
+  // Zoomed in past the base image's own cells (15-30 m each), the view is drawn again at its own resolution from the
+  // same chart (the base's cells scaled up drew the coast as a staircase of squares, a cell to a step), a fifth of the
+  // view's size beyond it each way so that following the boat or a short pan needs no new one; made once the zoom has
+  // held a moment (not on each step of a pinch), and drawn where it belongs meanwhile
+  detail(W, H) {
+    const V = this.view, w = this.world, B = this.base;
+    if (!B || V.s * 2 * w.R / B.cv.width < 2.5) return null;
+    const D = this.det && this.det.world === w ? this.det : null, now = performance.now();
+    const vx0 = V.cx - W / 2 / V.s, vz0 = V.cz - H / 2 / V.s, vx1 = V.cx + W / 2 / V.s, vz1 = V.cz + H / 2 / V.s;
+    if (D && D.s === V.s && D.x0 <= vx0 && D.z0 <= vz0 && D.x0 + D.wx >= vx1 && D.z0 + D.wz >= vz1) return D;
+    if (this.detS !== V.s) { this.detS = V.s; this.detT = now; }
+    const later = () => { clearTimeout(this.detTimer); this.detTimer = setTimeout(() => { if (this.chartOpen) this.drawChart(); }, 200); };
+    if (now - this.detT < 150 || now - (this.detBuilt || 0) < 250) { later(); return D && D.s === V.s ? D : null; }
+    const step = 2.5 / V.s, mx = 0.2 * W / V.s, mz = 0.2 * H / V.s;
+    const x0 = vx0 - mx, z0 = vz0 - mz, nx = Math.ceil((vx1 - vx0 + 2 * mx) / step), nz = Math.ceil((vz1 - vz0 + 2 * mz) / step);
+    this.detBuilt = now;
+    this.det = { world: w, s: V.s, x0, z0, wx: nx * step, wz: nz * step, cv: this.paint(x0, z0, step, nx, nz) };
+    return this.det;
   }
 
   bindChart() {
@@ -348,6 +376,8 @@ export class Nav {
       const B = this.baseImage(), [x0, y0] = this.toPx(-w.R, -w.R);
       ctx.imageSmoothingEnabled = V.s * 2 * w.R / B.cv.width < 3;
       ctx.drawImage(B.cv, x0, y0, 2 * w.R * V.s, 2 * w.R * V.s);
+      const D = this.detail(W, H);
+      if (D) { const [dx, dy] = this.toPx(D.x0, D.z0); ctx.imageSmoothingEnabled = true; ctx.drawImage(D.cv, dx, dy, D.wx * V.s, D.wz * V.s); }
     }
     this.graticule(ctx, W, H);
     this.streamArrows(ctx, W, H);

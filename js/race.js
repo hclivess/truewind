@@ -192,6 +192,8 @@ export function waterTwd(b) {
 // line on time in the cross-tide however it sailed: 1.5-1.9 m/s made good on the better tack)
 export function startBoxBelow(countdown) { return clamp(0.6 * countdown, 60, 170); }
 
+// the shallows probes along her track: seconds ahead
+const PROBE_T = [3, 6, 10, 15, 21, 28, 35, 42];
 export class AIHelm {
   // personality.seed: the race's seed (the same boat in the same race sails the same way, and every browser in
   // a room agrees); its draws are keyed by that and the boat's id, never Math.random
@@ -208,6 +210,7 @@ export class AIHelm {
     this.hold = null;
     this.bias = (r() - 0.5) * 2;
     this.goal = null;      // sailing free: the point to sail to (the autopilot's waypoint); none, she wanders
+    this.goalEnd = null;   // ...and the end of its way (the goal may be a turn of the route on the way there)
     this.log = null;       // an array: every decision as it is taken, with its reason (the autopilot's coach reads it)
     this.noTrim = false;   // the sheets are someone else's (the player trims while the autopilot steers)
   }
@@ -325,6 +328,10 @@ export class AIHelm {
       // out of it stopped, or fell back head to wind; slower, she sails on and the speed comes)
       const vT = Math.max(0.5, Math.min(this.targetsUpBsp ?? 2, 0.45 * (d.tws ?? 5)));
       if (want !== tack && b.u < 0.7 * vT) want = tack;
+      // (and none of her own choosing onto a track that soon runs into the shallows: she would only tack straight
+      // back out, and along a shore, tack after tack. Onto the layline she needs the water to the mark; for the
+      // tide, a header or the middle of the course, three minutes of it, or the gain is gone in the next tack)
+      if (want !== tack && sim.world && !sim.world.open) { const need = why === 'layline' || why === 'start' ? 42 : 180; if (this.room(sim, twd - want * up, need) < need) want = tack; }
       if (R && R.on !== false) {
         if (want !== tack && !R.canTurn(b, twd - want * up)) want = tack;
         if (R.hailTo(b) || (R.hailOf(b) && R.hailOf(b).answered && R.S(b).tackT < R.hailOf(b).answered)) { want = -tack; this.lastTack = -100; why = 'hail'; }
@@ -343,6 +350,9 @@ export class AIHelm {
       if (tack > 0 && rel < -(dn - 2 * DEG)) want = -1;
       if (tack < 0 && rel > (dn - 2 * DEG)) want = 1;
       if (want !== tack && R && !R.canTurn(b, twd - want * dn, 8)) want = tack;       // gybe only where it is clear
+      // (and not onto a gybe that runs into the shallows: the shore along a run turned her off it, past dead
+      // downwind, and the layline's gybe straight back put her onto it again, gybe after gybe)
+      if (want !== tack && sim.world && !sim.world.open && this.room(sim, twd - want * dn, 42) < 42) want = tack;
       if (want !== tack && t - this.lastTack > 15) { this.lastTack = t; this.tackTo = want; this.note('gybe', { why: 'layline', to: want, rel }); }
       else if (this.tackTo === -tack && t - this.lastTack < 10) want = this.tackTo;      // (the gybe carried through)
       else want = tack;
@@ -374,7 +384,9 @@ export class AIHelm {
       const brgO = Math.atan2(dx, -dz), relO = wrap(brgO - b.psi);
       if (Math.abs(relO) < 0.6) desired = b.psi - Math.sign(relO || 1) * 0.5;
     }
-    this.sails(mode, twa, leg && (leg.type === 'gate' || leg.type === 'finish') && dist < 90);
+    // (the kite down near the bottom mark, and sailing free near the end of the way: hoisted for the last half
+    // minute, and dropped again for the shallows' turns, it came up and down by the waypoint)
+    this.sails(mode, twa, (leg && (leg.type === 'gate' || leg.type === 'finish') && dist < 90) || (!leg && !!this.goal && Math.hypot((this.goalEnd || dest).x - b.x, (this.goalEnd || dest).z - b.z) < 150));
     if (!this.noTrim) autoTrim(b, dt, this.bias);          // trim first: steering may override it (backing the jib in irons)
     if (this.ease) this.slow();
     this.steer(dt, desired);
@@ -388,7 +400,9 @@ export class AIHelm {
       // (in a blow, only on a run or a broad reach: reaching under a kite in 25 kn the cat's bows go under and it
       // trips over them, whatever the sheets do; with the apparent wind aft of the beam the kite can be eased to luff)
       const kiteFrom = (d.tws ?? 0) / KT > 20 ? 125 : 100;
-      b.ctrl.gen = Math.abs(twa) > kiteFrom * DEG && !nearBottom && mode !== 'beat';
+      // (with a few degrees' hysteresis: steering round the shallows at about the kite's angle hoisted and dropped it
+      // every few seconds)
+      b.ctrl.gen = Math.abs(twa) > (kiteFrom + (b.ctrl.gen ? -8 : 5)) * DEG && !nearBottom && mode !== 'beat';
       if (b.ctrl.gen !== this.genNoted && this.log) { this.genNoted = b.ctrl.gen; this.note('gen', { up: b.ctrl.gen, why: nearBottom ? 'bottom' : mode === 'beat' ? 'beat' : 'angle', twa, from: kiteFrom }); }
     }
     if (b.sailBy.main.reefs) {
@@ -575,25 +589,55 @@ export class AIHelm {
   }
   // Depth along the track the boat will actually make on heading h: speed through the water along the
   // heading plus the tide, which in a cross-tide sets the boat sideways onto a bank that a probe along the
-  // bow never sees. Returns the least under-keel clearance (m) over the next ~40 s.
-  clearance(sim, h) {
+  // bow never sees. Returns the least under-keel clearance (m) over the next ~40 s, probed every few seconds (a
+  // bank or a spit narrower than the gap between four probes went unseen), and no further along a track toward
+  // the point she sails to than just past it (a waypoint off a beach is reached before the beach: probed on to
+  // the beach, she turned away from it at the last and circled short of it).
+  clearance(sim, h, need = this.b.cls.draft + 0.6) {
     const b = this.b, V = Math.max(b.u, 1.2), c = this.curAt(sim, b.x, b.z);
-    const gx = V * Math.sin(h) + c.x, gz = -V * Math.cos(h) + c.z, need = b.cls.draft + 0.6;
+    const gx = V * Math.sin(h) + c.x, gz = -V * Math.cos(h) + c.z, G = Math.hypot(gx, gz) || 1, lim = this.probeLim(h);
     let worst = 1e9;
-    for (const s of [5, 12, 22, 40]) worst = Math.min(worst, sim.world.depthAt(b.x + gx * s, b.z + gz * s) - need);
+    for (const s of PROBE_T) {
+      if (s * G > lim) { if (worst === 1e9) worst = sim.world.depthAt(b.x + gx / G * lim, b.z + gz / G * lim) - need; break; }
+      worst = Math.min(worst, sim.world.depthAt(b.x + gx * s, b.z + gz * s) - need);
+    }
     return worst;
+  }
+  // how long (s, up to secs) she can hold heading h before her track has less than she needs under the keel
+  room(sim, h, secs) {
+    const b = this.b, V = Math.max(b.u, 1.2), c = this.curAt(sim, b.x, b.z), need = b.cls.draft + 0.9;
+    const gx = V * Math.sin(h) + c.x, gz = -V * Math.cos(h) + c.z, G = Math.hypot(gx, gz) || 1, lim = this.probeLim(h);
+    for (let s = 3; s <= secs; s += 6) {
+      if (s * G > lim) return secs;
+      if (sim.world.depthAt(b.x + gx * s, b.z + gz * s) < need) return s;
+    }
+    return secs;
+  }
+  // how far ahead on heading h the shallows matter: just past the point she is sailing to, when h heads for it
+  probeLim(h) {
+    const b = this.b, D = this.dest; if (!D) return Infinity;
+    const dx = D.x - b.x, dz = D.z - b.z, d = Math.hypot(dx, dz);
+    return Math.abs(wrap(Math.atan2(dx, -dz) - h)) < 35 * DEG ? d + 4 : Infinity;
   }
   // the least depth along the track on heading h (what the coach tells: the shallows she steers round)
   shoalDepth(sim, h) {
     if (!this.log) return 0;
     const b = this.b, V = Math.max(b.u, 1.2), c = this.curAt(sim, b.x, b.z), gx = V * Math.sin(h) + c.x, gz = -V * Math.cos(h) + c.z;
-    let m = 1e9; for (const s of [5, 12, 22, 40]) m = Math.min(m, sim.world.depthAt(b.x + gx * s, b.z + gz * s));
+    let m = 1e9; for (const s of PROBE_T) m = Math.min(m, sim.world.depthAt(b.x + gx * s, b.z + gz * s));
     return m;
   }
   // keep the desired heading if its track is clear; on a beat tack away from the shallows; otherwise the
-  // nearest clear heading either side (or, if nothing is clear, the one with the most water)
+  // nearest clear heading either side (or, if nothing is clear, the one with the most water).
+  // With hysteresis: once turned off it for the shallows she holds the side she turned to (her offset from the
+  // heading she wants eases back only as far as the water allows) and comes back to that heading only once its
+  // track has half a metre more than she needs. Decided each step without it, the heading flicked between the
+  // wanted one and the clear one as the shallows came in and out of the probes' reach, and so did the helm.
   avoidShoals(sim, desired, mode, tack, up, twd, t) {
-    if (this.clearance(sim, desired) > 0) return desired;
+    const b = this.b, sh = this.shoal, cD = this.clearance(sim, desired);
+    if (cD > (sh ? 0.5 : 0)) {
+      if (sh) { this.note('shoalClear', { held: t - sh.t0 }); this.shoal = null; }
+      return desired;
+    }
     if (mode === 'beat' && t - this.lastTack > 6) {
       const other = twd + tack * up, R = sim.rules;
       // a boat on the same tack to windward in the way: hail her for room to tack (20) when the shallows are close
@@ -602,17 +646,41 @@ export class AIHelm {
       if (R && this.clearance(sim, other) > 0 && !R.canTurn(b, other)) {
         let hl = R.hailOf(b);
         if (!hl && R.obstructionAhead(b, b.psi, Math.max(8 * b.cls.loa, 12 * Math.max(b.u, 1.5))) < 1e9) hl = R.hail(b);
-        if (!hl || !hl.answered) { if (this.clearance(sim, desired) > -1.5) return desired; blocked = true; }   // (then bear away below)
+        if (!hl || !hl.answered) { if (cD > -1.5) return desired; blocked = true; }   // (then bear away below)
       }
-      if (!blocked && this.clearance(sim, other) > 0) { this.lastTack = t; this.note('tack', { why: 'shoal', to: -tack, depth: this.shoalDepth(sim, desired) }); return other; }
+      // (the other tack only with room on it: tacked into shallows as bad, she would tack straight back)
+      if (!blocked && this.clearance(sim, other) > 0.3) {
+        this.lastTack = t; this.tackTo = -tack; this.shoal = null;
+        this.note('tack', { why: 'shoal', to: -tack, depth: this.shoalDepth(sim, desired) });
+        return other;
+      }
     }
-    let best = desired, bestC = -1e9;
-    for (let k = 1; k <= 14; k++) for (const s of [1, -1]) {
-      const h = desired + s * k * 12 * DEG, c = this.clearance(sim, h);
-      if (c > 0) { this.note('shoal', { off: k * 12, depth: this.shoalDepth(sim, desired) }); return h; }
-      if (c > bestC) { bestC = c; best = h; }
+    // (re-decided four times a second; between, the heading she turned to stands while its track stays clear)
+    if (sh && t - sh.tc < 0.25 && this.clearance(sim, desired + sh.off) > 0) return desired + sh.off;
+    // the nearest clear heading either side; turned already, the side she turned to, unless the other is clear for
+    // a much smaller turn (36 degrees less)
+    const first = sh && !sh.none ? Math.sign(sh.off) || 1 : 0;
+    let best = desired, bestC = -1e9, bestOff = 0, pick = 0;
+    const turn = (off) => {
+      const h = desired + off, c = this.clearance(sim, h);
+      if (c > bestC) { bestC = c; best = h; bestOff = off; }
+      return c > 0;
+    };
+    if (first) {
+      let kH = 15; for (let k = 1; k <= 14; k++) if (turn(first * k * 12 * DEG)) { kH = k; break; }
+      for (let k = 1; k <= kH - 3; k++) if (turn(-first * k * 12 * DEG)) { pick = -first * k * 12 * DEG; break; }
+      if (!pick && kH <= 14) pick = first * kH * 12 * DEG;
+    } else {
+      for (let k = 1; k <= 14 && !pick; k++) for (const s of [1, -1]) if (turn(s * k * 12 * DEG)) { pick = s * k * 12 * DEG; break; }
     }
-    this.note('shoal', { off: 180, depth: this.shoalDepth(sim, desired) });
+    if (pick) {
+      // (a new turn, or one to the other side, is news; easing or widening the same one is not)
+      if (!sh || sh.none || Math.sign(sh.off) !== Math.sign(pick)) this.note('shoal', { off: Math.round(Math.abs(pick) / DEG), depth: this.shoalDepth(sim, desired) });
+      this.shoal = { off: pick, t0: sh ? sh.t0 : t, tc: t };
+      return desired + pick;
+    }
+    if (!sh || !sh.none) this.note('shoal', { off: 180, depth: this.shoalDepth(sim, desired) });
+    this.shoal = { off: bestOff, t0: sh ? sh.t0 : t, tc: t, none: true };
     return best;
   }
 
@@ -657,7 +725,9 @@ export class AIHelm {
     // seaway the leeway, the yaw rate and the helm add at the blade: a Catalina 30 beating in 20 kn stalled hers at
     // 12 degrees of helm as a wave threw her bow up, and with 28 on held it stalled until she lay head to wind
     const ast = d.rudAst, al = d.rudAlpha, rmax = b.cls.rudder.max * (b.rudderLim ?? 1);
-    if (ast && Number.isFinite(al) && Math.abs(al) > 0.9 * ast && Math.sign(al) === Math.sign(b.rudder) && Math.sign(cmd) === Math.sign(b.rudder)) {
+    // (not from a standstill: sliding sideways at a knot or two the blade's angle is the leeway's whatever the helm, and
+    // eased to nothing it froze her for minutes, wanting to bear away round onto the other gybe and never turning)
+    if (ast && Number.isFinite(al) && b.u > 0.5 * vT && Math.abs(al) > 0.9 * ast && Math.sign(al) === Math.sign(b.rudder) && Math.sign(cmd) === Math.sign(b.rudder)) {
       const cmax = Math.max(0.05, (Math.abs(b.rudder) - (Math.abs(al) - 0.8 * ast)) / rmax);
       if (Math.abs(cmd) > cmax) cmd = Math.sign(cmd) * cmax;
     }

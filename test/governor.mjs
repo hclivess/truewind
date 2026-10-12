@@ -8,7 +8,7 @@
 //     before the player, each boat once its cloth has flown, and each without a stall.
 import { Boat, makeSteadyEnv, autoTrim } from '../js/physics.js';
 import '../js/sail/sailsim.js';
-import { SailGovernor, GOV, setSailLevel, sailsFlown } from '../js/governor.js';
+import { SailGovernor, GOV, setSailLevel, sailsFlown, ReflGovernor, RGOV, REFL_LEVELS } from '../js/governor.js';
 const KT = 0.514444, DT = 1 / 120;
 let bad = 0;
 const check = (ok, msg) => { if (!ok) bad++; console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${msg}`); };
@@ -82,4 +82,28 @@ check(r.log.filter((e) => e.Fmin !== undefined).every((e) => e.Fmin > 0.85 * e.F
 r = run('time warp', () => ({ steps: 2, ms: 0.5, frameMs: 16.7 }), 150, [100, 130]);
 check(r.boats.map((b) => b.lod).join('') === '011' && r.log.filter((e) => e.from === 2).every((e) => e.Fmin > 0.85 * e.F0 && e.smax <= 1),
   `after time warp the boats are back at L0/L1, the cloth set aside drawing at once (${r.log.filter((e) => e.from === 2).map((e) => `#${e.id} ${e.F0.toFixed(0)}->${e.Fmin.toFixed(0)} N, ${e.smax} stalled`).join('; ')})`);
+// ---- the reflection ladder (ReflGovernor): it goes by the frame time, and only when the frames are slow
+console.log('4. the reflection ladder');
+const rrun = (g, ms, secs) => { const log = []; let t = 0; while (t < secs) { const m = typeof ms === 'function' ? ms(t) : ms; t += m / 1000; const l = g.frame(m); if (l !== null) log.push({ t, l }); } return log; };
+let rg = new ReflGovernor(0);
+check(rrun(rg, 16.7, 600).length === 0 && rg.level === 0, 'a desktop at 60 fps keeps the full reflection for ten minutes');
+rg = new ReflGovernor(0);
+check(rrun(rg, (t) => (t % 7 < 0.02 ? 400 : 16.7), 120).length === 0, 'a compile stall now and then (400 ms frames) changes nothing');
+rg = new ReflGovernor(0);
+check(rrun(rg, 20, 120).length === 0, 'a 50 fps device (20 ms frames) keeps it: not slow enough to pay for a coarser mirror');
+rg = new ReflGovernor(0);
+let rl = rrun(rg, () => [33, 26, 21, 15][rg.level], 60);
+check(rl.length >= 1 && rl[0].t >= RGOV.hold + RGOV.over - 0.1 && rl[0].l === 1, `a 30 fps device whose mirror is what makes it slow steps down after ${rl[0] ? rl[0].t.toFixed(1) : '-'} s (one rung)`);
+check(rg.level === 2, `... and on only as far as the frame time demands (rung ${rg.level})`);
+// slow while the mirror is on, fast without it: down, up after a while, down again, and the next climb waits longer
+rg = new ReflGovernor(0);
+rl = rrun(rg, () => (rg.level === 0 ? 30 : 12), 400);
+const ups = rl.filter((e, i) => i && e.l < rl[i - 1].l);
+check(rl.length >= 3 && ups.length >= 2 && ups[1].t - ups[0].t > ups[0].t * 1.5, `a see-saw between two rungs slows down: climbs at ${ups.map((e) => e.t.toFixed(0)).join(', ')} s`);
+// slow for another reason (the physics, a big fleet): a coarser mirror does not help, so it is taken back
+rg = new ReflGovernor(0);
+rl = rrun(rg, 33, 300);
+check(rl.length >= 2 && rl[1].l === 0 && rl.length <= 6 && rg.level === 0, `a device slow for the physics' sake keeps its reflection (${rl.map((e) => `${e.t.toFixed(0)} s -> ${e.l}`).join(', ')})`);
+rg = new ReflGovernor(2);
+check(rrun(rg, 8, 300).length === 0 && rg.level === 2, '?q=low: never climbs above its start rung');
 process.exit(bad ? 1 : 0);

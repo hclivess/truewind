@@ -14,8 +14,8 @@ export function rainLevels(r, o = {}) {
 // The mixer: a master volume and a channel per kind of sound, each a slider position 0..1 (1: the level as made).
 // amb: the wind in the rig, the sea along the hull, rain and thunder; gear: flogging sails, the boom's and the hull's
 // slams, the lines' winches, blocks and cleats; eng: every engine heard (yours and the other boats'); sig: the race
-// horn and beeps
-export const CHANNELS = [['master', 'Master'], ['amb', 'Wind & sea'], ['gear', 'Sails & gear'], ['eng', 'Engines'], ['sig', 'Horn & signals']];
+// horn and beeps; life: the birds' calls, the whales' blows, splashes (js/wildlife-render.js)
+export const CHANNELS = [['master', 'Master'], ['amb', 'Wind & sea'], ['gear', 'Sails & gear'], ['eng', 'Engines'], ['sig', 'Horn & signals'], ['life', 'Wildlife']];
 // a slider position to a gain: squared, so the travel follows loudness rather than amplitude (half way is -12 dB)
 export function volGain(v) { v = Math.max(0, Math.min(1, +v || 0)); return v * v; }
 // a stored mix, checked (it comes from storage): every channel 0..1, a missing or bad one at full
@@ -215,6 +215,80 @@ export class Audio {
     const rp = pan * (0.3 + 0.55 * Math.exp(-d / 6000));
     noise(rnd() * 3, dur + 0.05, true).connect(l1); l1.connect(l2); l2.connect(g); g.connect(out(rp));
     this.lastThunder = { d, dur, fc, at: t0, pan: rp };
+  }
+
+  // Wildlife (js/wildlife-render.js), through the Wildlife channel: a gull's or a tern's call, a whale's blow, a
+  // dolphin's or a turtle's breath, a splash, a breach. d: the distance (m): heard d / 343 s after it happened,
+  // quieter by 1/d beyond 10 m and duller far off (the air takes the highs); pan -1..1; gain 0..1; seed varies it.
+  // At most six at once (a flock taking off is a few calls, not forty).
+  wildlife(kind, d = 50, pan = 0, gain = 1, seed = 1) {
+    if (!this.ctx || !this.on || !this.bus || !this.bus.life || this.ctx.state !== 'running') return;
+    if ((this._wlv || 0) >= 6) return;
+    const ctx = this.ctx, att = gain * Math.min(1, 10 / Math.max(d, 1));
+    if (att < 0.004) return;
+    let s = (seed >>> 0) + 0x9e3779b9; const rnd = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296;
+    const t0 = ctx.currentTime + 0.03 + d / 343;
+    if (!this._wlNoise) {
+      const n = ctx.sampleRate * 2, b = ctx.createBuffer(1, n, ctx.sampleRate), x = b.getChannelData(0);
+      for (let i = 0; i < n; i++) x[i] = Math.random() * 2 - 1;
+      this._wlNoise = b;
+    }
+    const out = ctx.createGain(); out.gain.value = att;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 800 + 15000 * Math.exp(-d / 500);
+    const pn = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.createGain();
+    if (pn.pan) pn.pan.value = Math.max(-1, Math.min(1, pan));
+    out.connect(lp); lp.connect(pn); pn.connect(this.bus.life);
+    let end = t0;
+    const env = (g, a, at, dur, atk = 0.015) => { g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(a, at + atk); g.gain.exponentialRampToValueAtTime(0.0001, at + dur); end = Math.max(end, at + dur); };
+    const noise = (at, dur, type, f, q, a, atk) => {
+      const src = ctx.createBufferSource(); src.buffer = this._wlNoise; src.loop = true;
+      const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
+      const g = ctx.createGain(); env(g, a, at, dur, atk);
+      src.connect(fl); fl.connect(g); g.connect(out); src.start(at, rnd() * 1.5); src.stop(at + dur + 0.05);
+      return fl;
+    };
+    // a call note: a harmonic-rich tone through the syrinx's formant, its pitch falling (f0 -> f1, peaking at fp)
+    const note = (at, dur, f0, fp, f1, form, a, rasp = 0) => {
+      const o = ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f0, at); o.frequency.linearRampToValueAtTime(fp, at + dur * 0.3); o.frequency.linearRampToValueAtTime(f1, at + dur);
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = form; bp.Q.value = 1.1;
+      const g = ctx.createGain(); env(g, a, at, dur, 0.02);
+      o.connect(bp); bp.connect(g);
+      if (rasp) {   // (a harsh call: the note amplitude-modulated, buzzy)
+        const am = ctx.createGain(); am.gain.value = 0.5; const lfo = ctx.createOscillator(); lfo.frequency.value = rasp; const dg = ctx.createGain(); dg.gain.value = 0.5;
+        lfo.connect(dg); dg.connect(am.gain); g.connect(am); am.connect(out); lfo.start(at); lfo.stop(at + dur + 0.05);
+      } else g.connect(out);
+      o.start(at); o.stop(at + dur + 0.05);
+    };
+    switch (kind) {
+      case 'gull': case 'gullDeep': {     // a herring gull's "kyow" notes, a big gull's deeper
+        const k = kind === 'gullDeep' ? 0.68 : 1, n = 1 + Math.floor(rnd() * 5);
+        for (let i = 0; i < n; i++) { const at = t0 + i * (0.3 + 0.08 * rnd()); note(at, 0.22 + 0.08 * rnd(), 950 * k, 1350 * k, 800 * k, 2300 * k, 0.32); }
+        break;
+      }
+      case 'gullSmall': { const n = 1 + Math.floor(rnd() * 2); for (let i = 0; i < n; i++) note(t0 + i * 0.42, 0.34, 1500, 1750, 1150, 2600, 0.28, 55); break; }   // "kree-ar"
+      case 'laugh': { const n = 5 + Math.floor(rnd() * 5); for (let i = 0; i < n; i++) note(t0 + i * (0.15 + 0.012 * i), 0.11, 1050, 1200, 900, 2100, 0.3); break; }   // a laughing gull's "ha-ha-ha"
+      case 'tern': case 'ternDeep': { const k = kind === 'ternDeep' ? 0.55 : 1; note(t0, 0.38, 2900 * k, 3100 * k, 2100 * k, 3300 * k, 0.26, 70 * k); break; }   // "kee-arr"
+      case 'blow': {    // a whale's explosive exhalation, the inhalation after it
+        noise(t0, 1.3, 'bandpass', 520, 0.6, 0.9, 0.04); noise(t0, 0.9, 'lowpass', 1800, 0.5, 0.35, 0.03);
+        noise(t0 + 1.5, 0.75, 'bandpass', 1100, 0.8, 0.22, 0.12);
+        break;
+      }
+      case 'puff': noise(t0, 0.2, 'bandpass', 1400, 0.7, 0.5, 0.008); break;
+      case 'splash': {
+        noise(t0, 0.45, 'lowpass', 2600, 0.5, 0.6, 0.005);
+        const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.setValueAtTime(320, t0); o.frequency.exponentialRampToValueAtTime(110, t0 + 0.09); env(g, 0.25, t0, 0.12, 0.003); o.connect(g); g.connect(out); o.start(t0); o.stop(t0 + 0.15);
+        break;
+      }
+      case 'breach': {
+        const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.setValueAtTime(70, t0); o.frequency.exponentialRampToValueAtTime(38, t0 + 0.5); env(g, 0.9, t0, 0.7, 0.01); o.connect(g); g.connect(out); o.start(t0); o.stop(t0 + 0.75);
+        noise(t0, 2.6, 'lowpass', 900, 0.5, 0.8, 0.02);
+        break;
+      }
+      default: return;
+    }
+    this._wlv = (this._wlv || 0) + 1;
+    setTimeout(() => { this._wlv--; try { out.disconnect(); } catch (e) { /* gone */ } }, (end - ctx.currentTime + 0.3) * 1000);
   }
 
   thump(a) {

@@ -14,4 +14,5 @@ import etchells from './etchells.js';
 import melges24 from './melges24.js';
 import spray from './spray.js';
 import joshua from './joshua.js';
-export const FAMOUS = [catalina22, catalina30, oceanis381, contessa32, westsail32, optimist, sunfish, flyingscot, dragon, etchells, melges24, spray, joshua];
+import swan131 from './swan131.js';
+export const FAMOUS = [catalina22, catalina30, oceanis381, contessa32, westsail32, optimist, sunfish, flyingscot, dragon, etchells, melges24, spray, joshua, swan131];
