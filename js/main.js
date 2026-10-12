@@ -6,7 +6,7 @@ import { VENUES, World, makeProjection, fetchVenueGeo, fetchLiveWind } from './w
 import { fetchSeamarks } from './seamarks.js';
 import { Nav } from './nav.js';
 import { cleanSailNo, validateSailNo, cleanBoatName, validateBoatName, classFleetIdentities, classTeam, VENUE_NATION } from './boatid.js';
-import { Course, Race, AIHelm, aiRandom, applyWindShadow, resolveCollisions } from './race.js';
+import { Course, Race, AIHelm, aiRandom, startBoxBelow, applyWindShadow, resolveCollisions } from './race.js';
 import { RuleEngine, RULE_SHORT } from './rules.js';
 import { Renderer } from './render.js';
 import { coastalInput, coastalTransfer, buildCoastal, CoastalField } from './coastal.js';
@@ -129,7 +129,8 @@ class Game {
     this.t = 0;
     this.boats = [];
     this.showLaylines = true;
-    this.trafficView = new TrafficView(this.renderer.scene);
+    // (a weak GPU, a phone or a tablet: fewer boats in full detail, and only close by)
+    this.trafficView = new TrafficView(this.renderer.scene, { low: this.renderer.low || matchMedia('(pointer: coarse)').matches });
     this.trafficView.seaKeep = (x, z) => this.renderer.seaKeepAt(x, z);     // (the traffic rides the sea as it is drawn)
     this.buildMenu();
     this.bindInput();
@@ -507,7 +508,7 @@ class Game {
       const data = await this.loadTraffic(v), keepOut = [{ x: player.x, z: player.z, r: 50 }];
       const C = this.course;
       if (C) { const r = Math.max(220, Math.hypot(C.committee.x - C.pin.x, C.committee.z - C.pin.z) / 2 + 120); for (let s = -250; s <= C.L + 150; s += 120) keepOut.push({ x: C.origin.x + C.ux * s, z: C.origin.z + C.uz * s, r }); }
-      try { this.traffic = new Traffic(world, data, { density: dens, seed: cond.seed, twd: cond.twd * DEG, keepOut, venue: v.id, piers: this.obstacles || [] }); } catch (e) { console.error('traffic', e); }
+      try { this.traffic = new Traffic(world, data, { density: dens, seed: cond.seed, twd: cond.twd * DEG, tws: cond.tws * KT, keepOut, venue: v.id, piers: this.obstacles || [] }); } catch (e) { console.error('traffic', e); }
     }
     this.trafficView.setTraffic(this.traffic);
   }
@@ -587,7 +588,8 @@ class Game {
       const spots = [];
       for (let i = 0; i <= n; i++) {
         const off = (i - n / 2) * Math.min(cls.lineSpacing ?? Math.max(16, place), 2 * course.half / (n + 1));   // (a big fleet packs closer on a line the water shortened)
-        spots.push([course.origin.x - course.ux * 170 + course.rx * off, course.origin.z - course.uz * 170 + course.rz * off]);
+        const below = startBoxBelow(S.countdown);
+        spots.push([course.origin.x - course.ux * below + course.rx * off, course.origin.z - course.uz * below + course.rz * off]);
       }
       player.reset(spots[0][0], spots[0][1], twd + Math.PI / 2);
       this.presetTrim(player);
@@ -602,7 +604,9 @@ class Game {
         b.reset(spots[i][0], spots[i][1], twd + Math.PI / 2);
         b.auto.hike = true;
         this.boats.push(b);
-        const ai = new AIHelm(b, { seed: cond.seed, skill: 0.8 + aiRandom(cond.seed + 7, i)() * 0.18 });   // (the race's seed: the same fleet every time)
+        // (each crew her own slot on the line, in the order they lie in the start box, so their ways to it do not
+        // cross: drawn at random, two crews could aim at the same metre of it)
+        const ai = new AIHelm(b, { seed: cond.seed, skill: 0.8 + aiRandom(cond.seed + 7, i)() * 0.18, startFrac: (i - 0.5) / n });   // (the race's seed: the same fleet every time)
         this.ais.push(ai);
       }
       this.race = new Race(course, this.boats, { countdown: S.countdown });
@@ -1436,6 +1440,15 @@ class Game {
       let dTr = tDraw - (this._tDraw ?? tDraw);
       if (!(dTr >= 0 && dTr <= (steps + 1) * PHYS_DT + 1e-9)) dTr = steps * PHYS_DT;   // (a new session, a clock resync)
       this.traffic.update(dTr, tDraw, this.env, this.boats);
+      // the vessels' sound signals (a ship's five short blasts at a boat in her way, a ferry leaving her berth), heard
+      // from where they are; the doubt signal at the player is said too
+      for (const e of this.traffic.events.splice(0)) {
+        if (e.type !== 'horn' || this.idle || this.timeWarp > 2) continue;
+        const c = this.renderer.camera, d = Math.hypot(e.v.x - c.position.x, e.v.z - c.position.z), m = c.matrixWorld.elements;
+        this.audio.shipHorn(e.v.L, e.blasts, d, ((e.v.x - c.position.x) * m[0] + (e.v.z - c.position.z) * m[2]) / Math.max(1, d));
+        const p = this.player;
+        if (e.kind === 'doubt' && p && Math.hypot(e.v.x - p.x, e.v.z - p.z) < 1000) this.hud.toast(`Five short blasts from ${this.traffic.describe(e.v)}: keep clear of her, she cannot turn out of the channel`, 4);
+      }
       const night = clamp((-this.renderer.sunDir.y + 0.02) / 0.12, 0, 1);
       this.trafficView.update(dt, tDraw, this.env, this.renderer.camera, night, this.renderer.r.domElement.height);
     }
