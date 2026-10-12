@@ -221,6 +221,7 @@ class ClothRig {
       if (ma[i] > 0) { this.fict(x[i3], x[i3 + 1], x[i3 + 2], o); Fx += ma[i] * o[0]; Fy += ma[i] * o[1]; Fz += ma[i] * o[2]; }
       cb(x[i3], x[i3 + 1], x[i3 + 2], Fx, Fy, Fz);
     }
+    if (this._vsR && this.vangBase) cb(this.vangBase[0], this.vangBase[1], this.vangBase[2], this._vsR[0], this._vsR[1], this._vsR[2]);
   }
   // the three sections the rest of the game reads: depth, draft, chord angle and twist at STRIP_F heights
   measure(sh, baseAngle) {
@@ -534,7 +535,11 @@ export class BoomSailRig extends ClothRig {
         const vx = this.Gp[0] + this.tv * (c.x[E3] - this.Gp[0]) - this.vangBase[0], vy = this.tv * c.x[E3 + 1], vz = this.Gp[2] + this.tv * (c.x[E3 + 2] - this.Gp[2]) - this.vangBase[2];
         const l = hyp3(vx, vy, vz) || 1, L0 = hyp(this.tv * this.Lb, this.dv), f = s0.vangSpring * clamp((L0 + 0.04 - l) / 0.08, 0, 1) * this.tv;
         c.f[E3] += f * vx / l; c.f[E3 + 1] += f * vy / l; c.f[E3 + 2] += f * vz / l;
-      }
+        // (the strut pushes on its foot at the mast as hard as on the boom: that half went missing, and the boom's
+        // push alone reached the hull as a net force up and aft, a drag of ~the spring's force: small on a J/70's 350 N
+        // gas spring, a sailing yacht's whole drive on a 40 m yacht's hydraulic vang)
+        const r = this._vsR || (this._vsR = [0, 0, 0]); r[0] = -f * vx / l; r[1] = -f * vy / l; r[2] = -f * vz / l;
+      } else if (this._vsR) this._vsR[0] = this._vsR[1] = this._vsR[2] = 0;
     }
     this.stepCloth(dt, nsub, fr);
     if (this.track) {

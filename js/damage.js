@@ -66,7 +66,7 @@ const w7x19 = (d) => 0.7 * w1x19(d);
 // in 45 before its leech goes.
 export const CLOTH_STRENGTH = {
   dacronCruise: { S: 70e3, plies: 3, age: 0.75, T0: 14400 }, dacronDinghy: { S: 45e3, plies: 3, age: 0.75, T0: 10800 },
-  laminate: { S: 90e3, plies: 3, age: 0.75, T0: 4500 }, canvas: { S: 55e3, plies: 3, age: 0.75, T0: 10800 },
+  laminate: { S: 90e3, plies: 3, age: 0.75, T0: 4500 }, superMembrane: { S: 450e3, plies: 3, age: 0.8, T0: 5400 }, canvas: { S: 55e3, plies: 3, age: 0.75, T0: 10800 },
   nylon: { S: 6e3, plies: 1.5, age: 0.5, T0: 180 },
 };
 export const STRESS_CONC = 3;          // corner patches: the grid does not resolve them

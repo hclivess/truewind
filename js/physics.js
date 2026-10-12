@@ -1104,11 +1104,12 @@ export class Boat {
       // the lateral force at zero helm: lee helm); a rudder hung on the keel's trailing edge acts more like a flap
       const dxk = Math.max(0, C.keel.x - F.x), sk = 2 * (this.keelS.span || 1);
       const eps = keelCl / (Math.PI * d.keelARe) * (1 + dxk / Math.sqrt(dxk * dxk + sk * sk)) * (ul > 0 ? 1 : 0) * (F.transom ? 0.35 : 1);
-      // one blade, or two on a catamaran (each on its own hull: the weather one lifts out as the hull flies)
+      // one blade, or two: a catamaran's on its hulls (the weather one lifts out as the hull flies), a monohull's twin
+      // spades F.y either side of the centreline (heeled, the windward blade rises toward the surface)
       const nb = F.twin ? 2 : 1;
       let rx = 0, rn = 0, K0 = 0, N0 = 0, Q = 0, vent = 0, cav = 0, stall = false, imm = 0, a0 = 0;
       for (let k = 0; k < nb; k++) {
-        const yb = F.twin ? (k ? 1 : -1) * C.hullSpacing / 2 : 0, g = this._rg2[k], st = this.rudSt[k];
+        const yb = F.twin ? (k ? 1 : -1) * (F.y ?? C.hullSpacing / 2) : 0, g = this._rg2[k], st = this.rudSt[k];
         foilGeom(S, 1, st.kick, zwAt, cphi, sphi, yb, ul, g);
         const vl = (this.v - wvv + this.r * g.x + this.p * g.z) * cphi * (1 - (F.wake ?? 0.08));
         const V2 = ul * ul + vl * vl, V = Math.sqrt(V2) + 1e-9;
@@ -1689,7 +1690,9 @@ export function solvePolarAngle(C, twsMS, twaDeg, opts = {}) {
     const b = new Boat(C, opts);
     vppStart(b, twsMS, twaDeg, gen);
     let acc = 0, n = 0;
-    const steps = 50 * 40;
+    // (40 s settles a yacht of a few tonnes; a heavy one (C.vppSecs: a 185 t superyacht's speed has a time constant of
+    // ~25 s) is still gathering way at the end of it)
+    const steps = 50 * (C.vppSecs ?? 40);
     for (let i = 0; i < steps; i++) {
       autoTrim(b, dt, bias);
       b.step(dt, env, i * dt);

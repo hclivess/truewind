@@ -9,6 +9,9 @@ import { ropeCSS } from './linegear.js';
 
 // a small drawing of each kind of line handler for the panel (16 x 12, in the text colour)
 const ICONS = {
+  // a captive winch: the drum below the deck line, the line down into it; a hydraulic ram: cylinder and rod
+  captive: '<path d="M1 5h14"/><rect x="4.5" y="6.5" width="7" height="4.5" rx="1"/><path d="M8 1v8"/>',
+  ram: '<rect x="1.5" y="4" width="8" height="4" rx="1"/><path d="M9.5 6h5M14.5 4v4"/>',
   cam: '<circle cx="5" cy="6" r="3.2"/><circle cx="11" cy="6" r="3.2"/><path d="M1 11.3h14"/>',
   clam: '<path d="M2 2l6 8 6-8M4.3 3.4l1.4 1.9M11.7 3.4l-1.4 1.9M6.4 2.6l1 1.4M9.6 2.6l-1 1.4"/>',
   jam: '<path d="M1.5 2.5h3.2l3.3 6 3.3-6h3.2l-5.4 8.5h-2.2z" fill="currentColor" stroke="none"/>',

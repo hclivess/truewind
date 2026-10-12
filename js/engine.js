@@ -52,7 +52,9 @@
 //   tilts       outboard raised clear of the water while stopped: the bracket slides it up the transom by lift (default:
 //               the prop's depth + 0.14 m) and the motor tips back a few degrees about the clamp; steers: turns with the helm
 //   lockWhenOff fixed prop left in gear when stopped (locked, not windmilling)
-//   exhaust     [x, y, z] exhaust outlet (visuals); wake, deduction, walkA, walkR, legArea, shiftDelay, startTime,
+//   twin        y (m): twin engines and shafts, the props at +-y (pos[1] is ignored), turning outward (counter-rotating):
+//               two engines of kW each, one lever for both; the thrust is doubled, the prop walk cancels
+//   exhaust     [x, y, z] exhaust outlet (visuals; a twin installation's is mirrored to the other side); wake, deduction, walkA, walkR, legArea, shiftDelay, startTime,
 //               I (engine rotating inertia at the crank, kg m^2): optional overrides of the type's defaults
 
 import { linesFor, hullSection, calibrate } from './hull.js';
@@ -232,7 +234,7 @@ export class Engine {
   // ---- one physics step: returns this with X, Y, K, N (boat forces and moments) and My (pitch) ----
   step(b, dt, uw, vw, cphi, sphi) {
     const S = this.spec, C = b.cls, pr = this.prop, D = pr.D;
-    const [xp, yp, zp] = S.pos;
+    const [xp, yp0, zp] = S.pos, yp = S.twin ? 0 : yp0, nP = S.twin ? 2 : 1;
     this.X = 0; this.Y = 0; this.K = 0; this.N = 0; this.My = 0; this.washU = 0;
     // the outboard's leg is lowered to start and tilted clear when stopped (the crew takes ~1.5 s)
     const wantDown = !this.stowed && (!S.tilts || this.running || this.starting);
@@ -311,7 +313,7 @@ export class Engine {
     // load, plus what it burns just idling
     const P = fuelT / dt, Fl = FUEL[S.fuel] || FUEL.petrol;
     const bsfc = 0.78 * Fl.bsfc * (1 + 0.5 * (1 - this.rack) ** 2);
-    this.lh = lerp(this.lh, this.running ? P / 1000 * bsfc / 1000 / Fl.rho + 0.04 * S.kW : 0, clamp(dt * 2, 0, 1));
+    this.lh = lerp(this.lh, this.running ? nP * (P / 1000 * bsfc / 1000 / Fl.rho + 0.04 * S.kW) : 0, clamp(dt * 2, 0, 1));
     // ---- forces at the prop ----
     let T, Q;
     if (locked) { pr.forces(Va, 0, f); T = f.T * kv; Q = 0; }
@@ -325,8 +327,10 @@ export class Engine {
     let Fx = Tb * Math.cos(dl), Fy = -Tb * Math.sin(dl);
     // prop walk: strongest from rest (paddle wheel in the hull's shadow), fading once water streams past the stern
     const Jw = Math.abs(Va) / Math.max(0.3, Math.abs(this.n) * D);
-    const walk = (this.n >= 0 ? S.walkA : -S.walkR) * S.prop.rh * Math.abs(T) / (1 + (Jw / 0.45) ** 2);
+    // (twin screws turning outward: the two props' walk cancels)
+    const walk = S.twin ? 0 : (this.n >= 0 ? S.walkA : -S.walkR) * S.prop.rh * Math.abs(T) / (1 + (Jw / 0.45) ** 2);
     Fy += walk; this.walk = walk;
+    Fx *= nP; Fy *= nP;
     // the outboard's leg: a small fin (lift and cross-flow) and a bluff gearcase
     if (S.legArea && legIn > 0) {
       const Aw = S.legArea * legIn, Ua = Math.max(Math.abs(ax), 0.3);
@@ -334,11 +338,13 @@ export class Engine {
       Fx -= 0.5 * RHO * S.legFront * legIn * 0.35 * ax * Math.abs(ax);
     }
     this.X = Fx; this.Y = Fy * cphi; this.K = Fy * zp; this.N = xp * Fy * cphi - (yp * cphi + zp * sphi) * Fx;
-    this.My = -Fx * zp + Tb * Math.sin(S.shaftAngle) * xp;    // thrust below the CG lifts the bow; an inclined shaft lifts the stern
+    this.My = -Fx * zp + nP * Tb * Math.sin(S.shaftAngle) * xp;    // thrust below the CG lifts the bow; an inclined shaft lifts the stern
     // slipstream (momentum theory) and the rudder in it
     this.slip = T > 0 ? Math.sqrt(Math.max(0, Va) ** 2 + 8 * T / (RHO * PI * D * D)) : 0;
     const R = C.rudder;
-    if (T > 0 && S.wash !== false && S.type !== 'outboard' && R && R.x < xp && Math.abs(yp) < 0.3 && !R.twin) {
+    // (a prop ahead of its rudder: on the centreline, or twin props each ahead of one of twin rudders)
+    const inLine = S.twin ? !!R && R.twin && Math.abs(S.twin - (R.y ?? 0)) < 0.45 * (R.chord || 0.5) + 0.3 : Math.abs(yp) < 0.3 && !(R && R.twin);
+    if (T > 0 && S.wash !== false && S.type !== 'outboard' && R && R.x < xp && inLine) {
       const us = Math.max(0, Va) + 0.75 * (this.slip - Math.max(0, Va));
       const fr = clamp(0.85 * D / R.span, 0, 1);
       const u0 = Math.max(0, ax);
