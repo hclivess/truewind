@@ -93,6 +93,9 @@ export default {
   // = the forestay's hounds at 52.67; the 54 m keel-stepped spar [NJ] has its heel ~1.3 m under the DWL)
   mastX: 3.85, mastHeight: 53.2, boomZ: 5.4, mastR: 0.32, keelBulb: false,
   vppSecs: 160,
+  // the crew rolls the main down into its boom as the wind rises (a superyacht reefs from ~19-20 kn true upwind, later
+  // off the wind) rather than twist its head off; the AI's race reefing by the same winds
+  autoReef: { up: [19, 24], off: [25, 31] }, reefWind: [19, 24],
   targetHeel: 14 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, reefTime: 75,
   // (powered: every working line is on a hydraulic winch or ram, so the "crew power" is the hydraulics': a Rondal
   // captive winch pulls ~8-10 t; no hand tires on it: js/fatigue.js)
@@ -107,22 +110,24 @@ export default {
   // line handling: Rondal captive hydraulic winches below deck (jib sheets, mainsheet, main halyard, runners), a
   // hydraulic vang, backstay and outhaul (the in-boom furler's), Reckmann hydraulic furlers: push-button controls at
   // the helm consoles. Nothing to cleat, nothing to grind
-  lines: { main: { handler: 'captive', n: 2, at: 'deck', d: 22 }, jib: { handler: 'captive', n: 1, at: 'winch', d: 24 }, lazy: { handler: 'captive', n: 1, at: 'winch', d: 24 },
-    vang: { handler: 'ram', n: 1, at: 'deck', max: 160e3 }, cunn: { handler: 'ram', n: 1, at: 'mast', max: 60e3 }, outhaul: { handler: 'ram', n: 1, at: 'boom', max: 50e3 },
+  lines: { main: { handler: 'captive', n: 2, at: 'deck', d: 24, fibre: 'dyneema' }, jib: { handler: 'captive', n: 1, at: 'winch', d: 26, fibre: 'dyneema' }, lazy: { handler: 'captive', n: 1, at: 'winch', d: 26, fibre: 'dyneema' },
+    vang: { handler: 'ram', n: 1, at: 'deck', max: 160e3, d: 60, fibre: 'ram' }, cunn: { handler: 'ram', n: 1, at: 'mast', max: 60e3 }, outhaul: { handler: 'ram', n: 1, at: 'boom', max: 50e3 },
     backstay: { handler: 'ram', n: 1, at: 'deck', max: 250e3 }, trav: { handler: 'captive', n: 1, at: 'car' }, jibHalyard: { handler: 'ram', n: 1, at: 'mast', max: 120e3 } },
   sails: [
     // in-boom furling main with full horizontal battens (est. 430 m^2 of the 989 [NJ]; P 47.0, E 15.64 [W]); it reefs
-    // by rolling down into the boom
+    // by rolling down into the boom. (ropeK, tapeK, clewK: her sheets, vang, leech tape and clew fittings in proportion
+    // to her loads, ~25x a 35 ft yacht's: js/sail/rigsim.js)
     { key: 'main', kind: 'boom', area: 430, luff: 47.0, foot: 15.6, head: 3.2, depth: [0.1, 0.12, 0.11], twistMax: 18 * DEG,
       cd0: 0.06, ARe: 5.2, min: 2 * DEG, max: 78 * DEG, trav: [-4 * DEG, 4 * DEG], Iboom: 1.9e5, boomMass: 2200, reefs: 2, furling: true, inBoom: true,
-      vangBend: 0.02, sheetBend: 0.02, color: 0xe9e6dc, boomR: 0.36, boomRound: false, pocketW: 0.12,
+      vangBend: 0.02, sheetBend: 0.02, ropeK: 25, tapeK: 25, clewK: 25, color: 0xe9e6dc, boomR: 0.36, boomRound: false, pocketW: 0.12,
       pockets: [[0.13, 1.0], [0.27, 1.0], [0.41, 1.0], [0.55, 1.0], [0.69, 1.0], [0.83, 1.0]],
       battens: { EI: 1500, full: true, rows: [0.13, 0.27, 0.41, 0.55, 0.69, 0.83] },
-      track: { x: -12.9, z: 2.2, half: 1.2, s: 15.1 }, boomEI: 1.6e8, boomMmax: 9e5, vang: 'rigid', vangMax: 160e3, vangSpring: 2e5,
+      track: { x: -12.9, z: 2.2, half: 1.2, s: 15.1 }, boomEI: 1.6e8, boomMmax: 9e5, vang: 'rigid', vangMax: 160e3, vangSpring: 2e5, vangDrop: 2.8,
       preventer: 120e3, brake: 30e3 },
-    // furling jib on the forestay, ~100% (est. 395 m^2), the Reckmann drum at the stemhead
+    // furling jib on the forestay, ~100% (est. 395 m^2), the Reckmann drum at the stemhead; rolled in a little with each
+    // reef of the main (est.: 85% and 70% set)
     { key: 'jib', kind: 'loose', area: 395, tackX: 19.05, tackZ: 3.05, luff: 50.6, foot: 15.4, head: 0.6, footRise: 1.2,
-      depth: [0.11, 0.12, 0.1], cd0: 0.04, ARe: 6.0, min: 9 * DEG, max: 50 * DEG, sagK: 0.8, color: 0xe9e6dc, window: false },
+      depth: [0.11, 0.12, 0.1], cd0: 0.04, ARe: 6.0, min: 9 * DEG, max: 50 * DEG, sagK: 0.8, ropeK: 20, tapeK: 25, furlReef: [1, 0.85, 0.7], color: 0xe9e6dc, window: false },
   ],
   hull: { color: 0x0e1828, stripe: 0xc9cdd2, deck: 0xc8a978, boot: 0x14161a, bootTop: 0xe8e8e4, levels: [0.03, 0.11, 0.64, 0.6], rough: 0.18 },
   cloth: 'superMembrane',

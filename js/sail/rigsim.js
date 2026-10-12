@@ -117,12 +117,15 @@ class ClothRig {
     // is the gaff itself. A spritsail's head is cloth and tape, held out at the peak by the sprit
     if (s.rig === 'sprit') for (let i = 0; i < nu - 1; i++) { const a = cloth.node(i, nv - 1), b = cloth.node(i + 1, nv - 1); cloth.addDistance(a, b, this._rd(a, b), 1.5e5 / this._rd(a, b), true); }
     else for (let i = 0; i < nu - 1; i++) {
-      const w = s.rig === 'gaff' ? 1e6 : 3e5;
+      const w = (s.rig === 'gaff' ? 1e6 : 3e5) * (s.tapeK ?? 1);
       const a = cloth.node(i, nv - 1), b = cloth.node(i + 1, nv - 1); cloth.addDistance(a, b, this._rd(a, b), w);
       if (i + 2 < nu) { const c2 = cloth.node(i + 2, nv - 1); cloth.addDistance(a, c2, this._rd(a, c2), w); }
     }
     // leech and foot tapes: the sail's edges are bound with tape that carries the leech and foot tension
-    this.tapeEA = 1.5e5;
+    // (1.5e5 N: a 30-40 ft yacht's tape, a few per cent of strain at its leech loads. s.tapeK: a bigger sail's tapes and
+    // leech load patches in proportion to its loads, ~its area: a 40 m yacht's 430 m^2 main left at 1.5e5 stretched its
+    // leech by half under ~100 kN and twisted its head off 45 degrees with the boom on the centreline)
+    this.tapeEA = 1.5e5 * (s.tapeK ?? 1);
     for (let j = 0; j < nv - 1; j++) { const a = cloth.node(nu - 1, j), b = cloth.node(nu - 1, j + 1); cloth.addDistance(a, b, this._rd(a, b), this.tapeEA / this._rd(a, b), true); }
     for (let i = 0; i < nu - 1; i++) { const a = cloth.node(i, 0), b = cloth.node(i + 1, 0); cloth.addDistance(a, b, this._rd(a, b), this.tapeEA / this._rd(a, b), true); }
     this.needPose = true; this.side = 1; this.sincePose = 0;
@@ -289,7 +292,9 @@ export class BoomSailRig extends ClothRig {
     cloth.setParticle(this.E, mE, wE);
     cloth.addLength(this.E, this.Gp, this.Lb, 2e6);
     // clew on the boom (loose-footed: the outhaul sets where)
-    this.clewAtt = cloth.addAttach(cloth.node(nu - 1, 0), this.E, 0.95, this.Gp, 5e5);
+    // (s.clewK: a big yacht's clew is shackled to its outhaul car, not tied with a few turns of line: stiffer in proportion
+    // to the leech loads it carries, or the clew rises off the boom and the leech goes slack)
+    this.clewAtt = cloth.addAttach(cloth.node(nu - 1, 0), this.E, 0.95, this.Gp, 5e5 * (s0.clewK ?? 1));
     // sheet from the boom block to the car, vang to the mast foot, topping lift from the masthead
     this.tb = isMain ? 0.86 : 0.9;
     this.hz = onMast ? Math.max(0.3, gz - C.freeboard * 0.95) : 0.25;
@@ -297,7 +302,9 @@ export class BoomSailRig extends ClothRig {
     // (s.ropeK: a bigger boat's sheet and vang are stiffer in proportion to their loads, as its lines are thicker)
     const rk = s.ropeK ?? 1;
     this.sheet = cloth.addRope(this.E, this.tb, this.Gp, this.car, 1, 3e5 * rk);
-    this.tv = 0.22; this.dv = onMast ? Math.min(0.55, Math.max(0.3, gz - C.freeboard + 0.1)) : 0.15;
+    // (the vang's drop below the gooseneck at the mast: a small yacht's 0.3-0.55 m; a big yacht's strut runs from the
+    // mast foot at the deck to a boom several metres up, s.vangDrop, and holds the leech down with it)
+    this.tv = 0.22; this.dv = onMast ? s0.vangDrop ?? Math.min(0.55, Math.max(0.3, gz - C.freeboard + 0.1)) : 0.15;
     this.vangBase = [gx, 0, this.pz - this.dv];
     // (a staysail club with its sheet led to a deck traveller right under it (s.clubVang) is held down as a vang would:
     // without it the club lifts as it is eased and the staysail twists off into the yankee's lee)
@@ -607,7 +614,8 @@ export class JibRig extends ClothRig {
     const ym = Math.max(0.25, this.footLen * Math.sin(s.min) * 1.05);
     this.leadY = Math.min(ym, C.beam * 0.45);
     this.leads = [[0, this.leadY, this.leadZ], [0, -this.leadY, this.leadZ]];     // starboard, port
-    this.sheets = this.leads.map((L) => cloth.addRope(this.clew, 1, [0, 0, 0], L, 10, 1.5e5));
+    // (s.ropeK: a bigger yacht's sheets are stiffer in proportion to their loads, as the main's are)
+    this.sheets = this.leads.map((L) => cloth.addRope(this.clew, 1, [0, 0, 0], L, 10, 1.5e5 * (s.ropeK ?? 1)));
     // what the jib wraps round when it crosses: the mast, and on the Blackwatch the inner forestay (the leech
     // is left out: on a rig whose jib head is at the mast it runs down the mast's front, and caught on the
     // capsule it would pin the clew)

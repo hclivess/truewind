@@ -74,22 +74,25 @@ if (!isMainThread) {
   const classes = process.argv.slice(2).filter((a) => !a.startsWith('--'));
   const todo = classes.length ? classes : Object.keys(CLASSES);
   const TWS = arg('tws', '4,6,8,10,12,14,16,20,25').split(',').map(Number);
+  // (--twa=40,90 and --out=DIR: a check of a few angles, written elsewhere, leaving data/sails/ alone)
+  const TWA = arg('twa', null) ? arg('twa').split(',').map(Number) : POLAR_TWAS, OUT = arg('out', null);
   const secs = +arg('secs', '30'), nJobs = +arg('jobs', String(Math.max(1, cpus().length - 1)));
   const jobs = [];
-  for (const cls of todo) for (const tws of TWS) for (const twa of POLAR_TWAS) jobs.push({ cls, tws, twa });
+  for (const cls of todo) for (const tws of TWS) for (const twa of TWA) jobs.push({ cls, tws, twa });
   const out = {};
   for (const cls of todo) out[cls] = { rows: {} };
   const t0 = Date.now(); let done = 0;
-  mkdirSync(new URL('../data/sails/', import.meta.url), { recursive: true });
+  const dir = OUT ? new URL(`file://${OUT.replace(/\/?$/, '/')}`) : new URL('../data/sails/', import.meta.url);
+  mkdirSync(dir, { recursive: true });
   const r3 = (v) => Math.round(v * 1000) / 1000, r1 = (v) => Math.round(v * 10) / 10;
   // each class is written as soon as its last angle is in (a long bake that is stopped keeps what it finished)
   const write = (cls) => {
-    const R = out[cls].rows, tab = (f) => TWS.map((t) => POLAR_TWAS.map((a) => f(R[`${t}:${a}`])));
+    const R = out[cls].rows, tab = (f) => TWS.map((t) => TWA.map((a) => f(R[`${t}:${a}`])));
     const data = { class: cls, model: 'cloth', lod: 0, secs, hz: 120, biases: BIASES, baked: new Date().toISOString().slice(0, 10),
-      tws: TWS, twa: POLAR_TWAS, bsp: tab((r) => r3(r.bsp)), heel: tab((r) => r1(r.heel)), leeway: tab((r) => r1(r.leeway)), gen: tab((r) => r.gen), bias: tab((r) => r.bias) };
-    writeFileSync(new URL(`../data/sails/${cls}.json`, import.meta.url), JSON.stringify(data) + '\n');
+      tws: TWS, twa: TWA, bsp: tab((r) => r3(r.bsp)), heel: tab((r) => r1(r.heel)), leeway: tab((r) => r1(r.leeway)), gen: tab((r) => r.gen), bias: tab((r) => r.bias) };
+    writeFileSync(new URL(`${cls}.json`, dir), JSON.stringify(data) + '\n');
     const i12 = TWS.indexOf(12);
-    if (i12 >= 0) console.log(`\n${cls} 12 kn: ` + POLAR_TWAS.map((a, j) => `${a}:${data.bsp[i12][j].toFixed(2)}${data.gen[i12][j] ? 'g' : ''}`).join(' '));
+    if (i12 >= 0) console.log(`\n${cls} 12 kn: ` + TWA.map((a, j) => `${a}:${data.bsp[i12][j].toFixed(2)}${data.gen[i12][j] ? 'g' : ''}`).join(' '));
   };
   await new Promise((resolve) => {
     let next = 0, alive = 0;
@@ -99,7 +102,7 @@ if (!isMainThread) {
       alive++;
       w.on('message', (m) => {
         out[m.cls].rows[`${m.tws}:${m.twa}`] = m.r; done++;
-        if (Object.keys(out[m.cls].rows).length === TWS.length * POLAR_TWAS.length) write(m.cls);
+        if (Object.keys(out[m.cls].rows).length === TWS.length * TWA.length) write(m.cls);
         if (done % 20 === 0) process.stdout.write(`\r${done}/${jobs.length} ${((Date.now() - t0) / 1000).toFixed(0)} s`);
         if (!feed(w) && --alive === 0) resolve();
       });

@@ -134,7 +134,7 @@ export function handlerOf(b, k) { return HANDLERS[specOf(b, k).handler]; }
 // tackle stretches: n parts of it between the blocks plus the lead to the handler, a total lengthInTackle, each
 // part carrying load / n, so at the load the tackle is a spring of stiffness n^2 EA / lengthInTackle.
 const SHEAVE = { ball: { e: 0.975, f0: 1.5 }, plain: { e: 0.935, f0: 4 } };
-const FIBRE_E = { polyester: 2.1e3, dyneema: 2.0e4 };                 // N/mm^2: rope EA / area at working loads
+const FIBRE_E = { polyester: 2.1e3, dyneema: 2.0e4, ram: 2.0e5 };     // N/mm^2: rope EA / area at working loads (ram: a hydraulic cylinder's steel rod)
 const ROPE_D = { main: 8, jib: 8, lazy: 8, gen: 7, stay: 8, mizzen: 8, trav: 6, vang: 6, cunn: 5, outhaul: 5, backstay: 5, jibHalyard: 6, tackLine: 6 };
 // metres of line at the load over the control's range (the boom end's travel for the mainsheet)
 export function lineTravel(C, k) {
