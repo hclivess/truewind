@@ -72,7 +72,7 @@ const C_RIGHT = (b) => (b.cls.multihull ? 8 : 4); // grab radius on screen, also
 // chase-camera distance and windward-leeward course length for a class: by its size
 // the menu's class groups (a class's C.group)
 const CLASS_GROUPS = [['dinghy', 'Dinghies & skiffs'], ['keelboat', 'Keelboats'], ['multihull', 'Multihulls'], ['cruiser', 'Cruisers'], ['classic', 'Classics']];
-const camDist = (C) => (C.id === 'dinghy' ? 8 : C.loa < 5.5 && !C.multihull ? 10 : C.loa > 9 ? 17 : 12);
+const camDist = (C) => C.camDist ?? (C.id === 'dinghy' ? 8 : C.loa < 5.5 && !C.multihull ? 10 : C.loa > 9 ? 17 : 12);
 const courseLen = (C) => C.courseLen ?? (C.id === 'dinghy' ? 600 : C.loa > 9 ? 1200 : 800);   // (C.courseLen: the class's own racing's leg)
 // the touch pad's third line (in order of use), with the labels for its two buttons (d = -1, +1)
 const TOUCH_LINES = { stay: ['Stay', 'Trim', 'Ease', 'Staysail sheet'], trav: ['Trav', 'Up', 'Down', 'Traveler'], hike: ['Hike', 'In', 'Out', 'Crew weight'],
@@ -573,14 +573,16 @@ class Game {
       return [x, z];
     };
     if (S.mode === 'race' && !idle) {
-      // (the boats lie along the line bow to stern before the start: a place each of 14 m, or 1.4 lengths for a big boat)
-      const place = Math.max(14, 1.4 * cls.loa);
-      const course = new Course(world, twd, { length: courseLen(cls), laps: S.laps, lineLength: 60 + place * (S.fleet + 1) });
+      // (the boats lie along the line bow to stern before the start: the class's own spacing, or 14 m, or 1.4 lengths
+      // for a big boat)
+      const place = cls.lineSpacing ?? Math.max(14, 1.4 * cls.loa);
+      const course = new Course(world, twd, { length: courseLen(cls), laps: S.laps, lineLength: 60 + place * (Math.min(S.fleet, cls.raceFleetMax ?? Infinity) + 1) });
       this.course = course;
-      const n = S.fleet;
+      // (a class may cap its fleet: a superyacht's one-design start is a handful of her sisters, spaced by her beam)
+      const n = Math.min(S.fleet, cls.raceFleetMax ?? Infinity);
       const spots = [];
       for (let i = 0; i <= n; i++) {
-        const off = (i - n / 2) * Math.min(Math.max(16, place), 2 * course.half / (n + 1));   // (a big fleet packs closer on a line the water shortened)
+        const off = (i - n / 2) * Math.min(cls.lineSpacing ?? Math.max(16, place), 2 * course.half / (n + 1));   // (a big fleet packs closer on a line the water shortened)
         spots.push([course.origin.x - course.ux * 170 + course.rx * off, course.origin.z - course.uz * 170 + course.rz * off]);
       }
       player.reset(spots[0][0], spots[0][1], twd + Math.PI / 2);
@@ -605,7 +607,13 @@ class Game {
       this.renderer.setMarks(course.marks(), course.committee);
     } else {
       let x = 0, z = 0, hdg = twd + Math.PI / 2;
-      if (v.spawn) { [x, z] = P.fwd(v.spawn.lat, v.spawn.lon); hdg = v.spawn.heading * DEG; }
+      if (v.spawn) {
+        [x, z] = P.fwd(v.spawn.lat, v.spawn.lon); hdg = v.spawn.heading * DEG;
+        // the venue's heading is the harbour's, not the day's wind's: never start her in irons (within 50 deg of
+        // the wind), but on the beam reach nearest it
+        const off = Math.atan2(Math.sin(hdg - twd), Math.cos(hdg - twd));
+        if (Math.abs(off) < 50 * DEG) hdg = twd + (off >= 0 ? 1 : -1) * Math.PI / 2;
+      }
       else if (!world.open) { const c = world.findCourse(twd, 400); x = c.x; z = c.z; }
       if (online) { const a = Math.random() * 6.28, r = 40 + Math.random() * 120; x += Math.cos(a) * r; z += Math.sin(a) * r; }
       [x, z] = safe(x, z, cls.draft + 0.6);

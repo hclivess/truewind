@@ -46,6 +46,8 @@ const R = {
   optimist: { roll: [1.3, 3], hp: [0.7, 1.6] }, dinghy: { roll: [1.3, 3], hp: [0.7, 1.6] }, cat: { roll: [1.0, 2.5], hp: [0.7, 1.6] },
   j24: { roll: [2, 4], hp: [1.2, 2.5] }, catalina30: { roll: [2, 4], hp: [1.4, 2.6] },
   oceanis381: { roll: [2.5, 5], hp: [1.5, 3] }, j122: { roll: [2.5, 5], hp: [1.5, 3] }, tp52: { roll: [2.5, 5], hp: [1.5, 3] },
+  // (a 40 m superyacht: a 6-9 s roll with her 53 m rig, heave and pitch ~2.5-4 s over a 35 m waterline)
+  swan131: { roll: [5, 10], hp: [2.2, 4.5] },
 };
 const classes = quick ? ['dinghy', 'catalina30'] : Object.keys(R);
 console.log('1. free decay in calm water (period s, damping ratio)');

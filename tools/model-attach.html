@@ -20,9 +20,10 @@ import { Rigging } from '../js/rigging.js';
 import { buildEngineModel, updateEngineModel } from '../js/engine-model.js';
 import '../js/sail/sailsim.js';
 
-const TOL = 0.012;          // parts closer than this touch (sampled surfaces: ~1 cm gap)
-const H = 0.01;             // surface sampling step
 const q = new URLSearchParams(location.search);
+// (?tol=: a coarser check for a big yacht, whose acres of hull and deck at 1 cm would be tens of millions of points)
+const TOL = +(q.get('tol') || 0.012);          // parts closer than this touch (sampled surfaces: ~1 cm gap)
+const H = TOL / 1.2;                            // surface sampling step
 const out = document.getElementById('out');
 
 // every geometry a Kit merges, recorded as it is added (with the line of the model code that made it)

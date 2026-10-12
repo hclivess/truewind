@@ -316,9 +316,43 @@ export function makeTailer(r = 0.065) {
   return g;
 }
 
+// a captive winch's deck exit (the drum is below deck): a stainless plate flush on the deck, a low housing over the
+// lead sheave with the line's slot (the line leads in along -z, down into the deck); k: its size against a 40 ft
+// yacht's hardware
+export function makeCaptive(k = 1) {
+  const g = new THREE.Group();
+  add(g, plate(0.2 * k, 0.36 * k, 0.006 * k, 0.03 * k), mSS());
+  add(g, new THREE.BoxGeometry(0.12 * k, 0.06 * k, 0.22 * k), mSS(), 0, 0.03 * k, 0.03 * k);
+  add(g, new THREE.BoxGeometry(0.05 * k, 0.012 * k, 0.16 * k), mDark(), 0, 0.061 * k, 0.02 * k);
+  const sh = add(g, new THREE.CylinderGeometry(0.05 * k, 0.05 * k, 0.03 * k, 18), mDark(), 0, 0.045 * k, -0.08 * k); sh.rotation.z = Math.PI / 2;
+  const bd = band(g, 0.13 * k, 0.004);
+  common(g, bd);
+  g.userData.throat = () => new THREE.Vector3(0, 0.05 * k, -0.09 * k);
+  g.userData.set = (st, t) => g.userData.cue(st, t);
+  g.userData.kind = 'captive'; g.userData.below = true;
+  return g;
+}
+// a hydraulic ram's foot on deck (a vang's, a backstay's, a halyard tensioner's): a cylinder body on a pinned base,
+// the line or rod leading off its end
+export function makeRam(k = 1) {
+  const g = new THREE.Group();
+  add(g, plate(0.12 * k, 0.16 * k, 0.006 * k, 0.02 * k), mSS());
+  for (const x of [-0.035, 0.035]) add(g, new THREE.BoxGeometry(0.012 * k, 0.07 * k, 0.07 * k), mSS(), x * k, 0.035 * k, 0);
+  const body = add(g, new THREE.CylinderGeometry(0.035 * k, 0.035 * k, 0.32 * k, 16), mDark(), 0, 0.06 * k, 0.17 * k); body.rotation.x = Math.PI / 2;
+  const rod = add(g, new THREE.CylinderGeometry(0.014 * k, 0.014 * k, 0.12 * k, 10), mSS(), 0, 0.06 * k, 0.38 * k); rod.rotation.x = Math.PI / 2;
+  const bd = band(g, 0.09 * k, 0.004);
+  common(g, bd);
+  g.userData.throat = () => new THREE.Vector3(0, 0.06 * k, 0.44 * k);
+  g.userData.set = (st, t) => g.userData.cue(st, t);
+  g.userData.kind = 'ram';
+  return g;
+}
+
 // the model for a handler type (see js/linehandlers.js HANDLERS)
 export function makeHandler(type, o = {}) {
   switch (type) {
+    case 'captive': return makeCaptive(o.scale ?? 1);
+    case 'ram': return makeRam(o.scale ?? 1);
     case 'cam': case 'winchCam': return o.swivel ? swivelCam(o.size) : makeCam(o.size);
     case 'clam': return makeClam(o.size);
     case 'jam': return makeJam(o.bronze, o.ropeMat, o.ropeR);
