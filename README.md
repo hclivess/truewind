@@ -270,6 +270,7 @@ The production and famous boats (`js/classes/`, baked like the rest at 4–25 kn
 | Melges 24 | 40°, 6.41, 4.91 (40°, 6.49, 4.97) | 7.67 g (8.2g) | 8.70 g (10.5g) | 7.22 g (7.6g) | 6.28 at 165° (6.57) |
 | Spray | 48°, 4.81, 3.22 (44°, 4.91, 3.53) | 6.11 (6.0) | 5.82 (5.9) | 4.90 (5.0) | 4.38 at 180° (4.47) |
 | Joshua | 40°, 4.95, 3.79 (44°, 5.42, 3.90) | 6.96 (6.9) | 6.37 (6.5) | 5.18 (5.3) | 4.52 at 165° (4.63) |
+| Swan 131 *Aristarchos* | 55°, 10.04, 5.76 (44°, 10.16, 7.31) | 12.71 (12.9) | 10.96 (10.2) | 7.89 (8.0) | 6.92 at 165° (7.01) |
 
 Checked against their ratings, as the time to sail a mile of windward-leeward course in 12 kn (upwind and downwind VMG), converted to US PHRF by anchoring the sportboat at the J/70's 117 s/mile, and to US Portsmouth (DPN) by anchoring the Laser-type dinghy at 91.1:
 
@@ -291,6 +292,7 @@ Checked against their ratings, as the time to sail a mile of windward-leeward co
 - **Dragon**: no PHRF; RYA PN 986. 4.8 kn close-hauled at 40° and 6.0 kn at 90° in 12 kn, and 6.3 kn in 16 kn: her overhangs make her sailing length (and the lines give her dynamic waterline) longer than the 5.66 m static one.
 - **Etchells**: implied PHRF 145 against 138 (1% slower).
 - **Melges 24**: implied PHRF 74 against 84 (1.5% faster); 8.7 kn at 120° under the asymmetric in 12 kn and 12 kn in 16 kn, where the class planes.
+- **Swan 131 *Aristarchos***: no rating or published polar. Under power she makes the 13.5 kn her listings give (twin C12s); under sail 12.7 kn at 90° in 12 kn and 14.8 kn in 16 kn (hull speed ~14.3 kn on 34.7 m), 16 kn reaching in 20 kn. Upwind the cloth sails fall short of the strip model's 10.2 kn at 44° (VMG 7.3): the automatic crew does not yet trim a 47 m main behind a 100% jib this size (it eases the main to twist its head off, and the jib backwinds it), so her baked beat in 14-25 kn is 20-40% below the strip VPP and noisy across the angles. Baked with the crew's own trim only (`--biases=0 --secs=40`, the machine's load).
 - **Spray** and **Joshua**: no ratings. Spray does 4.8 kn close-hauled at 48°, 6.1 kn at 90° and 7.0 kn in 16 kn (her hull speed about 7.8 kn). Joshua sailed the 37,455 miles of the Long Way in 303 days (Plymouth, 22 August 1968, to Tahiti, 21 June 1969), 5.2 kn on average; here 7.0 kn at 90° in 12 kn and 7.6 kn in 16 kn.
 
 The sportboat is J/70-sized, and the J/70's ORC certificate (2024) gives, in 12 kn: beat VMG 4.52 kn at 37.6°, 6.88 kn at 90°, 7.72 kn at 120°, 6.47 kn at 150° and a run VMG of 5.60 kn. The cloth sails are 3% above it upwind, 4% slow at 120°, level at 150°, 4% fast on the run and 11% fast at 90° (7.6 kn under the gennaker, 8.3 before the hump was fixed); the strip model's reaching speeds are 6–12% above the certificate. Downwind, the cloth rigs' drive agrees with ORC's sail coefficients to within about 10%, where the strip model's is 20–25% higher: most of the difference in the downwind columns. The cat's reaching and downwind numbers under spinnaker have no certificate to check against.
