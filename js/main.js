@@ -12,12 +12,14 @@ import { Renderer } from './render.js';
 import { coastalInput, coastalTransfer, buildCoastal, CoastalField } from './coastal.js';
 import { indexFeatures } from './structures.js';
 import { HUD, pref } from './hud.js';
-import { Audio } from './audio.js';
+import { Audio, CHANNELS, cleanVol } from './audio.js';
 import { Net } from './net.js';
 import { Vector3 as THREE_V } from 'three';
 import { Rigging } from './rigging.js';
 import { work, letFly as flyLine, handlerOf, lineName, handRate, tackleOf } from './linehandlers.js';
 import { Crew } from './crew.js';
+import { AutoGlow } from './autoglow.js';
+const C_TILLER = (b) => (b.cls.hw && b.cls.hw.helm) || 'Tiller';
 import { sunPosition } from './sky.js';
 import './sail/sailsim.js';   // (registers the cloth / lattice sail model with physics.js)
 import { SailGovernor, setSailLevel, sailsFlown } from './governor.js';
@@ -29,6 +31,7 @@ import { TrafficView } from './traffic-render.js';
 import { fleetLevels, clothBudget } from './fleet.js';
 import { Gear } from './gear.js';            // damage, anchor, mooring lines, man overboard, crew fatigue
 import { GearVis } from './gear-render.js';
+import { WildlifeView } from './wildlife-render.js';   // birds, dolphins, whales, turtles and sharks (visual only)
 import { Autopilot } from './autopilot.js';       // the smart autopilot and its coach (a learning aid)
 
 // every boat's sail model: cloth (cloth shaped by the wind and the rig, forces from a vortex lattice over it; the
@@ -95,7 +98,9 @@ class Game {
     this.coachText = pref('tw-coach') !== '0';
     this.gear = new Gear(this);                               // damage, anchoring, mooring, MOB, fatigue
     this.gearVis = new GearVis(this.renderer, this);
+    this.wildlife = new WildlifeView(this.renderer, this);
     this.audio = new Audio();
+    try { this.audio.vol = cleanVol(JSON.parse(pref('tw-vol') || 'null')); } catch (e) { /* corrupt: every channel at full */ }
     this.net = new Net(this);
     this.netEpoch = null;
     this.geoCache = new Map();
@@ -131,6 +136,7 @@ class Game {
     this.resize();
     this.last = performance.now();
     requestAnimationFrame((t) => this.frame(t));
+    this.backgroundClock();
     // idle scene behind the menu
     this.startSession(true).catch(e => console.error(e));
   }
@@ -187,6 +193,7 @@ class Game {
     for (const id in checks) { const el = $('#' + id); el.checked = this.settings[checks[id]]; el.addEventListener('change', () => { this.settings[checks[id]] = el.checked; }); }
     $('#start').addEventListener('click', () => this.castOff());
     $('#resume').addEventListener('click', () => this.closeMenu());
+    $('#hud-arrange').addEventListener('click', () => { this.closeMenu(); this.hud.layout.toggleEdit(true); });
     $('#help-close').addEventListener('click', () => this.closeHelp());
     $('#help').addEventListener('click', (e) => { if (e.target.id === 'help') this.closeHelp(); });
     $('#res-keep').addEventListener('click', () => { $('#results').hidden = true; this.syncTools(); });
@@ -325,7 +332,8 @@ class Game {
   openMenu() {
     this.closeHelp();
     $('#results').hidden = true;
-    $('#menu').hidden = false; $('#resume').hidden = !this.running;
+    this.soundPop(false); this.hud.layout.toggleEdit(false);
+    $('#menu').hidden = false; $('#resume').hidden = $('#hud-arrange').hidden = !this.running;
     document.body.classList.add('menu-open');
     this.menuPaused = !this.paused; this.setPaused(true, true);
     ($('#resume').hidden ? $('#start') : $('#resume')).focus({ preventScroll: true });
@@ -391,6 +399,34 @@ class Game {
     this.hud.toast(this.audio.on ? 'Sound on' : 'Sound off', 1);
     this.syncTools();
   }
+  // the mixer under the Snd chip: on / off, the master and a slider per channel (js/audio.js CHANNELS); kept per device
+  bindSoundPop() {
+    const pop = $('#snd-pop'), mix = $('#snd-mix'), chip = $('#tb-sound');
+    mix.innerHTML = CHANNELS.map(([k, name]) => `<div class="sl${k === 'master' ? ' master' : ''}"><label for="vol-${k}">${name}</label><input type="range" id="vol-${k}" min="0" max="100" step="1"><output id="vol-${k}-v"></output></div>`).join('');
+    for (const [k] of CHANNELS) {
+      const el = $('#vol-' + k), out = $('#vol-' + k + '-v');
+      el.value = Math.round(this.audio.vol[k] * 100); out.textContent = el.value;
+      el.addEventListener('input', () => {
+        this.audio.setVolume(k, el.value / 100); out.textContent = el.value;
+        clearTimeout(this._volT); this._volT = setTimeout(() => pref('tw-vol', JSON.stringify(this.audio.vol)), 300);
+      });
+    }
+    $('#snd-on').addEventListener('click', () => this.toggleSound());
+    // the sliders are the mixer's own: arrow keys move them, not the helm and the sheets
+    pop.addEventListener('keydown', (e) => { if (e.key !== 'Escape') e.stopPropagation(); });
+    // a tap or click anywhere else closes it
+    document.addEventListener('pointerdown', (e) => { if (!pop.hidden && !pop.contains(e.target) && !chip.contains(e.target)) this.soundPop(false); }, true);
+    window.addEventListener('resize', () => { if (!pop.hidden) this.soundPop(true); });
+  }
+  soundPop(on = $('#snd-pop').hidden) {
+    const pop = $('#snd-pop'), chip = $('#tb-sound');
+    pop.hidden = !on; chip.setAttribute('aria-expanded', String(on));
+    if (!on) return;
+    // beside the chip (the map card can be anywhere): below it if it fits, else above; inside the window
+    const R = chip.getBoundingClientRect(), W = innerWidth, H = innerHeight, w = pop.offsetWidth, h = pop.offsetHeight;
+    const x = Math.max(8, Math.min(W - w - 8, R.right - w)), y = R.bottom + 6 + h <= H - 8 ? R.bottom + 6 : Math.max(8, R.top - 6 - h);
+    pop.style.left = Math.round(x) + 'px'; pop.style.top = Math.round(y) + 'px';
+  }
   // toolbar / pause badge state
   syncTools() {
     const inGame = this.running && $('#menu').hidden;
@@ -398,6 +434,8 @@ class Game {
     $('#tb-pause').setAttribute('aria-pressed', String(!!this.paused));
     $('#tb-pause').textContent = this.paused ? 'Play' : 'Pause';
     $('#tb-sound').setAttribute('aria-pressed', String(!!this.audio.on));
+    $('#snd-on').setAttribute('aria-pressed', String(!!this.audio.on)); $('#snd-on').textContent = this.audio.on ? 'On' : 'Off';
+    $('#snd-on').classList.toggle('on', !!this.audio.on); $('#snd-pop').classList.toggle('muted', !this.audio.on);
     const rigOn = document.body.classList.contains('narrow') ? document.body.classList.contains('rig-open') : !$('#rig').classList.contains('collapsed');
     $('#tb-rig').setAttribute('aria-pressed', String(rigOn));
     const apOn = !!(this.autopilot && this.autopilot.engaged);
@@ -969,10 +1007,11 @@ class Game {
       this.keys.delete(k); if (e.code) this.keys.delete('#' + e.code); if (e.key === 'Shift') this.keys.delete('Shift');
     });
     window.addEventListener('blur', () => this.keys.clear());
-    // a background tab stops drawing frames: silence the sea too, and bring it back on return
+    // a background tab stops drawing frames but the sea goes on (Game.backgroundClock), and so does its sound;
+    // coming back, a context the browser suspended meanwhile is woken
     document.addEventListener('visibilitychange', () => {
       const ctx = this.audio.ctx; if (!ctx) return;
-      if (document.hidden) ctx.suspend(); else if (this.audio.on && this.running) ctx.resume();
+      if (!document.hidden && this.audio.on && this.running && ctx.state === 'suspended') ctx.resume();
     });
     const cv = $('#view');
     let drag = null;
@@ -1139,6 +1178,8 @@ class Game {
 
   onKey(k, e) {
     if (k === 'Escape') {
+      if (!$('#snd-pop').hidden) { this.soundPop(false); return; }
+      if (this.hud.layout.editing) { this.hud.layout.toggleEdit(false); return; }
       if (!$('#help').hidden) { this.closeHelp(); return; }
       if (this.nav.chartOpen) { this.nav.toggleChart(false); return; }
       if (!$('#results').hidden) { $('#results').hidden = true; this.syncTools(); return; }
@@ -1155,6 +1196,7 @@ class Game {
     if (e.shiftKey && k === 'b') { this.protestKey(); return; }
     if (e.shiftKey && k === 'u') { this.hailKey(); return; }
     if (e.shiftKey && k === 'o') { this.toggleAutopilot(); return; }   // (autopilOt: O alone is the sound)
+    if (e.shiftKey && k === 'l') { this.hud.layout.toggleEdit(); return; }   // (Layout: L alone is the laylines)
     if (this.gear.onKey(k, e)) return;
     if (k === 'h') this.toggleAutoHike();
     else if (k === 't') this.toggleAutoTrim();
@@ -1186,6 +1228,7 @@ class Game {
   toggleRig() {
     if (document.body.classList.contains('narrow')) document.body.classList.toggle('rig-open');
     else this.hud.setRigCollapsed(!$('#rig').classList.contains('collapsed'));
+    this.hud.layout.schedule();   // (the phone's full-screen rig panel drops a moved place while it is open)
     this.syncTools();
   }
 
@@ -1206,7 +1249,8 @@ class Game {
     tap('#chart-coach', () => this.setCoachText(!this.coachText));
     for (const id of ['#co-txt', '#chart-coach']) { $(id).setAttribute('aria-pressed', String(this.coachText)); $(id).classList.toggle('on', this.coachText); }
     tap('#tb-rig', () => this.toggleRig());
-    tap('#tb-sound', () => this.toggleSound());
+    tap('#tb-sound', () => this.soundPop());
+    this.bindSoundPop();
     tap('#tb-help', () => this.openHelp());
     tap('#tp-centre', () => { this.manualHelm(); this.player.ctrl.helm = 0; });
     tap('#tp-auto', () => this.toggleAutoTrim());
@@ -1273,6 +1317,34 @@ class Game {
   }
 
   // ------------------------------------------------------------ loop
+  // the sea does not stop when you look away: a hidden or minimised window gets no animation frames, so a
+  // worker's clock (a page's own timers are throttled to once a second or a minute in the background; a worker's
+  // are not) steps the physics to real time without drawing. Pause stays the Pause button's (P) alone.
+  backgroundClock() {
+    let w;
+    try { w = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 100)'], { type: 'text/javascript' }))); }
+    catch (e) { return; }
+    w.onmessage = () => {
+      const now = performance.now();
+      if (!document.hidden) { this._bgLast = null; return; }
+      const last = this._bgLast ?? now; this._bgLast = now; this.last = now;
+      if (!this.env || !this.player || !this.running) return;
+      const dt = Math.min(1, Math.max(0, (now - last) / 1000));
+      if (this.netEpoch !== null) {
+        const target = Date.now() / 1000 - this.netEpoch;
+        if (target - this.t > 2 || target < this.t - 2) { this.t = target; this.acc = 0; } else this.acc = target - this.t;
+      } else this.acc = (Number.isFinite(this.acc) ? this.acc : 0) + (this.paused ? 0 : dt * this.timeWarp);
+      let steps = 0; const maxSteps = Math.ceil(1.2 * this.timeWarp / PHYS_DT);
+      while (this.acc >= PHYS_DT && steps < maxSteps) {
+        for (const b of this.boats) { b._prev = { x: b.x, z: b.z, psi: b.psi, heave: b.heave, pitch: b.pitch, phi: b.phi }; snapRig(b); }
+        this.step(PHYS_DT); this.acc -= PHYS_DT; steps++;
+      }
+      if (steps >= maxSteps) this.acc = 0;
+      if (this.traffic && steps) { this.traffic.update(steps * PHYS_DT, this.t, this.env, this.boats); this._tDraw = this.t; }
+      if (this.env.tick(this.t)) this.renderer.setWaves(this.env.waves);
+      if (this.audio && this.audio.on) this.audio.update(this.player, dt, this.renderer.rainNow || 0);   // (the wind and water heard as they change)
+    };
+  }
   frame(now) {
     requestAnimationFrame((t) => this.frame(t));
     const frameMs = now - this.last;
@@ -1347,7 +1419,14 @@ class Game {
       const hid = (this.hoverGrab && this.hoverGrab.id) || this.panelHover || null;
       vis.rigging.highlight(hid);
       this.renderer.updateGrabMarkers(show ? vis.rigging.grabs() : [], hid, GRAB_PX);
-    }
+      // what the automatic crew / weight / autopilot is working glows on deck and in the panel (js/autoglow.js); the
+      // labels by the parts go with the coach's text
+      if (vis) {
+        if (!this._autoGlow || this._autoGlow.vis !== vis) { if (this._autoGlow) this._autoGlow.dispose(); this._autoGlow = new AutoGlow(vis, vis.rigging); }
+        if (this.crew) this._autoGlow.update(this.crew.hl, this.t, this.renderer.camera, show && this.coachText !== false, vis.wheel ? 'Wheel' : C_TILLER(p));
+        else this._autoGlow.clear();
+      }
+    } else if (this._autoGlow) this._autoGlow.clear();
     { const pl = this.skyPlace(); this.renderer.setClock(this.netEpoch !== null ? Date.now() : (this.clockBase ?? Date.now()) + this.t * 1000, pl.lat, pl.lon); }
     this.renderer.update(dt, tDraw, { env: this.env, boats: this.boats, player: p });
     if (!this.idle && this.running) {
@@ -1421,6 +1500,7 @@ class Game {
     // automatic trim: the crew does what autoTrim wants through the real lines and hardware (js/crew.js), so the panel,
     // the cleats, the winches and the sounds show it working (the idle demo's too; the autopilot's trim below as well)
     const cr = this.crew || (this.crew = new Crew());
+    cr.pre(b);                                                    // (what the automation touches lights up on deck: js/autoglow.js)
     if ((b.auto.trim || this.idle) && !b.unmanned && !apOn) { cr.begin(b); autoTrim(b, dt, 0, true); cr.end(b, dt); }
     if (apOn) {
       if (b.unmanned || b.sunk || (b.anchor && b.anchor.state !== 'up' && b.anchor.state !== 'weighing') || (b.moor && b.moor.tied)) this.disengageAutopilot(b.unmanned ? 'Autopilot off — crew overboard' : 'Autopilot off');
@@ -1437,6 +1517,7 @@ class Game {
       }
     }
     if (this.idle) this.idleHelm(dt);
+    cr.post(b, dt, apOn || this.idle);
     for (const ai of this.ais) {
       const i = this.boats.indexOf(ai.b);
       ai.update(dt, this.t, this, this.race ? this.race.racers[i] : null, this.course, this.targets ? { up: this.targets.up.twa, dn: this.targets.dn.twa } : null);

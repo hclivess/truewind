@@ -449,3 +449,40 @@ body.touch .tp-eng #tp-thr { writing-mode: vertical-lr; direction: rtl; width: 4
   body.touch #coach { bottom: calc(330px + env(safe-area-inset-bottom, 0px)); }
   #co-now { font-size: 13px; }
 }
+
+/* ---------------- the sound mixer (the Snd chip) and arranging the HUD (js/hudlayout.js) ---------------- */
+#snd-pop { position: fixed; z-index: 14; width: 236px; padding: 0 10px 8px; box-shadow: 0 6px 24px rgba(0,0,0,.45); background: rgba(11,22,31,.94); }
+#snd-pop header { display: flex; justify-content: space-between; align-items: center; padding: 8px 0 4px; }
+#snd-pop #snd-on { min-width: 44px; }
+#snd-pop .sl { grid-template-columns: 84px 1fr 34px; padding: 1px 0; }
+#snd-pop .sl.master label { color: var(--text); }
+#snd-pop.muted .sl { opacity: .45; }
+#snd-pop input[type=range] { touch-action: pan-y; height: 24px; }
+body.touch #snd-pop input[type=range] { height: 34px; }
+body.touch #snd-pop input[type=range]::-webkit-slider-thumb { width: 18px; height: 18px; margin-top: -7.5px; }
+#tb-sound[aria-expanded="true"] { border-color: var(--accent); }
+/* a moved panel: its place is inline (anchor + offset); a hidden one is gone except while arranging */
+body:not(.hud-edit) .hud-off { display: none !important; }
+body.hud-edit .hud-off { opacity: .35; }
+body.hud-edit #coach[hidden] { display: block !important; }
+body.hud-edit #engine-card[hidden] { display: flex !important; }
+body.hud-edit #nextmark, body.hud-edit #work, body.hud-edit #grab-tip { visibility: hidden; }
+#hud-edit { position: fixed; inset: 0; z-index: 16; pointer-events: none; }
+#hud-edit .he-bar { position: absolute; top: calc(50% - 22px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 7px 10px; pointer-events: auto; white-space: nowrap; box-shadow: 0 6px 24px rgba(0,0,0,.45); background: rgba(11,22,31,.94); }
+#hud-edit .he-tip { font: 500 13px var(--cond); color: #c5d1da; letter-spacing: .03em; }
+#hud-edit .he-bar .chip { padding: 5px 10px; font-size: 13px; }
+.he-frame { position: absolute; pointer-events: auto; border: 1.5px dashed rgba(255,122,26,.85); border-radius: 6px; background: rgba(255,122,26,.07); cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.he-frame.moved { border-style: solid; }
+.he-frame.drag { cursor: grabbing; background: rgba(255,122,26,.16); }
+.he-frame.off { border-color: rgba(142,162,177,.7); background: rgba(8,14,20,.35); }
+.he-frame .he-name { position: absolute; left: 4px; top: 4px; font: 700 11px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; background: var(--accent); color: var(--ink); white-space: nowrap; }
+.he-frame.off .he-name { background: var(--muted); }
+.he-frame .he-hide { position: absolute; right: 4px; top: 4px; font: 600 11px/1 var(--cond); letter-spacing: .08em; text-transform: uppercase; padding: 3px 7px; border-radius: 3px; border: 1px solid rgba(233,238,242,.35); background: rgba(11,22,31,.9); color: var(--text); cursor: pointer; }
+.he-gx, .he-gy { position: absolute; display: none; background: rgba(57,208,255,.8); pointer-events: none; }
+.he-gx { top: 0; bottom: 0; width: 1px; } .he-gy { left: 0; right: 0; height: 1px; }
+@media (max-width: 720px) {
+  #hud-edit .he-bar { flex-wrap: wrap; justify-content: center; white-space: normal; width: calc(100% - 32px); max-width: 360px; }
+  #hud-edit .he-tip { flex: 1 1 100%; text-align: center; }
+  body.touch .he-frame .he-hide { padding: 7px 10px; }
+}
+@media (max-width: 640px) { .menu-foot #hud-arrange { flex: 0 1 auto; font-size: 13px; padding: 10px; } }

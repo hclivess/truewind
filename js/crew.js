@@ -19,8 +19,61 @@ export const CREW_KEYS = Object.keys(BAND);
 const SHEET = new Set(['main', 'jib', 'stay', 'mizzen']);
 const WINCH_R = 0.03;           // m: the drum's radius (a line turns it once per 19 cm)
 
+// What the hands are on: every control the automatic crew, weight or autopilot moves is touched here, so the deck can
+// light the part being worked (js/autoglow.js) and the rig panel its row, in sync. hl[k] = { a: how lit 0..1, s: the
+// strength it is being worked at now, dir: which way the control went (+: up, the panel's second button), live: s it
+// stays lit after the last touch }; the light then fades over HL_FADE s. Keys are the crew's own (the control keys:
+// main, jib, trav, vang, ...), plus helm, reef, hike (the crew's weight) and throttle.
+export const HL_HOLD = 0.25, HL_FADE = 1.0;
+const UP_WORD = { trav: ['up', 'down'], vang: ['off', 'on'], cunn: ['off', 'on'], outhaul: ['off', 'on'], backstay: ['off', 'on'], jibHalyard: ['ease', 'up'],
+  tackLine: ['down', 'ease'], jibLead: ['fwd', 'aft'], board: ['up', 'down'], helm: ['port', 'stbd'], hike: ['in', 'out'], reef: ['shaking out', 'reefing'], throttle: ['back', 'up'] };
+const UP_ARROW = { jibLead: ['◀', '▶'], helm: ['◀', '▶'] };
+// a touched control in words: its name, which way and an arrow (▲ hauled / on / up, ▼ eased / off / down)
+export function touchLabel(b, k, dir) {
+  const i = dir > 0 ? 1 : 0;
+  const name = k === 'helm' ? 'Helm' : k === 'reef' ? 'Reef' : k === 'hike' ? 'Crew weight' : k === 'throttle' ? 'Throttle' : k === 'board' ? 'Board' : k === 'jibLead' ? 'Jib car' : lineName(b, k);
+  const word = (UP_WORD[k] || ['trim', 'ease'])[i];
+  const arrow = UP_ARROW[k] ? UP_ARROW[k][i] : /^(trim|on|up|reefing|out)$/.test(word) ? '▲' : '▼';
+  return { name, word, arrow };
+}
+
 export class Crew {
-  constructor() { this.plan = null; this.act = {}; this.said = []; this.t = 0; this.last = {}; }
+  constructor() { this.plan = null; this.act = {}; this.said = []; this.t = 0; this.last = {}; this.hl = {}; this.snap = null; }
+  // the hands on control k (dir: the way it moves, +: up; s: how hard, 0..1)
+  touch(k, dir, s = 1) {
+    const e = this.hl[k] || (this.hl[k] = { a: 0, s: 0, dir: 0, live: 0 });
+    e.s = s; e.a = Math.max(e.a, s); e.live = HL_HOLD; if (dir) e.dir = Math.sign(dir);
+  }
+  // the light on each touched part: held while it is worked (at its strength), then fading out
+  tick(dt) {
+    for (const k in this.hl) {
+      const e = this.hl[k];
+      if (e.live > 0) { e.live -= dt; e.a = Math.max(e.s, e.a - dt / HL_FADE); }
+      else { e.s = 0; e.a = Math.max(0, e.a - dt / HL_FADE); }
+    }
+  }
+  // what is not the crew's lines but the automation moves (the helm, the reefs, the engine's lever): where they were
+  // before it ran (after the player's own input), so post() credits it only with what it changed
+  pre(b) {
+    const S = this.snap || (this.snap = {});
+    S.helm = b.ctrl.helm; S.reef = b.ctrl.reef | 0; S.thr = b.engine ? b.engine.throttle : 0;
+  }
+  // after the automation (helm: the autopilot or the idle demo steered): what it touched; and the crew's weight, which
+  // the boat moves itself (automatic hiking, js/physics.js), from one step to the next; then the lights fade
+  post(b, dt, helm) {
+    const S = this.snap;
+    if (S && dt > 0) {
+      const dh = b.ctrl.helm - S.helm, rate = Math.abs(dh) / dt;
+      if (helm && rate > 0.03) this.touch('helm', dh, Math.min(1, 0.25 + rate / 0.8));
+      const r = b.ctrl.reef | 0; if (r !== S.reef) { this.touch('reef', r - S.reef); this.reefDir = r - S.reef; }
+      if (this.reefDir && b.reefing) this.touch('reef', this.reefDir); else if (!b.reefing) this.reefDir = 0;
+      const th = b.engine ? b.engine.throttle : 0; if (Math.abs(th - S.thr) > 1e-4) this.touch('throttle', th - S.thr);
+    }
+    const y = Math.abs(b.crewY || 0);
+    if (b.auto.hike && this.hikeY !== undefined && dt > 0 && Math.abs(y - this.hikeY) / dt > 0.15) this.touch('hike', y - this.hikeY);
+    this.hikeY = y;
+    this.tick(dt);
+  }
   // before autoTrim runs: it plans on the crew's intentions (this.plan), not on where the lines are
   begin(b) {
     const c = b.ctrl;
@@ -51,12 +104,13 @@ export class Crew {
       const trimming = RUNS_UP.has(k) ? A.dir < 0 : A.dir > 0;
       // tacking: the old jib sheet is thrown off the winch and runs free (autoTrim lets it fly: plans it fully out)
       if (k === 'jib' && want >= 0.999 && e > 0.25 && b.sailBy.jib && b.genDeploy < 0.5) {
-        if (!(b.lh && b.lh.jib && b.lh.jib.fly)) { letFly(b, 'jib'); this.say(`${lineName(b, 'jib')} let fly: tacking`, 'jib'); }
+        if (!(b.lh && b.lh.jib && b.lh.jib.fly)) { letFly(b, 'jib'); this.touch('jib', 1); this.say(`${lineName(b, 'jib')} let fly: tacking`, 'jib'); }
         A.on = false; continue;
       }
       const f = b.locks && k in b.locks ? work(b, k, trimming) : 1;       // (casting off first when easing a cleated line)
       const step = Math.min(Math.abs(e), this.rate(b, k, trimming) * dt) * f;
       c[k] = now + A.dir * step;
+      this.touch(k, A.dir);                                               // (the hands are on it: casting off counts)
     }
     // the crew's weight: said when they move across (automatic weight is the boat's own, js/physics.js)
     if (b.auto.hike && Math.abs(b.crewY - this.crewY0) > 0.35) {
