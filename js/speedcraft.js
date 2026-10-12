@@ -110,9 +110,8 @@ export class SpeedCraft {
     this.vb = [0, 0, 0]; this.wb = [0, 0, 0];
     this.rudder = 0; this.crewY = 0; this.crewX = 0;
     this.lines = { main: this.ctrl.main, jib: 0.3, stay: 0.3, lazy: 1, mizzen: 0.3 };
-    // (the wing's control line: held by the pilot, the one line she has)
-    this.locks = { main: true }; this.held = {}; this.tackle = {};
-    this.lh = { main: { s: 'locked', t: 0, slip: 0, fly: false, auto: false, T: 0, ev: 0 } };
+    // (the wing's trim is the pilot's control in the cockpit: no lines to make fast or cast off)
+    this.locks = {}; this.held = {}; this.tackle = {}; this.lh = {};
     this.capsized = false; this.capsizeT = 0; this.righting = false; this.aground = 0;
     this.reefPos = 0; this.reefSlack = 0; this.reefing = false; this.genDeploy = 0; this.genFill = 0; this.backedByLazy = false;
     this.log = 0; this.t = 0; this.slam = 0; this.slamEvents = 0;
@@ -131,6 +130,22 @@ export class SpeedCraft {
     this._uOut = 0; this._vOut = 0;
     this.trial = this.trial || null;
     if (this.trial) this.trial.reset();
+  }
+
+  // the forces as the drawing shows them: each surface's resultant (world, N: x east, y up, z south) at its centre of
+  // pressure (world point), from the last step
+  forceLines() {
+    const R = this._rot(), out = {};
+    const one = (list) => {
+      let F = [0, 0, 0], m = [0, 0, 0], w = 0;
+      for (const S of list) for (const st of S.strips) { const f = st.F, a = Math.hypot(f[0], f[1], f[2]); if (!(a > 0)) continue; for (let k = 0; k < 3; k++) { F[k] += f[k]; m[k] += st.p[k] * a; } w += a; }
+      if (!(w > 1)) return null;
+      const p = this.worldOf([m[0] / w, m[1] / w, m[2] / w], {});
+      const n = R[0][0] * F[0] + R[0][1] * F[1] + R[0][2] * F[2], e = R[1][0] * F[0] + R[1][1] * F[1] + R[1][2] * F[2], dd = R[2][0] * F[0] + R[2][1] * F[1] + R[2][2] * F[2];
+      return { p, f: [e, -dd, -n] };
+    };
+    out.wing = one([this.wing]); out.foil = one(this.foils); out.rudder = one(this.rudders.filter((r) => !r.up));
+    return out;
   }
 
   // rotation body -> NED from the Euler angles
@@ -169,7 +184,8 @@ export class SpeedCraft {
     const rudMax = S.rudderMax ?? 15 * DEG;
     this.rudder += clamp(clamp(ctrl.helm, -1, 1) * rudMax - this.rudder, -0.6 * dt, 0.6 * dt);
     this.wing.setIncidence(this.wingAngle());
-    for (const F of this.foils) F.setIncidence(F.spec.inc ?? 0);
+    // (incidence + turns the chord so the flow from ahead meets the surface on its lift side: + lift, toward liftTo)
+    for (const F of this.foils) F.setIncidence(-(F.spec.inc ?? 0));
     if (this.extension) this.extension.setIncidence(-(this.extension.spec.inc ?? 0));   // (+ inc: nose up)
     // the rudder: + helm turns the bow to starboard. Its lift is + to starboard (liftTo), and a blade turned trailing edge
     // to starboard (+ incidence) meets the water on its starboard face and is pushed to port: a rudder under the bow
@@ -260,7 +276,10 @@ export class SpeedCraft {
         // (and the waves it makes moving up and down, its radiation damping: a damping ratio of ~0.2 on its waterplane's
         // stiffness for a third of her mass, est.: a small float at rest stops bouncing in a few cycles)
         const kz = RHO_W * G * P.b * Math.max(0.05, pc.lam * P.b), Bz = 0.4 * Math.sqrt(kz * this.mass / 3);
-        pf[0] = -pc.D * Vx / V; pf[1] = -pc.D * Vy / V + pc.S; pf[2] = -pc.L - Bz * Vz * (1 - sstep(1, 3, pc.Cv));
+        // (the dynamic pressure on the bottom pushes along its normal, the body's -z; the buoyancy straight up, the world's
+        // -D: R^T [0, 0, -hs])
+        const dyn = pc.L - pc.hs, hs = pc.hs;
+        pf[0] = -pc.D * Vx / V - hs * R[2][0]; pf[1] = -pc.D * Vy / V + pc.S - hs * R[2][1]; pf[2] = -dyn - hs * R[2][2] - Bz * Vz * (1 - sstep(1, 3, pc.Cv));
         addAt(cp, pf);
         podLift += pc.L; podDrag += pc.D;
       }

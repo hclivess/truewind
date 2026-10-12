@@ -93,9 +93,11 @@ export function coef(sec, st, a, V, ARe, h, pierce, dt, out, baseVent = false) {
     const q = 0.5 * RHO_W * Va * Va;
     sigma = (P_ATM + RHO_W * G * h - P_VAP) / q;
     sigV = RHO_W * G * h / q;
-    // the wetted section's suction peak against sigma: a sharp leading edge peaks as a thin one does
-    const cc = clCav(sigma, scav ? 0.04 : sec.tc);
-    if (cl > cc) cavT = clamp((cl - cc) / Math.max(0.05, cl), 0, 1);
+    // the wetted section's suction peak against sigma: a sharp leading edge peaks as a thin one does. A cambered section
+    // drawn for a design lift (sec.clDesign: a cavitation "bucket", the NACA 16 / a = 0.8 kind: Brockett 1966, DTMB
+    // report 1780) peaks with its lift's distance from that design lift, not from zero
+    const cc = clCav(sigma, scav ? 0.04 : sec.tc), dcl = Math.abs(cl * s - (sec.clDesign || 0));
+    if (dcl > cc) cavT = clamp((dcl - cc) / Math.max(0.05, dcl), 0, 1);
   }
   // ventilation: air down a surface-piercing surface's suction side (scav: its sharp edge; naca: past the inception
   // angle, js/foils.js). Gravity closes the surface below a chord Froude number ~2.
@@ -121,8 +123,8 @@ export function coef(sec, st, a, V, ARe, h, pierce, dt, out, baseVent = false) {
   }
   // a round-nosed (naca) section cavitating: the lift saturates past sigma, the drag grows (js/foils.js)
   if (!scav && water && st.cav > 0 && Number.isFinite(sigma)) {
-    const cc = clCav(sigma, sec.tc);
-    if (cl > cc) { const ex = cl - cc; cl = cc + 0.25 * ex; cd += 0.15 * ex; }
+    const cc = clCav(sigma, sec.tc), cD = (sec.clDesign || 0) * s, dcl = cl - cD;
+    if (Math.abs(dcl) > cc) { const ex = Math.abs(dcl) - cc; cl = cD + Math.sign(dcl) * (cc + 0.25 * ex); cd += 0.15 * ex; }
   }
   out.cl = cl * s; out.cd = cd; out.sigma = sigma; out.sigmaV = sigV; out.vent = st.vent; out.cav = st.cav; out.stalled = st.sep > 0.5;
   out.Re = Re; out.ast = ast; out.cavity = cavity; out.Fnc = Fnc;
@@ -160,10 +162,10 @@ function wedgeCoef(sec, st, a, V, ARe, h, pierce, dt, out, baseVent) {
   const sigB = bv ? sigV : Math.min(0.25, sigma);
   // the suction face: boiling, or air from the surface. It boils once its suction passes sigma: past the face angle,
   // alpha > theta + sigma / pi; and, below it, at the sharp leading edge, where the flow turns round the edge onto the
-  // face: -Cp_min ~ kLE cl (kLE = 0.8, est.: calibrated on the team's own figures for Sailrocket 2's foils, the 2012
-  // foil's expected onset "just over 65 kn" at its load, node/660, and the earlier one's ceiling at ~52 kn with its
-  // lower part 40% overloaded, node/595: sigma 0.18 and 0.27 at cl ~0.23 and ~0.32)
-  const clW0 = slope * a, kLE = sec.kLE ?? 0.8;
+  // face: -Cp_min ~ kLE cl (kLE = 0.9, est.: calibrated on the team's own figures for Sailrocket 2's foils, the 2012
+  // foil's expected onset "just over 65 kn" at its load, node/660 (sigma ~0.17 at cl ~0.19), and the earlier one's
+  // ceiling at ~52 kn with its lower part 40% overloaded, node/595 (sigma ~0.27 at cl ~0.27-0.3))
+  const clW0 = slope * a, kLE = sec.kLE ?? 0.9;
   const aC = th + sigma / Math.PI, boil = a > aC || kLE * clW0 > sigma, unboil = a < th + 0.7 * sigma / Math.PI && kLE * clW0 < 0.85 * sigma;
   if (!st.stalled && boil) st.stalled = true; else if (st.stalled && unboil) st.stalled = false;
   const aV = th * (1 + 3 * (1 - sstep(1.5, 3, Fnc)));
@@ -327,7 +329,7 @@ export function planeCoef(P, d, tau, V, Vs, out, trim = tau) {
   const Df = q * wet * cf;
   // slow, a floating box: its form drag (Cd ~0.3 on its immersed section) until it planes
   const Dform = q * b * Math.min(d, b) * 0.3 * (1 - sstep(1, 2.5, Cv));
-  out.L = L; out.D = dyn * Math.tan(tauA) + Df + Dform; out.Ddyn = dyn * Math.tan(tauA); out.Df = Df;
+  out.hs = hs; out.L = L; out.D = dyn * Math.tan(tauA) + Df + Dform; out.Ddyn = dyn * Math.tan(tauA); out.Df = Df;
   // cross flow: the immersed side and the chine's edge (Cd ~1)
   out.S = -0.5 * RHO_W * Vs * Math.abs(Vs) * wl * Math.min(d, P.side ?? 0.3) * 1.0;
   // centre of pressure (Savitsky: dynamic 0.75 - 1 / (5.21 Cv^2 / lam^2 + 2.39) of the mean wetted length ahead of

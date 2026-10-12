@@ -73,6 +73,7 @@ export class HUD {
 
   // ------------------------------------------------------------ rig panel
   buildRig(b) {
+    if (b.speedCraft) return this.buildSpeedRig(b);
     // read-only: every control is a real line on deck (or a key); this panel reports state
     const C = b.cls, S = b.sailBy;
     const tt = (key) => `<span class="tt" id="tt-${key}"><span class="st">·</span><span class="st">·</span><span class="st">·</span></span>`;
@@ -460,7 +461,50 @@ export class HUD {
       if (f.btn) f.btn.style.boxShadow = `0 0 0 1px rgba(255,179,92,${(0.9 * a).toFixed(2)}), 0 0 8px rgba(255,179,92,${(0.6 * a).toFixed(2)})`;
     }
   }
+  // a speed machine's panel: the wing's trim and the helm, the speed trial (500 m and nautical mile as the WSSRC times
+  // them), and the forces: the wing's, the foil's and what they leave to the floats
+  buildSpeedRig(b) {
+    const btn = (k, a, z) => `<span class="nb"><button class="nbtn" data-k="${k}" data-d="-1">${a}</button><button class="nbtn" data-k="${k}" data-d="1">${z}</button></span>`;
+    let h = `<div class="rg"><h3>Wing</h3><div class="lines">`;
+    h += `<div class="ln" data-k="main"><i style="background:#dfe3e6"></i><span>Wing trim (W/S)</span><b id="o-main"></b><span class="lk-sp"></span>${btn('main', 'In', 'Ease')}<span class="bar" id="bar-main"></span></div>`;
+    h += `<div class="ln"><i style="background:#8a5a2b"></i><span>Helm (wheel)</span><b id="o-helm"></b><span class="lk-sp"></span>${btn('helm', 'Port', 'Stbd')}</div>`;
+    h += `</div><div class="toggles acts"><button class="chip" id="a-tow">Tow back (R)</button><button class="chip" id="a-center">Centre helm</button></div>`;
+    h += `<div class="toggles"><button class="chip" id="t-trim">Automatic trim</button><button class="chip" id="t-hike" hidden>Automatic weight</button></div></div>`;
+    h += `<div class="rg"><h3>Speed trial <span class="muted" style="font-weight:500;letter-spacing:.02em;text-transform:none">WSSRC: distance / time</span></h3><div class="loads" id="trial"></div></div>`;
+    h += `<div class="rg"><h3>Forces</h3><div class="loads" id="loads"></div></div>`;
+    $('#rig-body').innerHTML = h;
+    this.rows = ['main'];
+    $('#t-trim').addEventListener('click', () => this.g.toggleAutoTrim());
+    $('#a-tow').addEventListener('click', () => this.g.towCraft());
+    $('#a-center').addEventListener('click', () => { this.g.manualHelm(); b.ctrl.helm = 0; });
+    document.querySelectorAll('#rig-body .nbtn').forEach(bt => {
+      let timer = null;
+      const stop = () => { clearInterval(timer); timer = null; bt.classList.remove('held'); };
+      bt.addEventListener('pointerdown', (e) => { e.preventDefault(); stop(); bt.classList.add('held'); const k = bt.dataset.k, d = +bt.dataset.d; this.g.nudge(k, d, 0.05); timer = setInterval(() => this.g.nudge(k, d, 0.05), 50); });
+      for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) bt.addEventListener(ev, stop);
+    });
+  }
+  updateSpeedRig(b) {
+    const d = b.diag, w = d.wing || {}, f = d.foil || {}, kn = (v) => `${fmt(v / KT, 1)} kn`, N = (v) => `${Math.round(v || 0)} N`;
+    const set = (id, v) => { const e = document.getElementById(id); if (e && e.innerHTML !== v) e.innerHTML = v; };
+    set('o-main', `${deg(b.wing.delta || 0)}° · α ${fmt((w.alpha || 0) / DEG, 0)}°${w.stalled ? ' STALL' : ''}`);
+    const bar = document.getElementById('bar-main'); if (bar) bar.style.setProperty('--v', `${Math.round((1 - b.ctrl.main) * 1000) / 10}%`);
+    const r = deg(b.rudder); set('o-helm', `${r > 0 ? 'S' : r < 0 ? 'P' : ''}${Math.abs(r)}°`);
+    document.getElementById('t-trim').classList.toggle('on', b.auto.trim);
+    const T = b.trial;
+    if (T) set('trial', `<span>500 m now</span><b>${T.cur.m500 ? kn(T.cur.m500) : '–'}</b><span>500 m best</span><b>${T.best.m500 ? kn(T.best.m500) : '–'}</b>` +
+      `<span>Nautical mile now</span><b>${T.cur.nm ? kn(T.cur.nm) : '–'}</b><span>Nautical mile best</span><b>${T.best.nm ? kn(T.best.nm) : '–'}</b>` +
+      `<span>Record (2012)</span><b>65.45 / 55.32 kn</b>`);
+    const mag = (v) => v ? Math.hypot(v[0], v[1], v[2]) : 0;
+    const foilState = (f.cav || 0) > 0.5 ? 'cavitating' : (f.vent || 0) > 0.5 ? 'ventilated (above the fences)' : 'wetted';
+    set('loads', `<span>Wing force</span><b>${N(mag(w.F))}</b><span>Wing L/D</span><b>${fmt(w.LD || 0, 1)}</b>` +
+      `<span>Foil force</span><b>${N(mag(f.F))}</b><span>Foil</span><b>${foilState}, α ${fmt((f.alpha || 0) / DEG, 1)}°</b>` +
+      `<span>Heel moment left</span><b>${Math.round(d.heelMoment || 0)} Nm</b>` +
+      `<span>Floats</span><b>${(d.pods || []).map((p) => (p.L > 20 ? Math.round(p.L) : 'clear')).join(' / ')}</b>` +
+      `<span>Leeway</span><b>${fmt((d.leeway || 0) / DEG, 1)}°</b>`);
+  }
   updateRig(b) {
+    if (b.speedCraft) return this.updateSpeedRig(b);
     const d = b.diag, S = b.sailBy;
     const busy = (k) => (b.held && b.held[k] > 0) || (this._busyT && performance.now() - (this._busyT[k] || 0) < 1500);
     for (const k of this.rows) {
@@ -567,7 +611,7 @@ export class HUD {
       else if (was === 'releasing' && s === 'free') this.toast(`${n} ${H.hand ? 'let go' : 'cast off'} — ${b.lh[k].fly ? 'running free' : H.release === 'ease' ? 'surging round the drum' : H.release === 'hand' ? 'in the hand' : 'free to run'}`, 1.3);
     }
     if (!el) return;
-    const w = this.g.workLine, on = !!(w && now - w.t < 1300 && b.ctrl[w.k] !== undefined);
+    const w = this.g.workLine, on = !!(w && now - w.t < 1300 && b.ctrl[w.k] !== undefined && !b.speedCraft);
     if (!on) { if (!el.hidden && !el.classList.contains('out')) { el.classList.add('out'); clearTimeout(this._wkT); this._wkT = setTimeout(() => { el.hidden = true; }, 350); } return; }
     clearTimeout(this._wkT); el.hidden = false; el.classList.remove('out');
     if (this._wAcc !== 0) return;                                                   // (the text at 20 Hz)
@@ -586,6 +630,16 @@ export class HUD {
 
   updatePhysics(b) {
     const d = b.diag, C = b.cls;
+    if (b.speedCraft) {
+      const kv = (k, v) => `<div class="kv"><span>${k}</span><span>${v}</span></div>`, v3 = (a) => a ? a.map((x) => Math.round(x)).join(', ') : '–';
+      let h = kv('Wing F (x fwd, y stbd, z down)', `${v3(d.wing && d.wing.F)} N`) + kv('Wing α / L/D', `${fmt((d.wing?.alpha || 0) / DEG, 1)}° / ${fmt(d.wing?.LD || 0, 1)}`);
+      h += kv('Foil F', `${v3(d.foil && d.foil.F)} N`) + kv('Foil α / σ', `${fmt((d.foil?.alpha || 0) / DEG, 2)}° / ${fmt(d.foil?.sigma || 0, 2)}`);
+      h += kv('Foil immersed / vent / cav', `${Math.round((d.foil?.imm || 0) * 100)}% / ${Math.round((d.foil?.vent || 0) * 100)}% / ${Math.round((d.foil?.cav || 0) * 100)}%`);
+      h += kv('Wing roll moment', `${fmt(d.wing?.M?.[0] || 0, 0)} Nm`) + kv('Foil roll moment', `${fmt(d.foil?.M?.[0] || 0, 0)} Nm`) + kv('Net roll moment', `${fmt(d.K || 0, 0)} Nm`);
+      for (const p of d.pods || []) h += kv(`Float depth / lift / drag`, `${fmt(p.d, 2)} m / ${Math.round(p.L)} / ${Math.round(p.D)} N`);
+      h += kv('Heave / pitch / heel', `${fmt(b.heave, 2)} m / ${fmt(b.pitch / DEG, 1)}° / ${fmt(b.phi / DEG, 1)}°`) + kv('Leeway', `${fmt((d.leeway || 0) / DEG, 1)}°`);
+      document.getElementById('phys-body').innerHTML = h; return;
+    }
     const kv = (k, v) => `<div class="kv"><span>${k}</span><span>${v}</span></div>`;
     let h = '';
     h += kv('Drive (sails)', `${fmt(d.sailX, 0)} N`) + kv('Side force (sails)', `${fmt(d.sailY, 0)} N`);

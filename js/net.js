@@ -10,7 +10,7 @@
 //  * Remote boats are re-simulated locally from their control inputs (so sails, heel and trim
 //    look right) and continuously pulled toward the dead-reckoned remote state.
 import { validateSailNo, validateBoatName } from './boatid.js';
-import { Boat, CLASSES, wrap, lerp, clamp } from './physics.js';
+import { Boat, makeBoat, CLASSES, wrap, lerp, clamp } from './physics.js';
 
 const TRYSTERO = 'https://cdn.jsdelivr.net/npm/trystero@0.25.4/+esm';
 const APP_ID = 'truewind-sailing-sim-v1';
@@ -100,7 +100,7 @@ export class Net {
       if (p.boat) this.g.removeRemoteBoat(p.boat);
       p.cls = CLASSES[d.c] ? d.c : 'sportboat';
       // (re-simulated here with the fleet's sail model and level: cloth at L1 unless this machine cannot)
-      const b = new Boat(p.cls, { id: 'net-' + id, name: p.name, sailModel: this.g.sailModel, lod: this.g.fleetSailLevel() });
+      const b = makeBoat(p.cls, { id: 'net-' + id, name: p.name, sailModel: this.g.sailModel, lod: this.g.fleetSailLevel() });
       b.remote = true; b.auto.hike = false; b.auto.trim = false;
       b.sailNo = p.sn || ''; b.boatName = p.bn || '';
       b.reset(d.x, d.z, d.psi);

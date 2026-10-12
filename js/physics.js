@@ -35,13 +35,14 @@ import { LOCKABLE, initLines, stepLines, swapJib } from './linehandlers.js';
 export { LOCKABLE };
 import { Engine } from './engine.js';
 import { RigStructure } from './rig-structure.js';
-import { foilSpec, foilState, foilGeom, foilCoef as foilCoefR, bulbDrag, kickUpdate } from './foils.js';
+import { foilSpec, foilState, foilGeom, foilCoef as foilCoefR, bulbDrag, kickUpdate, depthAt } from './foils.js';
 import { helmSpec, stockTorque, helmForce, helmFeel, rudderStep } from './helm.js';
 import { massProps } from './massprops.js';
 import { FAMOUS } from './classes/famous.js';
 import { RACE } from './classes/race.js';
 import { SPEED } from './classes/speed.js';
 import { rrOverHump } from './classes/util.js';
+import { Surface } from './hydrofoil.js';
 // (Math.hypot allocates when V8 does not inline it: these do not)
 const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
@@ -385,6 +386,7 @@ export function defaultControls() {
     vang: 0.3, cunn: 0.2, outhaul: 0.4, backstay: 0.3,
     jibLead: 0.45,      // jib car: 0 = forward (deep foot, closed leech) .. 1 = aft (flat foot, open leech)
     jibHalyard: 0.5,    // luff tension: pulls draft forward
+    flap: 0.5,          // a foiler's take-off flap (the T-foil elevator's): 0 down .. 1 up
     tackLine: 0.3,      // gennaker tack height
     board: 1,           // daggerboard down fraction
     reef: 0,            // 0, 1, 2
@@ -518,6 +520,10 @@ export class Boat {
     // detail level the cloth/lattice model runs at (2 = strip model); see js/sail/sailsim.js
     // appendages as foils (js/foils.js), the helm (js/helm.js), the standing rig as a structure (js/rig-structure.js)
     this.keelS = foilSpec(C, 'keel'); this.rudS = foilSpec(C, 'rudder'); this.helmS = helmSpec(C);
+    // a foiler's lifting foils (C.hydrofoils: l'Hydroptère's): surfaces in strips at their depths (js/hydrofoil.js), the
+    // class's geometry (z up) turned into the body frame the surfaces work in (SNAME: z down)
+    const dn = (q) => [q[0], q[1], -q[2]];
+    this.hfoils = C.hydrofoils ? C.hydrofoils.map((F) => new Surface({ ...F, root: dn(F.root), span: dn(F.span), chord0: dn(F.chord0 || [-1, 0, 0]), liftTo: dn(F.liftTo || [0, 0, 1]), water: true, n: F.n || 6 })) : null;
     this.keelSt = foilState(); this.rudSt = [foilState(), foilState()];
     this._kg = {}; this._rg2 = [{}, {}]; this._rc = {};
     this.sailModel = opts.sailModel ?? sailHooks.defaultModel ?? 'strip';
@@ -1139,6 +1145,36 @@ export class Boat {
       d.rudderTorque = Q; d.helmMoment = Q;
       d.helmForce = helmForce(H, Q); d.helmFeel = helmFeel(d.helmForce);
     }
+    // ---- a foiler's lifting foils: each strip at its own depth in the local sea, its own flow (the boat's motion in all
+    // six senses, the waves' orbital water); their force and moments into surge, sway, roll and yaw here, heave and pitch
+    // below. A surface-piercing foil lifts by what is under water: she finds her ride height by herself.
+    let foilFz = 0, foilMy = 0;
+    if (this.hfoils) {
+      const r0 = this._r0 || (this._r0 = [0, 0, 0]), kv = wv ? env.waves.kv || 0 : 0;
+      const relVel = (p, S, o) => {
+        const x = p[0], y = p[1], zd = p[2], q = this.pitchV || 0;
+        const ww = waterAt(x, Math.min(0, -zd));
+        const vx = this.u - this.r * y + q * zd, vy = this.v + this.r * x - this.p * zd, vz = -this.heaveV - q * x + this.p * y;
+        const wz = wv ? -(this._etaDot(x) || 0) * Math.exp(kv * Math.min(0, -zd)) : 0;   // (the water's own vertical motion, + down)
+        const Rx = ww.u - vx, Ry = ww.v - vy, Rz = wz - vz;
+        o[0] = Rx; o[1] = Ry * cphi + Rz * sphi; o[2] = -Ry * sphi + Rz * cphi;
+        return o;
+      };
+      const depth = (p) => depthAt(zwAt(p[0]), p[1], -p[2], cphi, sphi);
+      const fd = d.hfoils || (d.hfoils = []);
+      for (let i = 0; i < this.hfoils.length; i++) {
+        const Sf = this.hfoils[i], F0 = Sf.spec;
+        const flap = F0.flap ? lerp(F0.flap[0], F0.flap[1], clamp(ctrl.flap ?? 0.5, 0, 1)) : 0;
+        Sf.setIncidence(-((F0.inc || 0) + flap));
+        Sf.forces(relVel, depth, RHO_W, r0, dt);
+        const F = Sf.F, M = Sf.M;
+        const fy = F[1] * cphi - F[2] * sphi, fzd = F[1] * sphi + F[2] * cphi;
+        X += F[0]; Y += fy; K += M[0]; N += M[2]; foilFz -= fzd; foilMy += M[1];
+        const q = fd[i] || (fd[i] = {});
+        q.name = F0.name; q.lift = -fzd; q.side = fy; q.drag = -F[0]; q.imm = Sf.diag.imm; q.vent = Sf.diag.vent; q.cav = Sf.diag.cav; q.alpha = Sf.diag.alpha;
+      }
+      d.foilLift = foilFz;
+    }
     {
       // a planing monohull rises onto its run and dries its forward sections, once it is over its hump (the Delft
       // resistance it follows to Fn 0.7, like any towing-tank C_R, is referenced to the static wetted area and
@@ -1155,7 +1191,9 @@ export class Boat {
       // it all, a shorter hull at 2-3 times its load: the Southampton series' C_R rises as slenderness falls, Rr/W about
       // as slenderness^-1.3 (Molland et al. 1994), so each hull's share of the weight is charged at its own slenderness.
       // (The cat's two equal hulls: one hull flying doubles the other's load, the 1.3 factor below.)
-      const Rr = disp * G * interp(C._rr, Fn) * (C.multihull ? 1 + 0.3 * (1 - this.flyIn) : C.amas ? amaLoad(this, imm) : 1 + 0.5 * this.phi * this.phi) * trimPen;
+      // (a foiler lifted out: the waves her hulls make go with what is left of them in the water)
+      const flyF = this.hfoils ? clamp(imm.V / Math.max(1e-6, hy.restV), 0, 1) : 1;
+      const Rr = flyF * disp * G * interp(C._rr, Fn) * (C.multihull ? 1 + 0.3 * (1 - this.flyIn) : C.amas ? amaLoad(this, imm) : 1 + 0.5 * this.phi * this.phi) * trimPen;
       let Raw = 0;
       if (wv) {
         // added resistance in waves comes from the waves about the boat's own length (it rides the long ones
@@ -1178,7 +1216,7 @@ export class Boat {
       X -= (Rf + Rr + Raw) * Math.sign(uw) * astern;
       d.Rf = Rf; d.Rr = Rr; d.Raw = Raw;
       const H = C.hullLat;
-      const cf = 0.5 * RHO_W * H.area * H.cd * vw * Math.abs(vw);
+      const cf = (this.hfoils ? clamp(imm.V / Math.max(1e-6, hy.restV), 0, 1) : 1) * 0.5 * RHO_W * H.area * H.cd * vw * Math.abs(vw);
       Y -= cf; K -= cf * H.z;
       const T = C.canoeDraft, L = C.lwl;
       const N0 = N;
@@ -1330,7 +1368,7 @@ export class Boat {
     // explicit roll, then the stiff water damping of a wet rig implicitly (unconditionally stable)
     this.p = (this.p + dp * dt) / (1 + (this._cRollWet || 0) * dt / Ir);
     // guards: a numerical blow-up must never take the game down
-    this.p = clamp(this.p, -8, 8); this.r = clamp(this.r, -4, 4); this.v = clamp(this.v, -15, 15); this.u = clamp(this.u, -8, 30);
+    this.p = clamp(this.p, -8, 8); this.r = clamp(this.r, -4, 4); this.v = clamp(this.v, -15, 15); this.u = clamp(this.u, -8, C.speedMax ?? 30);
     for (const k of ['u', 'v', 'r', 'p', 'phi', 'heave', 'heaveV', 'pitch', 'pitchV']) if (!isFinite(this[k])) this[k] = 0;
     this.phi += this.p * dt;
     this.psi = wrap(this.psi + this.r * dt);
@@ -1404,19 +1442,24 @@ export class Boat {
       const kz = RHO_W * G * this.Awp, A33r = Math.max(1e-6, this.hydro.A33);
       const beta = 2 * 0.3 * Math.sqrt(kz * (disp + A33r)) / A33r;
       const M33 = imm.M33 || 0, M35 = imm.M35 || 0, M55 = imm.M55 || 0;
-      let F = Fz, Mw = 0;
+      let F = Fz + foilFz, Mw = 0;
       if (wv) { F += RHO_W * (imm.FAz || 0) + imm.F33; Mw = RHO_W * (imm.FAm || 0) + imm.F35; }
       // (the damping against the water's own vertical velocity: zero in calm water)
       F -= beta * (M33 * this.heaveV + M35 * this.pitchV - (wv ? imm.W33 : 0));
       const crewXm = this.crewX * 0.8 + (C.crewX0 ?? 0);
-      let My = RHO_W * G * imm.Mx - W * this.xG - this.crewMass * G * crewXm + Mw;
+      let My = RHO_W * G * imm.Mx - W * this.xG - this.crewMass * G * crewXm + Mw + foilMy;
       My -= beta * (M35 * this.heaveV + M55 * this.pitchV - (wv ? imm.W35 : 0));
       // bow driven under: green water on the foredeck pushes it down (moment = x * Fz)
       if (imm.deckSub > 0 && uw > 0) { const Fz = -0.5 * RHO_W * uw * uw * C.beam * 0.4 * imm.deckSub; My += C.bowX * 0.6 * Fz; X -= 0.5 * RHO_W * uw * uw * C.beam * 0.15 * imm.deckSub; }
-      My -= sailX * (C.boomZ + 2.3);                                            // drive high, drag low: bow down
+      d.myHs = My - foilMy; d.myFoil = foilMy;
+      // (a foiler's: the drive at the sails' own centre of effort, the height of their heeling moment over their side
+      // force, above her origin: her foils' drags carry their own moments; flying, there is no hull drag low down)
+      const armD = this.hfoils ? clamp(Math.abs(sailK) / Math.max(1, Math.abs(sailY)), 2, C.mastHeight) : C.boomZ + 2.3;
+      My -= sailX * armD;                                                       // drive high, drag low: bow down
       if (this.engine) My += this.engine.My;                                     // thrust low (bow up), the engine's weight
       if (wv) My += this._brkMy || 0;                                            // a breaker's jet
-      My += (this.u > 0 ? 1 : 0) * 0.5 * RHO_W * uw * uw * C.beam * C.lwl * 0.004 * sstep(0.35, 0.6, Fn); // bow lift near planing
+      // (bow lift near planing; a foiler's hulls only as far as they are in the water)
+      My += (this.u > 0 ? 1 : 0) * 0.5 * RHO_W * uw * uw * C.beam * C.lwl * 0.004 * sstep(0.35, 0.6, Fn) * (this.hfoils ? clamp(imm.V / Math.max(1e-6, this.hydro.restV), 0, 1) : 1); // bow lift near planing
       // the coupled heave-pitch inertia about the origin the moments are taken about: neither the added mass's centre
       // (A35) nor the boat's own centre of gravity (xG, where her weight acts) is at it
       const xg = this.xG || 0;
@@ -1458,6 +1501,18 @@ export class Boat {
 const AK = {}, SK = {};   // (the telltale and slack filters' keys, one string per sail)
 export function autoTrim(boat, dt, aoaBias = 0, full = true) {
   if (boat.speedCraft) { if (craftHooks.autoTrim) craftHooks.autoTrim(boat, dt, aoaBias); return; }
+  // a foiler's take-off flap (the T-foil's: l'Hydroptère's crew's control of her flight): held for a level trim, the bow
+  // a little up (est. 0.5 deg), against the pitch rate
+  // (the flap's bite grows with the square of the speed: the crew's hand on it gets lighter as she goes faster, or it
+  // would set her pitching)
+  // (a hand that leans on it as the pitch is off and as it moves, and settles where it holds her: proportional,
+  // rate and a slow integral that does not wind up against the stops)
+  if (boat.hfoils) {
+    const c = boat.ctrl, g = (12 / Math.max(12, Math.abs(boat.u))) ** 2, e = boat.pitch - 0.5 * DEG;
+    const raw = 0.5 + (boat._flapI || 0) + (e * 4 + (boat.pitchV || 0) * 1.2) * g;
+    if ((raw > 0 && raw < 1) || (raw >= 1 && e < 0) || (raw <= 0 && e > 0)) boat._flapI = clamp((boat._flapI || 0) + e * 0.6 * g * dt, -0.5, 0.5);
+    c.flap = lerp(c.flap ?? 0.5, clamp(raw, 0, 1), clamp(dt * 3, 0, 1));
+  }
   const C = boat.cls, d = boat.diag, c = boat.ctrl;
   const awa = Math.abs(d.awaMid ?? Math.PI);
   const tws = (d.tws ?? 5) / KT;
@@ -1466,7 +1521,15 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
   // (the heel that overpowers is to leeward, the sails' doing: rolling to windward on a run, the death roll, easing
   // the main (and hauling it again as the boat rolls back) pumps the roll; running, the crew holds the sheets steady)
   const lee = -Math.sign(d.awaMid ?? 0) || 1, heelLee = boat.phi * lee * (1 - sstep(140 * DEG, 170 * DEG, awa));
-  const over = clamp(Math.max((heelLee - C.targetHeel) / (10 * DEG), (-(boat.pitch || 0) - 6 * DEG) / (6 * DEG)), 0, 1.5);
+  // (a foiler is overpowered by her pitch long before her heel: the drive, high up, pitches her bow down against the
+  // T-foil's elevator, and the crew eases as the elevator nears the end of its flap (or boils), and when her lifting
+  // foils start to cavitate)
+  let foilOver = 0;
+  if (boat.hfoils && d.hfoils) {
+    let cav = 0; for (const f of d.hfoils) if (f.imm > 0.05) cav = Math.max(cav, f.cav || 0);
+    foilOver = Math.max(clamp((Math.abs((c.flap ?? 0.5) - 0.5) - 0.25) / 0.2, 0, 1.5), clamp((cav - 0.2) / 0.4, 0, 1.5));
+  }
+  const over = clamp(Math.max((heelLee - C.targetHeel) / ((C.overHeel ?? 10) * DEG), (-(boat.pitch || 0) - 6 * DEG) / (6 * DEG), foilOver), 0, 1.5);
   const k = clamp(dt * 1.5, 0, 1);
   const upwind = 1 - sstep(55 * DEG, 95 * DEG, awa);
   const power = clamp((tws - 7) / 11, 0, 1);            // 0 = light: full shape, 1 = heavy: flat

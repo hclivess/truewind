@@ -106,11 +106,13 @@ const ELBOW = add(FOIL_TOP, FOIL_A.dir, FOIL_A.len);
       sec: { kind: 'naca', tc: 0.12 }, inc: 8 * DEG, endPlate: 1.0 },
     foils: [
       // the main foil's long inclined leg (surface piercing) and its L's foot, base-ventilated wedges (est.: base 12% of
-      // the chord, its faces 3.4 deg to the chord line); pitch fixed for the run (est. 1.2 deg)
+      // the chord, its faces 3.4 deg to the chord line); pitch fixed for the run, tuned between sessions (node/660): here -1.2 deg (est.: its
+      // chord turned 1.2 deg away from its lift, so it works at the leeway the floats and rudder sail at best; the
+      // fastest of -1.2, 0 and +0.6 in the VPP)
       { name: 'foil', root: T(...FOIL_TOP), span: D(...FOIL_A.dir), len: FOIL_A.len, chord: FOIL_A.chord, chord0: [-1, 0, 0], liftTo: [0, 1, -1],
-        sec: { kind: 'wedge', tb: 0.12 }, inc: 1.2 * DEG, fence: true },
+        sec: { kind: 'wedge', tb: 0.12 }, inc: -1.2 * DEG, fence: true },
       { name: 'foot', root: T(...ELBOW), span: D(...FOOT_DIR), len: 0.3, chord: [FOIL_A.chord, FOIL_A.chord * 0.67], chord0: [-1, 0, 0], liftTo: [0, 1, -1],
-        sec: { kind: 'wedge', tb: 0.12 }, inc: 1.2 * DEG, endPlate: 0.5, fence: true, pierce: false, baseVent: true, n: 3 },
+        sec: { kind: 'wedge', tb: 0.12 }, inc: -1.2 * DEG, endPlate: 0.5, fence: true, pierce: false, baseVent: true, n: 3 },
     ],
     rudders: [
       // the small rudder under the front float, steered by a wheel (Wavetrain; node/595)

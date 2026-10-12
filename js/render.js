@@ -3,7 +3,8 @@
 import * as THREE from 'three';
 import { DEG, WC, WC_GLSL, drawnSeaKeep } from './env.js';
 import { STRIP_F, REEF, clamp, lerp } from './physics.js';
-import { buildBoatModel, updateBoatModel } from './models.js';
+import { buildBoatModel, updateBoatModel, MODEL_HOOKS } from './models.js';
+import './boats/speedcraft-model.js';   // (the speed machines' drawing and spray: registers with models.js)
 import './boats/detailed.js';      // (registers the detailed models of the classes in js/classes/)
 import { Rigging, tickGlow } from './rigging.js';
 import { buildStructures, indexFeatures, structureMask } from './structures.js';
@@ -1264,9 +1265,10 @@ export class Renderer {
   // ---------------------------------------------------------------- boats
   addBoat(boat, opts = {}) {
     const vis = buildBoatModel(boat, opts);
-    vis.rigging = new Rigging(boat, vis, { player: !!opts.player, hardware: true });     // (a fleet boat's cleats and clutches too, drawn near)
+    // (a speed machine has no running rigging to draw: the wing's control line is inside it)
+    vis.rigging = vis.speed ? { update() {}, highlight() {}, grabs: () => [], ropes: [], hwNear: false } : new Rigging(boat, vis, { player: !!opts.player, hardware: true });     // (a fleet boat's cleats and clutches too, drawn near)
     vis.player = !!opts.player;
-    vis.splash = new HullSplash(this.scene, vis, boat, this.skySys);
+    vis.splash = vis.speed ? new MODEL_HOOKS.speedSpray(this.scene, vis, boat, this.skySys) : new HullSplash(this.scene, vis, boat, this.skySys);
     vis.engineVis = buildEngineModel(boat, vis);        // outboard on its bracket / inboard exhaust (js/engine-model.js)
     this.scene.add(vis.root);
     this.boats.set(boat, vis);
@@ -1411,7 +1413,7 @@ export class Renderer {
       vis.rigging.update(t, near, dt, env);
       const sp = vis.splash;
       sp.foam.visible = sp.sheet.visible = sp.points.visible = sp.patches.visible = near;
-      if (near) { sp.update(dt, t, env); roosterTail(sp, b, Math.min(dt, 0.05), env, t, this._rt || (this._rt = {})); }
+      if (near) { sp.update(dt, t, env); if (!vis.speed) roosterTail(sp, b, Math.min(dt, 0.05), env, t, this._rt || (this._rt = {})); if (b.hfoils && MODEL_HOOKS.foilSpray) MODEL_HOOKS.foilSpray(sp, b, Math.min(dt, 0.05)); }
       // the wake ribbon only without the foam map (which lays the wake down as persistent foam)
       const wk = this.wakes.get(b); wk.mesh.visible = !this.foamRT;
       if (!this.foamRT) wk.update(b, env, t, dt);
@@ -1541,6 +1543,17 @@ export class Renderer {
       a.position.copy(org); a.setDirection(v.normalize()); a.setLength(L, Math.min(1.2, L * 0.25), Math.min(0.6, L * 0.12));
     };
     const s = 1 / 150;
+    if (b.speedCraft) {
+      // a speed machine: each force where it acts, in three dimensions (the wing's at its centre of pressure, the foil's
+      // at its): their two lines are the point of the craft
+      const L = b.forceLines();
+      const w = (k, a, sc) => { const q = L[k]; if (!q) { a.visible = false; return; } set(a, new THREE.Vector3(q.p.x, q.p.y, q.p.z), q.f[0], q.f[2], q.f[1], sc); };
+      w('wing', this.fa.sail, s / 3); w('foil', this.fa.keel, s / 3); w('rudder', this.fa.rudder, s); this.fa.drive.visible = false;
+      const awx = -Math.sin(b.psi + d.awa), awz = Math.cos(b.psi + d.awa);
+      set(this.fa.aw, at(0, C.mastHeight + 1), -awx * d.aws, -awz * d.aws, 0, 0.4);
+      set(this.fa.tw, at(0, C.mastHeight + 2), Math.sin(d.twd) * d.tws, -Math.cos(d.twd) * d.tws, 0, 0.4);
+      return;
+    }
     set(this.fa.sail, at(C.mastX - 0.6, C.boomZ + 3), fx * d.sailX + sx * d.sailY, fz * d.sailX + sz * d.sailY, 0, s);
     set(this.fa.drive, at(C.mastX - 0.6, C.boomZ + 3), fx * d.sailX, fz * d.sailX, 0, s);
     set(this.fa.keel, at(C.keel.x, -0.2), fx * d.keelX + sx * d.keelY, fz * d.keelX + sz * d.keelY, 0, s);
