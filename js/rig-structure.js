@@ -44,6 +44,14 @@ export const SPAR_MATERIALS = {
 // (manufacturers' tables: 4 mm 12.7 kN, 5 mm 20.1 kN, 6 mm 28.7 kN, 8 mm 51 kN)
 export const wireEA = (d) => 125e9 * 0.76 * Math.PI * (d * 1e-3) ** 2 / 4;
 export const wireBreak = (d) => 800 * d * d;
+// Other standing rigging, by the diameter of its load-bearing section (a wire's 'mat'): Nitronic 50 rod (solid,
+// E ~195 GPa, cold-drawn UTS ~1170 MPa: Navtec / Carbo-Link rod tables) and carbon cable (a bundle of unidirectional
+// pultruded rods in a jacket: Future Fibres ECsix, Carbo-Link; E ~150 GPa effective and ~1750 MPa breaking on the
+// fibre's section, est. from the makers' sizing by stiffness, which leaves ~3x on the break)
+export const WIRE_MATS = {
+  rod: { EA: (d) => 195e9 * Math.PI * (d * 1e-3) ** 2 / 4, brk: (d) => 1170e6 * Math.PI * (d * 1e-3) ** 2 / 4 },
+  carbon: { EA: (d) => 150e9 * Math.PI * (d * 1e-3) ** 2 / 4, brk: (d) => 1750e6 * Math.PI * (d * 1e-3) ** 2 / 4 },
+};
 
 // thin-walled section: elliptical tube a (fore-aft) x b (athwartships) outer dimensions, wall t; or round (dia)
 export function section(s) {
@@ -446,7 +454,9 @@ export class RigStructure {
     const fixed = (p) => ({ kind: 'fixed', p });
     const nodeAt = (k) => ({ kind: 'node', k });
     this.wires = [];
-    const W = (key, a, b, d, pre = null, o = {}) => { const w = { key, a, b, d, EA: wireEA(d), brk: wireBreak(d), pre, T: 0, Lrest: 0, side: o.side ?? 0, ...o }; this.wires.push(w); return w; };
+    // (a wire of the spec's material: 1x19 by default, rod or carbon cable where the spec says (WIRE_MATS))
+    const matOf = (key) => { const ws = R.wires.find((x) => x.key === key); return ws && WIRE_MATS[ws.mat]; };
+    const W = (key, a, b, d, pre = null, o = {}) => { const M = matOf(key); const w = { key, a, b, d, EA: M ? M.EA(d) : wireEA(d), brk: M ? M.brk(d) : wireBreak(d), pre, T: 0, Lrest: 0, side: o.side ?? 0, ...o }; this.wires.push(w); return w; };
     let sprit = null, apex = null;
     for (const w of R.wires) {
       if (w.sprit || w.stay || w.bridle) continue;
@@ -459,7 +469,10 @@ export class RigStructure {
       }
       if (w.key === 'backstay') {
         const lowX = C.sternX + 0.3, t = tAt(lowX);
-        W(w.key, mastAt(zTop, w.off ?? -0.05, 0), fixed([lowX, 0, Lx.sheer(t) + 0.15]), w.d, w.pre, { adjust: w.adjust || 0 });
+        // (twin backstays, as a rig without a centreline stay has them (the TP52's): one to each quarter, both on
+        // the backstay control)
+        if (w.twin) for (const sd of [-1, 1]) W(w.key, mastAt(zTop, w.off ?? -0.05, 0), fixed([lowX, sd * Lx.bDeck(t) * (w.twin.in ?? 0.85), Lx.sheer(t) + 0.03]), w.d, w.pre, { adjust: w.adjust || 0, side: sd });
+        else W(w.key, mastAt(zTop, w.off ?? -0.05, 0), fixed([lowX, 0, Lx.sheer(t) + 0.15]), w.d, w.pre, { adjust: w.adjust || 0 });
         continue;
       }
       const zTo = w.to === 'hounds' ? houndsZ : w.to === 'top' ? zTop : w.to;
@@ -467,7 +480,14 @@ export class RigStructure {
         // (a running backstay to the quarter; a wire to a given point, mirrored each side: a trimaran's float)
         const xq = C.sternX + 0.6, tq = tAt(xq);
         const cp = w.at ? [w.at[0], s * w.at[1], w.at[2]] : w.runner ? [xq, s * Lx.bDeck(tq) * 0.92, Lx.sheer(tq) + 0.03] : chain(s, w.dx || 0);
-        if (w.via !== undefined && this.tips[w.via] && !this.tips[w.via][0].sp.diamond) {
+        if (w.from !== undefined && this.tips[w.from]) {
+          // a diagonal of discontinuous rigging (D2, D3): from a spreader's tip in to the mast at the next one's root
+          W(w.key, nodeAt(this.tips[w.from][(s + 1) / 2].node), mastAt(zTo), w.d, w.pre, { side: s, seg: 'diag' });
+        } else if (Array.isArray(w.via)) {
+          // a shroud over several spreaders (V1..V4 of a three-spreader rig): chainplate, each tip, the mast
+          const pts = [fixed(cp), ...w.via.map((k) => nodeAt(this.tips[k][(s + 1) / 2].node)), mastAt(zTo)];
+          for (let k = 0; k + 1 < pts.length; k++) W(w.key, pts[k], pts[k + 1], w.d, w.pre, { side: s, seg: k === 0 ? 'lower' : k === pts.length - 2 ? 'upper' : 'mid' });
+        } else if (w.via !== undefined && this.tips[w.via] && !this.tips[w.via][0].sp.diamond) {
           const tip = this.tips[w.via][(s + 1) / 2];
           W(w.key, fixed(cp), nodeAt(tip.node), w.d, w.pre, { side: s, seg: 'lower' });
           W(w.key, nodeAt(tip.node), mastAt(zTo), w.d, w.pre, { side: s, seg: 'upper' });
@@ -1341,7 +1361,7 @@ export class RigStructure {
     // diag.rig for the panel
     const dr = d.rig;
     dr.bendMM = this.bendMM; dr.sideMM = this.sideMM; dr.sagMM = this.sagMM; dr.mastRot = this.rot;
-    if (W.backstay !== undefined) dr.backstayLoad = W.backstay;
+    if (W.backstay !== undefined) dr.backstayLoad = Array.isArray(W.backstay) ? Math.max(...W.backstay) : W.backstay;
     dr.shroudLoad = W.capShroud ? Math.max(...W.capShroud) : 0; dr.forestayLoad = W.forestay || 0; dr.mastComp = comp;
   }
 }

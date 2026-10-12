@@ -684,9 +684,9 @@ function sailTexture(C, s) {
         const y = h * (1 - f), L = w * len, dy = slope(y) * len;
         g.save(); g.translate(0, y); g.rotate(Math.atan2(dy, L));
         const Lr = Math.hypot(L, dy);
-        // (a pocket ~8 cm wide on the sail: s.pocketW m; 18 px on a small yacht's)
+        // (a pocket ~8 cm wide on the sail: s.pocketW m; 18 px on a small yacht's; s.pocketTint: the membrane's own colour)
         const pw = s.pocketW ? Math.max(3, s.pocketW / s.luff * h) / 2 : 9;
-        g.fillStyle = 'rgba(255,255,255,0.45)'; g.fillRect(0, -pw, Lr, 2 * pw);
+        g.fillStyle = s.pocketTint ?? 'rgba(255,255,255,0.45)'; g.fillRect(0, -pw, Lr, 2 * pw);
         g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(0, -pw - 1, Lr, 2); g.fillRect(0, pw - 1, Lr, 2); g.fillRect(Lr - 6, -pw - 1, 6, 2 * pw + 2);
         g.restore();
       }

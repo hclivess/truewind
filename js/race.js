@@ -279,11 +279,14 @@ export class AIHelm {
       // piled the fleet onto it, stalled head to wind, bumping it and never crossing the rounding ray.
       const m = leg.mark, [am, cm] = course.frame(b.x, b.z, m.x, m.z);
       if (this.roundLeg !== racer.leg) { this.roundLeg = racer.leg; this.overMark = false; }
-      if (am > 3 && cm > 0) this.overMark = true;
+      // (above it by her own length's share: a 16 m boat's stern is 7 m behind her middle, and the 3 m that clear a
+      // small keelboat's swung a TP52's quarter, then her bow, into the mark as she bore away round it)
+      const L = b.cls.loa, above = Math.max(3, 0.6 * L - 3);
+      if (am > above && cm > 0) this.overMark = true;
       else if (am < -8) this.overMark = false;   // fell back below it without rounding: go round again
-      const off = 1.5 * b.cls.loa + 3;
-      dest = this.overMark ? { x: m.x - course.rx * 30 + course.ux * 6, z: m.z - course.rz * 30 + course.uz * 6 }
-        : { x: m.x + course.rx * off + course.ux * 3, z: m.z + course.rz * off + course.uz * 3 };
+      const off = 1.5 * L + 3;
+      dest = this.overMark ? { x: m.x - course.rx * Math.max(30, 2 * L) + course.ux * (above + 3), z: m.z - course.rz * Math.max(30, 2 * L) + course.uz * (above + 3) }
+        : { x: m.x + course.rx * off + course.ux * above, z: m.z + course.rz * off + course.uz * above };
     } else if (leg) dest = course.target(leg, b);
     else dest = this.goal || this.wander || (this.wander = { x: b.x + 500, z: b.z });
     this.dest = dest; this.dnAngle = dn;
