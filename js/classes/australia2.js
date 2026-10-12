@@ -30,12 +30,32 @@ export default {
   gm: 1.1, bmForm: 0.9, Ixx: MP.Ixx, Izz: MP.Izz, amX: 0.06, amY: 0.85, amYaw: 0.6, amRoll: 0.3,
   // (her long overhangs sail her on a longer waterline heeled: the wave-making on ~14.6 m)
   rr: rrTable(14.6, M + 935),
-  // (the keel's lift centre 2.6 m abaft the mast (est.): ~6 deg of weather helm close-hauled in 12 kn, test/helm.mjs;
-  // the spade rudder 1.4 m^2 (est.))
-  keel: { x: -0.8, z: -1.75, area: 5.3, ARe: 1.9, stall: 18 * DEG, cd0: 0.009, span: 1.75, chord: 3.0 },
+  // (the keel's lift centre 2.2 m abaft the mast (est.: the winged keel sat well aft, its leading edge raked forward,
+  // and van Oossanen moved it 210 mm forward late in the design): ~4 deg of weather helm close-hauled in 12 kn,
+  // test/helm.mjs; the spade rudder 1.4 m^2 (est.))
+  keel: { x: -0.4, z: -1.75, area: 5.3, ARe: 1.9, stall: 18 * DEG, cd0: 0.009, span: 1.75, chord: 3.0 },
   rudder: { x: -5.3, z: -1.0, area: 1.4, ARe: 2.6, stall: 18 * DEG, cd0: 0.011, max: 32 * DEG, span: 1.65, chord: 0.85, loadRef: 6000 },
   hullLat: { area: 4.2, cd: 0.9, z: -0.3 },
   windage: { area: 11, z: 3.0, cd: 0.95 },
+  // the rig as a structure (js/rig-structure.js): a keel-stepped alloy mast, section est. 360 x 220 mm with a 9 mm wall
+  // in 7075, tapering above the hounds; three sets of spreaders; rod caps and lowers, backstay and runners (est.: a 12
+  // Metre of 1983; sized to ~2.8x the cap's load at her righting moment at 30 deg, ~130 kN m). The generic sizing
+  // (wire from the righting moment, a wall from the Euler load of the caps alone) gave 14.5 mm wire, 160 kN of mast
+  // compression at the dock with backstay and runners both set up, and a mast that buckled in 20 kn
+  rigStructure: {
+    step: { type: 'keel', z: -0.3, partners: 1.0 },
+    spans: [{ z0: -0.3, z1: 21.5, a: 0.36, b: 0.22, t: 0.009, mat: 'alu7075' }, { z0: 21.5, z1: 26.0, a: 0.24, b: 0.15, t: 0.006, mat: 'alu7075' }],
+    spreaders: [{ z: 8.5, len: 1.1, sweep: 0, EA: 6e7, EI: 3e5 }, { z: 14.8, len: 0.85, sweep: 0, EA: 5e7, EI: 2e5 }, { z: 20.4, len: 0.6, sweep: 0, EA: 4e7, EI: 1.2e5 }],
+    chainX: -0.15, chainIn: 0.93,
+    wires: [
+      { key: 'capShroud', to: 'hounds', via: 0, d: 11, pre: 9000 },
+      { key: 'lowerShroud', to: 8.5, dx: 0.1, d: 9, pre: 4500 },
+      { key: 'forestay', stay: 'jib', d: 11 },
+      { key: 'backstay', to: 'top', off: -0.1, low: 'transom', d: 10, pre: 7000, adjust: 0.05 },
+      { key: 'runner', to: 'hounds', runner: true, d: 10, pre: 4500 },
+    ],
+    houndsZ: 23.5, prebend: 0.06, lineMax: 13000,
+  },
   mastX: 1.85, mastHeight: 26.0, boomZ: 1.55, mastR: 0.12, keelBulb: false, runners: true,
   targetHeel: 22 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 4500, reefTime: 90,
   engine: null,

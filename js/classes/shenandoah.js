@@ -18,7 +18,7 @@
 // Estimates (marked so): displacement (300 t, Wikipedia's uncited figure), ballast (100 t), the canoe body's depth, the
 // mast positions and sail corners off the drawing, the engines' power (500 hp each, a secondary source) and the way they
 // drive (taken as one centreline shaft to the VP7 controllable-pitch propeller), the deck furniture's sizes.
-import { DEG, HP, rrTable, massProps } from './util.js';
+import { clarkeMunkK, DEG, HP, rrTable, massProps } from './util.js';
 
 const LWL = 32.63, M = 300000, BAL = 110000, R3 = Math.tan(3.1 * DEG);
 const MP = massProps([{ m: M - BAL - 14000, z: 0.9, ry: 2.8, rx: 9.5 }, { m: BAL, z: -3.6, ry: 0.4, rx: 6.0 }, { m: 14000, z: 15, rz: 9.5 }]);
@@ -32,10 +32,15 @@ export default {
   bowsprit: 8.2, cabin: true, longKeel: true,
   massHull: M, zG: MP.zG, crewN: 16, crewEach: 80, crewZ: 2.6, crewMaxOut: 3.2, crewLee: -2.0, hikeRate: 0.3,
   gm: 1.5, bmForm: 2.4, Ixx: MP.Ixx, Izz: MP.Izz, amX: 0.07, amY: 0.95, amYaw: 0.7, amRoll: 0.35,
+  munkK: clarkeMunkK(LWL, 4.65, M + 1300, 0.07, 0.95),   // (the hull's yaw moment at a drift angle, util.js)
+  vppSecs: 160,   // (a big hull's speed settles over a minute or two: the VPP's and the helm test's run)
   rr: rrTable(LWL, M + 1300, { prism: -0.04 }),
-  // (the lateral plane's centre aft of midships, where the drawing's keel is deepest (est.); ~8 deg of weather helm
-  // close-hauled in 12 kn at speed, test/helm.mjs; the rudder on the sternpost 3.6 x 1.7 m (est.))
-  keel: { x: -2.5, z: -2.4, area: 60, ARe: 0.7, stall: 26 * DEG, cd0: 0.003, span: 4.6, chord: 16, long: true },
+  // Balance. Off her sail plan the profile's centre of lateral resistance is ~0.8 m abaft the centre of gravity and the
+  // working sails' centre of effort ~0.5 m abaft it: a lead of ~1% LWL, little for a schooner whose biggest sail is the
+  // mizzen. With the hull's yaw moment at Clarke's figure (munkK) and the keel's lift centre at -2.9 m (est.: the deep
+  // fin of her keel is aft of the profile's middle), she carries ~5 deg of weather helm at her close-hauled angle
+  // (55 deg TWA) in 12 kn and ~7 deg pinched at 45 (test/helm.mjs). The rudder on the sternpost 3.6 x 1.7 m (est.)
+  keel: { x: -4.5, z: -2.4, area: 60, ARe: 0.7, stall: 26 * DEG, cd0: 0.003, span: 4.6, chord: 16, long: true },
   rudder: { x: -12.6, z: -2.3, area: 6.2, ARe: 2.1, stall: 22 * DEG, cd0: 0.013, max: 35 * DEG, span: 3.6, chord: 1.72, loadRef: 45000 },
   hullLat: { area: 16, cd: 0.9, z: -0.8 },
   windage: { area: 60, z: 9, cd: 1.0 },

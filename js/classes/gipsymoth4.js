@@ -18,7 +18,8 @@
 import { DEG, HP, rrTable, massProps } from './util.js';
 
 const LWL = 11.73, M = 11400, BAL = 4900;
-const MP = massProps([{ m: M - BAL - 380, z: 0.35, ry: 1.0, rx: 3.6 }, { m: BAL, z: -1.55, ry: 0.15, rx: 1.4 }, { m: 380, z: 9.0, rz: 5.2 }]);
+// (the lead keel's centroid ~0.55 m above its 2.36 m bottom, est.)
+const MP = massProps([{ m: M - BAL - 380, z: 0.35, ry: 1.0, rx: 3.6 }, { m: BAL, z: -1.8, ry: 0.15, rx: 1.4 }, { m: 380, z: 9.0, rz: 5.2 }]);
 export default {
   id: 'gipsymoth4', name: "Chichester's Gipsy Moth IV", group: 'legend',
   blurb: "The 53 ft ketch Francis Chichester sailed alone round the world by the clipper route in 1966-67, stopping once, at Sydney: 226 days at sea. Long, slim, cold-moulded mahogany, a deep keel with the rudder hung on it, a blister deckhouse and a big tiller. Tender at first — he called her cantankerous — and very fast.",
@@ -28,7 +29,9 @@ export default {
   massHull: M, zG: MP.zG, crewN: 1, crewEach: 80, crewZ: 1.1, crewMaxOut: 1.2, crewLee: -0.8, hikeRate: 0.4,
   gm: 0.9, bmForm: 0.8, Ixx: MP.Ixx, Izz: MP.Izz, amX: 0.06, amY: 0.85, amYaw: 0.6, amRoll: 0.3,
   rr: rrTable(12.6, M + 80),
-  keel: { x: -0.4, z: -1.35, area: 3.6, ARe: 1.7, stall: 20 * DEG, cd0: 0.008, span: 1.75, chord: 2.8 },
+  // (the fin's lift centre 1.2 m abaft the CG (est.): ~6 deg of weather helm close-hauled in 12 kn (test/helm.mjs), a
+  // heavy helm, as Chichester found it: 'an elephant to move the tiller')
+  keel: { x: -1.2, z: -1.35, area: 3.6, ARe: 1.7, stall: 20 * DEG, cd0: 0.008, span: 1.75, chord: 2.8 },
   rudder: { x: -4.6, z: -1.3, area: 0.9, ARe: 2.0, stall: 20 * DEG, cd0: 0.012, max: 33 * DEG, span: 1.5, chord: 0.62, loadRef: 3000 },
   hullLat: { area: 2.2, cd: 0.9, z: -0.2 },
   windage: { area: 8.5, z: 3.2, cd: 0.95 },

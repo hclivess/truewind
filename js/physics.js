@@ -1217,7 +1217,9 @@ export class Boat {
       // and the difference turns it broadside to the flow, N = -(m_y - m_x) u v (Kirchhoff; the added-mass
       // Coriolis term the surge and sway equations already carry, closed in yaw). With leeway it adds weather
       // helm; in a turn (bow inside the track) it tightens the turn. Water-relative velocities, as for the hull.
-      const Nmunk = -(this.m22 - this.m11) * uw * vw * cphi;
+      // (a class may scale it, C.munkK: a deep long-keeled hull, whose potential-flow moment the viscous flow round its
+      // deep, separated run cuts well down: js/classes/util.js clarkeMunkK)
+      const Nmunk = -(C.munkK ?? 1) * (this.m22 - this.m11) * uw * vw * cphi;
       N += Nmunk; d.Nmunk = Nmunk;
       d.Nhull = N - N0;
       X -= 2 * uw;

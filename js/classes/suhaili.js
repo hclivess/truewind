@@ -16,7 +16,7 @@
 // (dark blue), the deck gear (small bronze winches for the headsail sheets, the rest on cleats).
 // Line handling: headsail sheets to bronze top-action winches on the cockpit coamings, belayed on cleats; mainsheet
 // and mizzen sheet on tackles; halyards on cleats at the masts; the helm a tiller.
-import { DEG, HP, rrTable, massProps } from './util.js';
+import { clarkeMunkK, DEG, HP, rrTable, massProps } from './util.js';
 
 const LWL = 8.53, M = 9876, BAL = 2286, TRIM = 545;
 const MP = massProps([{ m: M - BAL - TRIM - 260, z: 0.3, ry: 1.15, rx: 2.4 }, { m: BAL, z: -1.25, ry: 0.15, rx: 1.4 }, { m: TRIM, z: -0.55, ry: 0.4, rx: 1.0 }, { m: 260, z: 6.2, rz: 3.4 }]);
@@ -28,6 +28,7 @@ export default {
   bowsprit: 2.1, cabin: true, longKeel: true,
   massHull: M, zG: MP.zG, crewN: 1, crewEach: 80, crewZ: 1.1, crewMaxOut: 1.3, crewLee: -0.8, hikeRate: 0.4,
   gm: 1.1, bmForm: 0.85, Ixx: MP.Ixx, Izz: MP.Izz, amX: 0.08, amY: 0.95, amYaw: 0.65, amRoll: 0.32,
+  munkK: clarkeMunkK(LWL, 1.67, M + 80, 0.08, 0.95),   // (the hull's yaw moment at a drift angle, util.js)
   rr: rrTable(LWL, M + 80, { prism: -0.05 }),
   // (the long keel and deadwood as one low-aspect wing, its span the whole draft, as the Westsail's)
   keel: { x: 0.15, z: -0.85, area: 5.6, ARe: 1.0, stall: 26 * DEG, cd0: 0.003, span: 1.67, chord: 4.0, long: true },

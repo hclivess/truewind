@@ -12,15 +12,19 @@
 // copper to 6 in above the waterline, white-oak bulwarks 14 in high, one round skylight, a cockpit aft, steered by a
 // tiller. Wikipedia 'America (yacht)' (LOA 101 ft 3 in with the counter's rail, LWL 89 ft 10 in, beam 22 ft 10 in,
 // draft 10 ft 11 in); de.wikipedia (170 t); Klaus Kramer's archive (61 t of ballast, inside).
-// Estimates (marked so): the mast positions (from the published sail plan's proportions), the freeboard (1.35 m), the
+// Estimates (marked so): the heights above the water (the masts' lengths less ~9 ft below deck: the lower mastheads at
+// 23.0 m (fore) and 23.3 m (main), the gaffs' throats under them and their peaks no higher than the peak halyards'
+// blocks: a gaff is hoisted by halyards from the masthead and cannot be peaked above it), the mast positions (from the published sail plan's proportions), the freeboard (1.35 m), the
 // canoe body's depth, the split of the 5,263 sq ft between the three lower sails (from their spars: main 264,
 // foresail 146, fore staysail 79 m^2), the topsail (16 m^2, 'small') and flying jib (55 m^2), the ballast's height.
 // Line handling as in 1851: no winches; sheets and halyards on tackles, belayed to pins and cleats, the main sheet's
 // tackle to its horse on deck, the foresheet to its horse before the mainmast, the headsail sheets to cleats on the rail.
-import { DEG, FT, rrTable, massProps } from './util.js';
+import { clarkeMunkK, DEG, FT, rrTable, massProps } from './util.js';
 
 const LWL = 89.83 * FT, M = 170000, BAL = 61000, RAKE = Math.tan(11.8 * DEG);
-const MP = massProps([{ m: M - BAL - 6500, z: 0.5, ry: 2.4, rx: 8.0 }, { m: BAL, z: -0.9, ry: 1.6, rx: 6.5 }, { m: 6500, z: 11.5, rz: 7.5 }]);
+// (the hull's own centroid at the waterline (est.): a deep wooden hull, two thirds of its planking, frames and floors
+// below the water; the ballast 'stowed in her sides about her water-lines' (Lawson) and low in the hold, ~0.9 m down)
+const MP = massProps([{ m: M - BAL - 6500, z: 0.0, ry: 2.4, rx: 8.0 }, { m: BAL, z: -0.9, ry: 1.6, rx: 6.5 }, { m: 6500, z: 11.5, rz: 7.5 }]);
 const FX = 6.4, BZ = 2.4;                                     // foremast at the deck (est.), the booms' height
 export default {
   id: 'america', name: 'America (1851)', group: 'legend',
@@ -30,16 +34,21 @@ export default {
   bowsprit: 8.8, cabin: false, longKeel: true,
   massHull: M, zG: MP.zG, crewN: 20, crewEach: 75, crewZ: 1.9, crewMaxOut: 2.6, crewLee: -1.5, hikeRate: 0.3,
   gm: 1.6, bmForm: 2.2, Ixx: MP.Ixx, Izz: MP.Izz, amX: 0.07, amY: 0.95, amYaw: 0.7, amRoll: 0.35,
+  munkK: clarkeMunkK(LWL, 3.35, M + 1500, 0.07, 0.95),   // (the hull's yaw moment at a drift angle, util.js)
+  vppSecs: 150,   // (a big hull's speed settles over a minute or two: the VPP's and the helm test's run)
   rr: rrTable(LWL, M + 1500, { prism: -0.06 }),
-  // (the long keel and its drag are the hull's lateral plane: span the whole draft, ARe 2 b^2 / A; its centre well aft of
-  // midships, where the 11 ft of draft aft against 6 ft forward puts it (est.): with it there she carries ~8 deg of
-  // weather helm close-hauled in 12 kn at speed (test/helm.mjs), a pilot schooner's hard-mouthed helm; the rudder on the
-  // sternpost, 3.1 m deep x 1.5 m (est.))
-  keel: { x: -4.5, z: -1.8, area: 46, ARe: 0.5, stall: 28 * DEG, cd0: 0.003, span: 3.2, chord: 22, long: true },
+  // Balance. The long keel is the hull's lateral plane (span the whole draft, ARe 2 b^2 / A); its lift acts 0.1 chord
+  // ahead of the middle of its profile (js/foils.js). The geometric centre of lateral resistance of her profile (6 ft
+  // of draft forward, 11 ft aft) is ~1.4 m abaft midships, the working sails' centre of effort ~0.3 m abaft that (est.
+  // from the spars): a lead of ~4% LWL. With the hull's yaw moment at Clarke's figure (munkK) and the lift centre at
+  // -2.8 m (the deep heel aft carries more of it than the area alone says), she carries ~5 deg of weather helm at her
+  // close-hauled angle (55 deg TWA, her best VMG) in 12 kn and ~7 deg pinched at 45 (test/helm.mjs); the rudder on
+  // the sternpost 3.1 x 1.5 m (est.)
+  keel: { x: -5.0, z: -1.8, area: 46, ARe: 0.5, stall: 28 * DEG, cd0: 0.003, span: 3.2, chord: 22, long: true },
   rudder: { x: -13.4, z: -1.6, area: 4.6, ARe: 1.9, stall: 22 * DEG, cd0: 0.014, max: 35 * DEG, span: 3.1, chord: 1.5, loadRef: 30000 },
   hullLat: { area: 10, cd: 0.9, z: -0.5 },
   windage: { area: 34, z: 6.5, cd: 1.0 },
-  mastX: -2.71, mastHeight: 27.2, mastRake: (27.2 - BZ) * RAKE, boomZ: BZ, mastR: 0.28, keelBulb: false,
+  mastX: -2.71, mastHeight: 27.4, mastRake: (27.4 - BZ) * RAKE, boomZ: BZ, mastR: 0.28, keelBulb: false,
   targetHeel: 18 * DEG, canCapsize: false, hasBackstay: false, hasBoard: false, sheetPower: 7000, reefTime: 300,
   cloth: 'canvas',
   engine: null,                     // (1851: none)
@@ -50,13 +59,13 @@ export default {
   sails: [
     // mainsail: 58 ft boom, 26 ft gaff peaked ~35 deg, the throat under the main cap, laced to the boom; the small
     // gaff topsail over it to the short topmast's truck
-    { key: 'main', kind: 'boom', rig: 'gaff', area: 264, luff: 18.6, foot: 16.9, head: 6.5, headRise: 4.5, roach: 0,
-      topsail: { luff: 5.7, area: 16, head: 0.2 },
+    { key: 'main', kind: 'boom', rig: 'gaff', area: 264, luff: 18.0, foot: 16.9, head: 7.4, headRise: 2.8, roach: 0,
+      topsail: { luff: 7.0, area: 16, head: 0.2 },
       depth: [0.11, 0.12, 0.11], twistMax: 24 * DEG, cd0: 0.08, ARe: 2.4, min: 3 * DEG, max: 78 * DEG, trav: [-3 * DEG, 8 * DEG], Iboom: 31000, boomMass: 600, reefs: 2,
       vangBend: 0, sheetBend: 0, color: 0xeee6d0, pockets: [], battens: { EI: 0, rows: [] }, boomMat: 'wood', gaffR: 0.12, boomR: 0.2, boomRound: true, ropeK: 4 },
     // the lug foresail: boomless, its clew sheeted to a horse before the mainmast; 24 ft gaff
-    { key: 'fore', kind: 'boom', rig: 'gaff', boomless: true, mast: { h: 21.8, r: 0.27, rake: (21.8 - BZ) * RAKE }, area: 146, tackX: FX - (BZ - 1.4) * RAKE, tackZ: BZ,
-      luff: 18.3, foot: 8.0, head: 6.0, headRise: 4.1, roach: 0,
+    { key: 'fore', kind: 'boom', rig: 'gaff', boomless: true, mast: { h: 23.0, r: 0.27, rake: (23.0 - BZ) * RAKE }, area: 146, tackX: FX - (BZ - 1.4) * RAKE, tackZ: BZ,
+      luff: 17.0, foot: 8.0, head: 6.6, headRise: 3.3, roach: 0,
       depth: [0.12, 0.13, 0.12], twistMax: 24 * DEG, cd0: 0.08, ARe: 2.2, min: 4 * DEG, max: 62 * DEG, trav: [-4 * DEG, 10 * DEG], Iboom: 900, boomMass: 25,
       color: 0xeee6d0, boomMat: 'wood', gaffR: 0.11, pockets: [], battens: { EI: 0, rows: [] }, ropeK: 3 },
     // fore staysail, tacked at the stem head, set on the forestay to the foremast's hounds
@@ -93,10 +102,10 @@ export default {
     keel: { kind: 'full' },
     bowsprit: { len: 8.8, kind: 'pole', mat: 'wood', r: 0.17, steeve: 0.9, inboard: 3.0, bobZ: 0.3 },
     masts: {
-      main: { mat: 'wood', r: 0.28, round: true, spreaders: [], topmast: { cap: 22.2, heel: 20.2, r: 0.12, trees: 1.0 }, hounds: 20.6, deadeyes: true, deadeyeR: 0.09,
+      main: { mat: 'wood', r: 0.28, round: true, spreaders: [], topmast: { cap: 23.3, heel: 21.5, r: 0.12, trees: 1.0 }, hounds: 22.6, deadeyes: true, deadeyeR: 0.09,
         ratlines: true, chainIn: 1.0, shrouds2: 1.0, lowerX: [], springs: [] },
-      fore: { mat: 'wood', r: 0.27, round: true, spreaders: [], hounds: 20.0, deadeyes: true, deadeyeR: 0.09, ratlines: true, chainIn: 1.0, shrouds2: 1.0, chainAft: 0.25,
-        stayTo: false, springs: [{ to: 'main', z0: 20.8, z1: 21.0 }] },
+      fore: { mat: 'wood', r: 0.27, round: true, spreaders: [], hounds: 21.8, deadeyes: true, deadeyeR: 0.09, ratlines: true, chainIn: 1.0, shrouds2: 1.0, chainAft: 0.25,
+        stayTo: false, springs: [{ to: 'main', z0: 22.5, z1: 22.8 }] },
     },
     backstay: false, windex: false, noNumber: true, cleats: true,
     extras: ['schoonerDeck'],

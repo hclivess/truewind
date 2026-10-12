@@ -10,14 +10,14 @@
 // under working sail in the Solent); the photographs on Wikimedia Commons (black topsides, a thin red cove line under a
 // varnished rail, red antifouling and a narrow white boot top; tan sails, 'DS2' in white high on the main; a plumb
 // stem, a raked transom with the rudder hung on it, the boom far out over it).
-// Estimates (marked so): the ballast (22 t), the spars and heights (the lower masthead 15.8 m, the topmast's truck
-// 22.6 m above the water from the air draft; a gaff of ~8.5 m), the mast's position, the sail split (main 128,
+// Estimates (marked so): the ballast (22 t), the spars and heights (the lower masthead 17.5 m, the topmast's truck
+// 22.6 m above the water from the air draft; a gaff of ~8.1 m, its peak at the lower masthead's peak halyard blocks), the mast's position, the sail split (main 128,
 // topsail 25, staysail 30, jib 40 m^2 of the ~230: her jib topsail is not set here), the engine's power (~100 hp) and
 // the propeller's place on the starboard quarter.
 // Line handling: no winches — everything on tackles, sweated up and belayed to pins in the pinrails and to cleats: the
 // mainsheet's tackle to its horse across the counter, the staysail sheet to its horse before the mast, the jib sheets
 // to the rail; the throat and peak halyards to the mast's pinrail; the helm a long tiller.
-import { DEG, HP, rrTable, massProps } from './util.js';
+import { clarkeMunkK, DEG, HP, rrTable, massProps } from './util.js';
 
 const LWL = 14.63, M = 55000, BAL = 24000;
 const MP = massProps([{ m: M - BAL - 1800, z: 0.6, ry: 1.7, rx: 4.6 }, { m: BAL, z: -2.3, ry: 0.4, rx: 3.0 }, { m: 1800, z: 8.5, rz: 5.5 }]);
@@ -29,8 +29,11 @@ export default {
   bowsprit: 5.3, cabin: true, longKeel: true, runners: true,
   massHull: M, zG: MP.zG, crewN: 10, crewEach: 75, crewZ: 1.6, crewMaxOut: 1.8, crewLee: -1.2, hikeRate: 0.35,
   gm: 1.2, bmForm: 1.3, Ixx: MP.Ixx, Izz: MP.Izz, amX: 0.08, amY: 0.95, amYaw: 0.7, amRoll: 0.35,
+  munkK: clarkeMunkK(LWL, 3.1, M + 750, 0.08, 0.95),   // (the hull's yaw moment at a drift angle, util.js)
+  vppSecs: 90,   // (a heavy hull's speed settles over a minute or two: the VPP's and the helm test's run)
   rr: rrTable(LWL, M + 750, { prism: -0.04 }),
-  keel: { x: -0.4, z: -1.5, area: 24, ARe: 0.8, stall: 26 * DEG, cd0: 0.003, span: 3.1, chord: 12, long: true },
+  // (the long keel's lift centre 1.5 m abaft the CG (est.): ~4.5 deg of weather helm close-hauled in 12 kn, test/helm.mjs)
+  keel: { x: -1.5, z: -1.5, area: 24, ARe: 0.8, stall: 26 * DEG, cd0: 0.003, span: 3.1, chord: 12, long: true },
   rudder: { x: -7.6, z: -1.3, area: 2.4, ARe: 1.9, stall: 22 * DEG, cd0: 0.014, max: 35 * DEG, span: 2.6, chord: 0.95, transom: true, loadRef: 9000 },
   hullLat: { area: 5, cd: 0.9, z: -0.4 },
   windage: { area: 15, z: 4.2, cd: 1.0 },
@@ -46,8 +49,8 @@ export default {
     outhaul: { handler: 'horn', n: 2, at: 'boom' }, jibHalyard: { handler: 'horn', n: 3, at: 'mast' } },
   ropeStyle: 'classic',
   sails: [
-    { key: 'main', kind: 'boom', rig: 'gaff', area: 128, luff: 11.7, foot: 11.0, head: 6.6, headRise: 5.4, roach: 0,
-      topsail: { luff: 7.4, area: 25, head: 0.15 },
+    { key: 'main', kind: 'boom', rig: 'gaff', area: 128, luff: 11.0, foot: 11.0, head: 7.2, headRise: 3.8, roach: 0,
+      topsail: { luff: 8.7, area: 25, head: 0.15 },
       depth: [0.12, 0.13, 0.12], twistMax: 24 * DEG, cd0: 0.08, ARe: 2.2, min: 3 * DEG, max: 78 * DEG, trav: [-3 * DEG, 8 * DEG], Iboom: 4200, boomMass: 220, reefs: 2,
       vangBend: 0, sheetBend: 0, color: 0xa8573a, pockets: [], battens: { EI: 0, rows: [] }, boomMat: 'wood', gaffR: 0.09, boomR: 0.13, boomRound: true, ropeK: 2 },
     // the staysail: loose-footed, its sheet to a horse across the deck before the mast (self-tending)
@@ -86,10 +89,10 @@ export default {
     rudder: { kind: 'transom', x: -8.4, top: 1.95, bottom: -2.9, chordTop: 0.45, heel: 0.35, lean: 0.2, mat: 'hull', thick: 0.1, pintles: [-2.3, -1.2, 0.0, 1.3] },
     keel: { kind: 'full' },
     bowsprit: { len: 5.3, kind: 'pole', mat: 'wood', r: 0.12, steeve: 0.1, inboard: 2.6, bobZ: 0.2 },
-    masts: { main: { mat: 'wood', r: 0.17, round: true, spreaders: [], topmast: { cap: 15.8, heel: 13.8, r: 0.08, trees: 0.8 }, hounds: 15.0,
+    masts: { main: { mat: 'wood', r: 0.17, round: true, spreaders: [], topmast: { cap: 17.5, heel: 15.5, r: 0.08, trees: 0.8 }, hounds: 16.7,
       deadeyes: true, deadeyeR: 0.07, ratlines: true, chainIn: 1.0, shrouds2: 0.7, lowerX: [] } },
     backstay: false, windex: false, noNumber: false,
-    runners: { x: -2.6, z: 15.0 },
+    runners: { x: -2.6, z: 16.7 },
     hullName: { text: 'JOLIE BRISE', t: 0.6, board: true, inset: 0.985, dz: 0.67, len: 1.9, color: '#121316', bg: '#efe6cf', font: '700 64px Georgia, "Times New Roman", serif' },
     extras: ['schoonerDeck'],
   },

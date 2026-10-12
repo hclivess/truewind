@@ -48,11 +48,18 @@ const R = {
   oceanis381: { roll: [2.5, 5], hp: [1.5, 3] }, j122: { roll: [2.5, 5], hp: [1.5, 3] },
   // (a 40 m superyacht: a 6-9 s roll with her 53 m rig, heave and pitch ~2.5-4 s over a 35 m waterline)
   swan131: { roll: [5, 10], hp: [2.2, 4.5] },
+  // the legends: heave T ~ 2 pi sqrt((m + A33) / (rho g Awp)) with A33 ~ m (America ~3.2 s, Shenandoah ~3.6, Jolie
+  // Brise ~3.0, the 10-19 m boats 1.8-2.4); roll T = 2 pi k / sqrt(g GM) with the rig's inertia and the sails' air in k:
+  // a big schooner or a deep pilot cutter 6-12 s (square riggers and big schooners roll at 10-15 s), a heavy 10-16 m
+  // ketch 3.5-7, a 12 Metre with her 25 m mast 4-9
+  america: { roll: [6, 13], hp: [2.4, 4.5] }, shenandoah: { roll: [6, 13], hp: [2.6, 5] }, joliebrise: { roll: [5, 11], hp: [2, 4] },
+  suhaili: { roll: [3, 6.5], hp: [1.4, 2.8] }, gipsymoth4: { roll: [3.5, 7.5], hp: [1.4, 3] }, australia2: { roll: [4, 9], hp: [1.5, 3] },
 };
 const classes = quick ? ['dinghy', 'catalina30'] : Object.keys(R);
 console.log('1. free decay in calm water (period s, damping ratio)');
 for (const c of classes) {
-  const r = decay(c, 'phi', 8 * DEG, 12), h = decay(c, 'heave', 0.05, 6), p = decay(c, 'pitch', 2 * DEG, 6);
+  // (a big schooner rolls at ~10 s: the decay is watched for 30 s, three periods, not 12)
+  const r = decay(c, 'phi', 8 * DEG, CLASSES[c].loa > 25 ? 30 : 12), h = decay(c, 'heave', 0.05, 6), p = decay(c, 'pitch', 2 * DEG, 6);
   console.log(`   ${c.padEnd(11)} roll ${r.Tn.toFixed(2)} s z ${r.zeta.toFixed(3)} | heave ${h.Tn.toFixed(2)} s z ${h.zeta.toFixed(3)} | pitch ${p.Tn.toFixed(2)} s z ${p.zeta.toFixed(3)}`);
   const w = R[c];
   check(r.Tn >= w.roll[0] && r.Tn <= w.roll[1], `${c} roll period ${r.Tn.toFixed(2)} s outside ${w.roll}`);

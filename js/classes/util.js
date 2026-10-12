@@ -81,6 +81,18 @@ export function rrOverHump(tab, f, planing = 0) {
   return fns.map((fn) => { const r = at(tab, fn); return [fn, Math.round((r + (Math.max(r, hi(fn)) - r) * sstep(0.42, 0.52, fn)) * 1e5) / 1e5]; });
 }
 
+// The yaw moment a deep, long-keeled hull carries at a drift angle. Potential flow gives the Munk moment (m_y - m_x) u v
+// (js/physics.js), which for a slender body is all destabilising; a real hull's is much less, the flow separating
+// off its deep run aft (as an airship's or a missile's is cut by its separated wake). Ship manoeuvring data put the
+// whole hull's linear yaw moment at N'v = -pi (T/L)^2 (0.5 + 2.4 T/L) on 0.5 rho L^2 T U v (Clarke, Gedling & Hine
+// 1983, regressed on captive-model tests of full-depth hulls, which is what a long keel makes a yacht's lateral plane).
+// The factor that brings the sim's Munk moment down to that (between 0.25 and 1): C.munkK. L: waterline length, T:
+// draft, mass: displacement (kg), amX / amY: the class's added-mass fractions
+export function clarkeMunkK(L, T, mass, amX, amY) {
+  const Nv = Math.PI * (T / L) ** 2 * (0.5 + 2.4 * T / L) * 0.5 * 1025 * L * L * T;
+  return Math.round(Math.max(0.25, Math.min(1, Nv / (mass * (amY - amX)))) * 100) / 100;
+}
+
 // centre of gravity height (m, + above the DWL) and roll / yaw inertia (kg m^2) of hull + ballast + rig:
 // parts [{ m, z, ry, rx, rz }]: z of each part's centre, r* its radius of gyration about it across, along, up
 export function massProps(parts) {
