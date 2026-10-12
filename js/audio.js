@@ -375,7 +375,7 @@ export class Audio {
 }
 
 // the lines the sound follows (js/audio.js lines)
-const LINE_KEYS = ['main', 'jib', 'lazy', 'stay', 'mizzen', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibHalyard', 'tackLine'];
+const LINE_KEYS = ['main', 'jib', 'lazy', 'stay', 'mizzen', 'fore', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibHalyard', 'tackLine'];
 // short one-shot sounds for the lines' hardware, made once: a winch pawl's metallic tick, a ratchet block's lighter
 // one, a cam cleat's clack, a clutch / jammer's thunk, a turn thrown on a horn cleat (a soft thud), a self-tailer's jaws
 function lineBuffers(ctx) {

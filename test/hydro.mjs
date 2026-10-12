@@ -9,7 +9,9 @@ for (const id of Object.keys(CLASSES)) {
   const row = [];
   for (const phi of [5, 10, 20, 30, 45, 60, 75, 90]) {
     let z = 0; let r;
-    for (let it = 0; it < 40; it++) { r = h.immerse(z, 0, phi * DEG, () => 0, () => 0, {}); z += (r.V - mass / 1025) / 8 * 0.6; }
+    // (the sinkage step on the waterplane's area: the old fixed 8 m^2 diverged on a 30-50 m schooner's 150-200 m^2)
+    const Awp = Math.max(8, 0.7 * C.lwl * C.beam);
+    for (let it = 0; it < 40; it++) { r = h.immerse(z, 0, phi * DEG, () => 0, () => 0, {}); z += (r.V - mass / 1025) / Awp * 0.6; }
     row.push(`${phi}°:${(-r.My / r.V).toFixed(2)}`);
   }
   console.log('   buoyancy lateral arm (m):', row.join(' '));

@@ -12,6 +12,14 @@ const DEG = Math.PI / 180;
 
 // the mast's x at height z (raked aft about the gooseneck by C.mastRake at the masthead)
 export const mastXAt = (C, z) => C.mastX - (C.mastRake || 0) * (z - C.boomZ) / (C.mastHeight - C.boomZ);
+// the x of the mast that carries sail `key` at height z: the main's, or a sail's own mast (a mizzen, a schooner's
+// foremast), raked aft by s.mast.rake at its head about its gooseneck
+export function mastXOf(C, key, z) {
+  if (!key || key === 'main') return mastXAt(C, z);
+  const s = C.sails.find((q) => q.key === key);
+  if (!s || !s.mast) return mastXAt(C, z);
+  return s.tackX - (s.mast.rake || 0) * (z - s.tackZ) / (s.mast.h - s.tackZ);
+}
 
 // an unstayed mast (a Laser's, an Optimist's, a Sunfish's): no shrouds for the sail or the boom to meet (the same
 // test as js/damage.js rigSpec: a class's own rigSpec, else a single-sail dinghy with no backstay)

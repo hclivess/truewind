@@ -68,7 +68,7 @@ const GRAB_PX = 30;
 const C_RIGHT = (b) => (b.cls.multihull ? 8 : 4); // grab radius on screen, also the size of the marker rings
 // chase-camera distance and windward-leeward course length for a class: by its size
 // the menu's class groups (a class's C.group)
-const CLASS_GROUPS = [['dinghy', 'Dinghies & skiffs'], ['keelboat', 'Keelboats'], ['multihull', 'Multihulls'], ['cruiser', 'Cruisers'], ['classic', 'Classics']];
+const CLASS_GROUPS = [['dinghy', 'Dinghies & skiffs'], ['keelboat', 'Keelboats'], ['multihull', 'Multihulls'], ['cruiser', 'Cruisers'], ['classic', 'Classics'], ['legend', 'Legends']];
 const camDist = (C) => (C.id === 'dinghy' ? 8 : C.loa < 5.5 && !C.multihull ? 10 : C.loa > 9 ? 17 : 12);
 const courseLen = (C) => (C.id === 'dinghy' ? 600 : C.loa > 9 ? 1200 : 800);
 // the touch pad's third line (in order of use), with the labels for its two buttons (d = -1, +1)
@@ -563,7 +563,7 @@ class Game {
     }
     // engines: on the bracket for free sailing, stowed below for racing where the class rules say so (the sportboat's)
     for (const b of this.boats) if (b.engine) b.engine.setStowed(S.mode === 'race' && !idle);
-    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (this.settings.sailNo || (cls.id === 'blackwatch' ? '79' : '7')) : (b.sailNo || String(100 + b.id * 7)), name: b === player ? this.settings.boatName : b.name, hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9] });
+    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (this.settings.sailNo || cls.sailNo || (cls.id === 'blackwatch' ? '79' : '7')) : (b.sailNo || String(100 + b.id * 7)), name: b === player ? this.settings.boatName : b.name, hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9] });
     await this.buildTraffic(v, world, cond, player);
     this.hud.buildRig(player);
     this.gear.setSession();
@@ -887,8 +887,8 @@ class Game {
     if (k === 'hike') { this.userTouched('hike'); c.hike = clamp(c.hike + d * 1.2 * dt, -1, 1); return; }
     this.userTouched(k);
     let rate = 0.3 * dt;
-    const load = k === 'main' ? b.diag.rig.mainLoad : k === 'jib' || k === 'lazy' ? b.diag.rig.jibLoad : k === 'stay' ? b.diag.rig.stayLoad : k === 'mizzen' ? b.diag.rig.mizzenLoad : 0;
-    const sheet = k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy' || k === 'mizzen';
+    const load = k === 'main' ? b.diag.rig.mainLoad : k === 'jib' || k === 'lazy' ? b.diag.rig.jibLoad : k === 'stay' ? b.diag.rig.stayLoad : k === 'mizzen' || k === 'fore' ? b.diag.rig[k + 'Load'] : 0;
+    const sheet = k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy' || k === 'mizzen' || k === 'fore';
     const trimming = (sheet || k === 'trav') ? d < 0 : k === 'tackLine' ? d < 0 : d > 0;
     if (trimming && sheet) rate /= 1 + ((load || 0) / (C.sheetPower * (b.crewPower ?? 1))) ** 2;
     const hr = b.locks && k in b.locks ? handRate(b, k, trimming) : null;   // through the line's tackle, hand over hand

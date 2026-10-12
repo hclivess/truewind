@@ -11,12 +11,12 @@ const DEG = Math.PI / 180, KT = 0.514444;
 // the controls the crew works, and its dead bands (control units): it starts when the line is more than on off
 // where it wants it, and stops within off of it. A sheet is played continuously; a shape control set now and then.
 const BAND = {
-  main: [0.012, 0.003], jib: [0.012, 0.003], stay: [0.012, 0.003], mizzen: [0.015, 0.004], trav: [0.02, 0.005],
+  main: [0.012, 0.003], jib: [0.012, 0.003], stay: [0.012, 0.003], mizzen: [0.015, 0.004], fore: [0.015, 0.004], trav: [0.02, 0.005],
   vang: [0.06, 0.012], cunn: [0.07, 0.015], outhaul: [0.07, 0.015], backstay: [0.07, 0.015], jibHalyard: [0.08, 0.02],
   tackLine: [0.06, 0.015], jibLead: [0.06, 0.015], board: [0.1, 0.03],
 };
 export const CREW_KEYS = Object.keys(BAND);
-const SHEET = new Set(['main', 'jib', 'stay', 'mizzen']);
+const SHEET = new Set(['main', 'jib', 'stay', 'mizzen', 'fore']);
 const WINCH_R = 0.03;           // m: the drum's radius (a line turns it once per 19 cm)
 
 export class Crew {
@@ -27,7 +27,7 @@ export class Crew {
     if (!this.plan || this.plan.b !== b) { this.plan = { b }; this.act = {}; for (const k of CREW_KEYS) if (c[k] !== undefined) this.plan[k] = c[k]; }
     this.real = {}; this.locks = b.locks ? { ...b.locks } : null;
     // (only the strings this boat has: the rest autoTrim leaves alone, or sets where nothing is to be seen)
-    const S = b.sailBy, C = b.cls, has = { stay: !!S.stay, mizzen: !!S.mizzen, jib: !!(S.jib || S.gennaker), jibLead: !!S.jib, jibHalyard: !!S.jib, trav: !!S.main.trav, backstay: !!C.hasBackstay, tackLine: !!S.gennaker, board: !!C.hasBoard };
+    const S = b.sailBy, C = b.cls, has = { stay: !!S.stay, mizzen: !!S.mizzen, fore: !!S.fore, jib: !!(S.jib || S.gennaker), jibLead: !!S.jib, jibHalyard: !!S.jib, trav: !!S.main.trav, backstay: !!C.hasBackstay, tackLine: !!S.gennaker, board: !!C.hasBoard };
     for (const k of CREW_KEYS) if (c[k] !== undefined && has[k] !== false) { this.real[k] = c[k]; c[k] = this.plan[k] ?? c[k]; }
     this.crewY0 = this.crewY0 ?? b.crewY;
   }
@@ -106,7 +106,7 @@ export class Crew {
     const st = d.strips && d.strips[k === 'jib' && b.genDeploy > 0.5 ? 'gennaker' : k];
     const count = (s) => (st ? [0, 1, 2].filter((i) => st[i] && st[i].state === s).length : 0);
     switch (k) {
-      case 'main': case 'jib': case 'stay': case 'mizzen':
+      case 'main': case 'jib': case 'stay': case 'mizzen': case 'fore':
         if (dir > 0) {   // easing
           if (over) return `Easing the ${sail} in the puff: heel ${heel}°`;
           if (count(3) >= 2) return `Easing the ${sail}: leeward telltales stalling`;

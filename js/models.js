@@ -3,6 +3,7 @@
 // detailed boat stays cheap to draw; moving parts (rudder, booms, sails, bowsprit) stay separate.
 import * as THREE from 'three';
 import { STRIP_F, reefAt, clamp, lerp, sstep, mastXAt } from './physics.js';
+import { planChord, planRise } from './sail/plan.js';
 
 // physics coordinates (x fwd, y stbd, z up) -> boat-local three.js (x stbd, y up, z aft)
 export const V = (x, y, z) => new THREE.Vector3(y, z, -x);
@@ -569,7 +570,7 @@ function sailTexture(C, s) {
     g.fillStyle = `#${base.getHexString()}`; g.fillRect(0, 0, w, h);
     const r = rnd(s.key.length * 7 + 3);
     // seams perpendicular to the leech: across the sail, sloping down toward the luff
-    const slope = (y) => { const v = 1 - y / h, chord = s.foot * (1 - v) + s.head * v; return h * chord * (s.foot - s.head) / (s.luff * s.luff); };
+    const slope = (y) => { const v = 1 - y / h, chord = planChord(s, v); return h * chord * (s.foot - s.head) / (s.luff * s.luff); };
     const seam = (y0, alpha = 0.13) => {
       g.strokeStyle = `rgba(40,35,30,${alpha})`; g.lineWidth = 2; g.beginPath(); g.moveTo(0, y0); g.lineTo(w, y0 + slope(y0)); g.stroke();
       g.strokeStyle = `rgba(255,255,255,${alpha * 0.9})`; g.lineWidth = 1; g.beginPath(); g.moveTo(0, y0 + 3); g.lineTo(w, y0 + 3 + slope(y0)); g.stroke();
@@ -1923,10 +1924,12 @@ function updateSail(mesh, boat, s, t) {
   if (!mesh.visible) return;
   let px, pz, luff, rake = s.rake || 0, footLift = 0;
   if (s.key === 'main') {
-    const rf = reefAt(boat.reefPos);
+    const rf = reefAt(boat.reefPos, s);
     px = C.mastX - 0.02; pz = C.boomZ; luff = s.luff * rf.l;
     footLift = 0; // reefed sail: the new tack sits on the boom
-  } else { px = s.tackX; pz = s.tackZ; luff = s.luff; }
+  } else { px = s.tackX; pz = s.tackZ; luff = s.luff * (s.gaff ? reefAt(boat.reefPos, s).l : 1); }
+  // (the planform as set: a gaff sail's topsail handed at the first reef, js/sail/plan.js)
+  const sp = s.gaff && boat.setSail ? boat.setSail(s) : s;
   if (s.kind === 'spin' || s.kind === 'loose') luff *= Math.sqrt(areaF);
   const side = Math.sign(st.baseAngle || 1);
   const slack = s.key === 'main' ? boat.reefSlack : 0;
@@ -1943,8 +1946,9 @@ function updateSail(mesh, boat, s, t) {
     const a = hermite5(K, fa, fv), dd = Math.max(0, hermite5(K, fd, fv)), ff = clamp(hermite5(K, ff0, fv), 0.1, 0.9);
     const si = fv < 0.33 ? 0 : fv < 0.66 ? 1 : 2;
     const flog = st[si].flog || 0, state = st[si].state;
-    let chord = s.foot * (1 - fv) + s.head * fv;
+    let chord = planChord(sp, fv);
     if (s.key === 'main') chord += s.foot * (s.roach ?? 0.07) * Math.sin(Math.PI * fv * 0.85);
+    const rise = planRise(sp, fv);
     if (s.kind === 'spin') chord *= 0.9 + 0.25 * Math.sin(Math.PI * fv);
     let lx = px - rake * fv, ly = 0;
     const lz = pz + footLift + fv * luff * (1 - 0.06 * slack);
@@ -1961,7 +1965,7 @@ function updateSail(mesh, boat, s, t) {
       if (slack > 0.05) off += slack * 0.05 * Math.sin(fv * 20 + t * 6) * (1 - fu) * chord; // luff scallops with the halyard off
       const xb = lx + cx * chord * fu + nx * off, yb = ly + cy * chord * fu + ny * off;
       const k = (v * (NU + 1) + u) * 3;
-      pos[k] = yb; pos[k + 1] = lz + (s.footRise || 0) * fu * (1 - fv) + (s.headRise || 0) * fu * fv; pos[k + 2] = -xb;
+      pos[k] = yb; pos[k + 1] = lz + rise * fu; pos[k + 2] = -xb;
     }
   }
   mesh.geometry.attributes.position.needsUpdate = true;
@@ -1981,7 +1985,7 @@ function updateTelltales(vis, b, t) {
   const _q = updateTelltales._q || (updateTelltales._q = [0, 0, 0]);
   for (let i = 0; i < 3; i++) {
     const fv = STRIP_F[i], s = st[i], a = sh[i].ang;
-    const chord = head.foot * (1 - fv) + head.head * fv;
+    const chord = planChord(head, fv);
     const cx = -Math.cos(a), cy = Math.sin(a);
     let baseX = px - (head.rake || 0) * fv + cx * chord * 0.12, baseY = cy * chord * 0.12, baseZ = pz + fv * head.luff;
     if (hRig) { hRig.cloth.sample(clothX(hRig), 0.12, fv, _q); baseX = _q[0]; baseY = _q[1]; baseZ = _q[2]; }
@@ -2003,10 +2007,10 @@ function updateTelltales(vis, b, t) {
   // leaves it cleanly, and curl round behind the leeward side when that strip stalls
   const ms = b.sailBy.main, mst = b.diag.strips.main, msh = b.diag.shape.main;
   if (ms && (mst.areaF ?? 1) > 0.3) {
-    const rf = reefAt(b.reefPos), mside = Math.sign(mst.baseAngle || 1);
+    const rf = reefAt(b.reefPos, ms), mside = Math.sign(mst.baseAngle || 1);
     for (let i = 0; i < 3; i++) {
       const fv = STRIP_F[i], s = mst[i], a = msh[i].ang;
-      const chord = ms.foot * (1 - fv) + ms.head * fv + ms.foot * (ms.roach ?? 0.07) * Math.sin(Math.PI * fv * 0.85);
+      const chord = planChord(ms, fv) + ms.foot * (ms.roach ?? 0.07) * Math.sin(Math.PI * fv * 0.85);
       const cx = -Math.cos(a), cy = Math.sin(a), lx = Math.sin(a) * mside, ly = Math.cos(a) * mside; // chord aft, leeward normal
       let baseX = C.mastX - 0.02 + cx * chord, baseY = cy * chord, baseZ = C.boomZ + fv * ms.luff * rf.l;
       if (mRig) { mRig.cloth.sample(clothX(mRig), 1, fv, _q); baseX = _q[0]; baseY = _q[1]; baseZ = _q[2]; }

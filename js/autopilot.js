@@ -151,7 +151,7 @@ export class Autopilot {
   // heave to: luff to ~50° off the wind, every sheet eased, and let her lie there
   heaveTo(dt, twd) {
     const b = this.b, c = b.ctrl, tack = Math.sign(wrap(twd - b.psi)) || 1;
-    c.main = 1; if (b.sailBy.jib) c.jib = 1; if (b.sailBy.stay) c.stay = 1; if ('mizzen' in c) c.mizzen = 1;
+    c.main = 1; if (b.sailBy.jib) c.jib = 1; if (b.sailBy.stay) c.stay = 1; if ('mizzen' in c) c.mizzen = 1; if ('fore' in c) c.fore = 1;
     c.gen = false; c.lazy = 1; c.pushBoom = 0; this.helm.genNoted = false;
     const err = wrap(twd - tack * 50 * DEG - b.psi), cmd = clamp(2 * err - 1.5 * b.r, -0.6, 0.6);
     c.helm = lerp(c.helm, b.u < -0.1 ? -cmd : cmd, clamp(dt * 6, 0, 1));

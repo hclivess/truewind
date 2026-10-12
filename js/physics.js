@@ -29,13 +29,14 @@
 
 import { G, DEG, KT } from './env.js';
 import { HullHydro, hullForm, hullParts } from './hull.js';
-import { mastXAt, boomContactAngle, goose, sheetLen, boomAngleForSheet, easeForBoomAngle, sheetDir, boomBend, boomDip, boomLen } from './boom.js';
+import { mastXAt, mastXOf, boomContactAngle, goose, sheetLen, boomAngleForSheet, easeForBoomAngle, sheetDir, boomBend, boomDip, boomLen } from './boom.js';
 export { mastXAt, rigWires } from './boom.js';
 import { LOCKABLE, initLines, stepLines, swapJib } from './linehandlers.js';
 export { LOCKABLE };
 import { Engine } from './engine.js';
 import { RigStructure } from './rig-structure.js';
-import { foilSpec, foilState, foilGeom, foilCoef as foilCoefR, bulbDrag, kickUpdate } from './foils.js';
+import { REEF, reefAt, reefedSail, normaliseTopsail, planChord } from './sail/plan.js';
+import { foilSpec, foilState, foilGeom, foilCoef as foilCoefR, bulbDrag, wingletDrag, kickUpdate } from './foils.js';
 import { helmSpec, stockTorque, helmForce, helmFeel, rudderStep } from './helm.js';
 import { massProps } from './massprops.js';
 import { FAMOUS } from './classes/famous.js';
@@ -275,9 +276,14 @@ for (const C of [...RACE, ...FAMOUS]) CLASSES[C.id] = C;
 // its own mast, a mizzen, keeps its, as does a sail marked fixedRake). A raked mast (mastRake: m aft at the masthead,
 // from the gooseneck up) carries the main's luff and the headsails' heads aft with it: the sails' centre of effort
 // moves aft by about half the rake
+// A schooner's headsails are set on the foremast's stays (s.stayTo: the key of the sail on that mast), and a sail on its
+// own raked mast (s.mast.rake: m aft at its head) takes the mast's rake. A gaff sail with a topsail over it is one
+// planform (js/sail/plan.js normaliseTopsail)
+for (const C of Object.values(CLASSES)) for (const s of C.sails) normaliseTopsail(s);
 for (const C of Object.values(CLASSES)) for (const s of C.sails) {
-  if (s.mast || s.fixedRake) continue;
-  if (s.kind === 'loose' || (s.kind === 'boom' && s.key !== 'main')) s.rake = s.tackX - (mastXAt(C, s.tackZ + s.luff) + 0.07);
+  if (s.mast) { if (s.mast.rake) s.rake = s.mast.rake * s.luff / (s.mast.h - s.tackZ); continue; }
+  if (s.fixedRake) continue;
+  if (s.kind === 'loose' || (s.kind === 'boom' && s.key !== 'main')) s.rake = s.tackX - (mastXOf(C, s.stayTo || 'main', s.tackZ + s.luff) + 0.07);
   else if (s.key === 'main' && C.mastRake) s.rake = C.mastRake * s.luff / (C.mastHeight - C.boomZ);
 }
 // The main boom swings out until it lies on the leeward shroud (an unstayed dinghy's goes past square), and its
@@ -292,7 +298,7 @@ for (const C of Object.values(CLASSES)) {
 // (the menu shows them in this order within their groups: C.group, js/main.js CLASS_GROUPS)
 export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat', ...RACE.map(C => C.id), ...FAMOUS.map(C => C.id)];
 // sheets the crew trims (a boomed sail's sheet is keyed by the sail: a mizzen has its own)
-const SHEETS = ['main', 'jib', 'stay', 'lazy', 'mizzen'];
+const SHEETS = ['main', 'jib', 'stay', 'lazy', 'mizzen', 'fore'];
 
 export const STRIP_F = [0.17, 0.5, 0.82];
 export const STRIP_W = [0.43, 0.34, 0.23];
@@ -302,12 +308,8 @@ export const STRIP_W = [0.43, 0.34, 0.23];
 export const sailHooks = { make: null, defaultModel: null, polarAngle: null };
 // boomOverload(boat, ratio): the main boom bent past its section's strength (the damage model hooks in here)
 export const boatHooks = { boomOverload: null };
-export const REEF = [{ a: 1, l: 1 }, { a: 0.76, l: 0.84 }, { a: 0.56, l: 0.69 }];
-// area / luff factors at a continuous reef position (reefing is a procedure, not a switch)
-export function reefAt(pos) {
-  const i = Math.max(0, Math.min(1, Math.floor(pos))), f = Math.max(0, Math.min(2, pos)) - i;
-  return { a: lerp(REEF[i].a, REEF[Math.min(2, i + 1)].a, f), l: lerp(REEF[i].l, REEF[Math.min(2, i + 1)].l, f) };
-}
+// (reef factors and the planform of a sail with a topsail: js/sail/plan.js)
+export { REEF, reefAt };
 // seconds for the crew to put in (or shake out) one reef
 // A headsail's foot angle (fraction of its min..max range) for its sheet eased to e. The sheet runs from the clew
 // to a lead on deck: eased, it lets the clew rise as much as go out, so the foot opens slowly at first (the cloth
@@ -371,7 +373,7 @@ function cfITTC(u, L) {
 export function defaultControls() {
   return {
     helm: 0,            // -1..1 of max rudder (+ = bow turns to starboard)
-    main: 0.3, jib: 0.3, stay: 0.3, mizzen: 0.3, // sheet ease: 0 = hard in, 1 = fully eased
+    main: 0.3, jib: 0.3, stay: 0.3, mizzen: 0.3, fore: 0.3, // sheet ease: 0 = hard in, 1 = fully eased (fore: a schooner's foresail)
     trav: 0.5,          // traveler car: 0 = to windward, 1 = to leeward
     vang: 0.3, cunn: 0.2, outhaul: 0.4, backstay: 0.3,
     jibLead: 0.45,      // jib car: 0 = forward (deep foot, closed leech) .. 1 = aft (flat foot, open leech)
@@ -420,7 +422,7 @@ function sailRollAddedInertia(C, zG) {
     if (s.kind === 'spin' || s.replaces || !(s.luff > 0)) continue;
     const z0 = s.tackZ ?? C.boomZ, n = 8;
     for (let i = 0; i < n; i++) {
-      const f = (i + 0.5) / n, c = s.foot * (1 - f) + (s.head || 0) * f, z = z0 + f * s.luff - zG;
+      const f = (i + 0.5) / n, c = planChord(s, f), z = z0 + f * s.luff - zG;
       I += RHO_A * Math.PI / 4 * c * c * z * z * s.luff / n;
     }
   }
@@ -526,7 +528,7 @@ export class Boat {
     this.side = { jib: 1, gennaker: 1 };
     this.genDeploy = 0; this.genFill = 0;
     this.rudder = 0; this.crewY = 0; this.crewX = 0;
-    this.lines = { main: this.ctrl.main, jib: this.ctrl.jib, stay: this.ctrl.stay, lazy: this.ctrl.lazy, mizzen: this.ctrl.mizzen };
+    this.lines = { main: this.ctrl.main, jib: this.ctrl.jib, stay: this.ctrl.stay, lazy: this.ctrl.lazy, mizzen: this.ctrl.mizzen, fore: this.ctrl.fore };
     this.backedByLazy = false;
     // every line is held by something (js/linehandlers.js: cam, clam, jammer, horn, clutch, ratchet, winch...).
     // Released, a loaded line runs out by itself until it is made fast again (or held: the player is hauling it)
@@ -581,7 +583,8 @@ export class Boat {
         d *= (1 - 0.12 * c.cunn) * (1 + 0.1 * stretch);
         if (this.reefPos > 0) d *= 1 - 0.1 * this.reefPos;
         d *= 1 + 0.9 * this.reefSlack; f += 0.12 * this.reefSlack;
-      } else if (s.key === 'jib') {
+      } else if (s.key === 'jib' || s.kind === 'loose') {
+        // (every headsail on the jib sheets: a schooner's or a cutter's outer jibs are trimmed with the jib)
         const ease = this.lines.jib;
         // (eased, the clew is let up as well as out: the sheet's lead stays on deck, so the leech falls away and the
         // head twists off, 20-40 degrees more than the foot on a reach, as the cloth jib shows)
@@ -715,6 +718,12 @@ export class Boat {
     d.rig[key + 'Limit'] = limit;
   }
 
+  // the planform sail s is set to now (a gaff sail's topsail handed at the first reef: js/sail/plan.js reefedSail),
+  // at the half-reef stages the cloth is rebuilt at
+  setSail(s) {
+    const lv = Math.round(clamp(this.reefPos, 0, 2) * 2) / 2, c = this._setS || (this._setS = {}), k = s.key + lv;
+    return c[k] || (c[k] = reefedSail(s, s.key === 'main' ? lv : Math.min(1, lv)));
+  }
   // Where sail s sits and how it is set this step: the fraction of it hoisted (areaF), the chord angle at
   // its foot (baseAngle, + = to starboard), its pivot/tack, side, how much it flogs and how full it is.
   sailRig(s, reef, o) {
@@ -724,8 +733,10 @@ export class Boat {
       const b = this.booms[key];
       baseAngle = b.a; side = Math.sign(b.a) || 1;
       // (a lateen's luff starts at its tack, forward of the mast on the boom)
-      if (key === 'main') { pivotX = C.mastX + (s.rig === 'lateen' ? s.tackFwd : 0); pivotZ = C.boomZ; areaF = reef.a; luff = s.luff * reef.l; }
-      else { pivotX = s.tackX; pivotZ = s.tackZ; }
+      // (a sail with a gaff topsail over it hands the topsail at the first reef: js/sail/plan.js)
+      const rf = s.gaff ? reefAt(this.reefPos, s) : reef;
+      if (key === 'main') { pivotX = C.mastX + (s.rig === 'lateen' ? s.tackFwd : 0); pivotZ = C.boomZ; areaF = rf.a; luff = s.luff * rf.l; }
+      else { pivotX = s.tackX; pivotZ = s.tackZ; if (s.gaff) { areaF = rf.a; luff = s.luff * rf.l; } }
     } else if (s.kind === 'loose') {
       areaF = genDef && genDef.replaces === key ? 1 - this.genDeploy : 1;
       pivotX = s.tackX; pivotZ = s.tackZ;
@@ -767,7 +778,7 @@ export class Boat {
         for (let i = 0; i < 3; i++) { const st = ds[i]; st.state = 0; st.cl = 0; st.flog = areaF < 0.02 ? 0 : 1; sh[i].ang = baseAngle + side * sh[i].tw; }
       } else for (let i = 0; i < 3; i++) {
         const f = STRIP_F[i], o = ds[i], shp = sh[i];
-        const chord = s.foot * (1 - f) + s.head * f;
+        const chord = planChord(s.gaff ? this.setSail(s) : s, f);
         const zs = pivotZ + f * luff + (s.footRise || 0) * 0.4 * (1 - f);
         const lim = Math.max(Math.abs(baseAngle), 90 * DEG);  // the leech never twists past square
         const ang = clamp(baseAngle + side * shp.tw, -lim, lim);
@@ -798,7 +809,7 @@ export class Boat {
         // slot: headsail downwash on the main, main upwash on the headsail
         const sgn = Math.sign(alpha) || 1;
         if (key === 'main') alpha -= sgn * 0.055 * this._clHead;
-        else if (s.mast) alpha -= sgn * 0.04 * this._clMain;   // a mizzen sails in the main's downwash
+        else if (s.mast) alpha += (s.tackX > C.mastX ? 0.03 : -0.04) * sgn * this._clMain;   // a mizzen sails in the main's downwash, a schooner's foresail in its upwash
         else alpha += sgn * 0.03 * this._clMain;
         let a = Math.abs(alpha), rev = 1;
         if (a > Math.PI / 2) { a = Math.PI - a; rev = -1; }
@@ -838,6 +849,7 @@ export class Boat {
         this.genFill = clamp(this.genFill + (target ? 1.4 : -2.6) * dt, 0, 1);
       }
       if (s.kind === 'boom') this.boomDynamics(s, boomTorque, dt, aeroOn, ax);
+      else if (s.kind === 'loose' && key !== 'jib' && this.sailBy.jib) d.rig[key + 'Load'] = lerp(d.rig[key + 'Load'] || 0, Fsum * 0.95 * areaF, 0.1);
       else if (s.kind === 'loose' || (s.kind === 'spin' && this.genDeploy > 0.5)) {
         d.rig.jibLoad = lerp(d.rig.jibLoad || 0, Fsum * 0.95 * areaF, 0.1);
       }
@@ -1085,6 +1097,7 @@ export class Boat {
       X += kx; Y += kn * cphi; K += kn * zk; N += g.x * kn * cphi; d.Kkeel = kn * zk;
       // the bulb: a body of revolution's friction and form drag, low down
       if (S.bulb && g.imm > 0.5 && (this.keelEff ?? 1) > 0.5) { const Db = bulbDrag(S.bulb, ul); X -= Db; d.bulbDrag = Db; }
+      if (S.winglets && g.imm > 0.5 && (this.keelEff ?? 1) > 0.5) { const Dw = wingletDrag(S.winglets, ul); X -= Dw; d.wingletDrag = Dw; }
       d.Nkeel = g.x * kn * cphi; d.keelCl = fc.cl;
       d.keelX = kx; d.keelY = kn * cphi; d.keelStall = fc.stalled; d.leeway = Math.atan2(this.v, Math.max(0.05, this.u));
       d.keelARe = g.ARe; d.keelImm = g.imm; d.keelVent = fc.vent; d.keelRe = fc.Re; d.keelStallA = fc.ast;
@@ -1530,6 +1543,7 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
   for (const s of C.sails) {
     if (s.kind === 'spin' && boat.genDeploy < 0.5) continue;
     if (s.kind === 'loose' && boat.genDeploy >= 0.5) continue;
+    if (s.kind === 'loose' && s.key !== 'jib' && boat.sailBy.jib) continue;   // (the outer jibs go on the jib's sheets)
     let midTw = sh[s.key] ? sh[s.key][1].tw : 0;
     if (boat.sailSys && boat.sailSys.owns && boat.sailSys.owns(s.key)) {
       // (a cloth sail's measured twist breathes and, flogging, jumps about: the crew goes by its trend)
