@@ -532,7 +532,7 @@ export class TrafficView {
     // the nearest few yachts on the game's own boat models (js/traffic-near.js)
     this.nearYachts = new NearYachts(scene, { max: this.low ? 1 : 3, R: this.low ? 45 : 75 });
     // the water at the hull: a ring of foam and wet water round the waterline of the boats near the camera
-    this.ringCap = this.low ? 12 : 40;
+    this.ringCap = this.low ? 10 : 24;
   }
   dispose() {
     this.scene.remove(this.group);
@@ -827,7 +827,7 @@ export class TrafficView {
       if (v.hidden) continue;
       const fx = Math.sin(v.psi), fz = -Math.cos(v.psi), sx = -fz, sz = fx, base = m * RN * 2;
       const Fn = Math.max(0, v.u || 0) / Math.sqrt(9.81 * Math.max(3, v.L)), run = clamp((Fn - 0.05) * 4, 0, 1);
-      const every = v._d < 90 ? 1 : 3, upd = this.frameN % 10 === 0 || (this.frameN + m) % every === 0 || v._ring !== m;
+      const every = v._d < 60 ? 1 : v._d < 150 ? 3 : 6, upd = this.frameN % 10 === 0 || (this.frameN + m) % every === 0 || v._ring !== m;
       v._ring = m;
       for (let i = 0; i < RN; i++) {
         // round the waterline: i = 0 at the stem, down the starboard side to the transom and back up to port
@@ -865,9 +865,9 @@ export class TrafficView {
         const c = cr[Math.min(i, cr.length - 1)], k = (base + i * 2);
         if (!c || i >= cr.length) { A[k] = A[k + 1] = 0; continue; }
         const age = t - c.t, w = c.B * 0.45 + age * c.sp * 0.33;
-        // (on the drawn sea itself: it lay at half the height of six of its waves, under the crests, and the
-        // wakes behind the traffic were hidden in the water)
-        if (c.h === undefined || (i + this.frameN) % 4 === 0) c.h = this._seaH(env, c.x, c.z, t) + 0.1;
+        // (on the drawn sea's biggest waves at their full height: at half their height, under the crests, the wakes
+        // behind the traffic were hidden in the water; the near hulls' rings take the whole drawn sea)
+        if (c.h === undefined || (i + this.frameN) % 4 === 0) c.h = this._cheap(c.x, c.z, t, 1, wo, this.seaKeep ? this.seaKeep(c.x, c.z) : null).h + 0.12;
         const h = c.h;
         const a = clamp(c.sp / 5, 0, 1) * Math.exp(-age / (4 + c.B * 0.3)) * (i === 0 ? 0 : 1);
         const o3 = k * 3; P[o3] = c.x + c.px * w; P[o3 + 1] = h; P[o3 + 2] = c.z + c.pz * w; P[o3 + 3] = c.x - c.px * w; P[o3 + 4] = h; P[o3 + 5] = c.z - c.pz * w;
@@ -881,7 +881,7 @@ export class TrafficView {
         const f = i / (BN - 1), along = v.L * (0.5 - 0.62 * f), k = bb + i * 2, o3 = k * 3;
         const w = v.B * 0.5 * Math.sin(Math.min(1, 0.25 + f * 1.6) * Math.PI / 2) + v.L * f * 0.1 * (0.4 + ab);
         const x = v.x + fx * along, z = v.z + fz * along;
-        const hl = upd ? this._seaH(env, x + sx * w, z + sz * w, t) + 0.12 : BP[o3 + 1], hr = upd ? this._seaH(env, x - sx * w, z - sz * w, t) + 0.12 : BP[o3 + 4];
+        const hl = upd ? this._cheap(x + sx * w, z + sz * w, t, 1, wo, this.seaKeep ? this.seaKeep(x, z) : null).h + 0.14 : BP[o3 + 1], hr = upd ? this._cheap(x - sx * w, z - sz * w, t, 1, wo, this.seaKeep ? this.seaKeep(x, z) : null).h + 0.14 : BP[o3 + 4];
         BP[o3] = x + sx * w; BP[o3 + 1] = hl; BP[o3 + 2] = z + sz * w; BP[o3 + 3] = x - sx * w; BP[o3 + 4] = hr; BP[o3 + 5] = z - sz * w;
         BA[k] = BA[k + 1] = i === 0 ? 0 : ab * (1 - 0.55 * f);
       }

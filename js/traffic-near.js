@@ -111,8 +111,18 @@ export class NearYachts {
       }
       if (b.booms[sl.key]) b.booms[sl.key].a = set ? base : 0;
     }
-    updateBoatModel(s.vis, b, t);
-    if (s.vis.telltales) s.vis.telltales.visible = false;
-    if (s.cover) s.cover.visible = !up;
+    // (the whole model — the sails' shapes and their normals, the booms, the windex — four times a second... every
+    // fourth frame; the hull's pose every frame)
+    s.n = (s.n || 0) + 1;
+    if (s.n % 4 === 1 || s.up !== up) {
+      s.up = up;
+      updateBoatModel(s.vis, b, t);
+      if (s.vis.telltales) s.vis.telltales.visible = false;
+      if (s.cover) s.cover.visible = !up;
+    } else {
+      const P = b.pose;
+      s.vis.root.position.set(P.x, P.heave, P.z); s.vis.root.rotation.set(0, -P.psi, 0);
+      s.vis.inner.rotation.set(P.pitch, 0, -P.phi, 'YXZ');
+    }
   }
 }

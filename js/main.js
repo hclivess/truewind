@@ -580,7 +580,7 @@ class Game {
       for (let i = 1; i <= n; i++) {
         const b = new Boat(cls, { id: i, name: ids[i - 1].name, sailModel: SAIL_MODEL, lod: i <= Math.max(nCloth, 6) ? this.fleetSailLevel() : 2 });
         b.sailNo = ids[i - 1].number;
-        b.reset(spots[i][0], spots[i][1], twd - Math.PI / 2);   // (on starboard, the right-of-way tack)
+        b.reset(spots[i][0], spots[i][1], twd + Math.PI / 2);
         b.auto.hike = true;
         this.boats.push(b);
         // (each crew her own slot on the line, in the order they lie in the start box, so their ways to it do not

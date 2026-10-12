@@ -505,7 +505,7 @@ export class AIHelm {
     this.psNeed = tNeed; this.psSpare = -clock - tNeed;
     const spot = { x: lerp(course.pin.x, course.committee.x, f), z: lerp(course.pin.z, course.committee.z, f) };
     let desired, luff = false;
-    if (-clock > tNeed + 4) {
+    if (this.psPhase !== 'run' && -clock > tNeed + 4) {
       // hold below the line: reach back and forth around a holding point
       // on the starboard-tack layline to the spot: close-hauled from straight below it sails the boat
       // out past the pin end (90 m below at ~45° made good = ~90 m to the left)
@@ -519,7 +519,9 @@ export class AIHelm {
       const hold = { x: spot.x - course.ux * hd + course.rx * lay2, z: spot.z - course.uz * hd + course.rz * lay2 };
       const dx = hold.x - b.x, dz = hold.z - b.z;
       if (Math.hypot(dx, dz) > 35) desired = Math.atan2(dx, -dz);
-      else { desired = twd + Math.PI / 2 * (Math.sin(t * 0.05 + this.startFrac * 6) > 0 ? 1 : -1); luff = true; }
+      // (the whole fleet reaches the same way at the same time, on the same tack: each on her own phase, half of it
+      // was on port reaching through the other half on starboard, and the umpire's penalties cost them the start)
+      else { desired = twd + Math.PI / 2 * (Math.sin(t * 0.05) > 0 ? 1 : -1); luff = true; }
       this.psPhase = 'hold';
     } else {
       this.psPhase = 'run'; this.psNeed = tNeed;
@@ -536,7 +538,22 @@ export class AIHelm {
       const layC = Math.abs(this.trackRel(cur, up)), layO = Math.abs(this.trackRel(-cur, up, 0.8 * Vt));
       // (tacking only with way on, as on the beat)
       const vT = Math.max(0.5, Math.min(Vt, 0.45 * (b.diag.tws ?? 5)));
-      if (Math.sign(rs) === cur ? Math.abs(rs) < layC : Math.abs(rs) < layO + 2 * DEG) desired = twd - cur * up;
+      // in a cross-tide one tack can make next to nothing up the course (0.7 m/s against 2 on the other in the
+      // Solent's): on that one she goes for the line on the other as soon as it still reaches it inside the ends,
+      // whatever the laylines to her slot say (holding on to the slot's layline on the bad tack she was swept along
+      // the line and crossed it a minute late)
+      const vmgOf = (s) => { if (vl[s] !== null) return vl[s]; const [gx, gz] = this.trackVel(s, up, 0.8 * Vt); return gx * course.ux + gz * course.uz; };
+      const vC = vmgOf(cur), vO = vmgOf(-cur);
+      const half = Math.hypot(course.committee.x - course.pin.x, course.committee.z - course.pin.z) / 2;
+      const [, cNow] = course.frame(b.x, b.z, (course.pin.x + course.committee.x) / 2, (course.pin.z + course.committee.z) / 2);
+      const [ogx, ogz] = this.trackVel(-cur, up, 0.8 * Vt), oUp = ogx * course.ux + ogz * course.uz, oAcross = ogx * course.rx + ogz * course.rz;
+      const cHitO = oUp > 0.2 ? cNow + distToLine * oAcross / oUp : Infinity;
+      const badTack = vO > 1.6 * Math.max(0.15, vC) && Math.abs(cHitO) < half - 10;
+      if (badTack && (this.psTackTo === -cur && t - this.psTackT < 10 || b.u >= 0.6 * vT && (!sim.rules || sim.rules.canTurn(b, twd + cur * up)))) {
+        if (this.psTackTo !== -cur || t - this.psTackT >= 10) { this.psTackTo = -cur; this.psTackT = t; }
+        desired = twd + cur * up;
+      } else if (!badTack && vC > 1.6 * Math.max(0.15, vO) && Math.abs(rs) < up) desired = twd - cur * up;   // (on the good one: stays)
+      else if (Math.sign(rs) === cur ? Math.abs(rs) < layC : Math.abs(rs) < layO + 2 * DEG) desired = twd - cur * up;
       else if (Math.abs(rs) < up) {
         const going = this.psTackTo === -cur && t - this.psTackT < 10;   // (once begun, carried through)
         if (going || b.u >= 0.7 * vT) { if (!going) { this.psTackTo = -cur; this.psTackT = t; } desired = twd + cur * up; }
