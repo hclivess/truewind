@@ -46,6 +46,9 @@ export class Gear {
   attach(b, opts = {}) {
     const g = this.g, id = typeof b.id === 'number' ? b.id : String(b.id).split('').reduce((a, c) => a * 31 + c.charCodeAt(0), 7);
     b.ext = { X: 0, Y: 0, N: 0, K: 0 };
+    // (a speed machine: no anchor, mooring lines or crew to lose aboard, and the damage model's rig, sails and hull do
+    // not describe her: none of it is attached)
+    if (b.speedCraft) { b.lights = b.lights || {}; return; }
     b.dmg = new Damage(b, { seed: this.seed * 131 + id, mode: this.mode, remote: !!(opts.remote || b.remote) });
     if (!b.remote) b.fat = new Fatigue(b);
     if (b === g.player) {
@@ -219,6 +222,7 @@ export class Gear {
   buildPanel(b) {
     const body = $('#rig-body'); if (!body) return;
     const old = document.getElementById('gear-rg'); if (old) old.remove();
+    if (b.speedCraft) return;
     const el = document.createElement('div');
     el.className = 'rg'; el.id = 'gear-rg';
     const hasA = b.anchor && b.anchor.has;

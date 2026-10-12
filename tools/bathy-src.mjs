@@ -24,6 +24,7 @@ export const SOURCES = {
   sydney: { src: 'gmrt', datum: 'MSL', res: 61, note: 'GMRT 4.5 (AusSeabed multibeam of Port Jackson over GEBCO 2025), ≈ MSL' },
   auckland: { src: 'gmrt', base: 'ncei', datum: 'MSL', res: 450, note: 'GMRT 4.5 multibeam where surveyed, ETOPO 2022 15" (NOAA NCEI; GEBCO / NIWA inputs) elsewhere, ≈ MSL' },
   progreso: { src: 'gmrt', datum: 'MSL', res: 450, note: 'GMRT 4.5 (GEBCO 2025 15"), ≈ MSL' },
+  walvis: { src: 'gmrt', datum: 'MSL', res: 450, note: 'GMRT 4.5 (GEBCO 2025 15"), ≈ MSL: the lagoon and the strip are finer than its cells' },
 };
 
 const CACHE = join(tmpdir(), 'truewind-bathy'); try { mkdirSync(CACHE, { recursive: true }); } catch (e) {}

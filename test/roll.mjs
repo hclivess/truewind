@@ -4,7 +4,7 @@
 import { Boat, autoTrim, makeSteadyEnv, CLASSES } from '../js/physics.js';
 import '../js/sail/sailsim.js';   // the game's sail model (cloth by default; SAILS=strip for the strip model)
 const KT = 0.514444, DEG = Math.PI / 180;
-const classes = process.argv[2] ? [process.argv[2]] : Object.keys(CLASSES);
+const classes = process.argv[2] ? [process.argv[2]] : Object.keys(CLASSES).filter((id) => !CLASSES[id].speed);   // (the speed machines: test/speedcraft.mjs)
 const dt = 1 / 120;
 for (const cls of classes) for (const tws of [12, 20]) {
   const row = [];

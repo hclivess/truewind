@@ -825,10 +825,11 @@ const CABIN = {
 };
 // ================================================================== assemble
 // classes that carry a model description (C.model) are built by js/boats/detailed.js, which registers here
-export const MODEL_HOOKS = { build: null };
+export const MODEL_HOOKS = { build: null, speedBuild: null, speedUpdate: null, speedSpray: null, foils: null, foilSpray: null };   // (speed*: js/boats/speedcraft-model.js)
 export { transomDecal, transomPlate, M, Kit, onSide, nameStrip, gudgeons, transomLine, deckRay, canvasTex, rnd, hullGeometry, deckGeometry, deckHeightFn, foilGeom, lathe, profR, sailMesh, clothOf, hullMaterial, updateSail, teakTex, nonskidTex, sailTexture };
 export function buildBoatModel(boat, opts = {}) {
   const C = boat.cls;
+  if (C.speed && MODEL_HOOKS.speedBuild) return MODEL_HOOKS.speedBuild(boat, opts);
   if (C.model && MODEL_HOOKS.build) return MODEL_HOOKS.build(boat, opts);
   const Lx = linesFor(C);
   const root = new THREE.Group();
@@ -884,6 +885,8 @@ export function buildBoatModel(boat, opts = {}) {
   });
   if (C.multihull) buildCatStructure(kit, inner, C, Lx, deckH);
   if (C.amas) buildTriStructure(kit, inner, C, Lx, deckH, LK);
+  // a foiler's lifting foils and their arms (js/boats/speedcraft-model.js: the surfaces the physics flies)
+  const foilVis = C.hydrofoils && MODEL_HOOKS.foils ? MODEL_HOOKS.foils(boat, inner) : null;
   if (C.hull.wings) buildWings(kit, inner, C, Lx, deckH0);
   if (LK.weathered) buildSalvage(kit, inner, C, Lx, deckH);
   // toe rails: the Blackwatch's mahogany rubrail the length of the sheer; the Laser's rolled deck-to-hull flange; the
@@ -905,10 +908,14 @@ export function buildBoatModel(boat, opts = {}) {
     const w = Lx.bDeck(0) * 1.5;
     // the boat's name (the player's, or the fleet's); unnamed boats keep the class default; the home port
     // line only on the player's Blackwatch
-    const name = opts.name || (C.id === 'blackwatch' ? 'Blackwatch' : C.id === 'sportboat' ? (opts.number ? '#' + opts.number : 'S23') : '');
+    const name = opts.name || C.hull.name || (C.id === 'blackwatch' ? 'Blackwatch' : C.id === 'sportboat' ? (opts.number ? '#' + opts.number : 'S23') : '');
     const port = C.id === 'blackwatch' && (opts.player || !opts.name) ? 'PROGRESO, YUC.' : '';
     const mat = new THREE.MeshStandardMaterial({ map: transomDecal(C, name, port), transparent: true, roughness: 0.4 });
-    if (C.amas && name) {
+    if (C.amas && name && C.hull.nameOnMain) {
+      // a trimaran whose name is on her main hull's topsides, both sides, amidships (l'Hydroptère's)
+      const hw = 3.2, P0 = hullParts(C).find((q) => q.y === 0);
+      for (const sd of [-1, 1]) inner.add(new THREE.Mesh(onSide(nameStrip(hw, sd), -1.0, Lx.sheer(0.45) * 0.6, sd, partSideY(C, Lx, P0), 0.008), mat));
+    } else if (C.amas && name) {
       // a trimaran: on the outboard topsides of both floats, aft
       // (laid onto the float's topsides, which curve in toward its ends and round over to its deck)
       const A = C.amas, hw = 2.2, xa = lerp(C.sternX, C.bowX, A.t0 + 0.08), ta = 0.08, floats = hullParts(C).filter((P) => P.y !== 0);
@@ -1438,11 +1445,14 @@ export function buildBoatModel(boat, opts = {}) {
     pole.userData = { L, base: V(C.mastX + 0.07, 0, S.gennaker.tackZ) };
     rig.add(pole);
   }
+  // (a foiler's T-foil elevator rides on the rudder strut: it turns with the helm)
+  if (foilVis && foilVis.onRudder.length) { inner.updateMatrixWorld(true); for (const o of foilVis.onRudder) { rudderPivot.attach(o); o.userData.base = o.quaternion.clone(); } }
   return { root, inner, hull, deck, booms, sailMeshes, rudderPivot, rudderPivots, keelMesh, telltales, windex, rig, sprit, extension, tillerEnd, wheel, pole, mast,
     lines: Lx, deckH, ck, chain, stay, mastBase, sleeve, standing,
     // the mast's surface, for what is fitted to it: its axis (physics x) at height z, its radius and its aft face's
     // distance from the axis at y off it
-    mastXAt: mx, mastR: r0, mastAft: (y) => (C.id === 'dinghy' ? 1 : C.wingMast ? 2.8 : 1.25) * r0 * Math.sqrt(Math.max(0, 1 - (y / r0) ** 2)) + (C.wingMast ? 0.35 * r0 : 0) };
+    mastXAt: mx, mastR: r0, mastAft: (y) => (C.id === 'dinghy' ? 1 : C.wingMast ? 2.8 : 1.25) * r0 * Math.sqrt(Math.max(0, 1 - (y / r0) ** 2)) + (C.wingMast ? 0.35 * r0 : 0),
+    update: foilVis ? foilVis.update : undefined };
 }
 
 // A skiff's wings (racks): tube frames out to the crew's rail each side, covered in a non-skid tramp
@@ -1826,6 +1836,7 @@ function bendMast(vis, b) {
 export const clothX = (rig) => (rig.xd && rig.xd.length === rig.cloth.x.length ? rig.xd : rig.cloth.x);
 const _v = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
 export function updateBoatModel(vis, b, t) {
+  if (vis.speed) return MODEL_HOOKS.speedUpdate(vis, b, t);
   const C = b.cls, P = b.pose || b;
   // (seaDh, seaDp: on the sea as drawn, render.js onDrawnSea)
   vis.root.position.set(P.x, P.heave + (P.seaDh || 0), P.z);
