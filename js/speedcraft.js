@@ -366,6 +366,11 @@ export class SpeedCraft {
     this._uOut = this.u; this._vOut = this.v;
     this.r = dpsi; this.p = dphi; this.pitchV = dth; this.heaveV = -vD;
     this.log += Math.hypot(gx, gz) * dt;
+    // (guards: a numerical blow-up never takes the game down: the last good pose, at rest)
+    if (![this.x, this.z, this.heave, this.phi, this.pitch, this.psi, this.u, this.v].every(Number.isFinite)) {
+      const g = this._good || { x: 0, z: 0, heave: 0, phi: 0, pitch: 0, psi: 0 };
+      Object.assign(this, g); vb.fill(0); wb.fill(0); this.u = this.v = this.r = this.p = this.heaveV = this.pitchV = 0; this._uOut = this._vOut = 0;
+    } else { const g = this._good || (this._good = {}); g.x = this.x; g.z = this.z; g.heave = this.heave; g.phi = this.phi; g.pitch = this.pitch; g.psi = this.psi; }
     this.capsized = Math.abs(this.phi) > 75 * DEG || Math.abs(this.pitch) > 50 * DEG;
     if (!last) return;
     // ---- diagnostics / instruments ----

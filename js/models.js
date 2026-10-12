@@ -1443,6 +1443,8 @@ export function buildBoatModel(boat, opts = {}) {
     pole.userData = { L, base: V(C.mastX + 0.07, 0, S.gennaker.tackZ) };
     rig.add(pole);
   }
+  // (a foiler's T-foil elevator rides on the rudder strut: it turns with the helm)
+  if (foilVis && foilVis.onRudder.length) { inner.updateMatrixWorld(true); for (const o of foilVis.onRudder) { rudderPivot.attach(o); o.userData.base = o.quaternion.clone(); } }
   return { root, inner, hull, deck, booms, sailMeshes, rudderPivot, rudderPivots, keelMesh, telltales, windex, rig, sprit, extension, tillerEnd, wheel, pole, mast,
     lines: Lx, deckH, ck, chain, stay, mastBase, sleeve, standing,
     // the mast's surface, for what is fitted to it: its axis (physics x) at height z, its radius and its aft face's

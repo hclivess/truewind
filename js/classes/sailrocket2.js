@@ -32,12 +32,16 @@
 //  * performance: designed to run above 50 kn in 20-30 kn of wind; runs at ~2.4-2.5 times the wind speed; 43.85 kn
 //    in 17-22 kn (node/603); needs ~17-20 kn to get going; the record runs at about 95-100 deg true (99 deg on
 //    12 Nov, node/623); the 24 Nov record in 27-29 kn at the shore station, peak 68.01 kn.
-// ESTIMATES (est.): no dimension beyond the above is published. The fuselage (10 m), the beam (6.6 m from the fuselage
-// to the wing's foot), the wing's length along its spar (8.0 m) and chords (3.2 m root, 1.9 m tip), the floats
-// (1.5-1.8 m sleds), the foil (0.18 m chord, ~1.3 m immersed), the rudder and the mass distribution are scaled from the
-// force-alignment drawing (in which the craft's width, 12.2 m, fixes the scale) and from the team's photographs. The
-// foil's stub and the wing's foot are placed so that the wing's centre of effort and the foil's lie on one line at
-// the wing's 30 deg, as the team designed them; whether she then sails without heeling is left to the physics.
+// ESTIMATES (est.): no dimension beyond the above is published. Scaled from the team's force-alignment drawing (front
+// view, sailrocket.com/sites/default/files/VSR2-force-alignment.jpg: the craft's 12.2 m width, front float to the
+// wing extension's tip, is 360 px, ~29.5 px/m): the beam 6.4-6.6 m from the fuselage to the wing's fillet, the wing
+// 7.6 m along its spar leaning 29 deg, its tip ~7.5 m up, the fuselage low over its floats (axis ~0.6 m up), the
+// wing's centre of effort ~38% up its span (~3 m above the water: where the drawn force arrow crosses it), the foil
+// on a stub ~1.5-2 m to windward of the fuselage's stern, its centre ~1 m deep. The fuselage (10 m), the wing's chords
+// (3.2 m root, 1.9 m tip), the floats (1.5-1.9 m sleds), the foil (0.15 m chord, ~1.35 m leg and its foot), the
+// rudder and the mass distribution are estimates from the photographs. The foil's stub is placed so that the wing's
+// centre of effort and the foil's lie on one line at the wing's 30 deg, as the team designed them (it lands 2.0 m to
+// windward, where the drawing has it); whether she then sails without heeling is left to the physics.
 // The pilot: 80 kg (est.: the team's own reference passenger, node/292).
 //
 // Geometry: given in the fuselage's frame (fx along the fuselage, fy to starboard, z up from the design waterline)
@@ -52,24 +56,24 @@ const D = (fx, fy, z) => T(fx, fy, z);                                         /
 
 export function makeSailrocket2(o = {}) {
 // ---- the layout in the fuselage frame (est.: see above)
-const FUS = { x0: -5.0, x1: 5.0, z: 0.95, r: 0.42 };     // fuselage: 10 m, ~0.85 m deep, its axis 0.95 m up
+const FUS = { x0: -5.0, x1: 5.0, z: 0.75, r: 0.42 };     // fuselage: 10 m, ~0.85 m deep, its axis 0.75 m up, low over its floats
 // (opts.xw, opts.xf: the beam's and the foil stub's stations along the fuselage; opts.foilDy: the foil's offset across
 // from where the static alignment puts it.) The beam slides along the fuselage, forward at low speed and aft at speed
 // (node/292); the foil's pitch is tuned between sessions (node/660): as the team set her up, these were chosen (est.)
 // so that at speed (26 kn of wind, 100 deg true) the yaw moment the rudder must hold is small and she sails level with
 // the leeward float light: 0.5 m further across than the static alignment of the two centres (the wing's centre rises
-// with the wind gradient), the beam at the stern and the foil's stub 2 m ahead of it.
-const XB = o.xw ?? -5.0, XF = o.xf ?? -3.0;
-const BEAM_Y = -6.6, BEAM_Z = 1.0;                       // the beam out to the wing's foot, to port (leeward)
+// with the wind gradient), the beam at the stern and the foil's stub 1.5 m ahead of it.
+const XB = o.xw ?? -5.0, XF = o.xf ?? -3.5;
+const BEAM_Y = -6.6, BEAM_Z = 0.6;                        // the beam out to the wing's foot, to port (leeward)
 const INC = 30 * DEG;                                    // the wing's inclination to windward (node/410)
-const WING = { foot: [XB, BEAM_Y, 1.3], len: 8.0, chord: [3.2, 1.9] };
+const WING = { foot: [XB, BEAM_Y, 0.85], len: 7.6, chord: [3.2, 1.9] };
 // the wing's span (spar) direction: up and to windward (starboard) in the beam's plane
 const WS = [0, Math.sin(INC), Math.cos(INC)];
 // the foil: from its stub off the starboard side, down and inboard, parallel to the wing (its force at the same 30
 // deg), then the L's foot turning further inboard (more of its force downward). Its stub is placed where the wing's
 // line of force, run down from the wing's centre of effort (0.42 of its span: a tapered wing's centroid) at the wing's
 // inclination, reaches the foil's centre at its design depth (0.35 m, est.): the team's force alignment
-const WCE = 0.42 * WING.len, ZF = -0.35;
+const WCE = 0.38 * WING.len, ZF = -0.35;
 const wceY = WING.foot[1] + WS[1] * WCE, wceZ = WING.foot[2] + WS[2] * WCE;
 const foilY = wceY + (wceZ - ZF) / Math.tan(INC);
 const FOIL_TOP = [XF, foilY + (o.foilDy ?? 0.5) + (0.45 - ZF) * Math.tan(INC), 0.45];   // (where it leaves the stub, 0.45 m above the water)
@@ -84,7 +88,7 @@ const ELBOW = add(FOIL_TOP, FOIL_A.dir, FOIL_A.len);
   specs: 'Length 12.2 m · Width 12.2 m · 275 kg empty · Wing 22 m² (18 m² projected), inclined 30° · Starboard tack only · 500 m record 65.45 kn',
   // (what the rest of the game reads: her extent along her heading and across it, the wing's height, the foil's depth)
   loa: 12.2, lwl: 9.4, beam: 12.2, hullBeam: 0.85, bowX: 4.9, sternX: -5.6, freeboard: 0.9, canoeDraft: 0.25, draft: 1.25,
-  mastHeight: 8.2, mastX: -1.0, boomZ: 1.3, targetHeel: 6 * DEG, canCapsize: true, crewN: 1, crewEach: 80, crewZ: 0.8,
+  mastHeight: 7.5, mastX: -1.0, boomZ: 0.85, targetHeel: 6 * DEG, canCapsize: true, crewN: 1, crewEach: 80, crewZ: 0.8,
   massHull: 275, sheetPower: 400, hasBackstay: false, hasBoard: false, sails: [], lines: {}, engine: null,
   rudder: { max: 12 * DEG },
   speed: {
@@ -102,7 +106,7 @@ const ELBOW = add(FOIL_TOP, FOIL_A.dir, FOIL_A.len);
     trim0: 0.3,
     // the wing extension: a horizontal surface at the wing's foot reaching outboard, in ground effect, that carries
     // the leeward float clear at speed. Its lift flap is mass balanced (node/411): here a fixed incidence (est. 5 deg)
-    extension: { root: T(XB, BEAM_Y, 1.05), span: D(0, -1, 0), len: 1.8, chord: [0.95, 0.7], chord0: D(-1, 0, 0), liftTo: [0, 0, 1],
+    extension: { root: T(XB, BEAM_Y, 0.62), span: D(0, -1, 0), len: 1.8, chord: [0.95, 0.7], chord0: D(-1, 0, 0), liftTo: [0, 0, 1],
       sec: { kind: 'naca', tc: 0.12 }, inc: 8 * DEG, endPlate: 1.0 },
     foils: [
       // the main foil's long inclined leg (surface piercing) and its L's foot, base-ventilated wedges (est.: base 12% of
@@ -134,20 +138,20 @@ const ELBOW = add(FOIL_TOP, FOIL_A.dir, FOIL_A.len);
       { m: 92, p: T(0.6, 0, FUS.z), r: [2.6, 0.3, 0.3], name: 'fuselage, cockpit, stub beam' },
       { m: 30, p: T(XB, BEAM_Y / 2, BEAM_Z), r: [0.1, 1.9, 0.1], name: 'beam' },
       { m: 66, p: T(XB, WING.foot[1] + WS[1] * 3.3, WING.foot[2] + WS[2] * 3.3), r: [0.8, 1.2, 2.0], name: 'wing' },
-      { m: 6, p: T(XB, BEAM_Y - 0.9, 1.05), r: [0.3, 0.5, 0.05], name: 'wing extension' },
+      { m: 6, p: T(XB, BEAM_Y - 0.9, 0.62), r: [0.3, 0.5, 0.05], name: 'wing extension' },
       { m: 22, p: T(XF, foilY + 0.2, 0.0), r: [0.1, 0.4, 0.5], name: 'foil, stub beam fairing' },
       { m: 16, p: T(3.9, 0, 0.2), r: [0.5, 0.2, 0.15], name: 'front float, rudder, steering' },
       { m: 10, p: T(-4.3, 0, 0.25), r: [0.4, 0.2, 0.15], name: 'rear float, skeg' },
       { m: 13, p: T(XB, -6.35, 0.25), r: [0.5, 0.2, 0.15], name: 'leeward float' },
       { m: 20, p: T(-2.5, -3.5, 2.6), r: [1.0, 1.5, 1.5], name: 'compression strut, shrouds, electronics' },
     ],
-    pilot: T(3.0, 0, 0.85),
+    pilot: T(3.0, 0, 0.55),
     // air drag apart from the wing: the whole craft is a 74 cm sphere's (node/292: C_D ~0.47 subcritical, 0.43 m^2:
     // C_D A ~0.2 m^2 with the wing's own profile drag in it; here ~0.12 m^2 for the rest, est.), [frontal, side] areas
     windage: [
       { p: T(0.5, 0, FUS.z), area: [0.35, 6.5], cd: 0.15 },          // the fuselage
       { p: T(XB, BEAM_Y / 2, BEAM_Z), area: [0.6, 0.3], cd: 0.08 },  // the beam (a faired section)
-      { p: T(3.0, 0, 1.45), area: [0.25, 0.25], cd: 0.5 },          // the pilot's head and the cockpit
+      { p: T(3.0, 0, 1.15), area: [0.25, 0.25], cd: 0.5 },          // the pilot's head and the cockpit
     ],
     // parts that go in the water only in a capsize or a nosedive: the fuselage's ends and the beam's middle
     wet: [

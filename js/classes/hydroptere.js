@@ -29,7 +29,7 @@
 import { DEG } from './util.js';
 
 // geometry (x forward from the centre of gravity, y to starboard, z up from the design waterline; est.)
-const FLOAT_Y = 11.4, FOIL_X = 1.2, BEAM_F = 2.6, BEAM_A = -3.2;
+const FLOAT_Y = 11.4, FOIL_X = 1.2, BEAM_F = 1.5, BEAM_A = -3.2;
 const DIH = 45 * DEG;                                    // the foils' slope to the horizontal (42-45°: fr.wikipedia)
 const foil = (side) => ({
   name: side > 0 ? 'stbd foil' : 'port foil', side,
@@ -47,7 +47,7 @@ export default {
   blurb: "Alain Thébault's foiling trimaran (1994): 18.3 m long, 24 m wide, on two surface-piercing foils sloping in at 45° from her floats and a T-foil rudder. She lifts out at about 15-20 kn and flies on her leeward foil; 51.36 kn over 500 m in 2009. A foil that ventilates drops her; in 2008 she capsized at 56 kn.",
   specs: 'LOA 18.28 m · Beam 24 m · Floats 6.7 m · 7.5 t · Mast 27 m · Main 195 m² · Solent 105 m² · Foils 3.5 m draft · 500 m record 51.36 kn',
   lwl: 17.6, loa: 18.28, beam: 24, hullBeam: 1.9, bowX: 9.3, sternX: -8.98, freeboard: 1.05, canoeDraft: 0.6, wetted: 26, draft: 3.5,
-  amas: { y: FLOAT_Y, tube: { r: 0.62, z: 0.66 }, sy: 1, sz: 1, szTop: 1, dz: 0, t0: (-4.6 + 8.98) / 18.28, t1: (2.1 + 8.98) / 18.28, beams: [BEAM_F, BEAM_A], netZ: 1.25 },
+  amas: { y: FLOAT_Y, tube: { r: 0.62, z: 0.66 }, sy: 1, sz: 1, szTop: 0.92, dz: 0, t0: (-4.6 + 8.98) / 18.28, t1: (2.1 + 8.98) / 18.28, beams: [BEAM_F, BEAM_A], netZ: 1.25 },
   wheel: { x: -5.0, r: 0.55, h: 0.8 }, mastR: 0.17, wingMast: true, reefTime: 90, reefWind: [24, 32], speedMax: 40,
   engine: null,
   lines: { main: { handler: 'selfTailer', n: 8, at: 'winch' }, trav: { handler: 'selfTailer', n: 4, at: 'winch' }, jib: { handler: 'selfTailer', at: 'winch' },
@@ -100,6 +100,6 @@ export default {
     // the T-foil's horizontal: 2.6 m wide, 0.42 m chord (est.) at the foot of the 3.3 m strut (3.0 m under the waterline), its flap the take-off control (crew:
     // ctrl.flap); flying, it carries a down-load (the drive, high up, pitches her bow down): a thin section cambered
     // for it (est.)
-    { name: 'elevator', root: [-8.9, -1.3, -3.06], span: [0, 1, 0], len: 2.6, chord: [0.42, 0.42], chord0: [-1, 0, 0], liftTo: [0, 0, 1], sec: { kind: 'naca', tc: 0.08, alpha0: -1 * DEG, clDesign: -0.08 }, inc: 0, flap: [-8 * DEG, 10 * DEG], n: 4, endPlate: 0.3, pierce: false },
+    { name: 'elevator', root: [-8.8, -1.3, -3.1], span: [0, 1, 0], len: 2.6, chord: [0.42, 0.42], chord0: [-1, 0, 0], liftTo: [0, 0, 1], sec: { kind: 'naca', tc: 0.08, alpha0: -1 * DEG, clDesign: -0.08 }, inc: 0, flap: [-8 * DEG, 10 * DEG], n: 4, endPlate: 0.3, pierce: false },
   ],
 };

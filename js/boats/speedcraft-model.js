@@ -35,12 +35,12 @@ const M = {
 };
 // the wing's film: ribs every ~0.55 m of span, the dark leading edge (the spar's fairing), the trim flap's hinge line on
 // the middle wing, the white panel low on the middle wing with the name across the chord
-function wingTex(text) {
+function wingTex(text, mirror = false) {
   return canvas(512, 1024, (g, w, h) => {
     g.fillStyle = '#d9dee2'; g.fillRect(0, 0, w, h);
     const v = (f) => h * (1 - f);                                    // (v up the span)
     g.fillStyle = '#eef0ef'; g.fillRect(0.12 * w, v(0.43), 0.86 * w, v(0.22) - v(0.43));    // the white panel
-    g.save(); g.translate(0.55 * w, v(0.325)); g.fillStyle = '#2b2d30'; g.font = 'bold 92px Helvetica, Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 0, 0); g.restore();
+    g.save(); g.translate(0.55 * w, v(0.325)); if (mirror) g.scale(-1, 1); g.fillStyle = '#2b2d30'; g.font = 'bold 92px Helvetica, Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 0, 0); g.restore();
     g.fillStyle = 'rgba(30,32,36,0.85)'; for (let k = 0; k <= 15; k++) g.fillRect(0, v(k / 15) - 3, w, 6);           // ribs
     g.fillStyle = '#2a2c30'; g.fillRect(0, 0, 0.12 * w, h);                                                          // leading edge
     g.fillStyle = 'rgba(40,42,46,0.6)'; g.fillRect(0.78 * w, v(0.86), 4, v(0.45) - v(0.86));                        // trim flap hinge
@@ -53,7 +53,7 @@ function textTex(text, color, w = 1024, h = 128, font = 'bold 84px Helvetica, Ar
 
 // a straight lifting surface in the boat-local frame: sections (unit chord, LE at 0) placed along the span from root,
 // the chord direction cDir (LE -> TE) and the thickness direction nDir; pivot: the chordwise station of the spar
-function surfaceGeom(root, sDir, len, chords, cDir, nDir, section, nSpan = 12, pivot = 0.25) {
+function surfaceGeom(root, sDir, len, chords, cDir, nDir, section, nSpan = 12, pivot = 0.25, faces = false) {
   const ns = section.length, pos = [], uv = [], idx = [];
   for (let k = 0; k <= nSpan; k++) {
     const f = k / nSpan, c = lerp(chords[0], chords[1], f);
@@ -63,12 +63,16 @@ function surfaceGeom(root, sDir, len, chords, cDir, nDir, section, nSpan = 12, p
       pos.push(p.x, p.y, p.z); uv.push(x, f);
     }
   }
-  for (let k = 0; k < nSpan; k++) for (let i = 0; i < ns - 1; i++) { const a = k * ns + i, b = a + ns; idx.push(a, b, a + 1, a + 1, b, b + 1); }
+  // (faces: the upper face's triangles first, then the lower face's and the caps, as two groups for two materials)
+  const half = (ns - 1) >> 1;
+  for (const up of [true, false]) for (let k = 0; k < nSpan; k++) for (let i = 0; i < ns - 1; i++) { if ((i < half) !== up) continue; const a = k * ns + i, b = a + ns; idx.push(a, b, a + 1, a + 1, b, b + 1); }
+  const nUp = nSpan * half * 6;
   // the end caps
   const cap = (k) => { const c0 = pos.length / 3; const cen = new THREE.Vector3(); for (let i = 0; i < ns; i++) cen.add(new THREE.Vector3(pos[(k * ns + i) * 3], pos[(k * ns + i) * 3 + 1], pos[(k * ns + i) * 3 + 2])); cen.multiplyScalar(1 / ns); pos.push(cen.x, cen.y, cen.z); uv.push(0.5, k ? 1 : 0); for (let i = 0; i < ns - 1; i++) idx.push(c0, k * ns + i, k * ns + i + 1); };
   cap(0); cap(nSpan);
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
+  if (faces) { g.addGroup(0, nUp, 0); g.addGroup(nUp, idx.length - nUp, 1); }
   g.computeVertexNormals();
   return g;
 }
@@ -174,8 +178,11 @@ export function buildSpeedModel(b, opts = {}) {
   const W = b.wing, sp = W.spec, wRoot = B(sp.root), sD = Bd(W.s).normalize(), c0 = Bd(W.c0).normalize(), n0 = Bd(W.n0).normalize();
   const camber = (S.wing.sec.alpha0 ? 0.02 : 0) * (n0.dot(new THREE.Vector3().crossVectors(sD, c0)) > 0 ? 1 : -1);
   const wingPivot = new THREE.Group(); wingPivot.position.copy(wRoot); inner.add(wingPivot);
-  const wingMat = mat('sr-wing', () => new THREE.MeshStandardMaterial({ map: wingTex(L.text), roughness: 0.45, transparent: true, opacity: 0.86, side: THREE.DoubleSide, depthWrite: true }));
-  const wingMesh = new THREE.Mesh(surfaceGeom(new THREE.Vector3(), sD, sp.len, sp.chord, c0, new THREE.Vector3().crossVectors(sD, c0).normalize(), naca(0.12, camber), 16, 0.25), wingMat);
+  // (the name is printed on both faces of the white panel, each reading the right way: the film's other face carries
+  // the same picture mirrored back)
+  const wingMat = mat('sr-wing', () => new THREE.MeshStandardMaterial({ map: wingTex(L.text), roughness: 0.45, transparent: true, opacity: 0.86, side: THREE.FrontSide, depthWrite: true }));
+  const wingMatB = mat('sr-wingB', () => new THREE.MeshStandardMaterial({ map: wingTex(L.text, true), roughness: 0.45, transparent: true, opacity: 0.86, side: THREE.FrontSide, depthWrite: true }));
+  const wingMesh = new THREE.Mesh(surfaceGeom(new THREE.Vector3(), sD, sp.len, sp.chord, c0, new THREE.Vector3().crossVectors(sD, c0).normalize(), naca(0.12, camber), 16, 0.25, true), [wingMatB, wingMat]);
   wingMesh.castShadow = true; wingMesh.name = 'wing'; wingPivot.add(wingMesh);
   // (the spar inside the leading third, carbon; its foot on the ball of the fillet)
   wingPivot.add(rod(new THREE.Vector3(), sD.clone().multiplyScalar(sp.len), 0.05, M.carbon(), 10));
@@ -220,7 +227,7 @@ export function buildSpeedModel(b, opts = {}) {
     const P = pd.P, g = sledGeom(P), k = B(pd.keel);
     const m = add(g, M.black(), 'float ' + P.name); m.position.copy(k);
     // (its strut up to the fuselage or the beam above it)
-    const top = pd.P.name === 'leeward' ? F(L.xb, L.beamY + 0.25, L.beamZ - 0.08) : null;
+    const top = pd.P.name === 'leeward' ? F(L.xb, L.beamY + 0.25, L.beamZ) : null;
     const mid = k.clone().add(V3(P.len * 0.5, 0, 0));
     const strutA = mid.clone().add(new THREE.Vector3(0, (P.depthMax ?? 0.3), 0));
     let strutB;
@@ -282,7 +289,9 @@ export class SpeedSpray extends HullSplash {
         const out = (0.35 + 0.25 * Math.random()) * V, up = (0.12 + 0.18 * Math.random()) * V, back = 0.45 + 0.3 * Math.random();
         this.emit(p.x, Math.max(0.02, p.y), p.z, bvx * back + sx * side * out, up, bvz * back + sz * side * out, 0.05 + 0.08 * Math.random(), 0, 0.6);
       }
-      if (Math.random() < dt * 8 * clamp(V / 5, 0, 1)) { const p = b.worldOf([pd.keel[0], pd.keel[1], 0], wp); this.spawnPatch(p.x, p.z, bvx * 0.15, bvz * 0.15, 0.3 + pd.P.b, 0.8, 0.3); }
+      // (the float's wake: a thin white streak, laid every metre of her run (the splash's 520 patches last ~8 s at 60 kn))
+      const nP = Math.min(8, (pd._pAcc = (pd._pAcc || 0) + V * dt / 1.0)) | 0; pd._pAcc -= nP;
+      for (let k = 0; k < nP; k++) { const p = b.worldOf([pd.keel[0] + k / Math.max(1, nP), pd.keel[1], 0], wp); this.spawnPatch(p.x, p.z, bvx * 0.05, bvz * 0.05, 0.6 * pd.P.b, 0.5, 0.12); }
     }
     // the surface-piercing foil and rudder: a plume aft of where they cut the surface
     for (const f of [...b.foils, ...b.rudders]) {
@@ -308,7 +317,9 @@ export function buildFoils(b, inner) {
     const ch = Array.isArray(sp.chord) ? sp.chord : [sp.chord, sp.chord];
     const tc = (sp.sec && sp.sec.tc) || 0.1;
     if (sp.flap) {
-      const pv = new THREE.Group(); pv.position.copy(B(sp.root)); inner.add(pv);
+      // (the T-foil's elevator turns with the rudder strut it is fixed to: the model's rudder pivot takes it over once
+      // it is built, js/models.js; its incidence about its own span stays the physics' flap)
+      const pv = new THREE.Group(); pv.position.copy(B(sp.root)); inner.add(pv); pv.userData.onRudder = /elevator/.test(sp.name);
       const m = new THREE.Mesh(surfaceGeom(new THREE.Vector3(), s, sp.len, ch, c, nn, naca(tc, 0.02), 6, 0.3), M.carbon()); m.castShadow = true; m.name = sp.name; pv.add(m);
       parts.push({ S, pv, s });
     } else {
@@ -320,7 +331,8 @@ export function buildFoils(b, inner) {
       }
     }
   }
-  return { update: (vis, b) => { for (const p of parts) { const S = p.S; p.pv.quaternion.setFromAxisAngle(p.s, Math.sign(new THREE.Vector3(...S.n0).dot(new THREE.Vector3().crossVectors(new THREE.Vector3(...S.s), new THREE.Vector3(...S.c0)))) * (S.delta || 0)); } } };
+  const _q = new THREE.Quaternion();
+  return { onRudder: parts.filter((p) => p.pv.userData.onRudder).map((p) => p.pv), update: (vis, b) => { for (const p of parts) { const S = p.S, base = p.pv.userData.base; (base ? _q : p.pv.quaternion).setFromAxisAngle(p.s, Math.sign(new THREE.Vector3(...S.n0).dot(new THREE.Vector3().crossVectors(new THREE.Vector3(...S.s), new THREE.Vector3(...S.c0)))) * (S.delta || 0)); if (base) p.pv.quaternion.copy(base).multiply(_q); } } };
 }
 // spray where a foil cuts the surface at speed (a sheet thrown up off the leading edge, a ventilated plume behind)
 export function foilSpray(sp, b, dt) {
