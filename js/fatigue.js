@@ -49,7 +49,7 @@ export class Fatigue {
     // ---- work: sheets hauled in under load, plus the pump and the anchor (extraW), shared by the crew aboard
     const L = this._lines || (this._lines = {});
     let P = extraW;
-    for (const s of C.sails) {
+    for (const s of C.powered ? [] : C.sails) {                 // (powered winches: the hydraulics do the work)
       const k = s.kind === 'boom' ? s.key : 'jib';
       const now = b.lines[k] ?? 0, was = L[k] ?? now; L[k] = now;
       if (now < was) {                                     // trimming in: work = load x the length hauled

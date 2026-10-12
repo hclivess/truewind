@@ -593,7 +593,7 @@ function sailTexture(C, s) {
       // scrim: load-path fibres radiating from the corners, fine and dark
       g.lineWidth = 1;
       for (let i = 0; i < 90; i++) {
-        const c = i % 3, a = 0.05 + r() * 0.05; g.strokeStyle = `rgba(20,24,30,${a})`; g.beginPath();
+        const c = i % 3, a = (0.05 + r() * 0.05) * (cl.scrim ?? 1); g.strokeStyle = `rgba(20,24,30,${a})`; g.beginPath();
         if (c === 0) { g.moveTo(w * 0.5, 0); g.lineTo(r() * w, h * (0.5 + r() * 0.5)); }
         else if (c === 1) { g.moveTo(0, h); g.lineTo(r() * w, r() * h * 0.8); }
         else { g.moveTo(w, h); g.lineTo(r() * w * 0.9, h * (0.2 + r() * 0.7)); }
@@ -669,7 +669,7 @@ function sailTexture(C, s) {
     for (const x of [10, w - 13]) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
     g.setLineDash([]);
     // draft stripes on the racing sails
-    if (cl.kind === 'laminate' && s.kind !== 'spin') {
+    if (cl.kind === 'laminate' && s.kind !== 'spin' && cl.draft !== false) {     // (a cruising laminate: none)
       g.fillStyle = 'rgba(20,32,60,0.75)';
       for (const f of [0.25, 0.5, 0.75]) { const y = h * (1 - f); g.fillRect(w * 0.1, y - 3, w * 0.9, 6); }
     }
@@ -684,11 +684,13 @@ function sailTexture(C, s) {
         const y = h * (1 - f), L = w * len, dy = slope(y) * len;
         g.save(); g.translate(0, y); g.rotate(Math.atan2(dy, L));
         const Lr = Math.hypot(L, dy);
-        g.fillStyle = 'rgba(255,255,255,0.45)'; g.fillRect(0, -9, Lr, 18);
-        g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(0, -10, Lr, 2); g.fillRect(0, 8, Lr, 2); g.fillRect(Lr - 6, -10, 6, 20);
+        // (a pocket ~8 cm wide on the sail: s.pocketW m; 18 px on a small yacht's)
+        const pw = s.pocketW ? Math.max(3, s.pocketW / s.luff * h) / 2 : 9;
+        g.fillStyle = 'rgba(255,255,255,0.45)'; g.fillRect(0, -pw, Lr, 2 * pw);
+        g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(0, -pw - 1, Lr, 2); g.fillRect(0, pw - 1, Lr, 2); g.fillRect(Lr - 6, -pw - 1, 6, 2 * pw + 2);
         g.restore();
       }
-      if (s.reefs) for (const rf of [0.16, 0.31]) { // reef points with a cringle at each end
+      if (s.reefs && !s.furling) for (const rf of [0.16, 0.31]) { // reef points with a cringle at each end (a furling main has none)
         const y = h - rf * h;
         g.fillStyle = 'rgba(0,0,0,0.08)'; g.fillRect(0, y - 8, w, 16);
         g.fillStyle = 'rgba(255,255,255,0.9)';
