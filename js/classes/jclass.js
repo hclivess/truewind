@@ -65,7 +65,7 @@ function jLines(o) {
     wl: [[0, 0.55], [tA, 0.72], [0.3, 0.92], [tm, 0.97], [0.68, 0.94], [tF - 0.04, 0.74], [tF + 0.05, 0.5], [1, 0.35]],
     // the canoe body's bottom on the centreline: up into the overhangs (+), the counter's underside rising to the
     // transom, the spoon bow's forefoot curving up to the stem head
-    keel: [[0, o.transomZ], [tA * 0.45, o.transomZ * 0.55], [tA, 0.0], [tA + 0.06, -0.75], [0.32, -1.5], [tm, -1.95], [0.62, -1.88], [0.7, -1.5], [0.77, -0.9], [tF - 0.035, -0.25], [tF, 0.0], [tF + 0.04, 0.42], [0.95, 1.05], [0.985, 1.65], [1, zBow - 0.15]],
+    keel: [[0, o.transomZ], [tA * 0.45, o.transomZ * 0.45], [tA, 0.0], [tA + 0.06, -0.75], [0.32, -1.5], [tm, -1.95], [0.62, -1.88], [0.7, -1.5], [0.77, -0.9], [tF - 0.035, -0.25], [tF, 0.0], [tF + 0.04, 0.42], [0.95, 1.05], [0.985, 1.65], [1, zBow - 0.15]],
     // the keel below it: the rudder's line at its aft edge (raked, its top aft) down to the heel, the bottom nearly
     // level, the leading edge sweeping up into the forefoot
     fin: [[tK - 0.075, -0.75], [tK - 0.045, -2.4], [tK - 0.015, -4.1], [tK, -o.draft], [tK + 0.12, -o.draft + 0.12], [tK + 0.24, -o.draft + 0.45],
@@ -98,7 +98,7 @@ function jClass(o) {
   const hingeTop = X(tK - 0.075), rake = Math.atan2(X(tK) - hingeTop, o.draft - 0.75), hingeLen = (o.draft - 1.0) / Math.cos(rake);
   const rudderX = X(tK - 0.04) - 0.675;
   const crewN = o.crewN, crewEach = 85;
-  const lines = jLines({ tA, tF, zBow: o.zBow, zMid: o.freeboard, zStern: o.zStern, tK, draft: o.draft, transomW: o.transomW, transomZ: o.zStern - 0.38, transomRake: 0.55 });
+  const lines = jLines({ tA, tF, zBow: o.zBow, zMid: o.freeboard, zStern: o.zStern, tK, draft: o.draft, transomW: o.transomW, transomZ: o.zStern - 0.6, transomRake: 0.55 });
   // (genoaMin: the closest the genoa sheets, its clew to its car at the rail: a 160% genoa's ~11 deg, Velsheda's and
   // Endeavour's, Shamrock V's smaller one ~9 deg)
   // the forestay: from the stem head to the mast near its top (the genoa's luff; est. as Velsheda's 2012 photographs)
@@ -130,22 +130,23 @@ function jClass(o) {
     mastX, mastHeight: o.mastHeight, boomZ: o.boomZ, mastR: o.mastR, keelBulb: false,
     // (the VPP's run: she takes ~2 minutes to settle at her speed from its start, js/physics.js solvePolarAngle)
     vppSecs: 150, hydroStations: 44, hullStations: 120,
-    // (sailed on her lines: a J races heeled ~20 degrees upwind in a breeze, the lee rail near the water)
-    targetHeel: 20 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, runners: true,
+    // (sailed on her lines: a J races heeled ~20-25 degrees upwind in a breeze, the lee rail near the water; the crew
+    // reefs (or changes down) from ~20 kn of true wind upwind, later off the wind: autoReef as the game's crews reef)
+    targetHeel: 22 * DEG, autoReef: { up: [20, 26], off: [26, 32] }, canCapsize: false, hasBackstay: true, hasBoard: false, runners: true,
     // the deck's hydraulic power: what the crew and the winches can pull on a sheet (N): a J's genoa sheet runs to
     // 10 - 15 t, the mainsheet to ~10 t (est.)
-    sheetPower: 60000, reefTime: 180, reefWind: [24, 30],          // (est.: J Class racing stops at ~25 kn; a reef then)
+    sheetPower: 60000, reefTime: 180, reefWind: [20, 26],          // (est.: a J reefs at ~18-22 kn; J Class racing stops at ~25 kn)
     cloth: 'superLaminate',
     engine: o.engine,
-    // line handling as rigged now: the sheets on hydraulic winches (driven from below, the drums on deck, and from the
-    // grinders' pedestals: captive in the line-handler schema, push-button in and out), the mainsheet and the
-    // traveller likewise (Endeavour's on Cariboni rams under the aft deck), the vang, cunningham, outhaul, backstay and
-    // genoa halyard on hydraulic rams from the push-button panel (js/linehandlers.js captive, ram)
+    // line handling as rigged now: the sheets and the mainsheet on big self-tailing drum winches on deck, driven
+    // hydraulically from below and from the grinders' pedestals (poweredTailer), the traveller on a hydraulic drum
+    // under the aft deck (captive; Endeavour's on Cariboni rams), the vang, cunningham, outhaul, backstay and genoa
+    // halyard on hydraulic rams from the push-button panel (js/linehandlers.js)
     lines: {
-      main: { handler: 'captive', n: 2, at: 'winch', d: 22, fibre: 'dyneema' },
-      jib: { handler: 'captive', n: 1, at: 'winch', d: 20, fibre: 'dyneema' },
-      lazy: { handler: 'captive', n: 1, at: 'winch', d: 20, fibre: 'dyneema' },
-      gen: { handler: 'captive', n: 1, at: 'winch', d: 18, fibre: 'dyneema' },
+      main: { handler: 'poweredTailer', n: 2, at: 'winch', d: 22, fibre: 'dyneema' },
+      jib: { handler: 'poweredTailer', at: 'winch', d: 20, fibre: 'dyneema' },
+      lazy: { handler: 'poweredTailer', at: 'winch', d: 20, fibre: 'dyneema' },
+      gen: { handler: 'poweredTailer', at: 'winch', d: 18, fibre: 'dyneema' },
       trav: { handler: 'captive', n: 1, at: 'car' },
       vang: { handler: 'ram', n: 1, at: 'deck', max: 150e3, d: 60, fibre: 'ram' },
       cunn: { handler: 'ram', n: 1, at: 'mast', max: 60e3 },
@@ -159,12 +160,16 @@ function jClass(o) {
       { key: 'main', kind: 'boom', area: o.main, luff: o.mastHeight - o.boomZ - 0.7, foot: o.mainFoot, head: 1.4, depth: [0.11, 0.13, 0.12], twistMax: 18 * DEG, roach: 0.05,
         cd0: 0.06, ARe: 5.2, min: 2 * DEG, max: 80 * DEG, trav: [-5 * DEG, 10 * DEG], Iboom: o.boomMass * (o.mainFoot ** 2) / 3, boomMass: o.boomMass, reefs: 2,
         vangBend: 0.02, sheetBend: 0.02, color: o.cloth, boomMat: o.boomMat, boomR: o.boomR, boomWide: o.boomWide, boomDeep: 0.95,
-        pockets: [[0.2, 0.12], [0.35, 0.13], [0.5, 0.14], [0.64, 0.15], [0.78, 0.16], [0.9, 1.0]], ropeK: 10, tapeK: 5.33,
+        // (battens: est., a modern J main's six full-length carbon battens, as a big yacht's main is built: they hold the
+        // roach and the leech's shape; EI as the Swan 131's)
+        pockets: [[0.2, 1.0], [0.35, 1.0], [0.5, 1.0], [0.64, 1.0], [0.78, 1.0], [0.9, 1.0]], battens: { EI: 1500, full: true, rows: [0.2, 0.35, 0.5, 0.64, 0.78, 0.9] },
+        ropeK: 25, tapeK: 25, clewK: 25,
         // the mainsheet to a hydraulic traveller across the aft deck (est.: under the boom's after third); the boom a
-        // carbon box section (est. EI 2.5e8 N m², yield moment 2.2 MN m); hydraulic rod vang; preventer and no brake
-        track: { x: mastX - o.mainFoot * 0.78, z: o.freeboard + 0.25, half: 1.6, s: o.mainFoot * 0.78 }, boomEI: 2.5e8, boomMmax: 2.2e6, vang: 'rope', vangMax: 150000, preventer: 250000 },
+        // carbon box section (est. EI 2.5e8 N m², yield moment 2.2 MN m); a hydraulic rod vang (rigid: it holds the boom
+        // up too, from its foot on the mast a metre above the deck, vangDrop the boom's height over it); preventer, no brake
+        track: { x: mastX - o.mainFoot * 0.78, z: o.freeboard + 0.25, half: 1.6, s: o.mainFoot * 0.78 }, boomEI: 2.5e8, boomMmax: 2.2e6, vang: 'rigid', vangMax: 150000, vangSpring: 2e5, vangDrop: o.boomZ - o.freeboard - 1.2, preventer: 250000 },
       { key: 'jib', kind: 'loose', label: 'Genoa', area: o.genoa, tackX, tackZ, luff: headZ - tackZ, foot: o.genoaFoot, head: 0.4, footRise: 0.25,
-        depth: [0.13, 0.14, 0.12], cd0: 0.045, ARe: 4.0, min: o.genoaMin * DEG, max: 45 * DEG, sagK: 0.7, color: o.cloth, window: false, ropeK: 10, tapeK: 5.33 },
+        depth: [0.13, 0.14, 0.12], cd0: 0.045, ARe: 4.0, min: o.genoaMin * DEG, max: 45 * DEG, sagK: 0.7, color: o.cloth, window: false, ropeK: 20, tapeK: 25 },
       { key: 'gennaker', kind: 'spin', label: 'Spinnaker', pole: o.pole, replaces: 'jib', area: o.spin, tackX: mastX + 0.07 + o.pole, tackZ: o.freeboard + 4.2,
         luff: o.mastHeight * 0.86, foot: o.pole * 1.75, head: 1.2, rake: o.pole + 0.07,
         depth: [0.2, 0.22, 0.2], cd0: 0.09, ARe: 2.0, min: 16 * DEG, max: 100 * DEG, color: o.spinColor, spinBands: o.spinBands, cloth: 'superNylon', ropeK: 6 },
@@ -189,14 +194,17 @@ function jClass(o) {
       rudder: { kind: 'keel', hingeX: hingeTop, rake, span: hingeLen, thick: 0.13, taper: 1.0, gap: 0, mat: 'hull' },
       keel: { kind: 'full' },
       masts: { main: { mat: o.mastLook, r: o.mastR, rTop: o.mastR * 0.62, spreaders: o.spreaders, hounds: headZ, chainIn: 0.92, chainAft: 0.5, wire: 0.012, lowerWire: 0.01, lowerX: [0.7, -0.7] } },
-      backstay: { split: false, x: sternX + 0.35, z: o.zStern + 0.02, top: o.mastHeight - 0.1 },
+      backstay: { split: false, x: sternX + 0.9, onDeck: true, footDz: 0, top: o.mastHeight - 0.1 },
       runners: { z: headZ - 0.6, x: mastX - o.runnerAft, foot: true, r: 0.01 }, stayR: 0.014,
       windex: false, hullName: { text: o.hullName, t: 0.07, z: o.zStern - 0.2, len: 2.6, color: o.nameColor, font: 'italic 700 78px Georgia, "Times New Roman", serif' },
       extras: ['jDeck'], jDeck: o.deckKit,
     },
     // deck hardware (js/rigging.js): mainsheet traveller [x, half length], boom sheeting point (fraction of the foot),
     // the genoa winches [x, y] (two-speed hydraulic drums, est. 0.42 m drum diameter), genoa car tracks [aft, fwd, y]
-    hw: { trav: [mastX - o.mainFoot * 0.78, 1.6, o.freeboard + 0.14], boomS: 0.78, winch: [o.winchX, 2.15], jibTrack: [o.trackX[0], o.trackX[1], o.beam / 2 - 0.55], clutchX: mastX - 2.2, winchR: 0.21, helm: 'Wheel', bronze: o.bronze },
+    hw: { trav: [mastX - o.mainFoot * 0.78, 1.6, o.freeboard + 0.14], boomS: 0.78, winch: [o.winchX, 2.15], jibTrack: [o.trackX[0], o.trackX[1], o.beam / 2 - 0.55], clutchX: mastX - 2.2, winchR: 0.21, winchH: 2.4, helm: 'Wheel', bronze: o.bronze,
+      // (her fittings at a big yacht's size: ~3x a 40-footer's blocks and rams, the rope 1.8x as thick; the vang's ram from
+      // the mast a metre up to the boom 4.5 m aft of the gooseneck)
+      scale: 3, ropeScale: 1.8, vangS: 4.5, vangZ: 1.0, vangGap: 0 },
     // the rig as a structure (js/rig-structure.js) and its parts' strengths (js/damage.js) in one table (their keys do
     // not overlap): a keel-stepped carbon spar (Shamrock V's est. carbon too: her 2000 rig's material is not published),
     // four spreader sets, discontinuous rod (V cap shrouds over the top spreader, D diagonals to each spreader root),

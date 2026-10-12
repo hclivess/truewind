@@ -464,12 +464,12 @@ function buildDetailed(boat, opts = {}) {
   if ((C.hasBackstay || D.backstay) && D.backstay !== false) {
     const bs = D.backstay || {};
     stay.backstayTop = V(C.mastX - 0.05, 0, bs.top ?? C.mastHeight);
-    const bsX = bs.x ?? C.sternX + 0.05, lowZ = bs.z ?? Lx.sheer(0.02);
+    const bsX = bs.x ?? C.sternX + 0.05, lowZ = bs.onDeck ? deckAt(bsX, 0) : bs.z ?? Lx.sheer(0.02);   // (bs.onDeck: to a fitting on the deck there)
     if (bs.split !== false) {
       stay.backstayLow = V(bsX + (bs.splitDx ?? 0.25), 0, lowZ + (bs.splitH ?? 0.9));
       rigKit.rod(M.wire(), stay.backstayTop, stay.backstayLow, D.stayR ?? 0.0035);
       for (const s of [-1, 1]) rigKit.rod(M.wire(), stay.backstayLow, V(bsX + 0.02, s * Lx.bDeck(0.02) * 0.6, lowZ), 0.003);
-    } else { stay.backstayLow = V(bsX, 0, lowZ + 0.15); rigKit.rod(M.wire(), stay.backstayTop, V(bsX, 0, lowZ), D.stayR ?? 0.0035); }
+    } else { stay.backstayLow = V(bsX, 0, lowZ + (bs.footDz ?? 0.15)); rigKit.rod(M.wire(), stay.backstayTop, V(bsX, 0, lowZ), D.stayR ?? 0.0035); }
   }
   if (!stay.backstayLow) stay.backstayLow = V(C.sternX + 0.3, 0, Lx.sheer(0.02) + 0.15);
   if (D.runners) for (const s of [-1, 1]) rigKit.rod(M.wire(), V(C.mastX - 0.03, s * 0.02, D.runners.z), D.runners.foot ? V(D.runners.x, s * Lx.bDeck(tAt(D.runners.x)) * 0.86, deckAt(D.runners.x, s * Lx.bDeck(tAt(D.runners.x)) * 0.86) + 0.12)   // (to its block on a padeye on the deck: js/boats/detailed.js jDeck)
