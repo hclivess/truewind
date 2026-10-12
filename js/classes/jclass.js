@@ -36,7 +36,8 @@
 //    "J Class Yacht Endeavour ... Don Ramey Logan" (on deck: big chrome drum winches, coffee-grinder pedestals, the
 //    wheel aft behind a varnished console, flush teak deck).
 // '(est.)' marks what no source gives and is estimated from those photographs and the totals: ballast (none of the
-// three publishes it: ~58% of the displacement in lead, the J Class's order with the refits' 'improved ballast ratio'), the split between main and genoa
+// three publishes it: ~58% of the displacement in lead, the J Class's order with the refits' 'improved ballast ratio';
+// the one J figure found, Ranger's (1937; Wikipedia), is a 110-ton lead keel on 166 tons, 66%), the split between main and genoa
 // (Endeavour's 490 m² main of 948, the same share for the others), mast heights (Shamrock V's 150 ft above the deck
 // kept; Velsheda's reported 171 ft spar and Endeavour's of the same sail area), engines (Shamrock V's fuel tank says
 // she has one; none of the three publishes its make), the hull lines (shaped to the dimensions and photographs, not
