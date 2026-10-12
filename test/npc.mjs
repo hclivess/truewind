@@ -3,11 +3,14 @@
 //  2. a ship in the channel (constrained by her draught) stands on for a small sailing boat crossing ahead, sounds
 //     five short blasts at her, and acts only at the last;
 //  3. light air: the cruising yachts under way motor below 6 kn of wind and sail in a breeze;
-//  4. ships in transit keep to water deeper than their draught, from one edge of the chart to another.
+//  4. ships in transit keep to water deeper than their draught, from one edge of the chart to another;
+//  5. a traffic yacht 25 m from the camera sits in the water as it is drawn: her waterline (posed as traffic-render.js
+//     poses her, on WaveField.ride with the grid's filter) against the drawn sea at 28 points round it — no bias, the
+//     topsides never wholly out of it nor the deck under it (hovering, or sunk).
 // Run: node test/npc.mjs
-import { Environment, KT, DEG } from '../js/env.js';
+import { Environment, KT, DEG, drawnSeaKeep } from '../js/env.js';
 import { VENUES, World } from '../js/world.js';
-import { Traffic, Rail } from '../js/traffic.js';
+import { Traffic, Rail, VESSELS, waterlineHalf } from '../js/traffic.js';
 import { readFileSync } from 'node:fs';
 let fail = 0;
 const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (!ok) fail++; };
@@ -85,6 +88,40 @@ const hyp = Math.hypot;
       for (const w of ships) { const o = {}; for (let s = 0; s < w.rail.L; s += 25) { w.rail.at(s, o); shallow = Math.min(shallow, world.depthAt(o.x, o.z) - w.draught); } }
       check(ok && shallow > 0.5, `${ships.length} ship(s) in transit, the least water under the keel along their routes ${shallow.toFixed(1)} m`);
     }
+  }
+}
+// ---------------------------------------------------------------- 5: the waterline on the drawn sea
+{
+  const GRID = { N: 360, R: 6500, a: 0.035 };
+  for (const [kt, swell] of [[14, 0], [20, 1.5]]) {
+    const env = new Environment({ tws: kt * KT, twd: 0, weather: 'steady', seed: 7, fetchKm: 20, swellH: swell, swellT: 9 });
+    env.tick(0);
+    const W = env.waves, o = {}, o2 = {}, P = {};
+    const drawnAt = (x, z, t, keep) => W.sample(x, z, t, o).h - W.ride(x, z, t, 0, 0, 0, keep, o2, true).h;
+    const v = { type: 'yacht', T: VESSELS.yacht, L: VESSELS.yacht.L, B: VESSELS.yacht.B, scale: 1, heel: 0, trim: 0, psi: 0.6 }, F = 1.05;
+    let n = 0, s1 = 0, s2 = 0, dry = 0, wet = 0, worst = 0;
+    for (let i = 0; i < 200; i++) {
+      const t = 50 + i * 0.31; v.x = 300 + i * 1.7; v.z = -100 + i * 0.9; v.psi = 0.6 + 0.01 * i;
+      const cx = v.x - 25, cz = v.z;
+      const keep = (x, z) => drawnSeaKeep(GRID, Math.round(cx / 4) * 4, Math.round(cz / 4) * 4, cx, cz, W.Hs, x, z, {});
+      // (traffic-render.js TrafficView.update)
+      W.ride(v.x, v.z, t, v.psi, v.L, v.B, keep(v.x, v.z), P);
+      const heave = P.h, pitch = Math.atan(P.al), roll = -Math.atan(P.at);
+      const fx = Math.sin(v.psi), fz = -Math.cos(v.psi), sx = -fz, sz = fx;
+      let dryAll = true, wetAny = false;
+      for (let k = 0; k < 28; k++) {
+        const u = k / 28, side = u < 0.5 ? 1 : -1, f = u < 0.5 ? u * 2 : 2 - u * 2, along = v.L * (0.5 - f) * 0.97, hb = waterlineHalf(v, 1 - f);
+        const x = v.x + fx * along + sx * side * hb, z = v.z + fz * along + sz * side * hb;
+        const hull = heave + along * Math.sin(pitch) - side * hb * Math.sin(roll), sea = drawnAt(x, z, t, keep(x, z)), dz = sea - hull;
+        s1 += dz; s2 += dz * dz; n++; worst = Math.max(worst, Math.abs(dz));
+        if (dz > -0.02) dryAll = false;                    // (the water up to her waterline here: not hovering)
+        if (dz > F * 0.9) wetAny = true;                    // (the sea over her deck)
+      }
+      if (dryAll) dry++; if (wetAny) wet++;
+    }
+    const mean = s1 / n, rms = Math.sqrt(s2 / n);
+    console.log(`     ${kt} kn${swell ? ' + ' + swell + ' m swell' : ''} (Hs ${W.Hs.toFixed(2)} m): drawn sea - waterline ${(mean * 100).toFixed(1)} cm mean, ${(rms * 100).toFixed(1)} cm rms, worst ${(worst * 100).toFixed(0)} cm; clear of the water all round ${dry}/200, deck awash ${wet}/200`);
+    check(Math.abs(mean) < 0.03 && dry === 0 && wet === 0, `a traffic yacht sits in the drawn sea (${kt} kn${swell ? ', swell' : ''}): no bias, never hovering, never awash`);
   }
 }
 console.log(fail ? `${fail} FAILED` : 'all passed');

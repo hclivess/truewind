@@ -187,6 +187,11 @@ export function waterTwd(b) {
   return Math.atan2(Math.sin(tw) * s + cx, Math.cos(tw) * s - cz);
 }
 
+// how far below the line the fleet is laid at the start of the sequence: as far as a boat beats up the course in a
+// bit over half of it, between 60 and 170 m (170 m below with two minutes to go, the Solent fleet could not make the
+// line on time in the cross-tide however it sailed: 1.5-1.9 m/s made good on the better tack)
+export function startBoxBelow(countdown) { return clamp(0.6 * countdown, 60, 170); }
+
 export class AIHelm {
   // personality.seed: the race's seed (the same boat in the same race sails the same way, and every browser in
   // a room agrees); its draws are keyed by that and the boat's id, never Math.random
@@ -456,19 +461,37 @@ export class AIHelm {
     this.steer(dt, b.psi + this.penD * 70 * DEG, true);
   }
 
+  // The start. Each crew has her slot on the line (startFrac: spaced along it, in the order the boats lie in the
+  // start box), holds below it on its layline over the ground, and runs for it when the time she needs to get there
+  // is the time to the gun. That time is timed by what she makes: her speed made good up the course close-hauled,
+  // measured as she sails (an exponential mean over the time she has been close-hauled at speed on a tack for 6 s or
+  // more; until then 60 % of the polar's with the tide), the time to accelerate from her speed to full speed, and a
+  // tack or a turn onto the wind. (It was the polar's speed made good x 0.85 plus the tide, 12 s spare and 12 s
+  // more at the hold: the Solent fleet, 8 boats in its cross-tide, made 1.2-1.9 m/s up the course against the
+  // 2.3 it assumed, and started 11 to 79 s late, median 48 s.)
   preStart(dt, t, sim, racer, course, up) {
-    const b = this.b, clock = sim.race.clock, twd = waterTwd(b);
+    const b = this.b, C = b.cls, clock = sim.race.clock, twd = waterTwd(b);
     const f = 0.15 + this.startFrac * 0.7;
+    // (what she makes up the course close-hauled, learnt as she sails)
+    const vl = this.vmgL || (this.vmgL = { 1: null, '-1': null }), Vp = this.targetsUpBsp ?? 2.5, sgNow = Math.sign(wrap(twd - b.psi)) || 1;
+    if (Math.abs(Math.abs(wrap(twd - b.psi)) - up) < 8 * DEG && b.u > 0.6 * Vp * 0.8 && b.vgx !== undefined && b.diag.twd !== undefined) {
+      if (this.chS !== sgNow) { this.chS = sgNow; this.chT = 0; }
+      this.chT = (this.chT || 0) + dt;
+      if (this.chT > 6) { const g = b.vgx * course.ux + b.vgz * course.uz; vl[sgNow] = vl[sgNow] === null ? g : vl[sgNow] + (g - vl[sgNow]) * clamp(dt / 10, 0, 1); }
+    } else this.chT = 0;
     // (made good over the ground: leeway and the tide along the course count, and getting going from a luff; by the
     // speed through the water alone a Solent fleet 150 m below with the tide against it ran for the line a minute late)
     const cu = this.curAt(sim, b.x, b.z), tideUp = cu.x * course.ux + cu.z * course.uz;
-    const vmgUp = (this.targetsUpBsp ?? 5 * KT) * Math.cos(up + (this.lee ?? 5 * DEG)) * 0.85 + tideUp;
+    const model = (this.targetsUpBsp ?? 5 * KT) * Math.cos(up + (this.lee ?? 5 * DEG)) * 0.6 + tideUp;
+    const meas = Math.max(vl[1] ?? -1, vl[-1] ?? -1), vmgUp = meas > 0.3 ? meas : model;
     const [aB] = course.frame(b.x, b.z, course.pin.x, course.pin.z);
     const distToLine = -aB;
-    const tNeed = distToLine / Math.max(0.6, vmgUp) + 12;
+    const tau = clamp(4 + 4 * Math.sqrt((C.massHull ?? 1000) / 1500), 4, 14), Vg = Math.hypot(b.vgx ?? 0, b.vgz ?? 0);
+    const tNeed = distToLine / Math.max(0.6, vmgUp) + tau * clamp(1 - Vg / Vp, 0, 1) + (Math.abs(wrap(twd - b.psi)) > up + 25 * DEG ? 5 : 0) + 3;
+    this.psNeed = tNeed; this.psSpare = -clock - tNeed;
     const spot = { x: lerp(course.pin.x, course.committee.x, f), z: lerp(course.pin.z, course.committee.z, f) };
     let desired, luff = false;
-    if (-clock > tNeed + 12) {
+    if (-clock > tNeed + 4) {
       // hold below the line: reach back and forth around a holding point
       // on the starboard-tack layline to the spot: close-hauled from straight below it sails the boat
       // out past the pin end (90 m below at ~45° made good = ~90 m to the left)
@@ -476,8 +499,10 @@ export class AIHelm {
       // then she comes in on port, whose track climbs; held at the no-tide layline the fleet started a minute late)
       const Vt = this.targetsUpBsp ?? b.u, trk = (s) => wrap(twd + this.trackRel(s, up, 0.8 * Vt) - course.windDir);
       const dS = trk(1), dP = trk(-1), dl = Math.abs(dP) < Math.abs(dS) - 15 * DEG ? dP : dS;
-      const lay = -90 * Math.tan(clamp(dl, -65 * DEG, 65 * DEG));
-      const hold = { x: spot.x - course.ux * 90 + course.rx * lay, z: spot.z - course.uz * 90 + course.rz * lay };
+      const lay = -90 * Math.tan(clamp(dl, -65 * DEG, 65 * DEG));   // (scaled to the holding distance below)
+      // (held a run of ~20 s below the line, 90 m at most: from 90 m the fleet could not make the line)
+      const hd = clamp(vmgUp * 20, 30, 90), lay2 = lay * hd / 90;
+      const hold = { x: spot.x - course.ux * hd + course.rx * lay2, z: spot.z - course.uz * hd + course.rz * lay2 };
       const dx = hold.x - b.x, dz = hold.z - b.z;
       if (Math.hypot(dx, dz) > 35) desired = Math.atan2(dx, -dz);
       else { desired = twd + Math.PI / 2 * (Math.sin(t * 0.05 + this.startFrac * 6) > 0 ? 1 : -1); luff = true; }
@@ -503,7 +528,9 @@ export class AIHelm {
         if (going || b.u >= 0.7 * vT) { if (!going) { this.psTackTo = -cur; this.psTackT = t; } desired = twd + cur * up; }
         else desired = twd - cur * up;
       }
-      if (distToLine < 8 && -clock > 4) luff = true;
+      // time to spare on the run (she went early for it): sheets eased till it is gone, hysteresis so she does not pump
+      if (-clock - tNeed > 3) this.burn = true; else if (-clock - tNeed < 0.5) this.burn = false;
+      if ((distToLine < 8 && -clock > 4) || this.burn) luff = true;
     }
     if (sim.rules) desired = aiRules(this, sim, this.gateTurn(sim.rules, desired, twd, up), 'prestart', t, up);
     if (!this.noTrim) autoTrim(b, dt, this.bias);

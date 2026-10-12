@@ -3,13 +3,15 @@ import { Boat, solvePolar, vmgTargets, wrap } from '../js/physics.js';
 import '../js/sail/sailsim.js';   // the game's sail model (cloth by default; SAILS=strip for the strip model)
 import { loadBakedPolars } from '../js/sail/surrogate.js';
 import { VENUES, World } from '../js/world.js';
-import { Course, Race, AIHelm, applyWindShadow, resolveCollisions, waterTwd } from '../js/race.js';
+import { Course, Race, AIHelm, applyWindShadow, resolveCollisions, waterTwd, startBoxBelow } from '../js/race.js';
 import { Traffic } from '../js/traffic.js';
 import { RuleEngine } from '../js/rules.js';
 import { readFileSync, existsSync } from 'node:fs';
 // SEED=n: the race seed the AI personalities are drawn from (as the game's; repeatable either way)
 // RULES=0: sail without the racing rules (the old swerve-only traffic avoidance), to compare collisions
 const SEED = +(process.env.SEED ?? 0), RULES = process.env.RULES !== '0';
+// CD=s: the start sequence (90 s by default); the fleet is laid below the line as the game lays it (startBoxBelow)
+const CD = +(process.env.CD ?? 90);
 const [vid='solent', cls='sportboat', nb='6', mins='25'] = process.argv.slice(2);
 const v = VENUES.find(x=>x.id===vid);
 const geo = v.open ? null : JSON.parse(readFileSync(`data/venues/${vid}.json`));
@@ -25,8 +27,8 @@ const course = new Course(world, env.wind.twd, { length: 800, laps: 1, lineLengt
 console.log('course len', course.L.toFixed(0), 'origin', course.origin.x.toFixed(0), course.origin.z.toFixed(0), 'depth at W', world.depthAt(course.windward.x, course.windward.z).toFixed(1));
 const boats = [], ais = [];   // (the AI fleet sails at L1 in the game: LOD=0/1/2 to change it; a big fleet has only
 // the NCLOTH nearest the camera in cloth, the rest on the strip model: NCLOTH=n puts boats n.. at L2)
-for (let i=0;i<+nb;i++){ const b=new Boat(cls,{id:i, lod: i < +(process.env.NCLOTH ?? 1e9) ? +(process.env.LOD ?? 1) : 2}); const off=(i-(+nb)/2)*Math.min(16, 2*course.half/(+nb+1)); b.reset(course.origin.x - course.ux*150 + course.rx*off, course.origin.z - course.uz*150 + course.rz*off, env.wind.twd+Math.PI/2); boats.push(b); const a=new AIHelm(b,{seed: SEED, startFrac:i/(+nb), skill: 0.85+0.03*i}); a.targetsUpBsp=vt.up.bsp; ais.push(a);}
-const race = new Race(course, boats, { countdown: 90 });
+for (let i=0;i<+nb;i++){ const b=new Boat(cls,{id:i, lod: i < +(process.env.NCLOTH ?? 1e9) ? +(process.env.LOD ?? 1) : 2}); const off=(i-(+nb)/2)*Math.min(16, 2*course.half/(+nb+1)); const below = startBoxBelow(CD); b.reset(course.origin.x - course.ux*below + course.rx*off, course.origin.z - course.uz*below + course.rz*off, env.wind.twd-Math.PI/2); boats.push(b); const a=new AIHelm(b,{seed: SEED, startFrac:(i+0.5)/(+nb), skill: 0.85+0.03*i}); a.targetsUpBsp=vt.up.bsp; ais.push(a);}
+const race = new Race(course, boats, { countdown: CD });
 // TRAFFIC=light|normal|busy: the harbour traffic around the race, kept off the course as in the game
 let traffic = null, bumps = 0;
 if (process.env.TRAFFIC && !v.open) {
@@ -73,6 +75,7 @@ for (let s=0; s< +mins*60/dt; s++) {
     else if (e.type === 'penaltyDone' || e.type === 'dsq' || e.type === 'hail') console.log(`t=${race.clock.toFixed(0)}s ${e.type} ${(e.boat || e.from).id}${e.to ? ' -> ' + e.to.id : ''}${e.why ? ' (' + e.why + ')' : ''}`);
   }
   if (race.racers.every(r=>r.finished)) break;
+  if (process.env.STOP && race.clock > +process.env.STOP) break;   // STOP=s: end the run s seconds after the gun (a start only)
   // TRB=0,3: a per-boat trace (TRDT s apart, TRT0..TRT1 on the race clock) of what the AI wants and what she does:
   // mode, leg, place in the course frame (a up the course, c to the right), TWA and the heading wanted (ground wind),
   // the rules' constraint (kc), rudder, speed, sheets, dipping / start tack / crossings, irons, penalty count;
@@ -83,6 +86,7 @@ for (let s=0; s< +mins*60/dt; s++) {
     let o = `  [${i}] ${race.clock.toFixed(1)} ${a.mode} L${r.leg} a ${la.toFixed(0)} c ${lc.toFixed(0)} twa ${f(b.psi)} want ${f(a.desired)} kc ${a.kc ? f(a.kc.h) : '-'}${a.ease ? ' EASE' : ''}`;
     o += ` rud ${(b.rudder / DEG).toFixed(0)} helm ${b.ctrl.helm.toFixed(2)} r ${(b.r / DEG).toFixed(1)} u ${(b.u / KT).toFixed(1)} v ${(b.v / KT).toFixed(1)} main ${b.ctrl.main.toFixed(2)} jib ${b.ctrl.jib.toFixed(2)}`;
     if (X) o += ` | awa ${((d.awaMid ?? 0) / DEG).toFixed(0)} heel ${(b.phi / DEG).toFixed(0)} boom ${(b.booms.main.a / DEG).toFixed(0)} over ${(b._tt?.over ?? 0).toFixed(2)} rα ${((d.rudAlpha ?? 0) / DEG).toFixed(0)}${d.rudderStall ? 'S' : ''} sh ${b.shadow.toFixed(2)} N ${d.Nsail?.toFixed(0)} ${d.Nkeel?.toFixed(0)} ${d.Nrud?.toFixed(0)} ${d.Nhull?.toFixed(0)}`;
+    if (a.mode === 'prestart') o += ` ${a.psPhase} spare ${(a.psSpare ?? 0).toFixed(1)} need ${(a.psNeed ?? 0).toFixed(1)} app ${a.psApp} vCH ${(a.vCH ?? 0).toFixed(2)} vmg ${a.vmgL ? [a.vmgL[1], a.vmgL[-1]].map(x => x === null ? '-' : x.toFixed(2)).join('/') : '-'}${a.psOther ? ' OTHER' : ''}`;
     if (a.dipping) o += ' DIP';
     if (a.startTack) o += ` ST${a.startTack}${rules ? (rules.canTurn(b, waterTwd(b) - a.startTack * (a.upAngle ?? 0.7)) ? 'ok' : 'NO') : ''}`;
     if (X) o += ` tk ${a.tackTo} lt ${(t - a.lastTack).toFixed(1)} tg ${((a.turnGo ?? 0) - (rules?.t ?? 0)).toFixed(1)} tn ${((a.turnNo ?? 0) - (rules?.t ?? 0)).toFixed(1)}`;
@@ -94,6 +98,9 @@ for (let s=0; s< +mins*60/dt; s++) {
   }
   if (process.env.TR && s%(120*10)==0) { const b=boats[0]; console.log(`clk ${race.clock.toFixed(0)} x ${b.x.toFixed(0)} z ${b.z.toFixed(0)} hdg ${(b.psi/DEG).toFixed(0)} u ${(b.u/KT).toFixed(1)} twa ${(b.diag.twa/DEG).toFixed(0)} tws ${(b.diag.tws/KT).toFixed(1)} depth ${world.depthAt(b.x,b.z).toFixed(1)} mode ${ais[0].mode} leg ${race.racers[0].leg} shadow ${b.shadow.toFixed(2)}`); }
 }
+// the start: each boat's delay after the gun to crossing the line (OCS: over at the gun)
+{ const st = race.racers.map(r => r.started ? r.startTime : Infinity), srt = st.slice().sort((a, b) => a - b), med = srt[Math.floor(srt.length / 2)];
+  console.log(`start delays (s after the gun): ${st.map(x => Number.isFinite(x) ? x.toFixed(0) : '-').join(' ')} · median ${Number.isFinite(med) ? med.toFixed(1) : 'none'} · worst ${Number.isFinite(srt[srt.length - 1]) ? srt[srt.length - 1].toFixed(0) : 'none'} · OCS at the gun ${race.racers.filter(r => r.ocsAtGun).length}`); }
 for (const r of race.standings()) console.log('boat', r.boat.id, 'leg', r.leg, r.finished ? 'finished '+r.finishTime.toFixed(0)+'s' : 'dnf', 'mode', ais[r.boat.id].mode, 'spd', (r.boat.u/KT).toFixed(1));
 console.log('aground steps', aground, traffic ? `traffic bumps ${bumps}` : '');
 const inc = rules ? rules.incidents : [];
@@ -101,4 +108,4 @@ console.log(`collisions ${collisions} (in contact ${contactT.toFixed(1)} s) · i
 if (pairT.size) { const [k, v] = [...pairT].sort((a, b) => b[1] - a[1])[0]; console.log(`longest contact: boats ${Math.floor(k / 1000)} and ${k % 1000}, ${v.toFixed(1)} s`); }
 const unfinished = race.racers.filter(r => !r.finished && !r.dsq).length;   // (a boat the umpire disqualified is out of the race, as scored)
 if (unfinished) console.log(`${unfinished} boat(s) did not finish`);
-process.exit(unfinished ? 1 : 0);
+process.exit(unfinished && !process.env.STOP ? 1 : 0);

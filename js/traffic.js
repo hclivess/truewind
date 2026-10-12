@@ -27,6 +27,15 @@ export const VESSELS = {
   ship:     { L: 130, B: 21, H: 32, kn: [9, 12], power: true, name: 'ship' },
 };
 export const DENSITY = { off: 0, light: 0.35, normal: 0.7, busy: 1 };
+// the half-breadth of a vessel's waterline at t along it (0 the stern, 1 the stem), at her type's base size: the
+// lofted hulls of js/traffic-render.js (transom width, fineness forward) — where the water meets her
+const WL = { yacht: [0.82, 0.75], motor: [0.92, 0.55], rib: [0.95, 0.45], fishing: [0.75, 0.6], ferry: [0.85, 0.6], fastcat: [0.9, 0.9], carferry: [0.92, 0.5], chain: [1, 0], ship: [0.9, 0.45] };
+export function waterlineHalf(v, t) {
+  const T = VESSELS[v.type], [tr, fine] = WL[v.type] || [0.85, 0.6];
+  if (v.type === 'chain') return T.B / 2;
+  const b = T.B / 2 * (v.type === 'rib' ? 0.82 : 1) * (t < 0.45 ? tr + (1 - tr) * Math.sin(t / 0.45 * Math.PI / 2) : Math.pow(Math.max(0, Math.cos((t - 0.45) / 0.55 * Math.PI / 2)), fine)) * 0.98;
+  return v.type === 'rib' ? b + 0.3 : b;
+}
 // a cruising yacht motors in light air: below 6 kn of true wind she furls and motors (a 10 m cruiser makes 2-3 kn
 // under sail in 4-5 kn of wind, and her crew want to get somewhere), above 7.5 kn she sails again
 export const MOTOR_KT = 6, SAIL_KT = 7.5;

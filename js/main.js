@@ -6,7 +6,7 @@ import { VENUES, World, makeProjection, fetchVenueGeo, fetchLiveWind } from './w
 import { fetchSeamarks } from './seamarks.js';
 import { Nav } from './nav.js';
 import { cleanSailNo, validateSailNo, cleanBoatName, validateBoatName, fleetIdentities, VENUE_NATION } from './boatid.js';
-import { Course, Race, AIHelm, aiRandom, applyWindShadow, resolveCollisions } from './race.js';
+import { Course, Race, AIHelm, aiRandom, startBoxBelow, applyWindShadow, resolveCollisions } from './race.js';
 import { RuleEngine, RULE_SHORT } from './rules.js';
 import { Renderer } from './render.js';
 import { coastalInput, coastalTransfer, buildCoastal, CoastalField } from './coastal.js';
@@ -565,7 +565,8 @@ class Game {
       const spots = [];
       for (let i = 0; i <= n; i++) {
         const off = (i - n / 2) * Math.min(16, 2 * course.half / (n + 1));   // (a big fleet packs closer on a line the water shortened)
-        spots.push([course.origin.x - course.ux * 170 + course.rx * off, course.origin.z - course.uz * 170 + course.rz * off]);
+        const below = startBoxBelow(S.countdown);
+        spots.push([course.origin.x - course.ux * below + course.rx * off, course.origin.z - course.uz * below + course.rz * off]);
       }
       player.reset(spots[0][0], spots[0][1], twd + Math.PI / 2);
       this.presetTrim(player);
@@ -576,10 +577,12 @@ class Game {
       for (let i = 1; i <= n; i++) {
         const b = new Boat(cls, { id: i, name: ids[i - 1].name, sailModel: SAIL_MODEL, lod: i <= Math.max(nCloth, 6) ? this.fleetSailLevel() : 2 });
         b.sailNo = ids[i - 1].number;
-        b.reset(spots[i][0], spots[i][1], twd + Math.PI / 2);
+        b.reset(spots[i][0], spots[i][1], twd - Math.PI / 2);   // (on starboard, the right-of-way tack)
         b.auto.hike = true;
         this.boats.push(b);
-        const ai = new AIHelm(b, { seed: cond.seed, skill: 0.8 + aiRandom(cond.seed + 7, i)() * 0.18 });   // (the race's seed: the same fleet every time)
+        // (each crew her own slot on the line, in the order they lie in the start box, so their ways to it do not
+        // cross: drawn at random, two crews could aim at the same metre of it)
+        const ai = new AIHelm(b, { seed: cond.seed, skill: 0.8 + aiRandom(cond.seed + 7, i)() * 0.18, startFrac: (i - 0.5) / n });   // (the race's seed: the same fleet every time)
         this.ais.push(ai);
       }
       this.race = new Race(course, this.boats, { countdown: S.countdown });

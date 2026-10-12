@@ -3,7 +3,9 @@
 // way and, after dark, the lights of the rules of the road — masthead, sidelights and stern light by their arcs,
 // trawler's green over white, anchor lights, cabin lights in the marinas. No crew figures.
 import * as THREE from 'three';
-import { VESSELS } from './traffic.js';
+import { VESSELS, waterlineHalf } from './traffic.js';
+import { NearYachts } from './traffic-near.js';
+import { NOISE as FOAM_NOISE } from './splash.js';
 
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 
@@ -58,18 +60,30 @@ class Acc {
       const bow = rake * Math.max(0, t - 0.85) / 0.15 * L * 0.06;
       st.push({ x, b, f, d, bow });
     }
-    const sec = (q) => [[q.b, q.f, q.bow], [q.b * 0.99, 0.12, q.bow * 0.3], [q.b * 0.98, 0.0, 0], [q.b * (0.55 + 0.4 * flat), -q.d * 0.55, 0], [q.b * 0.25 * flat, -q.d * 0.92, 0], [0, -q.d, 0]];
+    // the section: topsides flaring out from the boot top to the sheer in four points (a curve the light shows, not a
+    // flat slab), the boot top, then bottom paint from just above the waterline down round the bilge to the keel
+    const sec0 = (q) => [[q.b, q.f, q.bow], [q.b * 0.994, 0.14 + (q.f - 0.14) * 0.62, q.bow * 0.75], [q.b * 0.978, 0.14 + (q.f - 0.14) * 0.28, q.bow * 0.5], [q.b * 0.955, 0.14, q.bow * 0.3],
+      [q.b * 0.95, 0.05, q.bow * 0.1], [q.b * 0.945, -0.02, 0], [q.b * (0.62 + 0.33 * flat), -q.d * 0.45, 0], [q.b * (0.3 + 0.3 * flat), -q.d * 0.82, 0], [0, -q.d, 0]];
+    // (o.lite, a far model: the topsides in one face, the bottom — under the water — in two)
+    const sec = o.lite ? (q) => { const S = sec0(q); return [S[0], S[3], S[4], S[5], S[6], S[8]]; } : sec0;
+    const NT = o.lite ? 2 : 4;                      // (the topsides' points, tinted per vessel)
+    const cols = o.lite ? [cTop, cTop, cBoot, cBot, cBot, cBot] : [cTop, cTop, cTop, cTop, cBoot, cBot, cBot, cBot, cBot];
     for (const side of [1, -1]) {
       let prevT = null, prevB = null;
       for (const q of st) {
-        const s6 = sec(q);
-        const T = [top.v(side * s6[0][0], s6[0][1], -(q.x + s6[0][2]), cTop), top.v(side * s6[1][0], s6[1][1], -(q.x + s6[1][2]), cTop)];
-        const Bt = [this.v(side * s6[1][0], s6[1][1], -(q.x + s6[1][2]), cBoot), this.v(side * s6[2][0], s6[2][1], -q.x, cBoot), this.v(side * s6[2][0], s6[2][1] - 0.001, -q.x, cBot), this.v(side * s6[3][0], s6[3][1], -q.x, cBot), this.v(side * s6[4][0], s6[4][1], -q.x, cBot), this.v(side * s6[5][0], s6[5][1], -q.x, cBot)];
+        const S = sec(q), z = (k) => -(q.x + S[k][2]);
+        const Tt = []; for (let k = 0; k < NT; k++) Tt.push(top.v(side * S[k][0], S[k][1], z(k), cTop));
+        // body: the boot top from the topsides' foot (its own vertices: a crisp colour edge), the bottom below
+        const Bt = [this.v(side * S[NT - 1][0], S[NT - 1][1], z(NT - 1), cBoot), this.v(side * S[NT][0], S[NT][1], z(NT), cBoot)];
+        Bt.push(this.v(side * S[NT][0], S[NT][1] - 0.001, z(NT), cBot));
+        for (let k = NT + 1; k < S.length; k++) Bt.push(this.v(side * S[k][0], S[k][1], z(k), cols[k]));
         if (prevT) {
-          if (side > 0) { top.quad(prevT[0], T[0], T[1], prevT[1]); this.quad(prevB[0], Bt[0], Bt[1], prevB[1]); for (let k = 2; k < 5; k++) this.quad(prevB[k], Bt[k], Bt[k + 1], prevB[k + 1]); }
-          else { top.quad(prevT[0], prevT[1], T[1], T[0]); this.quad(prevB[0], prevB[1], Bt[1], Bt[0]); for (let k = 2; k < 5; k++) this.quad(prevB[k], prevB[k + 1], Bt[k + 1], Bt[k]); }
+          const qd = (a, b, c, d) => (side > 0 ? this.quad(a, b, c, d) : this.quad(a, d, c, b)), qt = (a, b, c, d) => (side > 0 ? top.quad(a, b, c, d) : top.quad(a, d, c, b));
+          for (let k = 0; k + 1 < NT; k++) qt(prevT[k], Tt[k], Tt[k + 1], prevT[k + 1]);
+          qd(prevB[0], Bt[0], Bt[1], prevB[1]);
+          for (let k = 2; k + 1 < Bt.length; k++) qd(prevB[k], Bt[k], Bt[k + 1], prevB[k + 1]);
         }
-        prevT = T; prevB = Bt;
+        prevT = Tt; prevB = Bt;
       }
     }
     // deck and transom
@@ -81,7 +95,7 @@ class Acc {
     }
     // (the transom in the topsides' colour, tinted with them: it was the deck's, a grey or beige slab on the stern)
     const q0 = st[0], s0 = sec(q0), tv = s0.map(([y, z]) => [top.v(y, z, -q0.x, cTop), top.v(-y, z, -q0.x, cTop)]);
-    for (let k = 0; k < 5; k++) top.quad(tv[k][0], tv[k + 1][0], tv[k + 1][1], tv[k][1]);
+    for (let k = 0; k + 1 < s0.length; k++) top.quad(tv[k][0], tv[k + 1][0], tv[k + 1][1], tv[k][1]);
     return st;
   }
   geo() {
@@ -209,7 +223,7 @@ const WHITE = 0xf2f2ee, GLASS = 0x1c2630, STEEL = 0xb9bec4, DARK = 0x2a2d31, TEA
 function yachtModel(variant = 0, near = true) {
   const T = VESSELS.yacht, top = new Acc(), body = new Acc(), cover = new Acc(), fend = new Acc(), ball = new Acc();
   const modern = variant === 1, L = T.L, H = T.H;
-  const st = body.hull(top, L, T.B, modern ? 1.0 : 1.05, 0.55, modern ? { transom: 0.92, rake: 0.05, sheer: 0.06, fine: 0.62, deck: NONSKID } : { transom: 0.78, rake: 0.4, sheer: 0.16, fine: 0.8, deck: NONSKID });
+  const st = body.hull(top, L, T.B, modern ? 1.0 : 1.05, 0.55, modern ? { transom: 0.92, rake: 0.05, sheer: 0.06, fine: 0.62, deck: NONSKID, lite: !near, bottom: 0x23272c, boot: 0x3b4450 } : { transom: 0.78, rake: 0.4, sheer: 0.16, fine: 0.8, deck: NONSKID, lite: !near, bottom: 0x6b2320, boot: 0x1d3557 });
   const bowZ = -L / 2 - (modern ? 0.02 : 0.25), sternZ = L / 2;
   // stripes: the cove line (or a dark sheer band) and the boot top
   // (far off — past 320 m, where a yacht is 30 pixels long — a stripe, a window, a coaming or a toe rail is under a
@@ -305,7 +319,7 @@ function sailGeo(luff, foot, depth, jib = false, square = false, fine = true) {
 }
 function motorModel(near = true) {
   const T = VESSELS.motor, top = new Acc(), b = new Acc(), fend = new Acc(), L = T.L;
-  const st = b.hull(top, L, T.B, 1.35, 0.7, { transom: 0.92, rake: 0.8, sheer: 0.25, fine: 0.55, flat: 0.25, bottom: 0x2b2f38, deck: 0xe8e6e0 });
+  const st = b.hull(top, L, T.B, 1.35, 0.7, { transom: 0.92, rake: 0.8, sheer: 0.25, fine: 0.55, flat: 0.25, bottom: 0x2b2f38, deck: 0xe8e6e0, lite: !near });
   b.band(st, 0.18, 0.3, 0x30353b, 0.013);
   if (near) b.band(st, -0.06, 0.0, 0xd6d3cb, -0.02).band(st, 0.45, 0.7, GLASS, 0.013, [-1.5, 2.2]);   // rubbing strake, hull windows
   const yd = edgeAt(st, 0).f - 0.05;
@@ -330,7 +344,7 @@ function motorModel(near = true) {
 }
 function ribModel(near = true) {
   const T = VESSELS.rib, top = new Acc(), b = new Acc(), L = T.L;
-  const st = b.hull(top, L, T.B * 0.82, 0.62, 0.45, { transom: 0.95, rake: 0.6, sheer: 0.3, fine: 0.45, flat: 0.2, bottom: 0x303030, deck: 0x8f969a });
+  const st = b.hull(top, L, T.B * 0.82, 0.62, 0.45, { transom: 0.95, rake: 0.6, sheer: 0.3, fine: 0.45, flat: 0.2, bottom: 0x303030, deck: 0x8f969a, lite: !near });
   // the tubes: round the gunwale from the transom to the bow, swept up at the bow
   const P = [];
   for (let i = 0; i <= 12; i++) { const z = L / 2 + 0.2 - (L + 0.1) * i / 12, e = edgeAt(st, Math.max(-L / 2 + 0.3, z)); P.push([e.b + 0.12, e.f + 0.02 + 0.25 * Math.max(0, (-z - L * 0.25) / (L * 0.25)) ** 2, z]); }
@@ -515,6 +529,10 @@ export class TrafficView {
     this.low = !!opts.low;
     // the near level: within R metres, at most cap boats of a kind (the nearest); the rest drawn with the far model
     this.nearR = this.low ? 110 : 320; this.nearCap = this.low ? 20 : 150;
+    // the nearest few yachts on the game's own boat models (js/traffic-near.js)
+    this.nearYachts = new NearYachts(scene, { max: this.low ? 1 : 3, R: this.low ? 45 : 75 });
+    // the water at the hull: a ring of foam and wet water round the waterline of the boats near the camera
+    this.ringCap = this.low ? 12 : 40;
   }
   dispose() {
     this.scene.remove(this.group);
@@ -541,6 +559,7 @@ export class TrafficView {
   }
   setTraffic(traffic) {
     this.group.clear();
+    for (const [v, sl] of [...this.nearYachts.on]) this.nearYachts._release(sl);
     this.traffic = traffic; this.meshes = {};
     if (!traffic || !traffic.vessels.length) return;
     const M = models(), byKey = {};
@@ -604,20 +623,22 @@ export class TrafficView {
     const wg = ribbons(nm, WN), bg = ribbons(nm, BN);
     this.wPos = wg.attributes.position.array; this.wA = wg.attributes.alpha.array;
     this.bPos = bg.attributes.position.array; this.bA = bg.attributes.alpha.array;
+    // (both sides: the ribbons are wound face-down as they are laid astern — one-sided, the traffic's wakes and bow
+    // waves were never drawn at all)
     this.wakeMat = this.wakeMat || new THREE.ShaderMaterial({
-      transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, uniforms: { uT: { value: 0 }, uLight: { value: 1 } },
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, uniforms: { uT: { value: 0 }, uLight: { value: 1 } },
       vertexShader: `attribute float alpha; attribute float across; varying float vA; varying float vX; varying vec2 vW;
         void main(){ vA = alpha; vX = across; vW = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      // (the splash's own foam noise: the sin() hash this had ran out of precision at world coordinates of a few
+      // hundred metres, and the foam it drew came out a flat, nearly empty sheet — the traffic left no wake)
       fragmentShader: `uniform float uT; uniform float uLight; varying float vA; varying float vX; varying vec2 vW;
-        float fh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-        float fn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(fh(i), fh(i + vec2(1, 0)), f.x), mix(fh(i + vec2(0, 1)), fh(i + vec2(1, 1)), f.x), f.y); }
+        ${FOAM_NOISE}
         void main(){
           // the two arms of the Kelvin wedge and the churned water between them
           float e = abs(vX * 2.0 - 1.0), arm = smoothstep(0.55, 0.95, e) * (1.0 - smoothstep(0.95, 1.0, e)), mid = 1.0 - smoothstep(0.0, 0.45, e);
-          float n = fn(vW * 1.3 + uT * 0.2) * 0.6 + fn(vW * 4.1 - uT * 0.3) * 0.4;
-          float f = clamp(vA * (arm * 0.9 + mid * 1.1) * smoothstep(0.25, 0.75, n + vA * 0.3), 0.0, 0.85);
+          float f = foam(vW * 0.6, uT, clamp(vA * (arm * 1.15 + mid * 1.25), 0.0, 0.95)) * 0.9;
           if (f < 0.01) discard;
-          gl_FragColor = vec4(vec3(0.93, 0.96, 0.98) * uLight, f * 0.75); }`,
+          gl_FragColor = vec4(vec3(0.93, 0.96, 0.98) * uLight, f * 0.8); }`,
     });
     this.wakes = new THREE.Mesh(wg, this.wakeMat); this.wakes.frustumCulled = false; this.wakes.renderOrder = 2;
     this.bows = new THREE.Mesh(bg, this.wakeMat); this.bows.frustumCulled = false; this.bows.renderOrder = 2;
@@ -633,6 +654,34 @@ export class TrafficView {
     lgeo.setAttribute('position', new THREE.BufferAttribute(this.rPos, 3).setUsage(THREE.DynamicDrawUsage));
     this.rodes = new THREE.LineSegments(lgeo, new THREE.LineBasicMaterial({ color: 0x3b3f44 })); this.rodes.frustumCulled = false;
     this.group.add(this.buoys, this.rodes);
+    // the waterline rings: RN points round each hull, an inner row on the hull and an outer one out on the water
+    const RN = 28, RC = this.ringCap; this.RN = RN;
+    const rg = new THREE.BufferGeometry(), rpos = new Float32Array(RC * RN * 2 * 3), ra = new Float32Array(RC * RN * 2), racr = new Float32Array(RC * RN * 2), ridx = [];
+    for (let m = 0; m < RC; m++) for (let i = 0; i < RN; i++) {
+      const a = (m * RN + i) * 2, b = (m * RN + (i + 1) % RN) * 2; racr[a] = 0; racr[a + 1] = 1;
+      ridx.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+    rg.setAttribute('position', new THREE.BufferAttribute(rpos, 3).setUsage(THREE.DynamicDrawUsage));
+    rg.setAttribute('alpha', new THREE.BufferAttribute(ra, 1).setUsage(THREE.DynamicDrawUsage));
+    rg.setAttribute('across', new THREE.BufferAttribute(racr, 1)); rg.setIndex(ridx);
+    this.ringMat = this.ringMat || new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, side: THREE.DoubleSide, uniforms: { uT: { value: 0 }, uLight: { value: 1 } },
+      vertexShader: `attribute float alpha; attribute float across; varying float vA; varying float vX; varying vec2 vW;
+        void main(){ vA = alpha; vX = across; vW = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      // a bright meniscus where the water meets the hull, broken foam out from it, the water darker for a hand's
+      // breadth (wet, in the hull's shadow)
+      fragmentShader: `uniform float uT; uniform float uLight; varying float vA; varying float vX; varying vec2 vW;
+        ${FOAM_NOISE}
+        void main(){
+          float lip = exp(-vX * vX * 60.0), fm = foam(vW * 0.9, uT, clamp(vA * (1.05 - vX) * 1.05, 0.0, 0.95));
+          float f = clamp(vA * 0.6 * lip + fm * 0.9, 0.0, 0.9);
+          float dark = (1.0 - smoothstep(0.0, 0.35, vX)) * 0.22 * (1.0 - f);
+          if (f + dark < 0.01) discard;
+          vec3 c = vec3(0.93, 0.96, 0.98) * uLight;
+          gl_FragColor = vec4(c * f / max(f + dark, 1e-3), f + dark); }`,
+    });
+    this.rings = new THREE.Mesh(rg, this.ringMat); this.rings.frustumCulled = false; this.rings.renderOrder = 3;
+    this.group.add(this.rings);
     this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._e = new THREE.Euler(0, 0, 0, 'YXZ'); this._p = new THREE.Vector3(); this._s = new THREE.Vector3();
     this._m2 = new THREE.Matrix4(); this._m3 = new THREE.Matrix4(); this._zero = new THREE.Matrix4().makeScale(0, 0, 0);
     this.waveT = -1;
@@ -651,7 +700,7 @@ export class TrafficView {
   }
   // one vessel's parts at instance i (m: her matrix; M: the model's anchor points for the sails)
   _write(parts, i, v, m, M) {
-    if (!m) { for (const k in parts) parts[k].setMatrixAt(i, this._zero); return; }
+    if (!m || v._proxy) { for (const k in parts) parts[k].setMatrixAt(i, this._zero); return; }   // (drawn by NearYachts)
     parts.hull.setMatrixAt(i, m); parts.body.setMatrixAt(i, m);
     if (parts.fenders) parts.fenders.setMatrixAt(i, v.mode === 'berth' ? m : this._zero);
     if (parts.ball) parts.ball.setMatrixAt(i, v.mode === 'anchor' ? m : this._zero);
@@ -703,6 +752,7 @@ export class TrafficView {
       v.roll = -Math.atan(wo.at) + (v.heel || 0);
       v._posed = true; v._dirty = true;
     }
+    this.nearYachts.update(T, cam, t, keyOf);
     // the near level: the nearest boats of each kind within reach (looked at four times a second; a boat leaves it
     // 15 % further out than she comes in, so none flickers between the two at the edge)
     const pick = fr % 15 === 1;
@@ -734,11 +784,12 @@ export class TrafficView {
       if (G.near) {
         // (only the boats that moved, or all when the set was picked anew: a marina's berthed boats stand still)
         const all = G.pickN === fr;
-        G.nearList.forEach((v, j) => { if (all || v._nw === fr || v.hidden) this._write(G.near, j, v, v.hidden ? null : v._mat || null, G.mn); });
+        G.nearList.forEach((v, j) => { if (all || v._nw === fr || v.hidden || v._pw) { v._pw = false; this._write(G.near, j, v, v.hidden ? null : v._mat || null, G.mn); } });
         for (const k in G.near) G.near[k].instanceMatrix.needsUpdate = true;
       }
     }
     this._updateMoorings(cx, cz);
+    this._updateRings(t, env, night);
     this._updateWakes(dt, t, cx, cz, night, env);
     this._updateLights(cx, cz, night, px, cam);
   }
@@ -765,6 +816,40 @@ export class TrafficView {
   }
   // the sea as it is drawn at (x, z) (WaveField.ride at a point with the grid's keep): the wakes lie on it
   _seaH(env, x, z, t) { return env.wavesOn ? env.waves.ride(x, z, t, 0, 0, 0, this.seaKeep ? this.seaKeep(x, z) : null, this._so || (this._so = {})).h : 0; }
+  // the rings round the nearest hulls (the boats within 260 m, nearest first): each point on the drawn sea there, the
+  // foam stronger at the bow with speed and where the sea moves against the hull
+  _updateRings(t, env, night) {
+    const T = this.traffic, RN = this.RN, RC = this.ringCap, P = this.rings.geometry.attributes.position.array, A = this.rings.geometry.attributes.alpha.array;
+    this.ringMat.uniforms.uT.value = t; this.ringMat.uniforms.uLight.value = 1 - 0.8 * night;
+    const list = this._ringList && this.frameN % 10 ? this._ringList : (this._ringList = T.vessels.filter(v => !v.hidden && v._d < 260 && v._mat).sort((a, b) => a._d - b._d).slice(0, RC));
+    let m = 0;
+    for (const v of list) {
+      if (v.hidden) continue;
+      const fx = Math.sin(v.psi), fz = -Math.cos(v.psi), sx = -fz, sz = fx, base = m * RN * 2;
+      const Fn = Math.max(0, v.u || 0) / Math.sqrt(9.81 * Math.max(3, v.L)), run = clamp((Fn - 0.05) * 4, 0, 1);
+      const every = v._d < 90 ? 1 : 3, upd = this.frameN % 10 === 0 || (this.frameN + m) % every === 0 || v._ring !== m;
+      v._ring = m;
+      for (let i = 0; i < RN; i++) {
+        // round the waterline: i = 0 at the stem, down the starboard side to the transom and back up to port
+        const u = i / RN, side = u < 0.5 ? 1 : -1, f = u < 0.5 ? u * 2 : 2 - u * 2;        // f 0 bow .. 1 stern
+        const along = v.L * (0.5 - f) * 0.97, hb = waterlineHalf(v, 1 - f) * v.scale, k = base + i * 2, o3 = k * 3;
+        const x = v.x + fx * along + sx * side * hb, z = v.z + fz * along + sz * side * hb;
+        const w = 0.5 + 0.08 * v.B + run * (1 - f) * (0.8 + 0.1 * v.L) + 0.3 * run;
+        if (upd) {
+          P[o3] = x; P[o3 + 1] = this._seaH(env, x, z, t) + 0.06; P[o3 + 2] = z;   // (a few cm up: the drawn surface has its trochoids and second order over the linear sea)
+          const xo = x + sx * side * w + fx * w * (f < 0.15 ? 0.6 : 0), zo = z + sz * side * w + fz * w * (f < 0.15 ? 0.6 : 0);
+          P[o3 + 3] = xo; P[o3 + 4] = this._seaH(env, xo, zo, t) + 0.06; P[o3 + 5] = zo;
+        } else {   // (in between, carried with the boat)
+          const dx = x - P[o3], dz = z - P[o3 + 2]; P[o3] = x; P[o3 + 2] = z; P[o3 + 3] += dx; P[o3 + 5] += dz;
+        }
+        const bow = Math.exp(-f * 6), stern = Math.exp(-(1 - f) * 8);
+        A[k] = A[k + 1] = (0.55 + 0.45 * run * (0.4 + 0.6 * bow) + 0.25 * stern * run) * clamp(1.3 - v._d / 260, 0, 1);
+      }
+      m++;
+    }
+    for (let k = m * RN * 2; k < RC * RN * 2; k++) A[k] = 0;
+    this.rings.geometry.attributes.position.needsUpdate = true; this.rings.geometry.attributes.alpha.needsUpdate = true;
+  }
   _updateWakes(dt, t, cx, cz, night, env) {
     const T = this.traffic, WN = this.WN, BN = this.BN, P = this.wPos, A = this.wA, BP = this.bPos, BA = this.bA, wo = this._wo;
     this.wakeMat.uniforms.uT.value = t; this.wakeMat.uniforms.uLight.value = 1 - 0.8 * night;
