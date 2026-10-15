@@ -16,7 +16,7 @@ const finiteRig = (b) => {
 const env = new Environment({ tws: 60 * KT, twd: 0, fetchKm: 2000, seed: 7, weather: 'steady' }); env.tick(0);
 console.log(`60 kn open sea: Hs ${env.waves.Hs.toFixed(1)} m`);
 const dt = 1 / 120;
-for (const cls of ['sportboat', 'blackwatch', 'dinghy', 'cat']) {
+for (const cls of process.argv.length > 2 ? process.argv.slice(2) : ['sportboat', 'blackwatch', 'dinghy', 'cat']) {
   const b = new Boat(cls);
   let bad = 0, t = 0, steps = 0;
   const run = (secs, hdg, trim = true) => {
