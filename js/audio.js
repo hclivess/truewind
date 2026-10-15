@@ -310,6 +310,29 @@ export class Audio {
       o.connect(lp); lp.connect(g); g.connect(this.bus.sig); o.start(t); o.stop(t + dur + 0.2);
     }
   }
+  // A vessel's whistle (COLREG Annex III): its fundamental by her length, 70-200 Hz for a ship of 200 m, 130-350
+  // for 75-200 m, 250-700 below; blasts: seconds of each, a second apart. From d metres away (sound at 343 m/s:
+  // it arrives late), panned by pan -1..1, quieter with distance (1/r, a little air absorption of the overtones).
+  shipHorn(L, blasts, d, pan = 0) {
+    if (!this.ctx || !this.on || d > 4000) return;
+    const ctx = this.ctx, f0 = L > 200 ? 110 : L > 75 ? 175 : L > 25 ? 290 : 420;
+    const lvl = 0.3 * Math.min(1, 60 / Math.max(60, d)) ** 0.9, lp = 2600 * Math.exp(-d / 2500) + 400;
+    const out = ctx.createGain(); out.gain.value = lvl;
+    const pn = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    if (pn) { pn.pan.value = Math.max(-1, Math.min(1, pan)) * 0.8; out.connect(pn); pn.connect(this.bus.sig); } else out.connect(this.bus.sig);
+    const flt = ctx.createBiquadFilter(); flt.type = 'lowpass'; flt.frequency.value = lp; flt.connect(out);
+    let t = ctx.currentTime + 0.05 + d / 343;
+    for (const dur of blasts) {
+      // a chime of two or three detuned reeds, a soft attack and a short tail
+      for (const [m, a] of [[1, 0.5], [1.26, 0.3], [2.005, 0.18]]) {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sawtooth'; o.frequency.value = f0 * m; o.detune.value = (Math.random() - 0.5) * 8;
+        g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(a, t + 0.12); g.gain.setValueAtTime(a, t + dur); g.gain.linearRampToValueAtTime(0, t + dur + 0.35);
+        o.connect(g); g.connect(flt); o.start(t); o.stop(t + dur + 0.4);
+      }
+      t += dur + 1;
+    }
+  }
   beep() {
     if (!this.ctx || !this.on) return;
     const ctx = this.ctx, t = ctx.currentTime + 0.02, o = ctx.createOscillator(), g = ctx.createGain();

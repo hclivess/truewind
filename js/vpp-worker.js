@@ -1,5 +1,6 @@
 // Velocity prediction off the main thread so the frame loop never stalls.
 import { CLASSES, solvePolarAngle, POLAR_TWAS } from './physics.js';
+import './speedcraft.js';   // (the speed machines' VPP)
 
 self.onmessage = (e) => {
   const { key, cls, tws } = e.data;

@@ -357,12 +357,12 @@ export function makeHandler(type, o = {}) {
     case 'clam': return makeClam(o.size);
     case 'jam': return makeJam(o.bronze, o.ropeMat, o.ropeR);
     case 'horn': case 'winchHorn': return makeHorn(o.bronze, o.len, o.ropeMat, o.ropeR);
-    case 'clutch': return makeClutch(o.label);
+    case 'clutch': case 'lock': return makeClutch(o.label);      // (a halyard lock: its tail's jammer at the pit)
     case 'ratchet': return makeRatchet({ swivel: o.swivel });
     case 'ratchetCam': return makeRatchet({ swivel: true, cam: true });
     case 'carCam': return makeCarCam();
     case 'pinStop': return makePinStop();
-    case 'selfTailer': return makeTailer(o.r);
+    case 'selfTailer': case 'poweredTailer': return makeTailer(o.r);
   }
   return makeCam(o.size);
 }

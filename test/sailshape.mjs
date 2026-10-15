@@ -10,7 +10,7 @@ import { attachSails } from '../js/sail/sailsim.js';
 const KT = 0.514444, DEG = Math.PI / 180;
 let fails = 0;
 const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (!ok) fails++; };
-const classes = process.argv[2] ? [process.argv[2]] : CLASS_ORDER;
+const classes = process.argv[2] ? [process.argv[2]] : CLASS_ORDER.filter((id) => !CLASSES[id].speed);   // (the speed machines: test/speedcraft.mjs)
 
 // settle a boat close-hauled (heading and helm held), auto crew, then hold a set of controls and settle again
 function settle(cls, set = null, secs = null, twa0 = null) {

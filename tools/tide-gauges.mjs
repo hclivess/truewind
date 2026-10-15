@@ -47,6 +47,7 @@ export const GAUGES = {
   sydney: [{ ticon: 'sydney_fort_denison-60370-aus-bom', name: 'Fort Denison', role: 'level' }, { ticon: 'sydney_port_jackson-213470-aus-bom', name: 'Port Jackson (Heads)', role: 'level' }],
   auckland: [{ ticon: 'auckland-auct-nzl-ttw', name: 'Auckland (Waitematā)', role: 'level' }],
   marseille: [{ ticon: 'marseille-524-fra-refmar', name: 'Marseille', role: 'level' }],
+  walvis: [{ ticon: 'walvis_bay-220a-nam-uhslc_rq', name: 'Walvis Bay', role: 'level' }],
   progreso: [
     { ticon: 'progreso_yuc-721b-mex-uhslc_rq', name: 'Progreso', role: 'level' },
     { ticon: 'sisal_radar-10-mex-unam', name: 'Sisal', role: 'bc' },
