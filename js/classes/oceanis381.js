@@ -29,6 +29,9 @@ export default {
   windage: { area: 6.8, z: 3.1, cd: 0.95 },
   mastX: 1.55, mastHeight: 16.6, boomZ: 2.55, mastR: 0.1, keelBulb: false,
   targetHeel: 17 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 3200, reefTime: 30,
+  // (her crew rolls in a reef of main and genoa together from ~18 kn of true wind close-hauled, as a charter
+  // skipper does, the second in ~23; later off the wind)
+  autoReef: { up: [18, 23], off: [23, 29] }, reefWind: [18, 23],
   // saildrive: Yanmar 3JH5E (29.4 kW at 3,000 rpm) on an SD60 leg (2.49:1), 3-blade folding 17 x 12 in prop
   engine: { type: 'saildrive', model: 'Yanmar 3JH5E on an SD60', kW: 40 * HP, rpmMax: 3000, rpmIdle: 850, cyl: 3, fuel: 'diesel', gear: 2.49,
     prop: { D: 0.43, P: 0.3, Z: 3, BAR: 0.45, folding: true, rh: 1 }, pos: [-2.6, 0, -0.95], mount: [-2.35, 0, 0.05], mass: 190, inMass: true,
@@ -42,7 +45,7 @@ export default {
       cd0: 0.07, ARe: 4.4, min: 2 * DEG, max: 78 * DEG, trav: null, Iboom: 260, boomMass: 30, reefs: 2,
       vangBend: 0.03, sheetBend: 0.03, color: 0xf1f1ec, pockets: [], battens: { EI: 0, rows: [] }, furling: true },
     { key: 'jib', kind: 'loose', area: 33.0, tackX: 5.58, tackZ: 1.55, luff: 13.7, foot: 5.25, head: 0.06, footRise: 0.45,
-      depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 3.9, min: 10 * DEG, max: 50 * DEG, sagK: 1.2, color: 0xf1f1ec, window: false },
+      depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 3.9, min: 10 * DEG, max: 50 * DEG, sagK: 1.2, furlReef: [1, 0.8, 0.65], color: 0xf1f1ec, window: false },
   ],
   hull: { color: 0xf5f6f4, stripe: 0x3b4450, deck: 0xdcdcd6, boot: 0x2c3036, bootTop: 0x3b4450, levels: [0.05, 0.12, 0.1, 0.06] },
   cloth: 'dacronCruise',   // (the cloth solver's stiffness and weight: Dacron, as the renderer and js/damage.js have it)

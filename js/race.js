@@ -1,7 +1,7 @@
 // Race management (windward-leeward course, start sequence, OCS, roundings, finish), free-sail
 // waypoints, and AI crews that sail the same physics with a helm + tactician model.
 import { DEG, KT, mulberry32 } from './env.js';
-import { autoTrim, wrap, clamp, lerp } from './physics.js';
+import { autoTrim, autoReefFor, wrap, clamp, lerp } from './physics.js';
 import { aiRules } from './rules.js';
 
 export const LEGS = ['Start', 'Windward mark', 'Leeward gate', 'Windward mark', 'Finish'];
@@ -403,7 +403,9 @@ export class AIHelm {
     if (b.sailBy.main.reefs) {
       const tws = (d.tws ?? 0) / KT;
       const R = b.cls.reefWind ?? [17, 24], was = b.ctrl.reef | 0;      // (the wind a class reefs at: first, second)
-      b.ctrl.reef = tws > R[1] ? 2 : tws > R[0] ? 1 : 0;
+      // (a class whose crew reefs by the wind's angle too, C.autoReef, by the rule its trimmers use, js/physics.js
+      // autoTrim: by the true wind alone, the two disagreed off the wind and the reef went in and out every step)
+      b.ctrl.reef = b.cls.autoReef ? autoReefFor(b.cls, tws, Math.abs(twa), was) : tws > R[1] ? 2 : tws > R[0] ? 1 : 0;
       if (b.ctrl.reef !== was) this.note('reef', { to: b.ctrl.reef, from: was, tws });
     }
   }

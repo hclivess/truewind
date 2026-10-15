@@ -943,7 +943,7 @@ class Game {
   grabIdForKey(k) { return Rigging.idForKey(k, this.player); }
   setReef(r) {
     const b = this.player, max = b.sailBy.main.reefs || 0;
-    b.ctrl.reef = clamp(r, 0, max);
+    b.ctrl.reef = clamp(r, 0, max); b.auto.reef = false;          // (the crew's own reefing stands down: js/physics.js autoTrim)
     this.hud.toast(b.ctrl.reef > b.reefPos ? `Reefing to ${['full', 'first', 'second'][b.ctrl.reef]} reef — halyard off` : b.ctrl.reef < b.reefPos ? 'Shaking out the reef' : 'Reef unchanged', 2);
   }
   rightBoat() {
@@ -1119,7 +1119,7 @@ class Game {
     else if (g.action === 'gen') this.toggleGen();
     else if (g.action === 'reef') {
       const max = b.sailBy.main.reefs;
-      b.ctrl.reef = clamp((b.ctrl.reef | 0) + (shift ? -1 : 1), 0, max);
+      b.ctrl.reef = clamp((b.ctrl.reef | 0) + (shift ? -1 : 1), 0, max); b.auto.reef = false;
       this.hud.toast(shift ? 'Shaking out a reef' : `Reefing to ${b.ctrl.reef === 1 ? 'first' : 'second'} reef — halyard off`);
     }
   }
