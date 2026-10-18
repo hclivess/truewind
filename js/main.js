@@ -83,7 +83,8 @@ const TOUCH_LINES = { stay: ['Stay', 'Trim', 'Ease', 'Staysail sheet'], trav: ['
 // reefs the crew ties in at the dock for this much wind (the same rule the AI crews use)
 function startReef(C, kn) {
   const max = (C && (C.sails.find(s => s.key === 'main') || {}).reefs) || 0;
-  return Math.min(max, kn > 24 ? 2 : kn > 17 ? 1 : 0);
+  const R = (C && C.reefWind) || [17, 24];                // (the wind the class reefs at, first and second: as the AI crews, js/race.js)
+  return Math.min(max, kn > R[1] ? 2 : kn > R[0] ? 1 : 0);
 }
 
 class Game {
