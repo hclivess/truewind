@@ -82,8 +82,7 @@ const TOUCH_LINES = { stay: ['Stay', 'Trim', 'Ease', 'Staysail sheet'], trav: ['
 
 // reefs the crew ties in at the dock for this much wind (the same rule the AI crews use)
 function startReef(C, kn) {
-  const max = (C && (C.sails.find(s => s.key === 'main') || {}).reefs) || 0;
-  const R = (C && C.reefWind) || [17, 24];                // (the wind the class reefs at, first and second: as the AI crews, js/race.js)
+  const max = (C && (C.sails.find(s => s.key === 'main') || {}).reefs) || 0, R = (C && C.reefWind) || [17, 24];   // (the class's own reefing winds, as its AI crews reef: js/race.js)
   return Math.min(max, kn > R[1] ? 2 : kn > R[0] ? 1 : 0);
 }
 
@@ -531,6 +530,7 @@ class Game {
     const realTide = !!tide && (idle || S.tide !== 'steady');
     if (tide) tide.still = !realTide;
     world.setBathy(geo && geo.bathy, tide);
+    if (!v.open) world.dredgeHarbours(await this.loadTraffic(v));     // (marinas afloat at low water, before anything is drawn)
     this.tide = tide;
     this.obstacles = ((geo && geo.piers) || []).filter(p => p.kind !== 'bridge' || (() => { let wet = 0; for (let i = 0; i < p.pts.length; i += 2) if (world.sdfAt(p.pts[i], p.pts[i + 1]) > 0) wet++; return wet > 0; })());
     const online = S.mode === 'online' && !idle;
@@ -585,7 +585,10 @@ class Game {
       const course = new Course(world, twd, { length: courseLen(cls), laps: S.laps, lineLength: 60 + place * (Math.min(S.fleet, cls.raceFleetMax ?? Infinity) + 1) });
       this.course = course;
       // (a class may cap its fleet: a superyacht's one-design start is a handful of her sisters, spaced by her beam)
-      const n = Math.min(S.fleet, cls.raceFleetMax ?? Infinity);
+      // a regatta of the class's own yachts (C.fleet: the J Class's Shamrock V, Velsheda and Endeavour): each AI boat
+      // sails as herself (her lines, rig, livery, name and sail number), as many as there are of them
+      const regatta = cls.fleet ? cls.fleet.filter((id) => id !== cls.id && CLASSES[id]).map((id) => CLASSES[id]) : null;
+      const n = regatta ? Math.min(S.fleet, regatta.length) : Math.min(S.fleet, cls.raceFleetMax ?? Infinity);
       const spots = [];
       for (let i = 0; i <= n; i++) {
         const off = (i - n / 2) * Math.min(cls.lineSpacing ?? Math.max(16, place), 2 * course.half / (n + 1));   // (a big fleet packs closer on a line the water shortened)
@@ -600,8 +603,9 @@ class Game {
       // model; fleetSwap then moves the cloth to whichever boats are near the camera)
       const L = this._sailLevel, nCloth = L && L.ms ? clothBudget(n, L.ms, L.ms1 ?? L.ms * 0.6, (L.ms1 ?? L.ms * 0.6) * 0.1) : n;
       for (let i = 1; i <= n; i++) {
-        const b = makeBoat(cls, { id: i, name: ids[i - 1].name, sailModel: SAIL_MODEL, lod: i <= Math.max(nCloth, 6) ? this.fleetSailLevel() : 2 });
-        b.sailNo = ids[i - 1].number; b.team = ids[i - 1].team;
+        const Ci = regatta ? regatta[i - 1] : cls;
+        const b = makeBoat(Ci, { id: i, name: regatta ? Ci.yachtName : ids[i - 1].name, sailModel: SAIL_MODEL, lod: i <= Math.max(nCloth, 6) ? this.fleetSailLevel() : 2 });
+        b.sailNo = regatta ? Ci.sailNo : ids[i - 1].number; if (!regatta) b.team = ids[i - 1].team;
         b.reset(spots[i][0], spots[i][1], twd + Math.PI / 2);
         b.auto.hike = true;
         this.boats.push(b);
@@ -637,10 +641,12 @@ class Game {
     }
     // engines: on the bracket for free sailing, stowed below for racing where the class rules say so (the sportboat's)
     for (const b of this.boats) if (b.engine) b.engine.setStowed(S.mode === 'race' && !idle);
-    // (a team's boat, the player's or the fleet's, in the team's colours: its hull and its sails, js/boatid.js)
+    // (a team's boat, the player's or the fleet's, in the team's colours: its hull and its sails, js/boatid.js; a
+    // regatta yacht of another class (C.fleet) in her own livery, with her own name and number)
     const look = (t) => t ? { hullColor: t.hull, sailLook: t.sails, bowNumber: t.bow, bowNumberColor: t.bowColor } : null;
-    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (this.settings.sailNo || (myTeam && myTeam.number) || (cls.id === 'blackwatch' ? '79' : '7')) : (b.sailNo || String(100 + b.id * 7)), name: b === player ? this.settings.boatName : b.name,
-      hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9], ...look(b === player ? myTeam : b.team) });
+    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (this.settings.sailNo || (myTeam && myTeam.number) || cls.sailNo || (cls.id === 'blackwatch' ? '79' : '7')) : (b.sailNo || String(100 + b.id * 7)),
+      name: b === player ? this.settings.boatName : b.cls !== cls && b.cls.model?.hullName ? b.cls.model.hullName.text : b.name,
+      hullColor: b === player || b.cls !== cls ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9], ...look(b === player ? myTeam : b.team) });
     await this.buildTraffic(v, world, cond, player);
     this.hud.buildRig(player);
     this.gear.setSession();

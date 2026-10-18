@@ -465,6 +465,9 @@ export class Traffic {
   }
   inLane(x, z, r) { const l = this.lanes; if (!l) return false; for (let i = 0; i < l.length; i += 2) if (Math.abs(l[i] - x) < r && Math.abs(l[i + 1] - z) < r && hyp(l[i] - x, l[i + 1] - z) < r) return true; return false; }
 
+  // a marina berth afloat at the lowest tide (on a real chart: World.dredgeHarbours keeps the marinas at 2.5 m below
+  // chart datum; a berth it does not reach, on the chart's own drying ground, is left empty)
+  afloat(x, z) { const W = this.world; return W.open || !W.bed || W.chartDepthAt(x, z) > 0.8; }
   // ---------------- marina berths: boats side by side along the pontoons, bows in
   placeBerths() {
     const D = this.data, r = this.rnd, occ = 0.35 + 0.55 * this.k;
@@ -480,10 +483,14 @@ export class Traffic {
         // a private jetty: a boat at its head, now and then
         if (len > 8 && len < 120 && r() < 0.3 + 0.4 * this.k) {
           const n = p.length, ex = p[n - 2], ez = p[n - 1], dx = ex - p[n - 4], dz = ez - p[n - 3], L0 = hyp(dx, dz) || 1;
-          const type = r() < 0.55 ? 'yacht' : r() < 0.6 ? 'motor' : 'rib', T = VESSELS[type];
+          // (where the jetty's head dries at low water, only a small open boat lies there, taking the ground as
+          // such boats do; a keel yacht or a cruiser only where she floats)
+          let type = r() < 0.55 ? 'yacht' : r() < 0.6 ? 'motor' : 'rib';
+          if (!this.afloat(ex, ez)) type = 'rib';
+          const T = VESSELS[type];
           const sd = r() < 0.5 ? 1 : -1, nx = -dz / L0 * sd, nz = dx / L0 * sd, off = 1.6 + T.B * 0.5;
           const x = ex - dx / L0 * T.L * 0.45 + nx * off, z = ez - dz / L0 * T.L * 0.45 + nz * off;
-          if (this.sdf(x, z) > 1.5 && this.free(x, z, T.B) && !this.kept(x, z, 20)) { const v = this.make(type, { x, z, psi: Math.atan2(dx, -dz), mode: 'berth' }); v.ax = x; v.az = z; v.room = v.B * 0.6; this.hadd(v); }
+          if (this.sdf(x, z) > 1.5 && this.free(x, z, T.B) && !this.kept(x, z, 20) && (type === 'rib' || this.afloat(x, z))) { const v = this.make(type, { x, z, psi: Math.atan2(dx, -dz), mode: 'berth' }); v.ax = x; v.az = z; v.room = v.B * 0.6; this.hadd(v); }
         }
         continue;
       }
@@ -501,7 +508,7 @@ export class Traffic {
             s += Bb + 0.9;
             if (r() > occ || placed >= cap) continue;
             const tx = x + nx * Lb * 0.45, tz = z + nz * Lb * 0.45;
-            if (this.sdf(x, z) < 1.5 || this.sdf(tx, tz) < 0 || this.kept(x, z, 10)) continue;
+            if (this.sdf(x, z) < 1.5 || this.sdf(tx, tz) < 0 || this.kept(x, z, 10) || !this.afloat(x, z)) continue;
             // not across another pontoon
             let clash = false;
             for (const q of all) { if (q.p === p || x < q[0] - Lb || x > q[2] + Lb || z < q[1] - Lb || z > q[3] + Lb) continue; if (segDist(q.p, x, z) < Lb * 0.45 || segDist(q.p, tx, tz) < 1) { clash = true; break; } }
@@ -523,7 +530,7 @@ export class Traffic {
       for (let a = -bb; a <= bb; a += 34) for (const side of [-1, 1]) for (let c = -bb; c <= bb; c += 4.4) {
         if (placed >= cap || r() > occ) continue;
         const x = ox + vx * (a + side * 6.2) + ux * c, z = oz + vz * (a + side * 6.2) + uz * c;
-        if (!pip(m.ring, x, z) || this.sdf(x, z) < 3 || this.kept(x, z, 10) || !this.free(x, z, 1.8)) continue;
+        if (!pip(m.ring, x, z) || this.sdf(x, z) < 3 || this.kept(x, z, 10) || !this.free(x, z, 1.8) || !this.afloat(x, z)) continue;
         const v = this.make(r() < 0.8 ? 'yacht' : 'motor', { x, z, psi: Math.atan2(vx * side, -vz * side), mode: 'berth', scale: 0.75 + r() * 0.4 });
         v.ax = x; v.az = z; v.room = v.B * 0.55; this.hadd(v); placed++;
       }
@@ -533,8 +540,10 @@ export class Traffic {
 
   // ---------------- swing moorings: the mapped ones, and fields in the sheltered water off every harbour
   mooringOK(x, z, L) {
-    const s = this.sdf(x, z), d = this.world.open ? 50 : this.world.depthAt(x, z);
-    return s > L + 12 && d > 1.8 && !this.kept(x, z, 60) && !this.inLane(x, z, 70) && !this.byPier(x, z, L + 20);
+    // (afloat, or nearly, at the lowest tide: the depth below chart datum, not the water there as the tide happens to
+    // be when the session starts; at low water springs a fin keel may touch the soft bottom, as on any mooring field)
+    const s = this.sdf(x, z), d = this.world.open ? 50 : this.world.chartDepthAt(x, z);
+    return s > L + 12 && d > 1.2 && !this.kept(x, z, 60) && !this.inLane(x, z, 70) && !this.byPier(x, z, L + 20);
   }
   // a pier, jetty or breakwater within r (m)?
   byPier(x, z, r) {
@@ -556,7 +565,8 @@ export class Traffic {
     for (const [x, z] of D.moorings || []) {
       if (n >= cap) break;
       if (r() > 0.4 + 0.6 * this.k) continue;
-      if (this.sdf(x, z) > 12 && (W.open || W.depthAt(x, z) > 1.2) && !this.kept(x, z, 40) && !this.byPier(x, z, 18) && this.free(x, z, 14)) { this.addMooring(x, z, r() < 0.85 ? 'yacht' : 'motor'); n++; }
+      // (a mapped mooring is a real one: it may dry at low water, as moorings in a drying creek do, but not on a bank)
+      if (this.sdf(x, z) > 12 && (W.open || W.chartDepthAt(x, z) > -1.5) && !this.kept(x, z, 40) && !this.byPier(x, z, 18) && this.free(x, z, 14)) { this.addMooring(x, z, r() < 0.85 ? 'yacht' : 'motor'); n++; }
     }
     for (const ring of D.mooringAreas || []) n += this.fillArea(ring, Math.min(cap - n, Math.round(ringArea(ring) / 2500 * this.k)));
     // fields off the marinas and harbours (and off the jetty-lined shores where nothing is mapped)

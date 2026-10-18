@@ -23,6 +23,8 @@
 //            (bronze or plain bushings, ~6.5%); default ball, plain on a classic boat
 //   d, fibre rope diameter (mm) and fibre, 'polyester' (double braid) | 'dyneema' (core): its stretch
 //   leads    turning blocks between the tackle and the handler (default 1: the block the tail leaves by)
+//   powered  a winch or ram driven by the boat's hydraulics or electrics (a superyacht's): m of line a second it takes
+//            in at the handler whatever the load (up to the gear's rating: the class's lines' max), eases as fast
 // and ropeStyle: 'modern' (default: coloured braid) | 'classic' (cream polyester, the colour as a tracer).
 //
 // ---- The model. b.locks[k] is the crew's intent (cleated or not: the panel, the deck and the auto crew set
@@ -83,6 +85,9 @@ export const HANDLERS = {
   // hydraulic ram (a vang, backstay or outhaul cylinder; a hydraulic halyard tensioner): pumped on or bled off from the
   // panel, it holds its pressure
   ram: { name: 'Hydraulic ram', icon: 'ram', slip: Infinity, lockT: 0.1, releaseT: 0.1, release: 'ease', oneWay: true, powered: true, vMax: 0.05, op: 'panel: pump on / bleed off' },
+  // powered self-tailing winch (a J Class's or a superyacht's big drum on deck, driven hydraulically from below or by
+  // the grinders' pedestals): the line on the drum and in its jaws, hauled and eased by the drive at its own speed
+  poweredTailer: { name: 'Powered self-tailing winch', icon: 'selfTailer', slip: Infinity, wraps: 3, lockT: 0.1, releaseT: 0.2, release: 'ease', oneWay: true, winch: true, powered: true, vMax: 0.8, op: 'push-button / grinders: in / out' },
   winchHorn: { name: 'Winch + horn cleat', icon: 'winchHorn', slip: Infinity, wraps: 3, lockT: 3.0, releaseT: 1.5, release: 'ease', oneWay: false, winch: true, op: 'figure-eights on the horn / cast off and ease round the drum' },
 };
 export const LINE_NAMES = { main: 'Mainsheet', jib: 'Jib sheet', lazy: 'Lazy jib sheet', gen: 'Gennaker sheet', stay: 'Staysail sheet', trav: 'Traveller', vang: 'Vang', cunn: 'Cunningham', outhaul: 'Outhaul', backstay: 'Backstay', jibHalyard: 'Jib halyard', tackLine: 'Tack line', mizzen: 'Mizzen sheet' };
