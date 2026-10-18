@@ -362,7 +362,7 @@ export function makeHandler(type, o = {}) {
     case 'ratchetCam': return makeRatchet({ swivel: true, cam: true });
     case 'carCam': return makeCarCam();
     case 'pinStop': return makePinStop();
-    case 'selfTailer': return makeTailer(o.r);
+    case 'selfTailer': case 'poweredTailer': return makeTailer(o.r);
   }
   return makeCam(o.size);
 }

@@ -1,12 +1,12 @@
 // Game controller: menu, venue loading (baked OSM or live Overpass), live weather, input, the
 // fixed-step simulation loop, race flow, AI fleet, cameras.
 import { Environment, KT, DEG, seaHsTp } from './env.js';
-import { Boat, CLASSES, CLASS_ORDER, autoTrim, solvePolarAngle, POLAR_TWAS, vmgTargets, clamp, lerp, wrap, makeSteadyEnv, drawPose } from './physics.js';
+import { Boat, makeBoat, CLASSES, CLASS_ORDER, autoTrim, solvePolarAngle, POLAR_TWAS, vmgTargets, clamp, lerp, wrap, makeSteadyEnv, drawPose } from './physics.js';
 import { VENUES, World, makeProjection, fetchVenueGeo, fetchLiveWind } from './world.js';
 import { fetchSeamarks } from './seamarks.js';
 import { Nav } from './nav.js';
 import { cleanSailNo, validateSailNo, cleanBoatName, validateBoatName, classFleetIdentities, classTeam, VENUE_NATION } from './boatid.js';
-import { Course, Race, AIHelm, aiRandom, applyWindShadow, resolveCollisions } from './race.js';
+import { Course, Race, AIHelm, aiRandom, startBoxBelow, applyWindShadow, resolveCollisions } from './race.js';
 import { RuleEngine, RULE_SHORT } from './rules.js';
 import { Renderer } from './render.js';
 import { coastalInput, coastalTransfer, buildCoastal, CoastalField } from './coastal.js';
@@ -22,6 +22,8 @@ import { AutoGlow } from './autoglow.js';
 const C_TILLER = (b) => (b.cls.hw && b.cls.hw.helm) || 'Tiller';
 import { sunPosition } from './sky.js';
 import './sail/sailsim.js';   // (registers the cloth / lattice sail model with physics.js)
+import './speedcraft.js';     // (registers the speed machines, a wing on foils and floats, with physics.js)
+import { SpeedTrial } from './speedtrial.js';
 import { SailGovernor, setSailLevel, sailsFlown } from './governor.js';
 import { Tide } from './tide.js';
 import { decodeBathy, fetchBathy } from './bathy.js';
@@ -71,7 +73,7 @@ const GRAB_PX = 30;
 const C_RIGHT = (b) => (b.cls.multihull ? 8 : 4); // grab radius on screen, also the size of the marker rings
 // chase-camera distance and windward-leeward course length for a class: by its size
 // the menu's class groups (a class's C.group)
-const CLASS_GROUPS = [['dinghy', 'Dinghies & skiffs'], ['keelboat', 'Keelboats'], ['multihull', 'Multihulls'], ['cruiser', 'Cruisers'], ['classic', 'Classics'], ['legend', 'Legends']];
+const CLASS_GROUPS = [['dinghy', 'Dinghies & skiffs'], ['keelboat', 'Keelboats'], ['multihull', 'Multihulls'], ['cruiser', 'Cruisers'], ['classic', 'Classics'], ['legend', 'Legends'], ['speed', 'Speed records']];
 const camDist = (C) => C.camDist ?? (C.id === 'dinghy' ? 8 : C.loa < 5.5 && !C.multihull ? 10 : C.loa > 9 ? 17 : 12);
 const courseLen = (C) => C.courseLen ?? (C.id === 'dinghy' ? 600 : C.loa > 9 ? 1200 : 800);   // (C.courseLen: the class's own racing's leg)
 // the touch pad's third line (in order of use), with the labels for its two buttons (d = -1, +1)
@@ -80,8 +82,8 @@ const TOUCH_LINES = { stay: ['Stay', 'Trim', 'Ease', 'Staysail sheet'], trav: ['
 
 // reefs the crew ties in at the dock for this much wind (the same rule the AI crews use)
 function startReef(C, kn) {
-  const max = (C && (C.sails.find(s => s.key === 'main') || {}).reefs) || 0;
-  return Math.min(max, kn > 24 ? 2 : kn > 17 ? 1 : 0);
+  const max = (C && (C.sails.find(s => s.key === 'main') || {}).reefs) || 0, R = (C && C.reefWind) || [17, 24];   // (the class's own reefing winds, as its AI crews reef: js/race.js)
+  return Math.min(max, kn > R[1] ? 2 : kn > R[0] ? 1 : 0);
 }
 
 class Game {
@@ -127,7 +129,8 @@ class Game {
     this.t = 0;
     this.boats = [];
     this.showLaylines = true;
-    this.trafficView = new TrafficView(this.renderer.scene);
+    // (a weak GPU, a phone or a tablet: fewer boats in full detail, and only close by)
+    this.trafficView = new TrafficView(this.renderer.scene, { low: this.renderer.low || matchMedia('(pointer: coarse)').matches });
     this.trafficView.seaKeep = (x, z) => this.renderer.seaKeepAt(x, z);     // (the traffic rides the sea as it is drawn)
     this.buildMenu();
     this.bindInput();
@@ -505,7 +508,7 @@ class Game {
       const data = await this.loadTraffic(v), keepOut = [{ x: player.x, z: player.z, r: 50 }];
       const C = this.course;
       if (C) { const r = Math.max(220, Math.hypot(C.committee.x - C.pin.x, C.committee.z - C.pin.z) / 2 + 120); for (let s = -250; s <= C.L + 150; s += 120) keepOut.push({ x: C.origin.x + C.ux * s, z: C.origin.z + C.uz * s, r }); }
-      try { this.traffic = new Traffic(world, data, { density: dens, seed: cond.seed, twd: cond.twd * DEG, keepOut, venue: v.id, piers: this.obstacles || [] }); } catch (e) { console.error('traffic', e); }
+      try { this.traffic = new Traffic(world, data, { density: dens, seed: cond.seed, twd: cond.twd * DEG, tws: cond.tws * KT, keepOut, venue: v.id, piers: this.obstacles || [] }); } catch (e) { console.error('traffic', e); }
     }
     this.trafficView.setTraffic(this.traffic);
   }
@@ -527,6 +530,7 @@ class Game {
     const realTide = !!tide && (idle || S.tide !== 'steady');
     if (tide) tide.still = !realTide;
     world.setBathy(geo && geo.bathy, tide);
+    if (!v.open) world.dredgeHarbours(await this.loadTraffic(v));     // (marinas afloat at low water, before anything is drawn)
     this.tide = tide;
     this.obstacles = ((geo && geo.piers) || []).filter(p => p.kind !== 'bridge' || (() => { let wet = 0; for (let i = 0; i < p.pts.length; i += 2) if (world.sdfAt(p.pts[i], p.pts[i + 1]) > 0) wet++; return wet > 0; })());
     const online = S.mode === 'online' && !idle;
@@ -549,7 +553,7 @@ class Game {
     this.race = null; this.course = null; this.waypoint = null; this.rules = null; this._xUp = false;
     $('#results').hidden = true;
     const cls = CLASSES[S.cls];
-    const player = new Boat(cls, { id: 0, name: this.settings.boatName || 'You', sailModel: SAIL_MODEL, lod: SAIL_MODEL === 'strip' ? 2 : this.sailLevelFor(cls) });
+    const player = makeBoat(cls, { id: 0, name: this.settings.boatName || 'You', sailModel: SAIL_MODEL, lod: SAIL_MODEL === 'strip' ? 2 : this.sailLevelFor(cls) });
     const myTeam = classTeam(cls, this.settings.boatName);      // (the player sailing as one of the class's teams)
     if (SAIL_MODEL !== 'strip') await loadBakedPolars(cls.id);      // (the cloth sails' polar: data/sails/<class>.json)
     player.auto.trim = S.autoTrim; player.auto.hike = S.autoHike;
@@ -572,18 +576,24 @@ class Game {
       }
       return [x, z];
     };
-    if (S.mode === 'race' && !idle) {
+    // (a speed machine sails one tack only: it cannot race round a course; it runs speed trials instead)
+    if (cls.speed && S.mode === 'race' && !idle) setTimeout(() => this.hud.toast(`${cls.name} sails on one tack only: no course racing — speed trial instead (500 m and nautical mile, as the WSSRC times them)`, 5), 3800);
+    if (S.mode === 'race' && !idle && !cls.speed) {
       // (the boats lie along the line bow to stern before the start: the class's own spacing, or 14 m, or 1.4 lengths
       // for a big boat)
       const place = cls.lineSpacing ?? Math.max(14, 1.4 * cls.loa);
       const course = new Course(world, twd, { length: courseLen(cls), laps: S.laps, lineLength: 60 + place * (Math.min(S.fleet, cls.raceFleetMax ?? Infinity) + 1) });
       this.course = course;
       // (a class may cap its fleet: a superyacht's one-design start is a handful of her sisters, spaced by her beam)
-      const n = Math.min(S.fleet, cls.raceFleetMax ?? Infinity);
+      // a regatta of the class's own yachts (C.fleet: the J Class's Shamrock V, Velsheda and Endeavour): each AI boat
+      // sails as herself (her lines, rig, livery, name and sail number), as many as there are of them
+      const regatta = cls.fleet ? cls.fleet.filter((id) => id !== cls.id && CLASSES[id]).map((id) => CLASSES[id]) : null;
+      const n = regatta ? Math.min(S.fleet, regatta.length) : Math.min(S.fleet, cls.raceFleetMax ?? Infinity);
       const spots = [];
       for (let i = 0; i <= n; i++) {
         const off = (i - n / 2) * Math.min(cls.lineSpacing ?? Math.max(16, place), 2 * course.half / (n + 1));   // (a big fleet packs closer on a line the water shortened)
-        spots.push([course.origin.x - course.ux * 170 + course.rx * off, course.origin.z - course.uz * 170 + course.rz * off]);
+        const below = startBoxBelow(S.countdown);
+        spots.push([course.origin.x - course.ux * below + course.rx * off, course.origin.z - course.uz * below + course.rz * off]);
       }
       player.reset(spots[0][0], spots[0][1], twd + Math.PI / 2);
       this.presetTrim(player);
@@ -593,12 +603,15 @@ class Game {
       // model; fleetSwap then moves the cloth to whichever boats are near the camera)
       const L = this._sailLevel, nCloth = L && L.ms ? clothBudget(n, L.ms, L.ms1 ?? L.ms * 0.6, (L.ms1 ?? L.ms * 0.6) * 0.1) : n;
       for (let i = 1; i <= n; i++) {
-        const b = new Boat(cls, { id: i, name: ids[i - 1].name, sailModel: SAIL_MODEL, lod: i <= Math.max(nCloth, 6) ? this.fleetSailLevel() : 2 });
-        b.sailNo = ids[i - 1].number; b.team = ids[i - 1].team;
+        const Ci = regatta ? regatta[i - 1] : cls;
+        const b = makeBoat(Ci, { id: i, name: regatta ? Ci.yachtName : ids[i - 1].name, sailModel: SAIL_MODEL, lod: i <= Math.max(nCloth, 6) ? this.fleetSailLevel() : 2 });
+        b.sailNo = regatta ? Ci.sailNo : ids[i - 1].number; if (!regatta) b.team = ids[i - 1].team;
         b.reset(spots[i][0], spots[i][1], twd + Math.PI / 2);
         b.auto.hike = true;
         this.boats.push(b);
-        const ai = new AIHelm(b, { seed: cond.seed, skill: 0.8 + aiRandom(cond.seed + 7, i)() * 0.18 });   // (the race's seed: the same fleet every time)
+        // (each crew her own slot on the line, in the order they lie in the start box, so their ways to it do not
+        // cross: drawn at random, two crews could aim at the same metre of it)
+        const ai = new AIHelm(b, { seed: cond.seed, skill: 0.8 + aiRandom(cond.seed + 7, i)() * 0.18, startFrac: (i - 0.5) / n });   // (the race's seed: the same fleet every time)
         this.ais.push(ai);
       }
       this.race = new Race(course, this.boats, { countdown: S.countdown });
@@ -617,18 +630,23 @@ class Game {
       else if (!world.open) { const c = world.findCourse(twd, 400); x = c.x; z = c.z; }
       if (online) { const a = Math.random() * 6.28, r = 40 + Math.random() * 120; x += Math.cos(a) * r; z += Math.sin(a) * r; }
       [x, z] = safe(x, z, cls.draft + 0.6);
+      // (a speed machine starts as she does at Walvis Bay: towed up to speed on her one tack and let go)
+      if (cls.speed) hdg = twd - (cls.speed.windSide ?? 1) * 100 * DEG;
       player.reset(x, z, hdg);
-      player.u = 1.2;
+      player.u = cls.speed ? Math.min(0.7 * env.wind.mean(0).speed, 15) : 1.2;
+      if (cls.speed) { player.trial = new SpeedTrial(); this._towAt = { x, z }; }
       this.presetTrim(player);
       this.renderer.setMarks([], null);
       if (idle) { player.auto.trim = true; }
     }
     // engines: on the bracket for free sailing, stowed below for racing where the class rules say so (the sportboat's)
     for (const b of this.boats) if (b.engine) b.engine.setStowed(S.mode === 'race' && !idle);
-    // (a team's boat, the player's or the fleet's, in the team's colours: its hull and its sails, js/boatid.js)
+    // (a team's boat, the player's or the fleet's, in the team's colours: its hull and its sails, js/boatid.js; a
+    // regatta yacht of another class (C.fleet) in her own livery, with her own name and number)
     const look = (t) => t ? { hullColor: t.hull, sailLook: t.sails, bowNumber: t.bow, bowNumberColor: t.bowColor } : null;
-    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (this.settings.sailNo || (myTeam && myTeam.number) || cls.sailNo || (cls.id === 'blackwatch' ? '79' : '7')) : (b.sailNo || String(100 + b.id * 7)), name: b === player ? this.settings.boatName : b.name,
-      hullColor: b === player ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9], ...look(b === player ? myTeam : b.team) });
+    for (const b of this.boats) this.renderer.addBoat(b, { player: b === player, number: b === player ? (this.settings.sailNo || (myTeam && myTeam.number) || cls.sailNo || (cls.id === 'blackwatch' ? '79' : '7')) : (b.sailNo || String(100 + b.id * 7)),
+      name: b === player ? this.settings.boatName : b.cls !== cls && b.cls.model?.hullName ? b.cls.model.hullName.text : b.name,
+      hullColor: b === player || b.cls !== cls ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9], ...look(b === player ? myTeam : b.team) });
     await this.buildTraffic(v, world, cond, player);
     this.hud.buildRig(player);
     this.gear.setSession();
@@ -684,7 +702,10 @@ class Game {
     const twd = cond.twd * DEG;
     world.updateShelter(twd);
     // waves: fetch-limited by the real coastline upwind of the sailing area
-    const fetchM = world.open ? 60000 : world.fetchAt(0, 0, twd, 6000);
+    // (a venue whose sailing is in one sheltered spot, v.seaAt 'spawn', raises its sea over the fetch there: the Walvis Bay
+    // speed strip's flat water in the lee of its spit, not the lagoon's chop at the venue's centre)
+    const sp0 = v && v.seaAt === 'spawn' && v.spawn ? makeProjection(v.lat, v.lon).fwd(v.spawn.lat, v.spawn.lon) : [0, 0];
+    const fetchM = world.open ? 60000 : world.fetchAt(sp0[0], sp0[1], twd, 6000);
     // open ocean: effectively unlimited fetch, the sea limited by the storm's duration (env.js STORM_H)
     const fetchKm = world.open ? 2000 : fetchM >= 6000 ? 25 : Math.max(0.4, fetchM / 1000);
     const clock0 = this.settings.mode === 'online' && cond.epoch ? cond.epoch * 1000 : this.clockFor();
@@ -819,6 +840,9 @@ class Game {
 
   // the crew sets the sails for the initial heading before handing over
   presetTrim(b) {
+    // (a speed machine is let go from the tow with her wing set by the pilot: js/speedcraft.js speedAutoTrim takes it
+    // from there)
+    if (b.speedCraft) { b.ctrl.main = b.lines.main = b.cls.speed.trim0 ?? 0.3; return; }
     b.reefPos = b.ctrl.reef | 0;   // reefs tied in at the dock are already in, not being tied in
     const keep = { x: b.x, z: b.z, psi: b.psi };
     // (four seconds at the physics step: cloth sails need the game's step to settle)
@@ -876,7 +900,7 @@ class Game {
   onWaypoint() { this.renderer.setMarks(this.waypoint && !this.waypoint.ghost ? [this.waypoint] : [], null); }   // (a MOB mark is only on the plotter)
 
   userTouched(k) {
-    const trimKeys = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibLead', 'jibHalyard', 'tackLine', 'board'];
+    const trimKeys = ['main', 'jib', 'lazy', 'stay', 'trav', 'vang', 'cunn', 'outhaul', 'backstay', 'jibLead', 'jibHalyard', 'tackLine', 'board', 'flap'];
     if (trimKeys.includes(k) && this.player.auto.trim) { this.player.auto.trim = false; this.hud.toast(this.autopilot && this.autopilot.engaged ? 'Automatic trim off — you trim, the autopilot steers' : 'Automatic trim off — you have the sheets'); }
     if ((k === 'hike' || k === 'crewAft') && this.player.auto.hike) { this.player.auto.hike = false; this.hud.toast('Automatic weight off — you place your weight'); }
   }
@@ -888,6 +912,7 @@ class Game {
     if (!ap || this.idle || !this.running) return;
     if (ap.engaged) { this.disengageAutopilot('Autopilot off — you have the helm'); return; }
     if (b.unmanned || b.sunk) { this.hud.toast('Nobody aboard to mind the autopilot', 1.8); return; }
+    if (b.speedCraft) { this.hud.toast(`${b.cls.name} has no autopilot: she sails one course, on one tack`, 2.5); return; }
     if (b.anchor && b.anchor.state !== 'up') { this.hud.toast('At anchor — weigh it first (U)', 1.8); return; }
     if (b.moor && b.moor.tied) { this.hud.toast('Made fast — cast off first (9)', 1.8); return; }
     this.apTrim = b.auto.trim; b.auto.trim = true;
@@ -968,8 +993,18 @@ class Game {
   }
   rightBoat() {
     const b = this.player;
+    if (b.speedCraft) { this.towCraft(); return; }
     if (b.unmanned) { this.hud.toast('Swim to the boat first', 1.4); return; }
     if (b.capsized || Math.abs(b.phi) > 50 * DEG) { b.righting = true; this.hud.toast(b.cls.multihull ? 'On the righting line — lean back' : 'Standing on the daggerboard — lean back', 3); } else this.hud.toast('The boat is upright', 1.2);
+  }
+  // a speed machine is never sailed off a beach: the support boat tows her back up the course, points her on her tack
+  // (starboard: the wind 100 deg on that side) and lets her go at about 0.7 of the wind's speed, as the team does
+  towCraft() {
+    const b = this.player, C = b.cls, twd = (b.diag.twd ?? 0), w = this.env.wind.mean(this.t).speed;
+    const at = this._towAt || { x: b.x, z: b.z };
+    b.reset(at.x, at.z, twd - (C.speed.windSide ?? 1) * 100 * DEG);
+    b.u = Math.min(0.7 * w, 15); b.ctrl.helm = 0;
+    this.hud.toast(`Towed back up the course and let go at ${(b.u / KT).toFixed(0)} kn, starboard tack`, 3);
   }
   toggleGen() {
     const b = this.player; if (!b.sailBy.gennaker) return;
@@ -1007,7 +1042,7 @@ class Game {
     this.syncTouch(); this.syncEngineTouch();
   }
   syncTouch() {
-    const b = this.player; if (!b || !this.touchLines) return;
+    const b = this.player; if (!b || !this.touchLines || !this.touchLines.length) return;
     const k = this.touchLines[this.touchSel % this.touchLines.length], [name, lo, hi] = TOUCH_LINES[k];
     $('#tp-sel').textContent = `${name} ▸`;
     $('#tp-x0').dataset.k = k; $('#tp-x0').textContent = lo;
@@ -1235,7 +1270,7 @@ class Game {
     else if (k === 'p') this.setPaused(!this.paused);
     else if (k === 'y' && b.cls.hasBoard) { this.userTouched('board'); b.ctrl.board = b.ctrl.board > 0.5 ? 0.25 : 1; this.hud.toast(b.ctrl.board > 0.5 ? 'Board down' : 'Board up', 1.2); }
     else if (k === 'r') {
-      if (b.capsized) this.rightBoat();
+      if (b.capsized || b.speedCraft) this.rightBoat();
       else if (b.sailBy.main.reefs) this.setReef(((b.ctrl.reef | 0) + 1) % (b.sailBy.main.reefs + 1));
     }
     else if (k === 'f' && b.sailBy.jib) this.letFly();
@@ -1316,8 +1351,8 @@ class Game {
     if (this.settings.tiller) steer = -steer; // push the tiller to port, the bow goes to starboard
     if (steer) { this.manualHelm(); c.helm = clamp(c.helm + steer * 0.9 * dt, -1, 1); }
     // the helmsman holds the tiller where it was put (Space centres it)
-    const rate = 0.28 * dt;
-    const trim = (key, dir) => { this.userTouched(key); const tr = ['main', 'jib', 'stay', 'lazy', 'trav', 'tackLine'].includes(key) ? dir < 0 : dir > 0; const hr = handRate(b, key, tr); c[key] = clamp(c[key] + dir * (hr === null ? rate : hr * dt) * this.working(key, tr), 0, 1); };
+    const rate = (b.speedCraft ? 0.06 : 0.28) * dt;   // (a speed machine's wing trim: ~9 deg a second)
+    const trim = (key, dir) => { this.userTouched(key); const tr = ['main', 'jib', 'stay', 'lazy', 'trav', 'tackLine'].includes(key) ? dir < 0 : dir > 0; const hr = b.speedCraft ? null : handRate(b, key, tr); c[key] = clamp(c[key] + dir * (hr === null ? rate : hr * dt) * this.working(key, tr), 0, 1); };
     if (has('w')) trim('main', -1);
     if (has('s')) trim('main', +1);
     if (K.has('ArrowUp')) trim(shift && b.sailBy.stay ? 'stay' : 'jib', -1);
@@ -1412,6 +1447,15 @@ class Game {
       let dTr = tDraw - (this._tDraw ?? tDraw);
       if (!(dTr >= 0 && dTr <= (steps + 1) * PHYS_DT + 1e-9)) dTr = steps * PHYS_DT;   // (a new session, a clock resync)
       this.traffic.update(dTr, tDraw, this.env, this.boats);
+      // the vessels' sound signals (a ship's five short blasts at a boat in her way, a ferry leaving her berth), heard
+      // from where they are; the doubt signal at the player is said too
+      for (const e of this.traffic.events.splice(0)) {
+        if (e.type !== 'horn' || this.idle || this.timeWarp > 2) continue;
+        const c = this.renderer.camera, d = Math.hypot(e.v.x - c.position.x, e.v.z - c.position.z), m = c.matrixWorld.elements;
+        this.audio.shipHorn(e.v.L, e.blasts, d, ((e.v.x - c.position.x) * m[0] + (e.v.z - c.position.z) * m[2]) / Math.max(1, d));
+        const p = this.player;
+        if (e.kind === 'doubt' && p && Math.hypot(e.v.x - p.x, e.v.z - p.z) < 1000) this.hud.toast(`Five short blasts from ${this.traffic.describe(e.v)}: keep clear of her, she cannot turn out of the channel`, 4);
+      }
       const night = clamp((-this.renderer.sunDir.y + 0.02) / 0.12, 0, 1);
       this.trafficView.update(dt, tDraw, this.env, this.renderer.camera, night, this.renderer.r.domElement.height);
     }
@@ -1482,7 +1526,7 @@ class Game {
     let lod = 0, ms = 0, ms1;
     try {
       for (lod = 0; lod < 2; lod++) {
-        const b = new Boat(cls, { sailModel: SAIL_MODEL, lod }), env = makeSteadyEnv(6);
+        const b = makeBoat(cls, { sailModel: SAIL_MODEL, lod }), env = makeSteadyEnv(6);
         b.reset(0, 0, 1.2); b.u = 2;
         for (let i = 0; i < 40; i++) b.step(PHYS_DT, env, 0);                 // warm up (and the first factorisation)
         const t0 = performance.now();
@@ -1527,7 +1571,8 @@ class Game {
     // the cleats, the winches and the sounds show it working (the idle demo's too; the autopilot's trim below as well)
     const cr = this.crew || (this.crew = new Crew());
     cr.pre(b);                                                    // (what the automation touches lights up on deck: js/autoglow.js)
-    if ((b.auto.trim || this.idle) && !b.unmanned && !apOn) { cr.begin(b); autoTrim(b, dt, 0, true); cr.end(b, dt); }
+    // (a speed machine's pilot trims the wing himself, at his own rate: js/speedcraft.js)
+    if ((b.auto.trim || this.idle) && !b.unmanned && !apOn) { if (b.speedCraft) autoTrim(b, dt, 0, true); else { cr.begin(b); autoTrim(b, dt, 0, true); cr.end(b, dt); } }
     if (apOn) {
       if (b.unmanned || b.sunk || (b.anchor && b.anchor.state !== 'up' && b.anchor.state !== 'weighing') || (b.moor && b.moor.tied)) this.disengageAutopilot(b.unmanned ? 'Autopilot off — crew overboard' : 'Autopilot off');
       else {
@@ -1583,7 +1628,8 @@ class Game {
 
   idleHelm(dt) { // gentle reaching behind the menu
     const b = this.player, twd = b.diag.twd ?? 0;
-    const desired = twd + 100 * DEG;
+    const desired = b.speedCraft ? twd - (b.cls.speed.windSide ?? 1) * 100 * DEG : twd + 100 * DEG;
+    if (b.speedCraft && (b.u < 3 || b.capsized)) { b.reset(b.x, b.z, desired); b.u = Math.min(0.7 * (b.diag.tws || 10), 15); }   // (the idle demo: towed again)
     b.ctrl.helm = clamp(2 * wrap(desired - b.psi) - 1.5 * b.r, -0.6, 0.6);
   }
 
@@ -1667,6 +1713,21 @@ class Game {
   checkAlerts() {
     const b = this.player, C = b.cls;
     if (b.engine && b.engine.stalled) { b.engine.stalled = false; this.hud.toast('The engine stalled', 2); this.syncEngineTouch(); }
+    if (b.speedCraft) {
+      // a speed machine's warnings: over, on the wrong tack, the foil boiling, stopped
+      const d = b.diag, wrong = (d.awaMid ?? 0) * (C.speed.windSide ?? 1) < -5 * DEG && b.u > 0.5;
+      if (b.capsized) this.hud.alert('Over — press R: the support boat rights her and tows her back', true);
+      else if (wrong) this.hud.alert('Wind on the wrong side: she sails on starboard tack only — the wing cannot meet it and the foil pulls the wrong way. R to be towed back', true);
+      else if ((d.foil?.cav || 0) > 0.5) this.hud.alert('Foil cavitating — it has lost its grip: ease the wing', true);
+      else if (b.aground > 0.02) this.hud.alert('The foil is on the bottom', true);
+      else if (b.u < 3 && (d.tws || 0) > 0) this.hud.alert(b.u < 1 ? `Stopped — she needs a tow to get going (R), and ~17-20 kn of wind` : 'Too slow to plane: bear away, sheet the wing in, or R for a tow');
+      else this.hud.alert(null);
+      return;
+    }
+    // (a foiler flying: her T-foil near the surface, a foil boiling, heeled past the point where her windward foil holds)
+    const hf = !b.capsized && b.hfoils && b.diag.hfoils ? b.diag.hfoils : null, fly = hf && (b.diag.displaced || 0) < 0.2 * b.mass;
+    if (fly && hf.some((f) => /elevator/.test(f.name || '') && f.imm < 0.7)) { this.hud.alert('T-foil coming out of the water — ease the main, come down', true); return; }
+    if (fly && Math.abs(b.phi) > 12 * DEG) { this.hud.alert('Flying heeled on the leeward foil — ease or bear away before the T-foil lifts out', true); return; }
     if (b.capsized && b.righting) this.hud.alert(`Righting… ${Math.round(Math.abs(b.phi) * 57.3)}° — keep your weight out`, true);
     else if (b.capsized && !b.unmanned) this.hud.alert('Capsized — press R to stand on the board and right her', true);
     else if (this.gear.alert()) { const a = this.gear.alert(); this.hud.alert(a.msg, a.bad); }

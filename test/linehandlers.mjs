@@ -124,12 +124,12 @@ console.log('6. tackles');
 
 console.log('7. every class');
 {
-  for (const id of Object.keys(CLASSES)) {
+  for (const id of Object.keys(CLASSES).filter((q) => !CLASSES[q].speed)) {   // (a speed machine's wing trim is no line: test/speedcraft.mjs)
     const C = CLASSES[id], L = lineSpecs(C);
     check(Object.values(L).every((s) => HANDLERS[s.handler]) && ['main', 'jib', 'lazy', 'vang', 'cunn', 'outhaul'].every((k) => L[k]), `${id}: ${Object.entries(L).map(([k, s]) => `${k} ${s.handler}`).join(', ')}`);
   }
   const env = makeSteadyEnv(20 * KT);
-  for (const id of Object.keys(CLASSES)) {
+  for (const id of Object.keys(CLASSES).filter((q) => !CLASSES[q].speed)) {   // (a speed machine's wing trim is no line: test/speedcraft.mjs)
     const b = new Boat(id); b.reset(0, 0, Math.PI / 4); b.u = 2;
     let slips = 0;
     for (let i = 0; i < 10 / DT; i++) { autoTrim(b, DT); b.step(DT, env, i * DT); b.psi = Math.PI / 4; b.r = 0; for (const k in b.lh) slips += b.lh[k].slip; }

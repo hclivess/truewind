@@ -339,6 +339,12 @@ export class HullSplash {
     const sgA = this.sheet.geometry.attributes; sgA.position.needsUpdate = true; sgA.uvq.needsUpdate = true; sgA.hgt.needsUpdate = true;
     this.sheet.geometry.computeVertexNormals();
     if (b.engine && (b.engine.active || Math.abs(b.engine.T) > 5)) this.engineWash(dt, toW, dirW, pw, dw, bvx, bvz);
+    this.integrate(dt, t, env);
+  }
+  // the drops and foam patches already out: gravity, air drag, landing, spreading and fading (each frame, after the
+  // emitters: js/boats/speedcraft-model.js has its own)
+  integrate(dt, t, env) {
+    const b = this.b, G = 9.81;
     // ---- drops: gravity + air drag; mist drifts and rises a little; landing drops leave foam
     const P = this.dPos, Vv = this.dVel, L = this.dLife, K = this.dKind;
     const wind = env && env.wind ? env.wind.sample(b.x, b.z, t, this._wind || (this._wind = {})) : null;
@@ -380,7 +386,7 @@ export class HullSplash {
       PQ[i * 4] = this.pA0[i] * Math.exp(-AG[i] / 5) * Math.min(1, AG[i] * 4 + 0.3);
     }
     this.aP.needsUpdate = true; this.aQ.needsUpdate = true;
-  }
+    }
   dispose(scene) { scene.remove(this.points); scene.remove(this.patches); }
 
   // Engine (js/engine.js): the propeller's jet boils up behind it as turbulent, aerated water (aft going ahead, forward

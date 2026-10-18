@@ -46,6 +46,7 @@ function sectionCut(p, sp, cp, zw, sl, r) {
 // one boat's hulls -> list entries { x, z, fx, fz, x0, dxs, taper, wmax, st: Float32Array(NS * 4) }
 // pose: { x, z, psi, heave, pitch, phi } (the drawn pose); the sea along the hull from the last physics step
 export function hullEntries(b, pose, list, max = HW.MAXH) {
+  if (b.speedCraft) return podEntries(b, pose, list, max);
   const C = b.cls, hy = b.hydro, NS = HW.NS, P = pose || b;
   if (!(isFinite(P.x) && isFinite(P.z) && isFinite(P.psi) && isFinite(P.phi || 0) && isFinite(P.pitch || 0) && isFinite(P.heave || 0))) return list;   // (a broken state must not poison the grid)
   const etaAt = b._etaAt || (() => 0), slLat = b._slLat || (() => 0);
@@ -78,6 +79,22 @@ export function hullEntries(b, pose, list, max = HW.MAXH) {
   }
   return list;
 }
+// a speed machine's wet floats (js/speedcraft.js): each presses on the water over its wetted length and beam with the
+// head its lift makes, L / (rho g S) (a planing surface's mean pressure over its wetted area)
+function podEntries(b, pose, list, max) {
+  const P = pose || b, NS = HW.NS;
+  if (!(isFinite(P.x) && isFinite(P.z) && isFinite(P.psi))) return list;
+  const fx = Math.sin(P.psi), fz = -Math.cos(P.psi);
+  for (const pd of b.pods || []) {
+    const o = pd.out; if (!o || !(o.L > 20) || list.length >= max) continue;
+    const wl = clampH(o.lam * pd.P.b, 0.1, pd.P.len), head = o.L / (1025 * 9.81 * Math.max(0.02, wl * pd.P.b));
+    const e = { x: P.x, z: P.z, fx, fz, x0: pd.keel[0], dxs: wl / (NS - 1), taper: 0.3 / (wl / (NS - 1)), wmax: Math.abs(pd.keel[1]) + pd.P.b / 2, st: new Float32Array(NS * 4), b };
+    for (let j = 0; j < NS; j++) { e.st[j * 4] = pd.keel[1]; e.st[j * 4 + 1] = pd.P.b / 2; e.st[j * 4 + 2] = j === NS - 1 ? 0 : Math.min(0.5, head) * (0.6 + 0.4 * j / (NS - 1)); }
+    list.push(e);
+  }
+  return list;
+}
+const clampH = (x, a, b) => (x < a ? a : x > b ? b : x);
 // the head q (m) the hulls press on the water at world (x, z): the same sum the GPU force pass makes
 export function headAt(list, x, z) {
   let q = 0;

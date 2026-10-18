@@ -285,7 +285,9 @@ function waterlineStations(stations, heave, pitch, phi, etaAt, slopeLatAt) {
 }
 
 export class HullHydro {
-  constructor(C, nStations = 26) {
+  // (C.hydroStations: a long-ended hull's stations closer than 26 along its length, so that the waterline its
+  // overhangs gain as it heels is measured in steps finer than a metre and a half)
+  constructor(C, nStations = C.hydroStations ?? 26) {
     this.C = C;
     calibrate(C);
     this.stations = buildStations(C, nStations);

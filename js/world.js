@@ -29,6 +29,16 @@ export const VENUES = [
   { id: 'auckland', name: 'Hauraki Gulf', place: 'Auckland, New Zealand', lat: -36.83, lon: 174.82, wind: 230, windKt: 15, depth: 18, note: 'Waitematā Harbour entrance, Rangitoto to the north.' },
   { id: 'marseille', name: 'Rade de Marseille', place: 'Marseille, France', lat: 43.27, lon: 5.33, wind: 315, windKt: 20, depth: 40, note: 'Mistral country. Frioul islands offshore.' },
   { id: 'meredith', lake: true, name: 'Lake Meredith', place: 'near Amarillo, Texas, USA', lat: 35.69, lon: -101.565, wind: 200, windKt: 14, depth: 25, note: 'Panhandle lake near Amarillo, where Blue Water Boatworks built the Blackwatch 19/24.' },
+  // (the speed strip: Paul Larsen's "hammer head beach between two lagoons", 1.04 nmi long, sailed along its north
+  // shore with the wind over the beach (Vestas Sailrocket 2's records, Nov 2012: sailrocket.com node/650); the strong
+  // south-westerly sea breeze of the Benguela coast, 23-29 kn on the record days (node/623, 650, 672); its direction,
+  // ~190°, from the course: a starboard-tack reach of ~100° true (99° on 12 Nov, node/623) along the beach, whose north
+  // shore runs east-west for 1.9 km, 14.452-14.470°E (OSM): the strip, 200 m off it in ~2.5 m of water; est.; the
+  // spit is low bare sand a metre or two high: it flattens the water to leeward and takes little of the wind, shelter
+  // 0.12 against the general 0.5, est.)
+  { id: 'walvis', name: 'Walvis Bay', place: 'Speed strip, Walvis Bay, Namibia', lat: -22.962, lon: 14.468, R: 6000, wind: 190, windKt: 25, depth: 4, shelter: 0.12, seaAt: 'spawn',
+    spawn: { lat: -22.957, lon: 14.452, heading: 90 },
+    note: 'The speed strip where Vestas Sailrocket 2 set the 500 m record (65.45 kn, 2012): flat water along a sand spit, the south-south-westerly blowing over the beach.' },
   { id: 'southern', name: 'Southern Ocean', place: 'Drake Passage, south of Cape Horn', lat: -57.5, lon: -66.5, wind: 285, windKt: 45, swell: 7, depth: 4000, open: true, preset: true,
     note: 'The Furious Fifties: a westerly gale with nothing to stop it, a big swell from the west under the local sea, and now and then a rogue.' },
   { id: 'open', name: 'Open Water', place: 'No land in sight', lat: 0, lon: 0, wind: 0, windKt: 12, depth: 200, open: true, note: 'Just you, the wind and the waves.' },
@@ -340,24 +350,33 @@ export class World {
         if (d < o - 1e-3 || (d < o + 1e-3 && Math.abs(cr) > Math.abs(bperp[k]))) { bd[k] = d; bpx[k] = px; bpz[k] = pz; bsg[k] = cr >= 0 ? 1 : -1; bperp[k] = cr; }
       }
     }
-    // in the band the side is the shoreline's: the label grid follows it (a cell straddling the line goes to the
-    // side its centre is on)
-    for (let k = 0; k < NN; k++) if (bd[k] < Infinity) lab[k] = bsg[k] > 0 ? 2 : 1;
-    // out from the band, each side: a chamfer transform (two sweeps) from the band's exact distances; a label edge no
-    // piece accounts for is a shore at its cell's edge, as before
+    // where the shoreline passes (within a cell) the side is its own: the label grid follows it (a cell straddling the
+    // line goes to the side its centre is on). Further out the labels stand: a piece's side is only a guess there (a
+    // pond whose own ring was left out lay in the band of the next pond's, and took its side: land)
+    for (let k = 0; k < NN; k++) if (bd[k] < cs) lab[k] = bsg[k] > 0 ? 2 : 1;
+    // each side: the least of the exact distance and a chamfer transform (two sweeps) over every cell of the side,
+    // seeded with those exact distances and, where no piece passes within a cell, with the label grid's own edge (a
+    // shore at the cell's edge, as before: a boundary no piece accounts for). Every value is then the distance to
+    // some shore, never more than the distance to the nearest (a pond missed by the pieces, inside another's band,
+    // held the distance to that other pond: 24 m in a pond 20 m across, and a moored boat swung onto the grass)
     const a1 = cs, a2 = cs * Math.SQRT2;
     const side = (me) => {
       const D = new Float32Array(NN);
-      for (let k = 0; k < NN; k++) { const inB = bd[k] < Infinity; D[k] = inB ? (lab[k] === me ? bd[k] : Infinity) : lab[k] === me ? Infinity : -cs * 0.5; }
+      for (let k = 0; k < NN; k++) {
+        // (a piece is this cell's shore only from the side the labels have it on: a creek narrower than a cell, its
+        // far bank's way missing, put land cells on the near bank's water side, 23 m from a shore one cell away)
+        const e = bd[k] < Infinity && (bsg[k] > 0 ? 2 : 1) === lab[k] ? bd[k] : Infinity;
+        D[k] = lab[k] === me ? e : e >= cs ? -cs * 0.5 : Infinity;
+      }
       for (let j = 0; j < N; j++) for (let i = 0, k = j * N; i < N; i++, k++) {
-        if (lab[k] !== me || bd[k] < Infinity) continue;
+        if (lab[k] !== me) continue;
         let v = D[k];
         if (i > 0) v = Math.min(v, D[k - 1] + a1);
         if (j > 0) { v = Math.min(v, D[k - N] + a1); if (i > 0) v = Math.min(v, D[k - N - 1] + a2); if (i < N - 1) v = Math.min(v, D[k - N + 1] + a2); }
         D[k] = v;
       }
       for (let j = N - 1; j >= 0; j--) for (let i = N - 1, k = j * N + N - 1; i >= 0; i--, k--) {
-        if (lab[k] !== me || bd[k] < Infinity) continue;
+        if (lab[k] !== me) continue;
         let v = D[k];
         if (i < N - 1) v = Math.min(v, D[k + 1] + a1);
         if (j < N - 1) { v = Math.min(v, D[k + N] + a1); if (i < N - 1) v = Math.min(v, D[k + N + 1] + a2); if (i > 0) v = Math.min(v, D[k + N - 1] + a2); }
@@ -366,8 +385,43 @@ export class World {
       return D;
     };
     const dw = side(2), dl = side(1);
+    // and last, consistent across the shore: two neighbours on either side of it have the shore between them, so
+    // neither is further from it than the other's distance allows (at least half their spacing); then carried on
+    // through each side. Where the pieces and the labels agree this changes nothing; where they don't (an islet's
+    // way drawn the wrong way round, a creek with one bank mapped) it keeps the field a distance, never more than
+    // the way to the shore (a moored boat's swing, a ferry's room and the autopilot's probes all trust that)
+    const A = new Float32Array(NN);
+    for (let k = 0; k < NN; k++) A[k] = Math.min(lab[k] === 2 ? dw[k] : dl[k], 5000);
+    const C = A.slice();
+    const cap = (k, n, d) => { if (lab[n] !== lab[k]) { const c = Math.max(d - A[n], 0.5 * d); if (c < C[k]) C[k] = c; } };
+    for (let j = 0; j < N; j++) for (let i = 0, k = j * N; i < N; i++, k++) {
+      if (i > 0) cap(k, k - 1, a1);
+      if (i < N - 1) cap(k, k + 1, a1);
+      if (j > 0) { cap(k, k - N, a1); if (i > 0) cap(k, k - N - 1, a2); if (i < N - 1) cap(k, k - N + 1, a2); }
+      if (j < N - 1) { cap(k, k + N, a1); if (i > 0) cap(k, k + N - 1, a2); if (i < N - 1) cap(k, k + N + 1, a2); }
+    }
+    for (let j = 0; j < N; j++) for (let i = 0, k = j * N; i < N; i++, k++) {
+      const me = lab[k]; let v = C[k];
+      if (i > 0 && lab[k - 1] === me) v = Math.min(v, C[k - 1] + a1);
+      if (j > 0) {
+        if (lab[k - N] === me) v = Math.min(v, C[k - N] + a1);
+        if (i > 0 && lab[k - N - 1] === me) v = Math.min(v, C[k - N - 1] + a2);
+        if (i < N - 1 && lab[k - N + 1] === me) v = Math.min(v, C[k - N + 1] + a2);
+      }
+      C[k] = v;
+    }
+    for (let j = N - 1; j >= 0; j--) for (let i = N - 1, k = j * N + N - 1; i >= 0; i--, k--) {
+      const me = lab[k]; let v = C[k];
+      if (i < N - 1 && lab[k + 1] === me) v = Math.min(v, C[k + 1] + a1);
+      if (j < N - 1) {
+        if (lab[k + N] === me) v = Math.min(v, C[k + N] + a1);
+        if (i < N - 1 && lab[k + N + 1] === me) v = Math.min(v, C[k + N + 1] + a2);
+        if (i > 0 && lab[k + N - 1] === me) v = Math.min(v, C[k + N - 1] + a2);
+      }
+      C[k] = v;
+    }
     const sdf = new Float32Array(NN);
-    for (let k = 0; k < NN; k++) sdf[k] = lab[k] === 2 ? Math.min(dw[k], 5000) : -Math.min(dl[k], 5000);
+    for (let k = 0; k < NN; k++) sdf[k] = lab[k] === 2 ? C[k] : -C[k];
     this.sdf = sdf;
     this.windDir = null;
   }
@@ -454,8 +508,60 @@ export class World {
     this.bedWet = S.map(s => s > 0 ? 1 : 0); this.bedHw = HW; this.bedS = S;
     this.bathySource = bathy.source;
   }
+  // Marinas are dredged: the basins and the water along their pontoons and jetties kept at `depth` below chart
+  // datum (and every floating pontoon's, which floats at low water), so their berths stay afloat at the lowest tide.
+  // No survey grid resolves them (the Solent's is 100 m: its near-shore ramp dried 93 % of the berths at low water,
+  // boats drawn on the mud beside the pontoons). A private jetty outside a marina is left as the chart has it: a boat
+  // there takes the ground at low water, as it does. data: the venue's harbour data (js/traffic.js's).
+  dredgeHarbours(data, depth = 2.5, w = 20) {
+    this.dredgeG = null;
+    if (!data || this.open) return 0;
+    const N = this.N, cs = this.cs, R = this.R, g = new Uint8Array(N * N), q = Math.round(depth * 10);
+    let n = 0;
+    const set = (i, j) => { const k = j * N + i; if (this.sdf[k] > 0 && g[k] < q) { g[k] = q; n++; } };
+    const box = (x0, z0, x1, z1, f) => {
+      const i0 = Math.max(0, Math.floor((x0 + R) / cs)), i1 = Math.min(N - 1, Math.floor((x1 + R) / cs));
+      const j0 = Math.max(0, Math.floor((z0 + R) / cs)), j1 = Math.min(N - 1, Math.floor((z1 + R) / cs));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (f(-R + (i + 0.5) * cs, -R + (j + 0.5) * cs)) set(i, j);
+    };
+    const inRing = (r, x, z) => { let c = false; for (let a = 0, b = r.length - 2; a < r.length; b = a, a += 2) if ((r[a + 1] > z) !== (r[b + 1] > z) && x < (r[b] - r[a]) * (z - r[a + 1]) / (r[b + 1] - r[a + 1]) + r[a]) c = !c; return c; };
+    const ringBox = (r) => { let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity; for (let a = 0; a < r.length; a += 2) { x0 = Math.min(x0, r[a]); x1 = Math.max(x1, r[a]); z0 = Math.min(z0, r[a + 1]); z1 = Math.max(z1, r[a + 1]); } return [x0, z0, x1, z1]; };
+    const marinas = data.marinas || [];
+    const inMarina = (x, z) => marinas.some(m => m.ring ? inRing(m.ring, x, z) : Math.hypot(x - m.c[0], z - m.c[1]) < 250);
+    for (const m of marinas) if (m.ring && m.ring.length >= 6) { const [x0, z0, x1, z1] = ringBox(m.ring); box(x0, z0, x1, z1, (x, z) => inRing(m.ring, x, z)); }
+    // (a cell is dredged when the line passes within w plus half a cell of its centre: the berths lie up to a boat's
+    // length off the line)
+    const line = (p) => {
+      for (let a = 0; a + 3 < p.length; a += 2) {
+        const ax = p[a], az = p[a + 1], ex = p[a + 2] - ax, ez = p[a + 3] - az, L2 = ex * ex + ez * ez || 1e-9, W = w + cs * 0.5;
+        box(Math.min(ax, ax + ex) - W, Math.min(az, az + ez) - W, Math.max(ax, ax + ex) + W, Math.max(az, az + ez) + W, (x, z) => {
+          const t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / L2));
+          return Math.hypot(ax + ex * t - x, az + ez * t - z) <= W;
+        });
+      }
+    };
+    for (const p of data.pontoons || []) line(p);
+    for (const p of data.jetties || []) if (inMarina(p[0], p[1]) || inMarina(p[p.length - 2], p[p.length - 1])) line(p);
+    if (n) this.dredgeG = g;
+    return n;
+  }
+  // the dredged depth below chart datum here (bilinear over the grid's cells, m; 0 where none)
+  dredgeAt(x, z) {
+    const g = this.dredgeG; if (!g) return 0;
+    const N = this.N, cs = this.cs;
+    let fx = (x + this.R) / cs - 0.5, fz = (z + this.R) / cs - 0.5;
+    fx = Math.max(0, Math.min(N - 1.001, fx)); fz = Math.max(0, Math.min(N - 1.001, fz));
+    const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j, k = j * N + i;
+    return ((g[k] * (1 - u) + g[k + 1] * u) * (1 - v) + (g[k + N] * (1 - u) + g[k + N + 1] * u) * v) * 0.1;
+  }
   // bed depth below MSL (m; negative: a drying bank or land above MSL)
   bedAt(x, z, s = this.sdfAt(x, z)) {
+    const b = this.bedRaw(x, z, s);
+    if (!this.dredgeG || s <= 0) return b;
+    const d = this.dredgeAt(x, z);
+    return d > 0 ? Math.max(b, d + (this.tide ? this.tide.z0At(x, z) : 0)) : b;
+  }
+  bedRaw(x, z, s) {
     if (!this.bed) return s <= 0 ? s * 0.05 : this.estDepth(x, z, s);
     if (s <= 0 && s < -this.bedG.dx) return s * 0.05 - 0.3;
     const g = this.bedG, b = this.bed;
@@ -516,10 +622,13 @@ export class World {
     this.windDir = dir;
     const M = 96, R = this.R, c = 2 * R / M;
     const g = new Float32Array(M * M);
+    // (a venue's land can shelter less than the general half: a low bare sand spit (venue.shelter: the most it takes
+    // off the wind) hardly slows a wind blowing over it)
+    const sh = (this.venue && this.venue.shelter) ?? 0.5;
     for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) {
       const x = -R + (i + 0.5) * c, z = -R + (j + 0.5) * c;
       const f = this.open ? 99999 : this.fetchAt(x, z, dir, 2500);
-      g[j * M + i] = 0.5 + 0.5 * (1 - Math.exp(-f / 700));
+      g[j * M + i] = 1 - sh + sh * (1 - Math.exp(-f / 700));
     }
     this.shelter = g; this.shelterM = M;
     return true;

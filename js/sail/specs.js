@@ -47,6 +47,12 @@ export const MATERIALS = {
   // width and ~0.9 kg/m^2, for the loads per width that grow with the sail's size)
   superMembrane: { warp: 3.0e6, fill: 1.6e6, bias: 6e5, rho: 0.9, D: 4e-2, layout: 'radial' },
   nylon: { warp: 25e3, fill: 25e3, bias: 4e3, rho: 0.045, D: 5e-5, layout: 'radial' },
+  // a superyacht's moulded laminate (a J Class's 3Di / string sails, est.): the membrane carries tension in proportion
+  // to its chord (q x radius of curvature), so a 20 m chord wants ~5x the stiffness per width of a 4 m one to hold the
+  // same strain; ~1 kg/m^2 (a J's 490 m^2 main weighs ~0.5 t)
+  superLaminate: { warp: 3.2e6, fill: 1.8e6, bias: 6e5, rho: 0.95, D: 0.05, layout: 'radial' },
+  // its spinnaker's heavy nylon (a ~940 m^2 kite: est. 2.5 oz, panels doubled at the corners)
+  superNylon: { warp: 140e3, fill: 140e3, bias: 22e3, rho: 0.11, D: 2e-4, layout: 'radial' },
 };
 export function clothMaterial(C, s) {
   if (s.cloth) return MATERIALS[s.cloth];            // (a class may name its cloth per sail, or for the boat)

@@ -111,7 +111,8 @@ function townGrid(world, land) {
 // Height used for the terrain AND for everything placed on it: a gentle beach ramp at the waterline
 // blending into the venue's hills inland; the sea floor shelves to the modelled depth.
 // how much of the generic hill model a venue gets: the Yucatán coast is a dead-flat limestone plain
-const RELIEF = { progreso: 0.05, meredith: 0.5 };
+// (Walvis Bay: the sand flats and spits of the Namib's coastal plain; the dunes lie inland of the venue's water)
+const RELIEF = { progreso: 0.05, meredith: 0.5, walvis: 0.08 };
 export function groundHeight(world, x, z) {
   const s = world.sdfAt(x, z);
   // (the sea bed at its real height below MSL, so the banks the tide uncovers show where the physics has them dry;
