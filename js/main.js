@@ -73,7 +73,7 @@ const GRAB_PX = 30;
 const C_RIGHT = (b) => (b.cls.multihull ? 8 : 4); // grab radius on screen, also the size of the marker rings
 // chase-camera distance and windward-leeward course length for a class: by its size
 // the menu's class groups (a class's C.group)
-const CLASS_GROUPS = [['dinghy', 'Dinghies & skiffs'], ['keelboat', 'Keelboats'], ['multihull', 'Multihulls'], ['cruiser', 'Cruisers'], ['classic', 'Classics'], ['speed', 'Speed records']];
+const CLASS_GROUPS = [['dinghy', 'Dinghies & skiffs'], ['keelboat', 'Keelboats'], ['multihull', 'Multihulls'], ['cruiser', 'Cruisers'], ['classic', 'Classics'], ['legend', 'Legends'], ['speed', 'Speed records']];
 const camDist = (C) => C.camDist ?? (C.id === 'dinghy' ? 8 : C.loa < 5.5 && !C.multihull ? 10 : C.loa > 9 ? 17 : 12);
 const courseLen = (C) => C.courseLen ?? (C.id === 'dinghy' ? 600 : C.loa > 9 ? 1200 : 800);   // (C.courseLen: the class's own racing's leg)
 // the touch pad's third line (in order of use), with the labels for its two buttons (d = -1, +1)
@@ -977,8 +977,8 @@ class Game {
     if (k === 'hike') { this.userTouched('hike'); c.hike = clamp(c.hike + d * 1.2 * dt, -1, 1); return; }
     this.userTouched(k);
     let rate = 0.3 * dt;
-    const load = k === 'main' ? b.diag.rig.mainLoad : k === 'jib' || k === 'lazy' ? b.diag.rig.jibLoad : k === 'stay' ? b.diag.rig.stayLoad : k === 'mizzen' ? b.diag.rig.mizzenLoad : 0;
-    const sheet = k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy' || k === 'mizzen';
+    const load = k === 'main' ? b.diag.rig.mainLoad : k === 'jib' || k === 'lazy' ? b.diag.rig.jibLoad : k === 'stay' ? b.diag.rig.stayLoad : k === 'mizzen' || k === 'fore' ? b.diag.rig[k + 'Load'] : 0;
+    const sheet = k === 'main' || k === 'jib' || k === 'stay' || k === 'lazy' || k === 'mizzen' || k === 'fore';
     const trimming = (sheet || k === 'trav') ? d < 0 : k === 'tackLine' ? d < 0 : d > 0;
     if (trimming && sheet) rate /= 1 + ((load || 0) / (C.sheetPower * (b.crewPower ?? 1))) ** 2;
     const hr = b.locks && k in b.locks ? handRate(b, k, trimming) : null;   // through the line's tackle, hand over hand

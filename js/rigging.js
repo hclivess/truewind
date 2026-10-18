@@ -492,6 +492,7 @@ export class Rigging {
     if (C.hasBackstay) this.backstayTackle = [rope(0.0035, 'backstay', 10), rope(0.0035, 'backstay', 10), rope(0.0035, 'backstay', 20)];
     if (boat.sailBy.stay) { this.staySheet = [rope(0.005, 'stay', 10), rope(0.005, 'stay', 10), rope(0.005, 'stay', 40)]; this.stayBlock = makeBlock(0.04); inner.add(this.stayBlock); }
     if (boat.sailBy.mizzen) { this.mizzenSheet = [rope(0.005, 'mizzen', 10), rope(0.005, 'mizzen', 10)]; this.mizzenBlock = makeBlock(0.04); inner.add(this.mizzenBlock); }
+    if (boat.sailBy.fore) { this.foreSheet = [rope(0.006, 'fore', 10), rope(0.006, 'fore', 10)]; this.foreBlock = makeBlock(0.05); inner.add(this.foreBlock); }
     // (slab reefing's lines; a furling main, in the mast or the boom, has none)
     if (boat.sailBy.main.reefs && !boat.sailBy.main.furling) this.reefLines = [rope(0.004, 'reef1', 20), rope(0.004, 'reef2', 20)];
     if (isDinghy(C)) {
@@ -715,7 +716,7 @@ export class Rigging {
     const lead = (rp, k, path, T) => { const th = this.throat(k); if (th) { path[path.length - 1] = th; path.push(this.tailEnd(k, th, th)); rp.freeEnd = true; } rp.set(path, th ? path.map((_, i) => (i < path.length - 2 ? T : 2)).slice(0, -1) : T, g); };
     if (this.vangRam) this.vangTail.hide(); else lead(this.vangTail, 'vang', [vBot, V(C.mastX - 0.35, 0.12, vis.mastBase + 0.03), V(C.mastX - 0.9, 0.2, vis.deckH(C.mastX - 0.9, 0.2) + 0.03)], vt / 4);
     // --- cunningham, outhaul, halyards
-    const rf = reefAt(b.reefPos);
+    const rf = reefAt(b.reefPos, M);
     // (the cunningham's cringle comes down toward the boom as it is hauled: the luff stretched)
     const tack = V(C.mastX - 0.06, 0, C.boomZ + 0.22 - 0.1 * clamp(b.ctrl.cunn, 0, 1) + (b.reefPos > 0 ? M.luff * (1 - rf.l) : 0));
     const cDeck = V(C.mastX - 0.12, 0.05, vis.mastBase + 0.05);
@@ -833,10 +834,19 @@ export class Rigging {
     // --- mizzen sheet: boom end -> a block on the deck or out on the boomkin, 2:1
     if (this.mizzenSheet) {
       const Z = b.sailBy.mizzen, xb = Z.tackX - Z.foot * 0.92, bk = C.model && C.model.bumpkin ? C.model.bumpkin.len : 0;
-      const xs = Math.max(xb, C.sternX - bk + 0.05), zs = xs < C.sternX + 0.1 ? vis.lines.sheer(0) + 0.12 : vis.deckH(xs, 0) + 0.05;
+      // (out on the boomkin's end, or with none on the deck at the stern)
+      const xs = Math.max(xb, bk > 0 ? C.sternX - bk + 0.05 : C.sternX + 0.3), zs = xs < C.sternX + 0.1 ? vis.lines.sheer(0) + 0.12 : vis.deckH(xs, 0) + 0.05;
       const bl = V(xs, 0, zs), mb = this.boomPt('mizzen', Z.foot * 0.92, -0.06), mt = Math.max(4, (L.mizzenLoad || 0) / 2);
       this.mizzenBlock.position.copy(bl);
       this.mizzenSheet[0].set([mb, bl], mt, g); this.mizzenSheet[1].set([mb.clone().add(_v.set(0.02, 0, 0)), bl.clone().add(_w.set(0.02, 0, 0))], mt, g);
+    }
+    // --- a schooner's foresheet: from the fore boom's end (or a loose foot's clew) to its block on the deck (the horse)
+    // before the mainmast, 2:1
+    if (this.foreSheet) {
+      const F = b.sailBy.fore, xs = Math.max(F.tackX - F.foot * 0.92, C.mastX + 0.6), bl = V(xs, 0, vis.deckH(xs, 0) + 0.05);
+      const fb = this.boomPt('fore', F.foot * (F.boomless ? 0.98 : 0.92), F.boomless ? 0 : -0.06), ft = Math.max(4, (L.foreLoad || 0) / 2);
+      this.foreBlock.position.copy(bl);
+      this.foreSheet[0].set([fb, bl], ft, g); this.foreSheet[1].set([fb.clone().add(_v.set(0.02, 0, 0)), bl.clone().add(_w.set(0.02, 0, 0))], ft, g);
     }
     // --- self-tacking staysail: club block -> deck traveler -> aft along the cabin
     if (this.staySheet) {
