@@ -39,9 +39,10 @@ function material() {
   return MAT;
 }
 
-// the lights of a boat, in vis.inner (its heeled, pitched frame); C: the class
+// the lights of a boat, in vis.inner (its heeled, pitched frame); C: the class (none on a class whose model
+// carries no light housings, model.navLights false: the day-racing dinghies and keelboats)
 export function addNavLights(vis, C) {
-  if (!vis || !vis.inner || !C) return null;
+  if (!vis || !vis.inner || !C || (C.model && C.model.navLights === false)) return null;
   const ny = (C.beam || 2) * 0.4, zs = (C.freeboard || 0.8) + 0.15;
   const pts = [
     [V(C.bowX - 0.3, -ny, zs), [2.2, 0.08, 0.06], [-56.25, 56.25]],      // port: red
