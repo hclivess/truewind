@@ -13,8 +13,11 @@ import { RopeSim, coilTail } from './ropesim.js';
 const ROPE_W = 1.4; // N/m, a little heavier than real so sag reads at a distance
 // a point u (0..1) along the sagging line A -> B under tension T (N), gravity the unit "down"
 const _cat = new THREE.Vector3(), _tT = new THREE.Vector3(), _tN = new THREE.Vector3(), _tB = new THREE.Vector3(), _tR = new THREE.Vector3();
+// the sag of a line L long under tension T (N): a parabola's, at most 0.4 L on a short span and 0.35 m + 6% of the span
+// on a long one (a superyacht's lazy sheet or reef line at a few newtons hung in loops of many metres, through the deck)
+export const sagOf = (L, T) => Math.min(0.4 * L, 0.35 + 0.06 * L, ROPE_W * L * L / (8 * Math.max(2, T)));
 function catenary(A, B, T, u, g, out) {
-  const L = A.distanceTo(B), sag = Math.min(0.4 * L, ROPE_W * L * L / (8 * Math.max(2, T)));
+  const L = A.distanceTo(B), sag = sagOf(L, T);
   return out.lerpVectors(A, B, u).addScaledVector(g, sag * 4 * u * (1 - u));
 }
 // una-rig dinghy deck layout (ratchet block, hiking strap, no halyards led aft): the Laser-like dinghy, or a class
@@ -86,7 +89,7 @@ class Rope {
       const A = path[i], B = path[i + 1], L = lens[i];
       const segs = i === n - 2 ? budget - k : Math.max(1, Math.min(ss[i], budget - k - (n - 2 - i)));
       const T = Math.max(2, Array.isArray(tension) ? tension[i] : tension);
-      const sag = Math.min(0.4 * L, ROPE_W * L * L / (8 * T));
+      const sag = sagOf(L, T);
       for (let s = 0; s < segs && k < budget; s++, k++) {
         const u = s / segs;
         const p = this.pts[k].lerpVectors(A, B, u).addScaledVector(gravity, sag * 4 * u * (1 - u));
@@ -113,7 +116,15 @@ class Rope {
     this._tr = this._tr && tr ? this._tr + (tr - this._tr) * (1 - Math.exp(-dt / 0.2)) : tr;
     // topology: particles per span in proportion to its length (a free tail by the length it has, and at least a
     // third of them: it is the part that lies about); laid out afresh on a new session, a teleport or after a taut spell
-    if (!R || this._spans !== spans || S.reset || this._stale || !R.finite()) {
+    // (not on a jump of the boat in the world — a clock resync, a return from a hidden tab: the ropes live in her frame —
+    // but when one of its own points jumps: a sheet changing roles in a tack, the traveller's tail going over to its
+    // other cleat. Carried across by the simulation, the rope flailed a metre for a second.)
+    const pa = this._pa;
+    let moved = !pa || pa.length !== 3 * n;
+    if (!moved) for (let i = 0; i < n; i++) { const q = path[i]; if ((q.x - pa[3 * i]) ** 2 + (q.y - pa[3 * i + 1]) ** 2 + (q.z - pa[3 * i + 2]) ** 2 > 0.36) { moved = true; break; } }
+    if (!pa || pa.length !== 3 * n) this._pa = new Float64Array(3 * n);
+    for (let i = 0; i < n; i++) { this._pa[3 * i] = path[i].x; this._pa[3 * i + 1] = path[i].y; this._pa[3 * i + 2] = path[i].z; }
+    if (!R || this._spans !== spans || this._stale || !R.finite() || (moved && pa)) {
       this._stale = false;
       const lens = []; let tot = 0;
       for (let i = 0; i < spans; i++) {
@@ -138,19 +149,21 @@ class Rope {
       this._kin = new Uint8Array(spans); this._off = null;
     }
     const segs = this._segs, start = this._start, kin = this._kin;
-    // a loaded span is its catenary, held there (a chain of point masses under hundreds of newtons is a stiff spring
-    // the solver cannot make stiff: it stretched, sagged and bounced); a slack one is simulated. Which is which has
-    // hysteresis, and a span let go starts from where it was drawn, at rest.
+    // a span between two points of the rig is its catenary, held there: loaded (a chain of point masses under hundreds of
+    // newtons is a stiff spring the solver cannot make stiff: it stretched, sagged and bounced) or slack (a lazy sheet,
+    // a reef line's loop: simulated, it swung metres on a big boat and fell through the deck, flailing as the boom
+    // slammed). Only a free tail is a simulated rope. A span that becomes a tail starts from where it was drawn.
     R.pin.fill(0);
     for (let i = 0; i < spans; i++) {
       const A = path[i], B = path[i + 1], T = tension[i], tail = this.freeEnd && i === spans - 1;
       const was = kin[i];
-      kin[i] = tail ? 0 : kin[i] ? (T > 90 ? 1 : 0) : (T > 160 ? 1 : 0);
+      kin[i] = tail ? 0 : 1;
       R.pin[start[i]] = 1; R.place(start[i], A.x, A.y, A.z);
       // (a span made loaded is eased onto its catenary over a fifth of a second from where it hung, not snapped)
       const off = this._off || (this._off = new Float64Array(3 * N)), dk = Math.exp(-dt / 0.07);
       if (kin[i]) for (let j = 1; j < segs[i]; j++) {
         const k = start[i] + j, o = 3 * k; R.pin[k] = 1; catenary(A, B, T, j / segs[i], this._g, _cat);
+        if (this.floor) this.floor(_cat, this.radius);                   // (a slack line lies on the deck, not through it)
         if (!was) { off[o] = R.x[o] - _cat.x; off[o + 1] = R.x[o + 1] - _cat.y; off[o + 2] = R.x[o + 2] - _cat.z; }
         else { off[o] *= dk; off[o + 1] *= dk; off[o + 2] *= dk; }
         R.place(k, _cat.x + off[o], _cat.y + off[o + 1], _cat.z + off[o + 2]);
@@ -160,7 +173,7 @@ class Rope {
       let Lr;
       if (tail && this._tr) Lr = this._tr;
       else {
-        const L = A.distanceTo(B), sag = Math.min(0.4 * L, ROPE_W * L * L / (8 * Math.max(2, T)));
+        const L = A.distanceTo(B), sag = sagOf(L, T);
         Lr = L + 8 * sag * sag / (3 * Math.max(L, 0.05));
       }
       R.rest.fill(Lr / segs[i], start[i], start[i] + segs[i]);
@@ -601,16 +614,22 @@ export class Rigging {
       // second difference is a train of spikes), and the apparent wind
       const e = vis.inner.matrixWorld.elements;
       S.dt = dt;
-      // a jump (the clock resynced online, a reset, a long stall): the ropes are laid out afresh
+      // a jump (the clock resynced online, a reset, a long stall, the physics run on while the tab was hidden): her
+      // motion is measured afresh. (Measured from rest instead, her speed through the water read as a sudden 5 m/s^2
+      // shove for a fifth of a second, and every tail on deck slid aft and back.)
       const jump = S.hasPrev && (e[12] - S.p.x) ** 2 + (e[14] - S.p.z) ** 2 > 4;             // > 2 m in one frame
       S.reset = dt > 0.5 || jump;
-      if (S.hasPrev && !S.reset && dt > 1e-4) {
+      if (!S.hasPrev || S.reset) { S.a.set(0, 0, 0); S.warm = 2; }
+      else if (dt > 1e-4) {
         _a.set(e[12] - S.p.x, e[13] - S.p.y, e[14] - S.p.z).divideScalar(dt);
-        const vs0 = _b.copy(S.vs);
-        S.vs.lerp(_a, 1 - Math.exp(-dt / 0.12));
-        S.a.lerp(_c.subVectors(S.vs, vs0).divideScalar(dt), 1 - Math.exp(-dt / 0.2));
-        if (S.a.length() > 5) S.a.setLength(5);
-      } else { S.a.set(0, 0, 0); if (!S.hasPrev || S.reset) S.vs.set(0, 0, 0); }
+        if (S.warm > 0) { S.vs.copy(_a); S.warm--; }                      // (her velocity, no acceleration yet)
+        else {
+          const vs0 = _b.copy(S.vs);
+          S.vs.lerp(_a, 1 - Math.exp(-dt / 0.12));
+          S.a.lerp(_c.subVectors(S.vs, vs0).divideScalar(dt), 1 - Math.exp(-dt / 0.2));
+          if (S.a.length() > 5) S.a.setLength(5);
+        }
+      }
       S.p.set(e[12], e[13], e[14]); S.hasPrev = true;
       const P = b.pose || b, w = env.wind.sample(P.x, P.z, t, S.w);
       vis.inner.getWorldQuaternion(_q).invert();
@@ -763,7 +782,8 @@ export class Rigging {
         const hRow = M.luff * (i === 0 ? 0.16 : 0.31);
         const tension = b.reefPos > i + 0.5 ? 500 : b.reefing && b.reefPos > i ? 200 : 4;
         const cringle = this.leechAt('main', Math.max(0.05, hRow * (1 - clamp(b.reefPos - i, 0, 1)))) || this.boomPt('main', M.foot * 0.9, 0.0).add(_v.set(0, Math.max(0.05, hRow * (1 - clamp(b.reefPos - i, 0, 1))), 0));
-        rl.set([cringle, this.boomPt('main', M.foot * 0.98, -0.06), this.boomPt('main', 0.3, -0.08)], tension, g);
+        // (from the boom end forward it is led along the boom, under it or inside it: never a loop below it)
+        rl.set([cringle, this.boomPt('main', M.foot * 0.98, -0.06), this.boomPt('main', 0.3, -0.08)], [tension, 400], g);
       }
     }
     // --- jib sheets: clew -> car -> winch -> tail (lazy sheet goes around the mast)
