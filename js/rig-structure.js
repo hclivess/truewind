@@ -257,8 +257,16 @@ export function genericRig(C) {
     { key: 'lowerFwd', to: spreaders[0].z, dx: 0.3, d: d * 0.85, pre: 0.08 * wireBreak(d * 0.85) },
     { key: 'lowerAft', to: spreaders[0].z, dx: -0.3, d: d * 0.85, pre: 0.08 * wireBreak(d * 0.85) },
   ];
-  if (C.sails.some((s) => s.key === 'jib')) wires.push({ key: 'forestay', stay: 'jib', d });
-  if (C.sails.some((s) => s.key === 'stay')) wires.push({ key: 'innerForestay', stay: 'stay', d: d * 0.85 });
+  // (a schooner's headsails are on the foremast's stays (s.stayTo): the mainmast is held forward by its spring stay,
+  // from its hounds to the foremast's head, which is taken as fixed (the foremast as stiff as its own stays make it))
+  const onMain = (k) => C.sails.some((s) => s.key === k && (!s.stayTo || s.stayTo === 'main'));
+  if (onMain('jib')) wires.push({ key: 'forestay', stay: 'jib', d });
+  if (onMain('stay')) wires.push({ key: 'innerForestay', stay: 'stay', d: d * 0.85 });
+  const fore = C.sails.find((s) => s.key === 'fore' && s.mast);
+  if (fore && !onMain('jib')) {
+    const zf = Math.min(fore.mast.h, MD.hounds ?? C.mastHeight - 0.5) - 0.3, xf = fore.tackX - (fore.mast.rake || 0) * (zf - fore.tackZ) / (fore.mast.h - fore.tackZ);
+    wires.push({ key: 'forestay', to: 'hounds', at: [xf, 0, zf], d, pre: 0.06 * wireBreak(d) });
+  }
   if (C.runners) wires.push({ key: 'runner', to: 'hounds', runner: true, d: d * 0.85, pre: 0.1 * wireBreak(d * 0.85) });
   // (a backstay where the class has one: adjustable where it has the control, fixed where only its drawing has one)
   const fixedBs = !C.hasBackstay && C.model && C.model.backstay;

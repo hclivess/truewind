@@ -52,8 +52,11 @@ export const RHO_W = 1025, NU_W = 1.19e-6, NU_A = 1.5e-5, P_ATM = 101325, P_VAP 
 // Kirchhoff-Rayleigh: normal force coefficient of a flat plate in free-streamline flow (cavity at sigma = 0)
 export const cnKirchhoff = (a) => { const s = Math.sin(Math.abs(a)); return 2 * Math.PI * s / (4 + Math.PI * s); };
 // the |cl| at which a wetted symmetric section's suction peak reaches sigma (js/foils.js cpMin, solved for cl)
-export function clCav(sigma, tc) {
-  const a = 2.9 * Math.sqrt(0.12 / tc), b = 1.3, c = 0.41 * (tc / 0.12) - sigma;
+// (cp0: the suction peak the thickness alone makes: a NACA 00xx's 0.41 (t/c / 0.12) by default; a section drawn for a
+// flat pressure at its design lift, the NACA 16-series that propellers and hydrofoils use, ~2 t/c (Abbott & von
+// Doenhoff, "Theory of Wing Sections" (1959) app. I; Brockett 1966, DTMB report 1780))
+export function clCav(sigma, tc, cp0 = 0.41 * (tc / 0.12)) {
+  const a = 2.9 * Math.sqrt(0.12 / tc), b = 1.3, c = cp0 - sigma;
   if (c >= 0) return 0;
   return (-b + Math.sqrt(b * b - 4 * a * c)) / (2 * a);
 }
@@ -96,7 +99,7 @@ export function coef(sec, st, a, V, ARe, h, pierce, dt, out, baseVent = false) {
     // the wetted section's suction peak against sigma: a sharp leading edge peaks as a thin one does. A cambered section
     // drawn for a design lift (sec.clDesign: a cavitation "bucket", the NACA 16 / a = 0.8 kind: Brockett 1966, DTMB
     // report 1780) peaks with its lift's distance from that design lift, not from zero
-    const cc = clCav(sigma, scav ? 0.04 : sec.tc), dcl = Math.abs(cl * s - (sec.clDesign || 0));
+    const cc = scav ? clCav(sigma, 0.04) : clCav(sigma, sec.tc, sec.cp0), dcl = Math.abs(cl * s - (sec.clDesign || 0));
     if (dcl > cc) cavT = clamp((dcl - cc) / Math.max(0.05, dcl), 0, 1);
   }
   // ventilation: air down a surface-piercing surface's suction side (scav: its sharp edge; naca: past the inception
@@ -123,7 +126,7 @@ export function coef(sec, st, a, V, ARe, h, pierce, dt, out, baseVent = false) {
   }
   // a round-nosed (naca) section cavitating: the lift saturates past sigma, the drag grows (js/foils.js)
   if (!scav && water && st.cav > 0 && Number.isFinite(sigma)) {
-    const cc = clCav(sigma, sec.tc), cD = (sec.clDesign || 0) * s, dcl = cl - cD;
+    const cc = clCav(sigma, sec.tc, sec.cp0), cD = (sec.clDesign || 0) * s, dcl = cl - cD;
     if (Math.abs(dcl) > cc) { const ex = Math.abs(dcl) - cc; cl = cD + Math.sign(dcl) * (cc + 0.25 * ex); cd += 0.15 * ex; }
   }
   out.cl = cl * s; out.cd = cd; out.sigma = sigma; out.sigmaV = sigV; out.vent = st.vent; out.cav = st.cav; out.stalled = st.sep > 0.5;

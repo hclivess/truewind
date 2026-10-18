@@ -39,6 +39,7 @@
 //    self-bailer when moving. The water's weight and free surface go into the boat: heavier, lower, tender,
 //    sluggish; past the hull's reserve buoyancy she sinks (unless foam or tanks keep her awash).
 
+import { planChord } from './sail/plan.js';
 import { G, DEG } from './env.js';
 import { RHO_W, clamp, lerp, sstep, STRIP_W, STRIP_F, sailHooks } from './physics.js';
 import { RIG_DATA, SPAR_MATERIALS, genericRig } from './rig-structure.js';
@@ -587,7 +588,7 @@ export class Damage {
       if (this._kj === undefined) {
         const s = b.sailBy.main, zj = R.joint;
         let A = 0, Aj = 0, Mj = 0, Mz = 0;
-        for (let i = 0; i < 40; i++) { const f = (i + 0.5) / 40, z = C.boomZ + f * s.luff, c = s.foot * (1 - f) + s.head * f; A += c; Mz += c * z; if (zj && z > zj) { Aj += c; Mj += c * (z - zj); } }
+        for (let i = 0; i < 40; i++) { const f = (i + 0.5) / 40, z = C.boomZ + f * s.luff, c = planChord(s, f); A += c; Mz += c * z; if (zj && z > zj) { Aj += c; Mj += c * (z - zj); } }
         this._kj = zj ? Mj / Mz : 0;
       }
       const UR = b.rigLoads && typeof b.rigLoads === 'object' && b.rigLoads.mastSpans;
@@ -699,7 +700,7 @@ export class Damage {
         if (cl && cl.cloth && (b.sailSys.sails.find((x) => x.key === s.key) || {}).part?.on) { clothPeak(cl.cloth, this._pk); T = this._pk.T; }
         else {
           // strip model: average pressure times the radius of curvature of the camber, x2 at the leech
-          const F = st.F || 0, A = s.area * areaF, chord = (s.foot + s.head) / 2, dd = (d.shape[s.key] && d.shape[s.key][1].d) || 0.12;
+          const F = st.F || 0, A = s.area * areaF, chord = s.area / Math.max(0.5, s.luff), dd = (d.shape[s.key] && d.shape[s.key][1].d) || 0.12;
           T = F / Math.max(0.1, A) * chord / (8 * dd) * 2;
           this._pk.u = 0.2; this._pk.v = 0.5;
         }

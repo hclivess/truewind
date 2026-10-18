@@ -11,7 +11,8 @@ const LATTICE = {
   gennaker: [[6, 9], [4, 5]],
 };
 export function latticeSize(C, s, lod) {
-  const t = LATTICE[s.key] || LATTICE.jib, [nc, ns] = t[Math.min(lod, 1)];
+  // (a schooner's foresail, and any sail with a gaff topsail over it, is a mainsail's size: rows enough for the gaff's own)
+  const t = LATTICE[s.key] || (s.key === 'fore' || s.gaff ? LATTICE.main : LATTICE.jib), [nc, ns] = t[Math.min(lod, 1)];
   return { nc, ns };
 }
 

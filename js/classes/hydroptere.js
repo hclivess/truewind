@@ -17,7 +17,13 @@
 // ESTIMATES (est.): no foil area, chord or section is published. Foil chord 0.85 m at the root tapering to 0.6 m (a
 // carbon foil 6 m long weighing 380 kg is about that size: ~0.25 m³ of laminate at ~1.6 t/m³ for a 9% section);
 // a 9% section cambered for a design lift of 0.25 (the EPFL work shaped the sections against cavitation: a section
-// with its cavitation bucket at its working lift, est.), zero-lift angle -2°; incidence -0.5° to the hull's datum (fixed, set ashore: not found; chosen so she flies with her hull 1-2 m clear and the leeward float near the water as photographed, with the T-foil deep enough to hold her pitch:
+// with its cavitation bucket at its working lift, est.: a NACA 16-series kind, its suction peak from thickness ~2 t/c,
+// which puts its cavitation onset near 50 kn, where the EPFL team met it: Bourgeon et al. 2010), zero-lift angle -2°; incidence -1.5° to the hull's datum (fixed, set ashore: not
+// found whether it can be trimmed under way). Calibrated on the photographs (Wikimedia Commons "L'Hydroptère.JPG"):
+// flying in a breeze her leeward float skims and the leeward foil is in nearly to its root, the windward foil's tip
+// just touching. At ~30 kn that is CL ~0.18 on the leeward foil's 4 m^2 (90 kN), an effective angle of attack ~2.3
+// deg: the section's 2 deg of camber, ~0.4 deg of trim and ~1.5 deg from the leeway on a 35 deg dihedral leave
+// -1.5 deg of incidence. (At -0.5 she flew a metre higher, her lift inboard and her T-foil near the surface.)
 // whether it can be trimmed under way); the hull and
 // float lines, the beam stations, the mass split and centre of gravity, the elevator's span (2.2 m) and chord; the crew
 // of 6 (4-10 sail her; 11 aboard for the records). The sailing displacement is taken as the official 7.5 t, crew in.
@@ -33,9 +39,10 @@ const FLOAT_Y = 11.4, FOIL_X = 1.2, BEAM_F = 1.5, BEAM_A = -3.2;
 const DIH = 45 * DEG;                                    // the foils' slope to the horizontal (42-45°: fr.wikipedia)
 const foil = (side) => ({
   name: side > 0 ? 'stbd foil' : 'port foil', side,
-  // from its arm at the float, down and inboard at 45°, 5.5 m, then the winglet (straight down, 0.6 m)
-  root: [FOIL_X, side * (FLOAT_Y - 0.55), 1.05], span: [0, -side * Math.cos(DIH), -Math.sin(DIH)], len: 5.5,
-  chord: [0.85, 0.6], chord0: [-1, 0, 0], liftTo: [0, -side, 1], sec: { kind: 'naca', tc: 0.09, alpha0: 2 * DEG, clDesign: 0.25 }, inc: -0.5 * DEG, n: 10,
+  // from its arm at the float's inboard side, at the float's waterline, down and inboard at 45°, 5.5 m (its tip then
+  // 3.5 m down at rest: the official foil draft), then the winglet (straight down, 0.6 m)
+  root: [FOIL_X, side * (FLOAT_Y - 0.55), 0.35], span: [0, -side * Math.cos(DIH), -Math.sin(DIH)], len: 5.5,
+  chord: [0.85, 0.6], chord0: [-1, 0, 0], liftTo: [0, -side, 1], sec: { kind: 'naca', tc: 0.09, alpha0: 2 * DEG, clDesign: 0.25, cp0: 0.18 }, inc: -1.5 * DEG, n: 10,
 });
 const winglet = (side) => {
   const f = foil(side), tip = f.root.map((v, k) => v + f.span[k] * f.len);
@@ -48,14 +55,17 @@ export default {
   specs: 'LOA 18.28 m · Beam 24 m · Floats 6.7 m · 7.5 t · Mast 27 m · Main 195 m² · Solent 105 m² · Foils 3.5 m draft · 500 m record 51.36 kn',
   lwl: 17.6, loa: 18.28, beam: 24, hullBeam: 1.9, bowX: 9.3, sternX: -8.98, freeboard: 1.05, canoeDraft: 0.6, wetted: 26, draft: 3.5,
   amas: { y: FLOAT_Y, tube: { r: 0.62, z: 0.66 }, sy: 1, sz: 1, szTop: 0.92, dz: 0, t0: (-4.6 + 8.98) / 18.28, t1: (2.1 + 8.98) / 18.28, beams: [BEAM_F, BEAM_A], netZ: 1.25 },
-  wheel: { x: -5.0, r: 0.55, h: 0.8 }, mastR: 0.17, wingMast: true, reefTime: 90, reefWind: [24, 32], speedMax: 40,
+  wheel: { x: -5.0, r: 0.55, h: 0.8 }, mastR: 0.17, wingMast: true, reefTime: 90, reefWind: [34, 40], speedMax: 40,
+  // (reefWind: her records were sailed in 30-35 kn of wind, WSSRC newsletters 177, 178: unreefed there, est.)
   engine: null,
   lines: { main: { handler: 'selfTailer', n: 8, at: 'winch' }, trav: { handler: 'selfTailer', n: 4, at: 'winch' }, jib: { handler: 'selfTailer', at: 'winch' },
     vang: { handler: 'horn', n: 8, at: 'deck' }, cunn: { handler: 'horn', n: 4, at: 'mast' }, outhaul: { handler: 'horn', n: 4, at: 'boom' },
     jibHalyard: { handler: 'winchHorn', winch: 'cabin', at: 'mast' } },
   ropeStyle: 'modern',
-  // 7.5 t sailing (official), crew of 6 at 80 kg (est.); the foils 2 x 380 kg (fr.wikipedia) out at the floats
-  massHull: 7020, zG: 0.9, crewN: 6, crewEach: 80, crewZ: 1.4, crewMaxOut: 4.0, crewLee: -1.0, hikeRate: 1.0,
+  // 7.5 t sailing (official, taken here with the crew in), a crew of 11 as on the record runs (WSSRC newsletters 177,
+  // 178: Thébault and 10) at 80 kg (est.); the foils 2 x 380 kg (fr.wikipedia) out at the floats. Flying, the crew sits
+  // out on the windward crossbeam, two-thirds of the way to the float (the photographs: ~7 m from the centreline)
+  massHull: 6620, zG: 0.9, crewN: 11, crewEach: 80, crewZ: 1.5, crewMaxOut: 7.0, crewLee: -1.0, hikeRate: 1.0,
   gm: 9, bmForm: 3, Ixx: 260000, Izz: 330000, amX: 0.04, amY: 0.35, amYaw: 0.4, amRoll: 0.4,
   // residuary resistance / weight: slender hulls (the Southampton-series level the Mariner's trimaran uses); flying,
   // it goes with the hull's immersed volume (js/physics.js)
@@ -67,11 +77,16 @@ export default {
   // hull's stern: est.), steered by the wheels; 2.6 m of it below the hull
   rudder: { x: -8.85, z: -1.78, area: 0.91, ARe: 3.4, stall: 15 * DEG, cd0: 0.01, max: 25 * DEG, span: 2.6, chord: 0.35, loadRef: 6000 },
   hullLat: { area: 4.0, cd: 0.9, z: -0.25 },
-  windage: { area: 22, z: 2.2, cd: 0.9 },
+  // air drag of all but the sails, C_D A ~8 m^2 (est., built up: the main hull's frontal ~2 m^2 x 0.3, the two floats'
+  // 2.4 m^2 x 0.3, the two faired crossbeams' 15 m^2 of frontal area x 0.1 (Airbus-built aerofoil beams), the four
+  // diagonal struts and foil arms ~3.6 m^2 x 0.6, eleven crew sitting out ~0.3 m^2 each x 1.0)
+  windage: { area: 9.5, z: 2.4, cd: 0.85 },
   mastX: 1.2, mastHeight: 28.5, boomZ: 2.6, keelBulb: false, houndsF: 0.08,
-  // (flying, the crew keeps her within a few degrees of level: heeled further her windward foil lifts out and the
-  // leeward one cannot hold her; overHeel: the heel past it at which the crew is fully easing, js/physics.js autoTrim)
-  targetHeel: 5 * DEG, overHeel: 6, overEase: 1.5, canCapsize: true, hasBackstay: false, hasBoard: false, sheetPower: 9000, fullPowerTws: 14,
+  // (flying, her crew holds her at ~8 deg of heel, as photographed: the leeward float skimming, the windward float
+  // clear with its foil's tip in (Commons "L'Hydroptère.JPG"); past ~15 deg her T-foil nears the surface. overHeel:
+  // the heel past the target at which the base trim eases; overEase 0: for her that easing is left wholly to the traveller hand of
+  // js/physics.js foilerHeel)
+  targetHeel: 8 * DEG, overHeel: 6, overEase: 0, canCapsize: true, hasBackstay: false, hasBoard: false, sheetPower: 9000, fullPowerTws: 14,
   cloth: 'laminate', battens: { EI: 30, full: true, rows: [0.12, 0.24, 0.36, 0.48, 0.6, 0.72, 0.84, 0.93] },
   sails: [
     // (est. shapes for the official areas: a square-top main on the rotating wing mast, the solent to the masthead)

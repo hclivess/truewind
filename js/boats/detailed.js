@@ -19,7 +19,9 @@
 import * as THREE from 'three';
 import { MODEL_HOOKS, transomDecal, transomPlate, M, Kit, onSide, nameStrip, gudgeons, transomLine, deckRay, V, canvasTex, rnd, hullGeometry, deckGeometry, deckHeightFn, foilGeom, lathe, profR, sailMesh, teakTex, clothX } from '../models.js';
 import { linesFor, hullOffsets, calibrate, curveOf } from '../hull.js';
-import { clamp, lerp, sstep } from '../physics.js';
+import { clamp, lerp, sstep, mastXAt } from '../physics.js';
+import { mastXOf } from '../boom.js';
+import { planChord, planRise, reefAt } from '../sail/plan.js';
 
 const matCache = {};
 const mat = (key, make) => matCache[key] || (matCache[key] = make());
@@ -159,7 +161,7 @@ function buildDetailed(boat, opts = {}) {
     // (N.board: a name board lashed to the rail above the deck, as Joshua carries hers at La Rochelle)
     // (against the outside of the stanchions, following the rail's curve)
     if (N.board) for (const side of [-1, 1]) {
-      const len = N.len ?? 1.6, rail = (x) => Lx.bDeck(tAt(x)) * (D.lifelines ? 0.93 : 1) + 0.02;
+      const len = N.len ?? 1.6, rail = (x) => Lx.bDeck(tAt(x)) * (N.inset ?? (D.lifelines ? 0.93 : 1)) + 0.02;   // (N.inset: lashed in the shrouds, on the bulwark cap)
       const g = onSide(nameStrip(len, side), bx(N.t), Lx.sheer(N.t) + (N.dz ?? 0.32), side, rail);
       inner.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 })));
       inner.add(new THREE.Mesh(g, mat('boardback', () => new THREE.MeshStandardMaterial({ color: 0xf4f2ec, roughness: 0.6, side: THREE.BackSide }))));   // (its back, plain, seen from on deck)
@@ -275,6 +277,16 @@ function buildDetailed(boat, opts = {}) {
       // (its bottom at the published draft: the fin, stopped 1.6 r above it, runs 0.4 r into the bulb's top; the
       // bulb was drawn 1.4 r high, short of the draft, before)
       bulb.position.set(0, -span - r * 0.6, -L * (b.fwd ?? 0.25)); bulb.castShadow = true; keelMesh.add(bulb);
+    }
+    if (KD.winglets) {
+      // winglets at the tip (Australia II's): a pair of small wings swept back off the bottom of the keel, canted
+      // down, their root along the tip's chord (W.x0: where along it their leading edge starts)
+      const W = KD.winglets, ch = KD.chord ?? K.chord, tipC = ch * (KD.taper ?? 0.7), tipLE = ch * (KD.sweep ?? 0.15);
+      for (const sd of [-1, 1]) {
+        const wg = new THREE.Mesh(foilGeom(W.chord, W.span, W.tc ?? 0.1, (W.tipChord ?? W.chord * 0.6) / W.chord, W.sweep ?? 0.35), keelMesh.material);
+        wg.position.set(0, -span + 0.03, tipLE + tipC * (W.x0 ?? 0.3)); wg.rotation.z = sd * (Math.PI / 2 - (W.cant ?? 20) * Math.PI / 180);
+        wg.castShadow = true; keelMesh.add(wg);
+      }
     }
     keelMesh = null;                                  // (a fixed fin: nothing for the game to move)
   } else if (KD.kind === 'swing' || KD.kind === 'centreboard') {
@@ -418,50 +430,76 @@ function buildDetailed(boat, opts = {}) {
   const S = boat.sailBy;
   const mastBase = deckH(C.mastX, 0) + 0.02;
   const stay = {};
+  const xAts = {};
   for (const mk of mastKeys(boat)) {
     // (a mast with no collar stands in its tube: its foot below the deck)
-    const R = mastSpec(C, D, mk), x = R.x, base = deckH(x, 0) + (R.mastCollar === false ? -0.03 : 0.02), top = R.h, len = top - base;
+    const R = mastSpec(C, D, mk), base0 = deckH(R.x, 0), base = base0 + (R.mastCollar === false ? -0.03 : 0.02), top = R.h, len = top - base;
+    // (a raked mast leans aft about its gooseneck: its axis's x at height z)
+    const xAt = xAts[mk] = (z) => (mk === 'main' ? mastXAt(C, z) : mastXOf(C, mk, z)), x = xAt(base), tilt = Math.atan2(xAt(base) - xAt(top), len);
     const mm = spar(R.mat), r0 = R.r;
-    const m = new THREE.Mesh(lathe([[r0, 0], [r0, len * 0.55], [r0 * 0.92, len * 0.8], [R.rTop ?? r0 * 0.6, len], [0, len + 0.01]], 14), mm);
     // (R.aspect: the section's depth over its width, 1.25 unless given: a grand-prix mast is a deep, narrow ellipse)
     const asp = R.round ? 1 : R.aspect ?? 1.25;
-    m.scale.set(1, 1, asp); m.position.copy(V(x, 0, base)); m.castShadow = true; rig.add(m);
-    if (!R.round) rigKit.box(M.black(), 0.012 * SC, len * 0.92, 0.012 * SC, V(x - r0 * (asp - 0.05), 0, base + len * 0.48)); // luff track
-    rigKit.box(mm, 0.06 * SC, 0.04 * SC, 0.14 * SC, V(x - 0.03, 0, top + 0.01));                                     // masthead
+    // a lower mast and its topmast (R.topmast { cap: the lower masthead's height, heel: the topmast's foot, r }): the
+    // topmast is fidded on the lower mast's fore side, held at the doubling between the trestletrees and the cap
+    // (the spar's length along its raked axis: its head at the mast's height)
+    const TM = R.topmast, lowTop = TM ? TM.cap : top, lowLen = (lowTop - base) / Math.cos(tilt), sl = len / Math.cos(tilt);
+    const prof = TM ? [[r0, 0], [r0, lowLen * 0.6], [r0 * 0.88, lowLen], [0, lowLen + 0.01]] : [[r0, 0], [r0, sl * 0.55], [r0 * 0.92, sl * 0.8], [R.rTop ?? r0 * 0.6, sl], [0, sl + 0.01]];
+    const m = new THREE.Mesh(lathe(prof, 14), mm);
+    m.scale.set(1, 1, asp); m.position.copy(V(x, 0, base)); m.rotation.x = tilt; m.castShadow = true; rig.add(m);
+    if (TM) {
+      const rt = TM.r ?? r0 * 0.6, heel = TM.heel, fwd = r0 * 0.88 + rt + 0.01, tl = (top - heel) / Math.cos(tilt);
+      const tmm = new THREE.Mesh(lathe([[rt, 0], [rt, tl * 0.5], [rt * 0.75, tl * 0.92], [rt * 0.6, tl], [0, tl + 0.01]], 12), mm);
+      tmm.position.copy(V(xAt(heel) + fwd, 0, heel)); tmm.rotation.x = tilt; tmm.castShadow = true; rig.add(tmm);
+      // the cap over the lower masthead, round both spars; the trestletrees and crosstrees at the doubling's foot
+      rigKit.box(mm, 0.14, 0.12, fwd + r0 + rt + 0.06, V(xAt(lowTop) + fwd / 2, 0, lowTop + 0.04));
+      const tz = heel + 0.12;
+      rigKit.box(mm, 0.1, 0.1, fwd + r0 + rt + 0.3, V(xAt(tz) + fwd / 2, 0, tz));
+      rigKit.rod(mm, V(xAt(tz), -(TM.trees ?? 0.9), tz + 0.06), V(xAt(tz), TM.trees ?? 0.9, tz + 0.06), 0.035);
+      // topmast shrouds over the crosstrees' ends to the topmast's head
+      if (TM.shrouds !== false) for (const s of [-1, 1]) rigKit.rod(M.wire(), V(xAt(tz), s * (TM.trees ?? 0.9), tz + 0.06), V(xAt(top - 0.6) + fwd, s * 0.02, top - 0.6), 0.004);
+    }
+    if (!R.round) rigKit.box(M.black(), 0.012 * SC, len * 0.92, 0.012 * SC, V(xAt(base + len * 0.48) - r0 * (asp - 0.05), 0, base + len * 0.48)); // luff track
+    if (!TM) rigKit.box(mm, 0.06 * SC, 0.04 * SC, 0.14 * SC, V(xAt(top) - 0.03, 0, top + 0.01));                                     // masthead
     if (R.mastCollar !== false) rigKit.add(mm, new THREE.CylinderGeometry(r0 * 1.5, r0 * 1.7, 0.075, 14), new THREE.Matrix4().makeTranslation(0, base + 0.0125, -x));   // (from the deck up)
     const sails = boat.sails.filter(s => s.kind === 'boom' && (mk === 'main' ? s.key === 'main' : s.key === mk));
-    for (const s of sails) rigKit.box(M.black(), 0.08 * SC, 0.06 * SC, 0.08 * SC, V(x - asp * r0 - 0.035 * SC, 0, (s.key === 'main' ? C.boomZ : s.tackZ) - 0.035 * SC)); // gooseneck, on the mast's aft face at the boom's height
+    for (const s of sails) { const gz = (s.key === 'main' ? C.boomZ : s.tackZ) - 0.035; rigKit.box(M.black(), 0.08 * SC, 0.06 * SC, 0.08 * SC, V(xAt(gz) - asp * r0 - 0.035 * SC, 0, gz)); } // gooseneck, on the mast's aft face at the boom's height
     // spreaders, shrouds, lowers
     const ch = chains[mk];
-    const hounds = R.hounds ?? top - 0.2;
+    const hounds = R.hounds ?? (TM ? lowTop - 0.5 : top - 0.2);
     let prevTips = null;
     const sprs = R.spreaders || [];
     sprs.forEach((sp, i) => {
-      const z = base + sp.f * len, sw = sp.sweep ?? 0;
-      const tips = [-1, 1].map(s => V(x - sp.len * Math.sin(sw), s * sp.len * Math.cos(sw), z + 0.03));
-      for (const s of [0, 1]) rigKit.rod(R.mat === 'wood' ? mm : R.sprMat === 'mast' ? mm : M.alu(), V(x, (s ? 1 : -1) * 0.03, z), tips[s], (R.sprR ?? 0.016), 6, (R.sprR ?? 0.016) * 0.62);
+      const z = base + sp.f * len, sw = sp.sweep ?? 0, xz = xAt(z);
+      const tips = [-1, 1].map(s => V(xz - sp.len * Math.sin(sw), s * sp.len * Math.cos(sw), z + 0.03));
+      for (const s of [0, 1]) rigKit.rod(R.mat === 'wood' ? mm : R.sprMat === 'mast' ? mm : M.alu(), V(xz, (s ? 1 : -1) * 0.03, z), tips[s], (R.sprR ?? 0.016), 6, (R.sprR ?? 0.016) * 0.62);
       prevTips = prevTips || null;
       sp._tips = tips; sp._z = z;
     });
     for (let s = 0; s < 2 && R.shrouds !== false; s++) {
       const [cx, cy, cz] = ch[s], foot = V(cx, cy, cz + 0.05);
       // cap shroud over every spreader tip to the hounds; lowers from the chainplate to the lowest spreader root
-      let pts = [foot, ...sprs.map(sp => sp._tips[s]), V(x, (s ? 1 : -1) * 0.02, hounds)];
+      let pts = [foot, ...sprs.map(sp => sp._tips[s]), V(xAt(hounds), (s ? 1 : -1) * 0.02, hounds)];
       for (let k = 0; k < pts.length - 1; k++) rigKit.rod(M.wire(), pts[k], pts[k + 1], R.wire ?? 0.0035);
-      if (sprs.length && R.lowers !== false) for (const dx of R.lowerX ?? [0.3, -0.3]) rigKit.rod(M.wire(), V(cx + dx, cy * 0.97, cz + 0.05), V(x, (s ? 1 : -1) * 0.03, sprs[0]._z), R.lowerWire ?? 0.003);
-      if (sprs.length > 1) for (let k = 1; k < sprs.length; k++) rigKit.rod(M.wire(), sprs[k - 1]._tips[s], V(x, (s ? 1 : -1) * 0.03, sprs[k]._z), R.lowerWire ?? 0.003); // intermediates
+      if (sprs.length && R.lowers !== false) for (const dx of R.lowerX ?? [0.3, -0.3]) rigKit.rod(M.wire(), V(cx + dx, cy * 0.97, cz + 0.05), V(xAt(sprs[0]._z), (s ? 1 : -1) * 0.03, sprs[0]._z), R.lowerWire ?? 0.003);
+      if (sprs.length > 1) for (let k = 1; k < sprs.length; k++) rigKit.rod(M.wire(), sprs[k - 1]._tips[s], V(xAt(sprs[k]._z), (s ? 1 : -1) * 0.03, sprs[k]._z), R.lowerWire ?? 0.003); // intermediates
+      // (a big rig's second shroud each side, aft of the first: R.shrouds2 its chainplate's distance aft)
+      if (R.shrouds2) rigKit.rod(M.wire(), V(cx - R.shrouds2, cy * 0.99, cz + 0.05), V(xAt(hounds - 0.3), (s ? 1 : -1) * 0.03, hounds - 0.3), R.wire ?? 0.0035);
       if (R.ratlines) for (let z = cz + 0.5; z < (sprs.length ? sprs[0]._z : hounds) - 0.4; z += 0.38) {
         const a = pts[0], b = pts[1], f = (z - a.y) / (b.y - a.y);
         const p1 = a.clone().lerp(b, f);
-        const a2 = V(cx - 0.35, cy * 0.97, cz + 0.05), b2 = V(x, (s ? 1 : -1) * 0.03, sprs.length ? sprs[0]._z : hounds), f2 = (z - a2.y) / (b2.y - a2.y);
+        const zt = sprs.length ? sprs[0]._z : hounds, a2 = R.shrouds2 ? V(cx - R.shrouds2, cy * 0.99, cz + 0.05) : V(cx - 0.35, cy * 0.97, cz + 0.05);
+        const b2 = R.shrouds2 ? V(xAt(hounds - 0.3), (s ? 1 : -1) * 0.03, hounds - 0.3) : V(xAt(zt), (s ? 1 : -1) * 0.03, zt), f2 = (z - a2.y) / (b2.y - a2.y);
         rigKit.rod(M.black(), p1, a2.clone().lerp(b2, f2), 0.006);
       }
     }
-    if (R.deadeyes) for (let s = 0; s < 2; s++) { const [cx, cy, cz] = ch[s]; for (const dx of [0, -0.35]) rigKit.add(M.black(), new THREE.SphereGeometry(0.045, 10, 8), new THREE.Matrix4().makeTranslation(cy * 0.99, cz + 0.35, -(cx + dx))); }
-    if (R.crosstrees) { const z = base + R.crosstrees.f * len; rigKit.rod(mm, V(x, -R.crosstrees.len, z), V(x, R.crosstrees.len, z), 0.025); }
+    if (R.deadeyes) for (let s = 0; s < 2; s++) { const [cx, cy, cz] = ch[s]; for (const dx of [0, -(R.shrouds2 ?? 0.35)]) rigKit.add(M.black(), new THREE.SphereGeometry(R.deadeyeR ?? 0.045, 10, 8), new THREE.Matrix4().makeTranslation(cy * 0.99, cz + 0.35, -(cx + dx))); }
+    if (R.crosstrees) { const z = base + R.crosstrees.f * len; rigKit.rod(mm, V(xAt(z), -R.crosstrees.len, z), V(xAt(z), R.crosstrees.len, z), 0.025); }
     if (mk === 'main') { stay.mastTop = top; }
-    else rigKit.rod(M.wire(), V(x, 0, R.h - 0.1), V(R.stayTo ?? C.sternX + 0.1, 0, R.stayToZ ?? Lx.sheer(0) + 0.1), 0.003); // mizzen backstay / triatic
-    if (mk !== 'main' && R.triatic) rigKit.rod(M.wire(), V(x + 0.03, 0, R.h - 0.05), V(C.mastX - 0.03, 0, R.triatic), 0.003);
+    else if (R.stayTo !== false) rigKit.rod(M.wire(), V(xAt(R.h - 0.1), 0, R.h - 0.1), V(R.stayTo ?? C.sternX + 0.1, 0, R.stayToZ ?? Lx.sheer(0) + 0.1), 0.003); // mizzen backstay / triatic
+    if (mk !== 'main' && R.triatic) rigKit.rod(M.wire(), V(xAt(R.h - 0.05) + 0.03, 0, R.h - 0.05), V(mastXAt(C, R.triatic) - 0.03, 0, R.triatic), 0.003);
+    // (stays between the masts, R.springs [{ to: mast key, z0: height on this mast, z1: on that one }]: a schooner's
+    // spring stay and topmast stay, from one masthead to the next)
+    for (const sp of R.springs || []) rigKit.rod(M.wire(), V(xAt(sp.z0), 0, sp.z0), V((sp.to === 'main' ? mastXAt(C, sp.z1) : mastXOf(C, sp.to, sp.z1)), 0, sp.z1), sp.r ?? 0.006);
   }
   // headstays: each headsail's stay (the sail's luff), from its tack to the mast
   for (const s of boat.sails) {
@@ -511,10 +549,10 @@ function buildDetailed(boat, opts = {}) {
     const bgm = s.boomWide ? boxBoom(bp, s.boomWide, ky) : lathe(bp, 10);
     bgm.rotateX(Math.PI / 2); if (!s.boomWide) bgm.scale(1, ky, 1); bgm.translate(0, 0, -fwd);
     const bm = s.boomMat ?? R?.mat ?? 'alu';
-    const boomMesh = new THREE.Mesh(bgm, spar(bm)); boomMesh.position.y = -0.05; boomMesh.castShadow = true; piv.add(boomMesh);
+    const boomMesh = new THREE.Mesh(bgm, spar(bm)); boomMesh.position.y = -0.05; boomMesh.castShadow = true; if (!s.boomless) piv.add(boomMesh);   // (a loose-footed sail: no boom)
     piv.userData.top = (d) => -0.05 + ky * profR(bp, d + fwd);                // the boom's top and bottom, d aft of the pivot (fittings sit on it, blocks hang under it)
     piv.userData.bottom = (d) => -0.05 - ky * profR(bp, d + fwd);
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.06 * SC, 0.07 * SC, 0.07 * SC), M.black()); cap.position.set(0, -0.05, L); piv.add(cap);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.06 * SC, 0.07 * SC, 0.07 * SC), M.black()); cap.position.set(0, -0.05, L); if (!s.boomless) piv.add(cap);
     if (s.inBoom) {
       // an in-boom furler: the mandrel inside, the sail rolling down into it through a slot along the boom's top
       const slot = new THREE.Mesh(new THREE.BoxGeometry(br * 0.32, 0.02, L * 0.9), M.black()); slot.position.set(0, -0.05 + ky * br - 0.006, L * 0.5); piv.add(slot);
@@ -526,13 +564,21 @@ function buildDetailed(boat, opts = {}) {
     }
     rig.add(piv); booms[s.key] = piv;
     // a headsail's club swivels on a pedestal on the deck at its tack
-    if (!isMain && !s.mast) { const zd = deckH(px, 0); if (pz - 0.05 - zd > 0.005) kit.rod(M.black(), V(px, 0, zd - 0.005), V(px, 0, pz - 0.05), 0.014, 8); }
+    if (!isMain && !s.mast && !s.boomless) { const zd = deckH(px, 0); if (pz - 0.05 - zd > 0.005) kit.rod(M.black(), V(px, 0, zd - 0.005), V(px, 0, pz - 0.05), 0.014, 8); }
   }
   // gaff, yard, sprit, spinnaker pole: placed each frame from the sail
   const dyn = {};
   const rodMesh = (r, m) => { const g = new THREE.CylinderGeometry(r, r * 0.85, 1, 10); g.translate(0, 0.5, 0); const o = new THREE.Mesh(g, m); o.castShadow = true; rig.add(o); return o; };
   for (const s of boat.sails) {
-    if (s.rig === 'gaff') dyn.gaff = { s, mesh: rodMesh(s.gaffR ?? 0.045, spar(s.boomMat ?? mastSpec(C, D, 'main').mat)) };
+    if (s.rig === 'gaff') {
+      // the gaff, its jaws round the mast, the throat halyard to its block under the masthead and the peak halyard's
+      // two spans from its block above to the bridles on the gaff (every gaff sail: a schooner has one per mast)
+      const mk = s.key === 'main' ? 'main' : s.key, R = mastSpec(C, D, mk), sm = spar(s.boomMat ?? R.mat), rope = paint(0xd8ccae, 0.85);
+      const gr = s.gaffR ?? 0.045, low = R.topmast ? R.topmast.cap : R.h;
+      (dyn.gaffs || (dyn.gaffs = [])).push({ s, mk, R, mesh: rodMesh(gr, sm), jaws: [rodMesh(gr * 0.55, sm), rodMesh(gr * 0.55, sm)],
+        throatHal: rodMesh(s.halR ?? 0.009, rope), peakHal: [rodMesh(s.halR ?? 0.009, rope), rodMesh(s.halR ?? 0.009, rope)],
+        blocks: [rodMesh(gr * 1.4, M.black()), rodMesh(gr * 1.4, M.black())], low, xAt: xAts[mk] });
+    }
     if (s.rig === 'lateen') dyn.yard = { s, mesh: rodMesh(s.yardR ?? 0.028, spar(s.boomMat ?? 'alu')), halyard: rodMesh(0.004, paint(0xe8e2d0, 0.8)) };
     if (s.rig === 'sprit') dyn.sprit = { s, mesh: rodMesh(s.spritR ?? 0.018, spar(s.boomMat ?? 'wood')) };
     if (s.kind === 'spin' && s.pole) dyn.pole = { s, mesh: rodMesh(0.025, M.alu()) };
@@ -554,12 +600,13 @@ function buildDetailed(boat, opts = {}) {
   const chainMain = chains.main, mainR = mastSpec(C, D, 'main');
   const vis = { root, inner, hull, deck, booms, sailMeshes, rudderPivot, rudderPivots: twinPivots, keelMesh, telltales, windex, rig, sprit, extension, tillerEnd,
     lines: Lx, deckH, ck, chain: chainMain, stay, mastBase, boardPivot, wheels, dyn, update: updateDetailed,
-    mastXAt: () => mainR.x, mastR: mainR.r, mastAft: (y) => (mainR.round ? 1 : mainR.aspect ?? 1.25) * mainR.r * Math.sqrt(Math.max(0, 1 - (y / mainR.r) ** 2)) };
+    mastXAt: (z) => mastXAt(C, z ?? C.boomZ), mastR: mainR.r, mastAft: (y) => (mainR.round ? 1 : mainR.aspect ?? 1.25) * mainR.r * Math.sqrt(Math.max(0, 1 - (y / mainR.r) ** 2)) };
   return vis;
 }
 MODEL_HOOKS.build = buildDetailed;
 
 // ------------------------------------------------------------------ per frame: the parts only this builder has
+const _ga = new THREE.Vector3(), _gb = new THREE.Vector3(), _gc = new THREE.Vector3(), _gd = new THREE.Vector3(), _ge = new THREE.Vector3(), _gf = new THREE.Vector3(), _gg = new THREE.Vector3(), _gh = new THREE.Vector3();
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _q = [0, 0, 0];
 function placeRod(o, A, B, extA = 0, extB = 0) {
   const d = _b.subVectors(B, A), L = d.length(); if (L < 1e-4) { o.visible = false; return; }
@@ -577,12 +624,34 @@ function updateDetailed(vis, b, t) {
     const rg = act && b.sailSys.cloth(s.key);
     if (rg) { rg.cloth.sample(clothX(rg), u, v, _q); return out.copy(V(_q[0], _q[1], _q[2])); }
     const st = b.diag.strips[s.key], sh = b.diag.shape[s.key], a0 = st.baseAngle ?? 0, a = lerp(a0, sh[2].ang, v);
-    const chord = (s.foot * (1 - v) + s.head * v) * u;
+    // (the planform as set: reefed, or a gaff sail's topsail handed, js/sail/plan.js)
+    const sp = s.gaff && b.setSail ? b.setSail(s) : s, luff = s.key === 'main' || s.gaff ? s.luff * reefAt(b.reefPos, s).l : s.luff;
+    const chord = planChord(sp, v) * u;
     let lx = (s.key === 'main' ? C.mastX - 0.02 : s.tackX) - (s.rake || 0) * v, ly = 0;
     if (s.rig === 'lateen') { const dx = s.tackFwd - (s.rake || 0) * v; lx = C.mastX - 0.02 + dx * Math.cos(a0); ly = -dx * Math.sin(a0); }
-    return out.copy(V(lx - Math.cos(a) * chord, ly + Math.sin(a) * chord, (s.key === 'main' ? C.boomZ : s.tackZ) + v * s.luff + (s.headRise || 0) * u * v));
+    return out.copy(V(lx - Math.cos(a) * chord, ly + Math.sin(a) * chord, (s.key === 'main' ? C.boomZ : s.tackZ) + v * luff + planRise(sp, v) * u));
   };
-  if (dyn.gaff) { corner(dyn.gaff.s, 0, 1, _a); const B = corner(dyn.gaff.s, 1, 1, new THREE.Vector3()); placeRod(dyn.gaff.mesh, _a, B, 0.12, 0.1); }
+  // the gaff's row: the head, or (a topsail set over it) the row the gaff runs along
+  const gaffV = (s) => { const rg = act && b.sailSys.cloth(s.key); if (rg) return rg.gaffRowV ?? 1; const sp = s.gaff && b.setSail ? b.setSail(s) : s; return sp.gaffV ?? 1; };
+  for (const G of dyn.gaffs || []) {
+    const gv = gaffV(G.s), T = corner(G.s, 0, gv, _ga), P = corner(G.s, 1, gv, _gb), R = G.R, xAt = G.xAt;
+    placeRod(G.mesh, T, P, 0.12, 0.08);
+    // (worked in the boat's frame, x forward, y to starboard, z up: V() takes them to the model's)
+    const tp = [-T.z, T.x, T.y], pp = [-P.z, P.x, P.y], L = Math.hypot(pp[0] - tp[0], pp[1] - tp[1], pp[2] - tp[2]) || 1;
+    const jx = tp[0] - 0.12 * (pp[0] - tp[0]) / L, jy = tp[1] - 0.12 * (pp[1] - tp[1]) / L, jz = tp[2] - 0.12 * (pp[2] - tp[2]) / L;
+    _gc.copy(V(jx, jy, jz));
+    const mx = xAt(jz), rr = (R.round ? 1 : 1.25) * R.r;
+    // the jaws: two horns from the gaff's end round either side of the mast
+    for (const k of [0, 1]) placeRod(G.jaws[k], _gc, _gd.copy(V(mx + rr * 0.3, (k ? 1 : -1) * (R.r + 0.03), jz + 0.02)));
+    // the throat halyard: from the jaws up to its block under the lower masthead
+    const zb = Math.max(jz + 0.4, G.low - 0.25), xb = xAt(zb) - rr - 0.06;
+    _ge.copy(V(xb, 0, zb)); placeRod(G.throatHal, _gc, _ge); placeRod(G.blocks[0], _ge, _gf.copy(V(xb, 0, zb + 0.22)));
+    // the peak halyard: from its block on the mast above, in two spans to the bridles on the gaff
+    const zp = Math.max(zb + 0.3, G.low - 0.05), xp = xAt(zp) - rr - 0.06;
+    _gf.copy(V(xp, 0, zp));
+    for (const [k, f] of [[0, 0.42], [1, 0.82]]) placeRod(G.peakHal[k], _gf, _gg.copy(V(tp[0] + (pp[0] - tp[0]) * f, tp[1] + (pp[1] - tp[1]) * f, tp[2] + (pp[2] - tp[2]) * f + 0.04)));
+    placeRod(G.blocks[1], _gf, _gh.copy(V(xp, 0, zp + 0.22)));
+  }
   if (dyn.yard) {
     corner(dyn.yard.s, 0, 0, _a); const B = corner(dyn.yard.s, 0, 1, new THREE.Vector3()), H = _a.clone().lerp(B, 0.72);
     placeRod(dyn.yard.mesh, _a, B, 0.08, 0.12);
@@ -857,7 +926,7 @@ function buildLifelines(kit, C, Lx, L, deckH, bx) {
     for (let i = 0; i <= n; i++) {
       const t = lerp(tA, tB, i / n), x = bx(t), y = s * Lx.bDeck(t) * 0.93, z = deckH(x, y);
       const top = V(x, y * 1.02, z + H);
-      kit.rod(L.mat === 'black' ? M.black() : M.steel(), V(x, y, z), top, 0.012);
+      kit.rod(L.mat === 'black' ? M.black() : L.mat === 'bronze' ? M.bronze() : M.steel(), V(x, y, z), top, L.rail ? 0.016 : 0.012);
       kit.box(M.steel(), 0.05, 0.012, 0.06, V(x, y, z + 0.006));
       pts.push(top);
     }
@@ -865,6 +934,8 @@ function buildLifelines(kit, C, Lx, L, deckH, bx) {
     const xb = C.bowX - (L.pulpX ?? 0.35), yb = s * Lx.bDeck(clamp((xb - C.sternX) / (C.bowX - C.sternX), 0, 1)) * 0.8;
     if (L.pushpit !== false) kit.rod(M.steel(), V(xs, ys, deckH(xs, ys)), V(xs, ys, deckH(xs, ys) + H + 0.03), 0.014);
     if (L.pulpit !== false) kit.rod(M.steel(), V(xb, yb, deckH(xb, yb)), V(xb, yb, deckH(xb, yb) + H), 0.014);
+    // (a varnished teak rail on the stanchions, a big classic's, in place of the top wire)
+    if (L.rail === 'teak') { kit.add(M.varnish(), new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.slice().reverse()), pts.length * 3, 0.035, 6)); continue; }
     for (const h of L.wires === 1 ? [0] : [0, -H * 0.48]) {
       const line = [L.pulpit !== false ? V(xb, yb, deckH(xb, yb) + H + h) : null, ...pts.slice().reverse().map(p => p.clone().setY(p.y + h)), L.pushpit !== false ? V(xs, ys, deckH(xs, ys) + H + 0.03 + h) : null].filter(Boolean);
       kit.add(M.wire(), new THREE.TubeGeometry(new THREE.CatmullRomCurve3(line), line.length * 3, 0.0035, 4));
@@ -909,6 +980,42 @@ function addLabel(root, C, label) {
 
 // ================================================================== each boat's own pieces
 export const EXTRAS = {
+  // a wind-vane self-steering gear (Hasler's servo-pendulum type) on a frame over the stern: the vane on its staff, the
+  // pendulum oar into the water, and the lines from it to the tiller
+  vaneGear({ C, Lx, kit, deckAt }) {
+    const x = C.sternX, z = Lx.sheer(0) + 0.05;
+    // (its frame's feet on the deck of the counter)
+    for (const sd of [-1, 1]) kit.rod(M.steel(), V(x + 0.35, sd * 0.25, deckAt(x + 0.35, sd * 0.25) - 0.01), V(x - 0.4, 0, z + 0.3), 0.022);
+    kit.rod(M.steel(), V(x + 0.25, 0, deckAt(x + 0.25, 0) - 0.01), V(x - 0.4, 0, z + 0.3), 0.022);
+    kit.rod(M.steel(), V(x - 0.4, 0, z + 0.3), V(x - 0.4, 0, z + 0.95), 0.025);
+    kit.box(paint(0xe8e2d0, 0.6), 0.015, 0.75, 0.35, V(x - 0.4, 0, z + 1.3));                    // the vane
+    kit.rod(M.steel(), V(x - 0.4, 0, z + 0.3), V(x - 0.55, 0, -0.9), 0.03);                     // the pendulum oar's shaft
+    kit.box(paint(0xe8e2d0, 0.5), 0.04, 0.6, 0.22, V(x - 0.56, 0, -0.75));                      // its blade
+  },
+  // a 12 Metre's coffee grinders: two pedestals on the cockpit sole between the primaries, each with its pair of
+  // crank handles (the drive runs under the deck to the winches)
+  grinders({ C, Lx, kit, bx, ck }) {
+    for (const t of [0.33, 0.37]) {
+      const x = bx(t), z = ck.sole;
+      kit.add(M.alu(), lathe([[0.12, 0], [0.1, 0.06], [0.07, 0.15], [0.065, 0.78], [0.09, 0.84], [0, 0.86]], 12), new THREE.Matrix4().makeTranslation(0, z, -x));
+      kit.rod(M.black(), V(x, -0.2, z + 0.82), V(x, 0.2, z + 0.82), 0.025);
+      for (const sd of [-1, 1]) { kit.rod(M.black(), V(x, sd * 0.2, z + 0.82), V(x, sd * 0.2, z + 1.05), 0.018); kit.rod(M.black(), V(x, sd * 0.2, z + 1.05), V(x, sd * 0.32, z + 1.05), 0.02); }
+    }
+  },
+  // a big gaff rig's deck: the windlass on the foredeck, and at the foot of every mast its fife rail (a rail on two
+  // posts across the mast's after side, its belaying pins through it), where the halyards are made fast
+  schoonerDeck({ C, D, Lx, kit, bx, deckH0, boat }) {
+    const k = clamp(C.beam / 7, 0.6, 1.3);
+    const wx = C.bowX - 2.2 * k, wz = deckH0(wx, 0);
+    kit.rod(wood(0x7a5a3a), V(wx, -0.6 * k, wz + 0.4 * k), V(wx, 0.6 * k, wz + 0.4 * k), 0.16 * k, 12);          // windlass barrel
+    for (const sd of [-1, 1]) kit.box(wood(0x7a5a3a), 0.16 * k, 0.6 * k, 0.5 * k, V(wx, sd * 0.68 * k, wz + 0.3 * k));
+    for (const mk of mastKeys(boat)) {
+      const R = mastSpec(C, D, mk), x0 = mk === 'main' ? C.mastX : R.x, xr = x0 - R.r - 0.45 * k, z0 = deckH0(xr, 0), w = 0.75 * k;
+      for (const sd of [-1, 1]) kit.box(wood(0x7a5a3a), 0.1, 0.66, 0.1, V(xr, sd * w, z0 + 0.32));                // posts
+      kit.box(wood(0x7a5a3a), 2 * w + 0.14, 0.09, 0.12, V(xr, 0, z0 + 0.62));                                    // the rail
+      for (let i = 0; i < 7; i++) kit.rod(M.bronze(), V(xr, -w + 0.1 + i * (2 * w - 0.2) / 6, z0 + 0.5), V(xr, -w + 0.1 + i * (2 * w - 0.2) / 6, z0 + 0.8), 0.016);
+    }
+  },
   // a J Class's flush teak deck as restored and rigged today (C.model.jDeck): pitched skylights along the
   // centreline (varnished frames, glass lids, bronze guard bars), flush hatches forward, the coffee grinders' pedestals
   // with their two crank handles, the big two-speed drum winches either side (sheets, runners, guys: driven from below,
