@@ -8,12 +8,14 @@
 // vessel)"; H. I. Chapelle's lines of Spray (Smithsonian, "American Small Sailing Craft", 1951). Not published
 // with the dimensions, so estimated here (and marked so): LWL ~33 ft (10.2 m), draft ~4 ft 2 in (1.27 m),
 // displacement ~15 t, sail areas (main ~52 m², jib ~22 m², jigger ~6 m²) from the sail plan in the appendix.
+// (the gaff: ~5.0 m, peaked so the peak stays under the shortened mast's head, where its halyard's block is: drawn
+// before with the peak 2.2 m above the masthead, est.)
 // Lines shaped to Chapelle's plan: a broad, shallow, hard-bilged hull, a straight keel, a raked stem with a clipper
 // head, a broad square stern with the rudder hung outboard, low bulwarks.
 // Line handling on the real boat: everything belayed to pins and cleats — jib sheets to cleats on the rail, the
 // mainsheet to a horse across the stern (Slocum lashed the helm and let her steer herself), throat and peak
 // halyards hauled by hand and belayed at the mast, the jigger sheet to its boomkin, reefing by tying points.
-import { DEG, HP, rrTable, massProps } from './util.js';
+import { clarkeMunkK, DEG, HP, rrTable, massProps } from './util.js';
 
 const LWL = 10.2, M = 15000, BAL = 3000;
 const MP = massProps([{ m: M - BAL - 600, z: 0.4, ry: 1.5, rx: 2.9 }, { m: BAL, z: -0.55, ry: 0.6, rx: 2.0 }, { m: 600, z: 5.5, rz: 3.2 }]);
@@ -25,6 +27,7 @@ export default {
   bowsprit: 3.0, cabin: true, longKeel: true,
   massHull: M, zG: MP.zG, crewN: 1, crewEach: 80, crewZ: 1.2, crewMaxOut: 1.5, crewLee: -1.0, hikeRate: 0.4,
   gm: 1.5, bmForm: 1.2, Ixx: MP.Ixx, Izz: MP.Izz, amX: 0.09, amY: 1.0, amYaw: 0.7, amRoll: 0.35,
+  munkK: clarkeMunkK(LWL, 1.3, M + 80, 0.09, 1.0),   // (the hull's yaw moment at a drift angle, util.js)
   rr: rrTable(LWL, M + 80, { prism: -0.12 }),
   // (a long keel is part of the lines: its skin friction is in the hull's, so the foil keeps only its form drag)
   keel: { x: 0.1, z: -0.9, area: 5.2, ARe: 0.75, stall: 28 * DEG, cd0: 0.003, span: 0.6, chord: 8.5, long: true },
@@ -40,7 +43,7 @@ export default {
     outhaul: { handler: 'horn', n: 2, at: 'boom' }, jibHalyard: { handler: 'horn', n: 2, at: 'mast' } },
   ropeStyle: 'classic',
   sails: [
-    { key: 'main', kind: 'boom', rig: 'gaff', area: 52, luff: 6.86, foot: 8.2, head: 3.7, headRise: 4.4, roach: 0,
+    { key: 'main', kind: 'boom', rig: 'gaff', area: 52, luff: 5.6, foot: 8.2, head: 3.7, headRise: 3.4, roach: 0,
       depth: [0.13, 0.14, 0.13], twistMax: 26 * DEG, cd0: 0.08, ARe: 2.2, min: 3 * DEG, max: 80 * DEG, trav: [-3 * DEG, 8 * DEG], Iboom: 900, boomMass: 90, reefs: 2,
       vangBend: 0, sheetBend: 0, color: 0xece2c8, pockets: [], battens: { EI: 0, rows: [] }, boomMat: 'wood', gaffR: 0.07, boomR: 0.09, boomRound: true },
     { key: 'jib', kind: 'loose', area: 22, tackX: 8.7, tackZ: 1.85, luff: 7.6, foot: 4.8, head: 0.06, footRise: 0.5,

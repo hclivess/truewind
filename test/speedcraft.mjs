@@ -104,13 +104,20 @@ function run(tws, twa, secs = 30) {
     let acc = 0, n = 0; for (let i = 0; i < 40 / dt; i++) { at(m, dt, 0); m.step(dt, e, i * dt); m.r = 0; m.psi = -120 * DEG; m.rudder = 0; if (i > 30 / dt) { acc += m.u; n++; } }
     check(Math.abs(acc / n - r30.bsp) / r30.bsp < 0.06, `she sails both tacks: ${(acc / n / KT).toFixed(1)} kn on port, ${(r30.bsp / KT).toFixed(1)} on starboard`); }
   check(r12.bsp / KT < 20, `12 kn: ${(r12.bsp / KT).toFixed(1)} kn, not flying`);
-  // flying on the leeward foil, the windward one light, the hull clear; the ride height found by the immersed span
+  // flying on the leeward foil, the windward one light, the hull clear; the ride height found by the immersed span (the leeward foil in nearly to its root, as photographed, but not buried)
   const b = makeBoat(H, { sailModel: 'strip' }), env = makeSteadyEnv(30 * KT), dt = 1 / 60;
   const { vppStart, autoTrim } = await import('../js/physics.js');
   vppStart(b, 30 * KT, 120, false);
   for (let i = 0; i < 40 / dt; i++) { autoTrim(b, dt, 0); b.step(dt, env, i * dt); b.r = 0; b.psi = 120 * DEG; b.rudder = 0; }
   const F = b.diag.hfoils, lee = F[0].lift > F[1].lift ? F[0] : F[1], win = lee === F[0] ? F[1] : F[0];
-  check(b.diag.displaced < 0.1 * b.mass && lee.imm > 0.2 && lee.imm < 0.9 && win.lift < 0.3 * lee.lift, `flying: hulls ${b.diag.displaced.toFixed(0)} kg in the water, the leeward foil ${(lee.lift / 1000).toFixed(1)} kN at ${(lee.imm * 100).toFixed(0)}% immersed, the windward ${(win.lift / 1000).toFixed(1)} kN; heave ${b.heave.toFixed(2)} m`);
+  check(b.diag.displaced < 0.1 * b.mass && lee.imm > 0.2 && lee.imm < 0.97 && win.lift < 0.3 * lee.lift, `flying: hulls ${b.diag.displaced.toFixed(0)} kg in the water, the leeward foil ${(lee.lift / 1000).toFixed(1)} kN at ${(lee.imm * 100).toFixed(0)}% immersed, the windward ${(win.lift / 1000).toFixed(1)} kN; heave ${b.heave.toFixed(2)} m`);
+  // steady on her leeward foil on a reach in 20 kn (the crew's traveller holding the heel: it once swung 6-19 deg)
+  { const m = makeBoat(H, { sailModel: 'strip' }), e = makeSteadyEnv(20 * KT), dt = 1 / 60;
+    vppStart(m, 20 * KT, 90, false);
+    let lo = 1e9, hi = -1e9, us = 0, n = 0;
+    for (let i = 0; i < 60 / dt; i++) { autoTrim(m, dt, 0); m.step(dt, e, i * dt); m.r = 0; m.psi = 90 * DEG; m.rudder = 0;
+      if (i > 40 / dt) { lo = Math.min(lo, m.phi); hi = Math.max(hi, m.phi); us += m.u; n++; } }
+    check(hi - lo < 5 * DEG && hi < 14 * DEG && us / n / KT > 22, `20 kn, 90 deg: ${(us / n / KT).toFixed(1)} kn, heel ${(lo / DEG).toFixed(1)}..${(hi / DEG).toFixed(1)} deg: steady on her leeward foil`); }
   // a foil ventilating from the surface past its inception angle loses its lift at once
   const sec = { kind: 'naca', tc: 0.09, chord: 0.7, water: true }, st = surfState(), o = {};
   let c2, c3; const s3 = surfState();
