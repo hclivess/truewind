@@ -453,7 +453,7 @@ export class BoomSailRig extends ClothRig {
   // put the cloth at its rest shape swung out to boom angle a (camber to leeward), at rest
   pose(a, tw = null) {
     this.poseCloth(a, tw);
-    this.vangSlip = 0; this._sheetIn = undefined;
+    this.vangSlip = 0; this._sheetIn = undefined; this._carSet = false;
     const c = this.cloth, g = this.Gp[0];
     if (this.lateen) {
       // the whole rig turns about the mast: every node (the luff on its yard too) swung by a about the mast's axis
@@ -510,7 +510,13 @@ export class BoomSailRig extends ClothRig {
     const ey = c.x[1];
     if (Math.abs(ey) > 0.05 * this.Lb) this.side = Math.sign(ey);
     const R = this.tb * this.Lb;
-    this.car[0] = this.Gp[0] - R * Math.cos(travA); this.car[1] = this.side * R * Math.sin(travA);
+    // (upwind, the car goes over to the boom's new side along its track at up to 1.5 m/s, as in mainLines: put there in
+    // one step, with the sheet hard in it snatched the boom back across at 100+ kN and the boom rattled through every
+    // tack; off the wind it goes at once, as there)
+    const phT = this.side * travA, vmax = 1.5 * (this._dt || 1 / 120) / Math.max(0.3, R), up = Math.abs(b.diag.awaMid || 0) < 1.5;
+    this._carPh = this._carSet && up && Number.isFinite(this._carPh) ? this._carPh + clamp(phT - this._carPh, -vmax, vmax) : phT;
+    this._carSet = true;
+    this.car[0] = this.Gp[0] - R * Math.cos(this._carPh); this.car[1] = R * Math.sin(this._carPh);
     const chord = 2 * R * Math.sin(Math.max(0, lim - travA) / 2);
     this.sheet.len = Math.sqrt(chord * chord + this.hz * this.hz) - 0.035 * (1 - sstep(0, 0.25, ease));
     if (this.vang) {
@@ -531,10 +537,23 @@ export class BoomSailRig extends ClothRig {
     // the car stays where the traveller put it, to leeward of the wind, not of the boom: taken to the boom's side, a
     // luffing boom crossing the centreline threw the car the length of the track, and the sheet flung the boom back
     // (rattling it at 300 deg/s); running, where the wind is no guide, it goes with the boom once the boom is well out
+    // (and it goes over in a tack only once the bow is well through the wind, 12 deg: switched at 4 deg, the apparent
+    // wind wandering about head to wind threw it across and back several times in one tack)
     const awa = b.diag.awaMid || 0;
-    if (Math.abs(awa) < 2.6) { if (Math.abs(awa) > 0.07) this.carSide = -Math.sign(awa); }
+    if (Math.abs(awa) < 2.6) { if (Math.abs(awa) > 0.21) this.carSide = -Math.sign(awa); }
     else if (Math.abs(ey) > 0.3 * this.Lb) this.carSide = Math.sign(ey);
-    sheetCar(C, s0, ctrl.trav, this.carSide || this.side, this.a, this.car);
+    // The car runs along its track, it does not jump. Upwind, sheeted in, it is hauled over by its control line in a
+    // tack, at up to 1.5 m/s: set straight to the new side, it crossed the track in one 1/120 s step with the sheet hard
+    // in, the sheet (shortened 20 cm in a step) snatched the boom at 100-200 kN, ~10^4 m/s^2 at its end, and the boom
+    // rattled from side to side through every tack. Off the wind (a gybe) it still goes over at once: the cloth's
+    // aerodynamics barely push a main standing by the lee across, so the car taking the sheet over is what gybes the
+    // boom, and bangs it across as an unplanned gybe does. (Moved at a car's pace there, the boom stayed by the lee.)
+    const tgtCar = sheetCar(C, s0, ctrl.trav, this.carSide || this.side, this.a, this._carT || (this._carT = [0, 0, 0]));
+    if (this._carSet && Math.abs(awa) < 1.5) {
+      const vmax = 1.5 * (this._dt || 1 / 120);
+      this.car[0] = tgtCar[0]; this.car[2] = tgtCar[2];
+      this.car[1] += clamp(tgtCar[1] - this.car[1], -vmax, vmax);
+    } else { this.car[0] = tgtCar[0]; this.car[1] = tgtCar[1]; this.car[2] = tgtCar[2]; this._carSet = true; }
     void bd;
     const tgt = sheetLen(C, s0, ease) - (this.sheetHaul ?? 0.035) * (1 - sstep(0, 0.25, ease));
     if (ease < 0.2) {
@@ -565,6 +584,7 @@ export class BoomSailRig extends ClothRig {
   }
 
   step(b, dt, nsub, fr) {
+    this._dt = dt;
     const wasTaut = this.sheet.taut, rate0 = this.rate, c = this.cloth, s0 = this.s0, E3 = 3 * this.E;
     // (the main has no business on a shroud with its boom 35 deg or more inside where the shroud stops it; back on
     // within 30 deg, the head twisted off onto the spreader)
