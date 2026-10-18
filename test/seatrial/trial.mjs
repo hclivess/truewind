@@ -71,13 +71,14 @@ export function venue(id) {
 }
 
 // the environment for a condition, built the way js/main.js makeEnv builds it for the venue
-export function makeEnv(cond, V, seed) {
-  const world = V.world, twdDeg = V.twd / DEG;
-  const fetchM = world.open ? 60000 : world.fetchAt(V.x, V.z, V.twd, 6000);
+// (opts: clock, the tide's UTC ms at t = 0; at {x, z}, where the fetch and the sea's stream are taken; twd, rad)
+export function makeEnv(cond, V, seed, opts = {}) {
+  const world = V.world, twd = opts.twd ?? V.twd, twdDeg = twd / DEG, at = opts.at || V;
+  const fetchM = world.open ? 60000 : world.fetchAt(at.x, at.z, twd, 6000);
   const fetchKm = world.open ? 2000 : fetchM >= 6000 ? 25 : Math.max(0.4, fetchM / 1000);
-  if (!world.open) world.updateShelter(V.twd);
+  if (!world.open) world.updateShelter(twd);
   const env = new Environment({
-    tide: V.tide, tideMode: V.tide ? 'real' : 'steady', tideClock0: TIDE_CLOCK,
+    tide: V.tide, tideMode: V.tide ? 'real' : 'steady', tideClock0: opts.clock ?? TIDE_CLOCK,
     tws: cond.tws * KT, twd: twdDeg, gust: cond.gusty ? 0.5 : 0, shift: cond.gusty ? 7 : 0, seed, weather: 'steady',
     fetchKm, swellH: 0, swellT: 6, currentKt: 0, currentDir: 90, hemi: V.v.lat < 0 ? -1 : 1, thermal: null,
     wavesOn: !!cond.sea,
@@ -88,7 +89,7 @@ export function makeEnv(cond, V, seed) {
     env.waves.scaleFn = (x, z) => clamp(world.sdfAt(x, z) / (env.waves.coastal ? 12 : 60), 0.08, 1);
     env.waves.buildDepthField(world);
   }
-  env.focus = { x: V.x, z: V.z };
+  env.focus = { x: at.x, z: at.z };
   env.tick(0);
   return env;
 }
