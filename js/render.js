@@ -16,6 +16,7 @@ import { SkySystem, SKY_LUT_GLSL, CLOUD_GLSL, withCloudShadows, sunPosition, MIS
 import { strikes, flashAt, thunderDue, thunderBearing, boltSegments, convection, heatFromSun, mist, mistTau } from './wx.js';
 import { SeamarkLayer } from './seamark-render.js';
 import { PlanarReflection, REFL_GLSL } from './reflect.js';
+import { addNavLights, tickNavLights } from './navlights.js';
 import { ReflGovernor } from './governor.js';
 
 const MAXW = 20;
@@ -286,7 +287,7 @@ export class Renderer {
     // the scene's reflection (reflect.js): rung 0 of the ladder on a desktop, rung 2 with ?q=low; ?refl=0..3 sets it
     // (and holds it there: no governor)
     const rq = new URLSearchParams(location.search).get('refl');
-    this.refl = new PlanarReflection(THREE, this.r, rq !== null ? +rq : this.low ? 2 : 0);
+    this.refl = new PlanarReflection(THREE, this.r, rq !== null ? +rq : this.low ? 3 : 0);
     this.reflGov = rq !== null ? null : new ReflGovernor(this.refl.level);
     Object.assign(uniforms, this.refl.U);
     // the sky's shared uniforms (table, clouds, sun colour) are the same objects
@@ -1284,6 +1285,7 @@ export class Renderer {
     vis.player = !!opts.player;
     vis.splash = vis.speed ? new MODEL_HOOKS.speedSpray(this.scene, vis, boat, this.skySys) : new HullSplash(this.scene, vis, boat, this.skySys);
     vis.engineVis = buildEngineModel(boat, vis);        // outboard on its bracket / inboard exhaust (js/engine-model.js)
+    vis.navLights = addNavLights(vis, boat.cls);        // sidelights and sternlight at night (js/navlights.js)
     this.scene.add(vis.root);
     this.boats.set(boat, vis);
     const wake = new Wake(); this.scene.add(wake.mesh); this.wakes.set(boat, wake);
@@ -1409,6 +1411,7 @@ export class Renderer {
       if (fl > 0) this.hemi.intensity += 3 * fl;
     }
     const Ld = this.skySys.lightDir || this.sunDir;
+    tickNavLights(clamp((-this.sunDir.y + 0.02) / 0.12, 0, 1), this.r.domElement.height || 800, this.camera.fov, this.r.getPixelRatio());
     if (this.town) {
       setSceneryNight(this.town, clamp((-this.sunDir.y + 0.02) / 0.12, 0, 1));
       const mw = env.wind.mean(t); tickScenery(this.town, t, mw.speed, this.camera);   // (and the land streams in round the camera)
@@ -1459,7 +1462,14 @@ export class Renderer {
   // drawn without the sea itself, the sky (the water has its own), the rain and what lies flat on the water
   _renderReflection() {
     const now = performance.now(), fm = now - (this._reflT ?? now); this._reflT = now;
-    if (this.reflGov) { const l = this.reflGov.frame(fm); if (l !== null) this.refl.setLevel(l); }
+    if (this.reflGov) {
+      const l = this.reflGov.frame(fm);
+      if (l !== null) {
+        const from = this.refl.level; this.refl.setLevel(l);
+        console.info(`reflection: rung ${from} -> ${l} (${Math.round(this.refl.scale * 100)} % of the screen) at ${this.reflGov.ema.toFixed(1)} ms a frame`);
+      }
+    }
+    this.refl.setNight(this.sunDir.y < -0.08);
     const h = this._reflHide || (this._reflHide = []);
     h.length = 0; h.push(this.water, this.skySys.dome, this.rain);
     for (const w of this.wakes.values()) h.push(w.mesh);

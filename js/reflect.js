@@ -7,15 +7,19 @@
 // that surface (the hulls below the waterline and the sea bed cut away), into a linear HDR target with a depth
 // texture; then a copy into a mipmapped target whose alpha is the coverage (depth < 1), its colour premultiplied
 // by it (the background is cleared to 0), so a blurred level is the true mean of the scene and of the sky
-// showing between it. The water reads:
-//  - the depth at the flat-water point: how far the reflected thing is from the water (D), for the bend
-//    (a reflected ray turned by the wave normal meets the object D metres on: a hull a few metres off barely moves,
-//    the hills two kilometres off break into long streaks, as on a real sea);
+// showing between it; and a small target of the distance (log2(1 + d) / 16 from the depth, the nearest of each
+// neighbourhood, mipmapped). The water reads:
+//  - the distance at the flat-water point, filtered (so the bend runs smoothly across an object's edge instead of
+//    jumping texel by texel, which drew the reflection in blocks): how far the reflected thing is from the water
+//    (D), for the bend (a reflected ray turned by the wave normal meets the object D metres on: a hull a few
+//    metres off barely moves, the hills two kilometres off break into long streaks, as on a real sea);
 //  - the colour at that bent point, blurred by the reflected cone of the unresolved slopes over the path D, as
 //    seen from the camera at dist + D (sharp at a hull's waterline, softer for far land; see REFL_GLSL), and never
 //    finer than the pixel's own footprint in the target (no swimming).
-// The quality ladder (governor.js REFL_LEVELS): the target's size as a fraction of the drawing buffer, down to
-// none at all (the sky alone, as before) for a device that cannot keep its frame rate up.
+// The quality ladder (governor.js REFL_LEVELS): the target's size as a fraction of the drawing buffer and the
+// blur's taps, down to none at all (the sky alone) for a device that cannot keep its frame rate up. At night the
+// top rung draws at full size (setNight): the scene is cheap then, and small bright lights on a black sea are what
+// shows up a coarse mirror.
 import { REFL_LEVELS } from './governor.js';
 
 const MARGIN = 1.12;
@@ -24,33 +28,46 @@ export class PlanarReflection {
   constructor(THREE, renderer, level = 0) {
     this.T = THREE; this.r = renderer;
     const ext = renderer.extensions;
-    // a linear HDR target where it can be drawn into (WebGL2 with EXT_color_buffer_float / _half_float); else
-    // 8 bits (the reflection clips at white, the rest stands)
+    // a linear HDR target where it can be drawn into (WebGL2 with EXT_color_buffer_float / _half_float; half
+    // floats filter linearly in WebGL2 itself); else 8 bits (the reflection clips at white, the rest stands)
     this.hdr = !!(ext && (ext.has('EXT_color_buffer_half_float') || ext.has('EXT_color_buffer_float')));
     const type = this.hdr ? THREE.HalfFloatType : THREE.UnsignedByteType;
     this.rtScene = new THREE.WebGLRenderTarget(4, 4, { type, depthBuffer: true, samples: 0 });
     this.rtScene.depthTexture = new THREE.DepthTexture(4, 4);
     this.rtScene.depthTexture.minFilter = this.rtScene.depthTexture.magFilter = THREE.NearestFilter;
-    this.rt = new THREE.WebGLRenderTarget(4, 4, { type, depthBuffer: false, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
-    // anisotropic filtering for the streaks (REFL_GLSL); 1 where the GPU has none
-    this.rt.texture.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy ? renderer.capabilities.getMaxAnisotropy() : 1);
+    const mip = { type, depthBuffer: false, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter };
+    this.rt = new THREE.WebGLRenderTarget(4, 4, mip);
+    this.rtD = new THREE.WebGLRenderTarget(4, 4, mip);
     this.cam = new THREE.PerspectiveCamera();
     this.cam.matrixAutoUpdate = true;
+    this.night = false;
     this.U = {
-      uRefl: { value: this.rt.texture }, uReflD: { value: this.rtScene.depthTexture },
-      uReflM: { value: new THREE.Matrix4() }, uReflIP: { value: new THREE.Matrix4() },
-      // x: on, w: the target's height in texels (its smallest footprint)
-      uReflP: { value: new THREE.Vector4(0, 0, 0, 1) },
+      uRefl: { value: this.rt.texture }, uReflD: { value: this.rtD.texture },
+      uReflM: { value: new THREE.Matrix4() },
+      // x: on, y: the blur's taps, z: the target's width, w: its height (texels)
+      uReflP: { value: new THREE.Vector4(0, 8, 1, 1) },
     };
-    // the copy: coverage from depth into alpha
-    this.copyU = { tC: { value: this.rtScene.texture }, tD: { value: this.rtScene.depthTexture } };
+    // the copies: the colour with the coverage from depth in alpha (uMode 0), the distance (uMode 1)
+    this.copyU = { tC: { value: this.rtScene.texture }, tD: { value: this.rtScene.depthTexture }, uIP: { value: new THREE.Matrix4() }, uMode: { value: 0 } };
     this.copyScene = new THREE.Scene();
     this.copyCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
       uniforms: this.copyU, depthTest: false, depthWrite: false, toneMapped: false,
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
-      fragmentShader: `uniform sampler2D tC; uniform sampler2D tD; varying vec2 vUv;
+      fragmentShader: `uniform sampler2D tC; uniform sampler2D tD; uniform mat4 uIP; uniform float uMode; varying vec2 vUv;
         void main(){
+          if (uMode > 0.5) {
+            // the nearest depth within 4 texels, as log distance: an object's edge stays the object's, and a light
+            // drawn without depth (a nav light's glow, a lit window, a lantern) takes the distance of what carries
+            // it (left at the sky's, its reflection was bent and blurred as if it hung kilometres away)
+            vec2 h = 1.6 / vec2(textureSize(tD, 0));
+            float z = 1.0;
+            for (int j = 0; j < 6; j++) for (int i = 0; i < 6; i++) z = min(z, texture2D(tD, vUv + (vec2(i, j) - 2.5) * h).r);
+            float d = 1e4;
+            if (z < 1.0) { vec4 vp = uIP * vec4(vUv * 2.0 - 1.0, z * 2.0 - 1.0, 1.0); d = min(length(vp.xyz / vp.w), 1e4); }
+            gl_FragColor = vec4(log2(1.0 + d) / 16.0, 0.0, 0.0, 1.0);
+            return;
+          }
           vec3 c = texture2D(tC, vUv).rgb;
           float cov = texture2D(tD, vUv).r < 1.0 ? 1.0 : 0.0;
           // (the background was cleared to 0: what is there is premultiplied already, additive lights included)
@@ -69,13 +86,20 @@ export class PlanarReflection {
     this.L = REFL_LEVELS[this.level];
     this._size();
   }
+  // night (the sun well down): the top rung at full size
+  setNight(on) { if (on !== this.night) { this.night = on; this._size(); } }   // (and 16 taps)
+  // the size it draws at now, as a fraction of the drawing buffer
+  get scale() { return this.L.scale && this.level === 0 && this.night ? 1 : this.L.scale; }
   // the drawing buffer's size (px)
   resize(w, h) { this.w = w; this.h = h; this._size(); }
   _size() {
-    const s = this.L.scale;
-    if (!s) { this.U.uReflP.value.x = 0; return; }
+    const s = this.scale, P = this.U.uReflP.value;
+    if (!s) { P.x = 0; return; }
+    P.y = this.level === 0 && this.night ? 16 : this.L.taps || 8;
     const w = Math.max(16, Math.round(this.w * s)), h = Math.max(16, Math.round(this.h * s));
-    if (this.rt.width !== w || this.rt.height !== h) { this.rtScene.setSize(w, h); this.rt.setSize(w, h); }
+    if (this.rt.width !== w || this.rt.height !== h) {
+      this.rtScene.setSize(w, h); this.rt.setSize(w, h); this.rtD.setSize(Math.max(8, w >> 1), Math.max(8, h >> 1));
+    }
   }
   // draw the mirror image of `scene` seen by `camera`, without the objects in `hide` (the water, the sky dome,
   // the rain); y0: the mean surface
@@ -112,8 +136,8 @@ export class PlanarReflection {
     v.clip.multiplyScalar(2 / v.clip.dot(v.q));
     e[2] = v.clip.x; e[6] = v.clip.y; e[10] = v.clip.z + 1 - 0.003; e[14] = v.clip.w;
     cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
-    U.uReflIP.value.copy(cam.projectionMatrixInverse);
-    P.w = this.rt.height;
+    this.copyU.uIP.value.copy(cam.projectionMatrixInverse);
+    P.z = this.rt.width; P.w = this.rt.height;
     // draw: no shadow-map pass of its own (the main pass makes it), the dome and the like hidden, cleared to 0
     const prevRT = r.getRenderTarget(), prevAC = r.autoClear, prevSh = r.shadowMap.autoUpdate, prevNU = r.shadowMap.needsUpdate;
     const cc = r.getClearColor(this._cc || (this._cc = new this.T.Color())), ca = r.getClearAlpha();
@@ -121,14 +145,15 @@ export class PlanarReflection {
     r.shadowMap.autoUpdate = false; r.shadowMap.needsUpdate = false;
     r.autoClear = true; r.setClearColor(0x000000, 0);
     r.setRenderTarget(this.rtScene); r.render(scene, cam);
-    r.setRenderTarget(this.rt); r.render(this.copyScene, this.copyCam);
+    this.copyU.uMode.value = 0; r.setRenderTarget(this.rt); r.render(this.copyScene, this.copyCam);
+    this.copyU.uMode.value = 1; r.setRenderTarget(this.rtD); r.render(this.copyScene, this.copyCam);
     r.setRenderTarget(prevRT);
     r.setClearColor(cc, ca); r.autoClear = prevAC;
     r.shadowMap.autoUpdate = prevSh; r.shadowMap.needsUpdate = prevNU;
     for (const o of vis) o.visible = true;
     P.x = 1;
   }
-  dispose() { this.rt.dispose(); this.rtScene.dispose(); }
+  dispose() { this.rt.dispose(); this.rtScene.dispose(); this.rtD.dispose(); }
 }
 
 // the water shader's part (render.js): refl, the sky's reflection, is overlaid with the scene's, bent by R (the
@@ -137,17 +162,19 @@ export class PlanarReflection {
 // sight line's angle below the horizon.
 // The blur is anisotropic, as a real sea's is: a slope along the sight line turns the reflected ray up or down by
 // twice the slope, a slope across it turns it sideways by only twice the slope times tan(angle of view below the
-// horizon), so at a low angle a far reflection is drawn out into vertical streaks and barely widened. Three taps
-// along the vertical with gradients (anisotropic filtering where the GPU has it, an isotropic mip where not).
+// horizon), so at a low angle a far reflection is drawn out into vertical streaks and barely widened. It is a
+// Gaussian over that ellipse in N taps on a Vogel spiral, turned per pixel (interleaved gradient noise), each read
+// from the mip level of the taps' spacing (at most level 3): a smooth blur with a fine static grain. (Reading one
+// coarse level for the whole ellipse magnified its texels into blocks, worst at night: a lit window or a nav
+// light on a black sea.)
 export const REFL_GLSL = /* glsl */`
-uniform sampler2D uRefl; uniform sampler2D uReflD; uniform mat4 uReflM; uniform mat4 uReflIP; uniform vec4 uReflP;
+uniform sampler2D uRefl; uniform sampler2D uReflD; uniform mat4 uReflM; uniform vec4 uReflP;
 vec2 reflUV(vec3 Q) { vec4 c = uReflM * vec4(Q, 1.0); return c.xy / max(c.w, 1e-4); }
 vec3 reflScene(vec3 refl, vec3 P, vec3 R, float sig, float dist, float ey) {
   if (uReflP.x < 0.5) return refl;
-  // the flat-water point's reflection: how far it travels from the water to what it meets
+  // the flat-water point's reflection: how far it travels from the water to what it meets (filtered: smooth)
   vec2 uv0 = reflUV(vec3(P.x, 0.0, P.z));
-  float dz = texture2D(uReflD, clamp(uv0, 0.0, 1.0)).r, D = 3000.0;
-  if (dz < 1.0) { vec4 vp = uReflIP * vec4(uv0 * 2.0 - 1.0, dz * 2.0 - 1.0, 1.0); D = clamp(length(vp.xyz / vp.w) - dist, 0.3, 3000.0); }
+  float D = clamp(exp2(textureLod(uReflD, clamp(uv0, 0.0, 1.0), 0.5).r * 16.0) - 1.0 - dist, 0.3, 3000.0);
   // the bent ray, D metres on, as the mirrored camera sees it; and how the target's uv turns with it (per radian)
   vec3 Rr = normalize(vec3(R.x, max(R.y, 0.005), R.z));
   vec3 eV = normalize(vec3(0.0, 1.0, 0.0) - Rr * Rr.y), eH = normalize(cross(Rr, vec3(0.0, 1.0, 0.0)) + 1e-6);
@@ -155,13 +182,27 @@ vec3 reflScene(vec3 refl, vec3 P, vec3 R, float sig, float dist, float ey) {
   vec2 dV = (reflUV(P + normalize(Rr + eV * 0.01) * D) - ruv) * 100.0, dH = (reflUV(P + normalize(Rr + eH * 0.01) * D) - ruv) * 100.0;
   // the reflected rays' spread (rms, rad): vertical and sideways
   float sv = 1.4142 * sig, sh = sv * clamp(ey / sqrt(max(1.0 - ey * ey, 1e-4)), 0.03, 1.0);
-  // the pixel's own footprint in the target (no finer: no swimming), then the filter widths
-  vec2 fx = dFdx(ruv), fy = dFdy(ruv);
-  float fp2 = max(dot(fx, fx), dot(fy, fy)), t2 = 1.0 / (uReflP.w * uReflP.w);
-  vec2 gV = dV * sv * 1.6, gH = dH * sh * 3.0;
-  gV *= sqrt(1.0 + (fp2 + t2) / max(dot(gV, gV), 1e-12)); gH *= sqrt(1.0 + (fp2 + t2) / max(dot(gH, gH), 1e-12));
-  vec2 st = dV * sv * 1.2;
-  vec4 s = 0.5 * textureGrad(uRefl, ruv, gH, gV) + 0.25 * (textureGrad(uRefl, ruv - st, gH, gV) + textureGrad(uRefl, ruv + st, gH, gV));
+  // the ellipse's axes (1 sigma, uv), widened to half the pixel's own footprint and half a texel, and held to a
+  // twelfth of the target (beyond that a light's reflection is spread to nothing anyway)
+  vec2 sz = uReflP.zw, fx = dFdx(ruv), fy = dFdy(ruv);
+  float fp2 = 0.25 * max(dot(fx, fx), dot(fy, fy)) + 0.25 / (sz.y * sz.y);
+  vec2 aV = dV * sv, aH = dH * sh;
+  aV *= min(sqrt(1.0 + fp2 / max(dot(aV, aV), 1e-12)), 0.08 / max(length(aV), 1e-6));
+  aH *= min(sqrt(1.0 + fp2 / max(dot(aH, aH), 1e-12)), 0.08 / max(length(aH), 1e-6));
+  // N taps over 2 sigma with Gaussian weights; the level: the taps' spacing in texels
+  float N = uReflP.y;
+  float sp = 4.0 * sqrt(length(aV * sz) * length(aH * sz) / N);
+  float lod = clamp(log2(max(sp, 1.0)), 0.0, 3.0);
+  float rot = 6.2832 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  vec4 s = vec4(0.0); float ws = 0.0;
+  for (int i = 0; i < 16; i++) {
+    if (float(i) >= N) break;
+    float r = sqrt((float(i) + 0.5) / N), th = float(i) * 2.39996 + rot;
+    vec2 o = 2.0 * r * (aV * cos(th) + aH * sin(th));
+    float w = exp(-2.0 * r * r);
+    s += w * textureLod(uRefl, ruv + o, lod); ws += w;
+  }
+  s /= ws;
   vec2 e = min(ruv, 1.0 - ruv);
   s *= smoothstep(0.0, 0.02, min(e.x, e.y));
   return refl * (1.0 - s.a) + s.rgb;

@@ -81,12 +81,14 @@ export class SailGovernor {
 }
 
 // ---- the reflection ladder: the sea's planar reflection of the scene (reflect.js), its target a fraction of the
-// drawing buffer (scale); the last rung draws none (the sea reflects
-// the sky alone). A desktop GPU stays on rung 0; ?q=low starts on rung 2.
+// drawing buffer (scale; full size at night on rung 0, reflect.js setNight), its blur taken in `taps` samples;
+// the last rung draws none (the sea reflects the sky alone). A desktop GPU stays on rung 0; ?q=low starts on
+// rung 3.
 export const REFL_LEVELS = [
-  { scale: 0.5 },
-  { scale: 0.35 },
-  { scale: 0.25 },
+  { scale: 0.75, taps: 12 },
+  { scale: 0.5, taps: 8 },
+  { scale: 0.35, taps: 6 },
+  { scale: 0.25, taps: 4 },
   { scale: 0 },
 ];
 // It goes by the frame time alone, and only when the frames are slow: a frame over `slow` ms (under ~42 fps) held
