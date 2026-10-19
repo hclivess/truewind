@@ -88,8 +88,9 @@ export const R = {
   // sailing to 32 kn for a keelboat. A dinghy or beach cat may capsize in 25 kn and more (warn): realistic; at 18 kn,
   // warn; at 12 kn or less: fail.
   sf: { pass: 2, warn: 1.5 },
-  // Smoothness: a load more than 3x its own 1 s mean in one step is a spike (warn), more than 6x: fail (a real rig's
-  // shock loads, a gybe's slam, rise over tens of ms but are seen in the 1 s mean too: est.). Local extrema per second in
+  // Smoothness: on the steady legs (not in a tack, a gybe or hove to, where a sheet goes slack and snatches tight
+  // again as the sail fills: reported, not judged), a load more than 3x its own 1 s mean is a spike (warn), more than
+  // 6x: fail (est.). Local extrema per second in
   // a sheet's load (chatter): above 8/s (an oscillation above 4 Hz, faster than anything the boat or the sail does)
   // warn, above 25/s fail. NaN anywhere: fail.
   spike: { warn: 3, fail: 6 },

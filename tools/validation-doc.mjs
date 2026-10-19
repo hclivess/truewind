@@ -87,7 +87,7 @@ if (stFile) {
     [/^sailSF$/, 'sail cloth safety factor', '>= 2 (warn 1.5)', 'js/damage.js cloth strengths'],
     [/^dismast$|^boom$|^sailTear$/, 'no dismasting, broken boom or torn sail in seamanlike sailing', 'none to 32 kn', 'the task'],
     [/^capsize$/, 'no capsize (keelboats); dinghies and cats only from 18-25 kn', 'none', 'the task'],
-    [/^spike:/, 'load spikes: a load against its own 1 s mean', '< 3x (fail > 6x)', 'est.'],
+    [/^spike:/, 'load spikes on the steady legs: a load against its own 1 s mean', '< 3x (fail > 6x)', 'est.'],
     [/^chatter:/, 'sheet-load chatter: local extrema per second', '< 8/s (fail > 25/s)', 'est.'],
     [/^heaveTo$/, 'heaving to: she slows and lies quietly', 'under half her speed and under 2.5 kn', 'seamanship (est.)'],
     [/^nan$|^run$/, 'no NaN, no crash', 'none', ''],

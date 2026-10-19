@@ -103,6 +103,15 @@ export function startReef(C, kn) {
 // coastal sail; racing crews push to ~25)
 export const KITE_MAX_KN = 22;
 
+// The first Boat of a class built in a process is not the same as every later one: its inertias (massProps) are
+// computed before its HullHydro has calibrated the class's hull (js/physics.js Boat constructor; js/hull.js
+// calibrate caches C._fullness / C._depthScale on the class), so the dinghy's zG comes out 0.437 m against 0.462,
+// and a trial's track diverges from the same trial run second. The game builds one for its sail benchmark before the
+// player's boat (js/main.js sailLevelFor): so here too, once per class, a throwaway boat first, and every trial is
+// the same whatever ran before it in its worker.
+const PRIMED = new Set();
+export function primeClass(C) { if (!PRIMED.has(C.id)) { PRIMED.add(C.id); makeBoat(C, { sailModel: 'strip', lod: 2 }); } }
+
 // ------------------------------------------------------------------ the competent helmsman
 // PID on heading through a human's limits: reaction lag 0.25 s (what he sees), hands moving the tiller or wheel at
 // most 1.5 of its travel per second, no more than 60% of the helm on a straight leg and 85% in a manoeuvre (up to
@@ -158,6 +167,7 @@ export async function runTrial(job) {
   // the targets the game gives the autopilot (js/main.js: the polar for the wind of the session)
   const polar = solvePolar(cls, tws), vt = vmgTargets(polar), up = vt.up.twa * DEG;
   const polarBsp = (twsMS, twaDeg) => { const p = bakedPolarAngle(cls, twsMS, twaDeg); return p ? p.bsp : null; };
+  primeClass(C);
   const b = makeBoat(C, { id: 0, name: 'Trial', sailModel: sails, lod: sails === 'strip' ? 2 : lod });
   b.auto.trim = true; b.auto.hike = true;
   const reef0 = C.autoReef ? autoReefFor(C, cond.tws, 60 * DEG) : startReef(C, cond.tws);
@@ -215,6 +225,10 @@ export async function runTrial(job) {
     legData = out.legs[leg] = { t0: t, dur: legs[k][1] * scale, samples: [] };
     // (the tack the script is on: starboard from the start, changed only by its own tacks and gybe; read off the
     // heading instead, a boat swinging after a tack was sent back through the wind by the next leg)
+    // If she is not on it (a tack that failed and fell back, or one she made unbidden) the script carries on from the
+    // tack she is on, as a crew would: a failed tack is scored once, on its own leg, not again in every leg after it
+    // (her side read off the wind angle held over the last 3 s, clear of a swing through the wind)
+    if (twaHist.length >= 30) { let m = 0; for (let i = twaHist.length - 30; i < twaHist.length; i++) m += twaHist[i]; m /= 30; if (Math.abs(m) > 20 * DEG && Math.sign(m) !== side) { out.events.push({ t: +t.toFixed(1), type: 'script-resync', msg: `on the other tack at the start of ${leg}: the script carries on from it`, leg }); side = Math.sign(m); } }
     const sgn = side;
     // the angle this leg sails, signed by tack (+ starboard)
     const A = { leave: 60 * DEG, beat1: up, tack1: up, tack2: up, beam: 90 * DEG, broad: 145 * DEG, gybe: 145 * DEG, heave: 50 * DEG, settle: 90 * DEG, fixed: 90 * DEG }[leg];
@@ -236,7 +250,7 @@ export async function runTrial(job) {
       }
     }
   };
-  const uHist = []; const helmHist = [];
+  const uHist = []; const helmHist = []; const twaHist = [];
   const meanRecent = (secs) => { const n = Math.min(uHist.length, Math.round(secs * 10)); if (!n) return b.u; let s = 0; for (let i = uHist.length - n; i < uHist.length; i++) s += uHist[i]; return s / n; };
 
   if (mode === 'ap') ap.engage(0);
@@ -322,7 +336,7 @@ export async function runTrial(job) {
         A.steps++;
         // (against the 1 s mean, once that mean is a working load: a quarter of the run's mean so far, and past the
         // damage model's first seconds; a rig part only when it carries 15% of its strength)
-        if (A.ring.n === A.ring.a.length && D.age > 5 && m > 0.25 * A.mean / A.n && Math.abs(v) > 0.5 * A.mean / A.n) { const sp = Math.abs(v) / m; if (sp > A.spike && (k !== 'rig' || Math.abs(v) > 0.15)) { A.spike = sp; A.spikeT = +t.toFixed(1); A.spikeLeg = leg; } }
+        if (A.ring.n === A.ring.a.length && D.age > 5 && m > 0.25 * A.mean / A.n && Math.abs(v) > 0.5 * A.mean / A.n) { const sp = Math.abs(v) / m; if (k !== 'rig' || Math.abs(v) > 0.15) { if (sp > A.spike) { A.spike = sp; A.spikeT = +t.toFixed(1); A.spikeLeg = leg; } const bl = A.byLeg || (A.byLeg = {}); if (!(bl[leg] >= sp)) bl[leg] = +sp.toFixed(2); } }
       }
       A.prev = [v, p1];
     }
@@ -342,6 +356,7 @@ export async function runTrial(job) {
     // ---- 10 Hz samples for the legs
     if (step % 12 === 0) {
       uHist.push(b.u); if (uHist.length > 600) uHist.shift();
+      twaHist.push(wrap((twdS ?? twd0) - b.psi)); if (twaHist.length > 60) twaHist.shift();
       const lee = -Math.sign(d.awaMid ?? 0) || 1;
       legData.samples.push([
         +(legT).toFixed(2), b.u, wrap(b.psi - ((twdS ?? twd0) - desiredTwa)), twaNow, b.phi * lee, b.pitch, b.heave, b.rudder * -Math.sign(twaNow),
@@ -352,7 +367,7 @@ export async function runTrial(job) {
   if (manoeuvre && manoeuvre.end === null) manoeuvre.turnTime = null;
   out.struct = struct;
   out.smooth = {};
-  for (const k in L) { const A = L[k]; out.smooth[k] = { meanLoad: A.n ? A.mean / A.n : 0, extremaPerS: A.steps ? A.ext / (A.steps * DT) : 0, spike: A.spike, spikeT: A.spikeT, spikeLeg: A.spikeLeg }; }
+  for (const k in L) { const A = L[k]; out.smooth[k] = { meanLoad: A.n ? A.mean / A.n : 0, extremaPerS: A.steps ? A.ext / (A.steps * DT) : 0, spike: A.spike, spikeT: A.spikeT, spikeLeg: A.spikeLeg, byLeg: A.byLeg || {} }; }
   out.rigDown = D.rig.down; out.rigWhy = D.rig.why; out.boomBroken = !!D.boomBroken;
   out.sailTorn = Object.entries(S).filter(([, s]) => s.tear > 0).map(([k, s]) => ({ k, tear: s.tear, blown: s.blown }));
   out.wallSec = (performance.now() - t0wall) / 1000;

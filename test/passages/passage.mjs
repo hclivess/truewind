@@ -14,7 +14,7 @@ import { Autopilot } from '../../js/autopilot.js';
 import { Crew } from '../../js/crew.js';
 import { Damage } from '../../js/damage.js';
 import { Fatigue } from '../../js/fatigue.js';
-import { venue, makeEnv, startReef, Helmsman } from '../seatrial/trial.mjs';
+import { venue, makeEnv, startReef, Helmsman, primeClass } from '../seatrial/trial.mjs';
 import { routeEstimate } from './routing.mjs';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -91,6 +91,7 @@ export async function runPassage(job) {
   const pol = stripPolar(cls, [Math.round(tws * 0.6), Math.round(tws * 0.8), tws, Math.round(tws * 1.2)]);
   const polarSec = (performance.now() - tp0) / 1000;
   const vt = pol.vt[2];
+  primeClass(C);
   const b = makeBoat(C, { id: 0, name: 'Passage', sailModel: 'strip', lod: 2 });
   b.auto.trim = true; b.auto.hike = true;
   b.ctrl.reef = startReef(C, tws);
@@ -136,6 +137,7 @@ export async function runPassage(job) {
     const s = Math.sign(wrap(twd - b.psi)) || side;
     if (s !== side) { if (Math.abs(wrap(twd - b.psi)) < Math.PI / 2) out.tacks++; else out.gybes++; side = s; }
     if (i % 120 === 0) { sailed += Math.hypot(b.x - px, b.z - pz); px = b.x; pz = b.z; }
+    if (job.trace && i % (120 * job.trace) === 0) (out.trace ||= []).push([Math.round(t), Math.round(b.x), Math.round(b.z), Math.round(b.psi / DEG), +(b.u / KT).toFixed(1), Math.round(wrap(twd - b.psi) / DEG), +((b.diag.tws || 0) / KT).toFixed(1), ap.mode, Math.round(Math.hypot(B.x - b.x, B.z - b.z)), Math.round(world.open ? 0 : world.sdfAt(b.x, b.z)), +(env.current.at(b.x, b.z, {}).x / KT).toFixed(2)]);
     if (out.arrived !== null) break;
     if (D.rig.down || b.sunk) break;
   }

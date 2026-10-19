@@ -40,10 +40,15 @@ export function judge(r, cond) {
   // smoothness
   for (const k of ['mainLoad', 'jibLoad', 'rig']) {
     const S = r.smooth[k]; if (!S || !(S.meanLoad > 0)) continue;
-    // (a sheet eased right off to heave to lets the sail flog: its snatches are judged no worse than a warning)
-    let ss = S.spike > R.spike.fail ? 'fail' : S.spike > R.spike.warn ? 'warn' : 'pass';
-    if (ss === 'fail' && S.spikeLeg === 'heave' && k !== 'rig') ss = 'warn';
-    add(`spike:${k}`, ss, `${f1(S.spike)}x 1 s mean${S.spike > R.spike.warn ? ' @' + S.spikeT + 's ' + (S.spikeLeg ?? '') : ''}`);
+    // judged on the steady legs only: in a tack or a gybe a sheet goes slack and is loaded again as the sail fills (a
+    // real snatch, many times its own 1 s mean), and eased right off to heave to the sail flogs; those are reported
+    // (info). (A trial run before the per-leg record: its one peak, judged only when it fell on a steady leg)
+    const MAN = new Set(['tack1', 'tack2', 'gybe', 'heave']);
+    let sp, at;
+    if (S.byLeg) { sp = 0; for (const [l, v] of Object.entries(S.byLeg)) if (!MAN.has(l) && v > sp) { sp = v; at = l; } }
+    else if (!MAN.has(S.spikeLeg)) { sp = S.spike; at = S.spikeLeg; }
+    if (sp !== undefined) add(`spike:${k}`, sp > R.spike.fail ? 'fail' : sp > R.spike.warn ? 'warn' : 'pass', `${f1(sp)}x 1 s mean${sp > R.spike.warn ? ' on ' + (at ?? '') : ''} (steady legs)`);
+    if (S.spike > R.spike.warn && (sp === undefined || S.spike > sp)) add(`spikeManoeuvre:${k}`, 'info', `${f1(S.spike)}x 1 s mean @${S.spikeT}s ${S.spikeLeg ?? ''}`);
     if (k !== 'rig') add(`chatter:${k}`, S.extremaPerS > R.chatter.fail ? 'fail' : S.extremaPerS > R.chatter.warn ? 'warn' : 'pass', `${f1(S.extremaPerS)}/s`);
   }
 
@@ -113,7 +118,8 @@ export function judge(r, cond) {
   if (br && br.n > 50) add('courseRmsBroad', 'info', `${f1(br.herr.rms)} deg rms, osc period ${f1(br.osc && br.osc.period)} s amp ${f1(br.osc && br.osc.amp)}`);
 
   // ---------------------------------------------------------------- helm balance
-  const helms = beatLegs.map((s) => s.helm.mean);
+  // (on the first, steady beat: after a tack a boat still swinging back to her course carries whatever helm that takes)
+  const helms = b1 && b1.n > 20 ? [b1.helm.mean] : [];
   if (helms.length) {
     const h = mean(helms);
     let s = h >= R.helm.pass[0] && h <= R.helm.pass[1] ? 'pass' : h >= R.helm.warn[0] && h <= R.helm.warn[1] ? 'warn' : 'fail';

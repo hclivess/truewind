@@ -14,11 +14,12 @@
 //   SCALE=1               leg length factor (shorter legs start each leg before she has settled from the last:
 //                         below ~0.8 the legs' metrics run into each other)                             OUT=name  (test/out/<name>.md|json)
 //   V=1                   every check of every trial on the console
+//   REJUDGE=1             no sailing: judge the last run's metrics (test/out/<OUT>.json) again with the present ranges
 // Writes test/out/seatrial[-quick].md (the tables) and .json (every metric); exits 1 on any fail.
 // Deterministic: each condition's wind field and sea come from a seed hashed from its id.
 import { fork } from 'node:child_process';
 import { cpus } from 'node:os';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { CLASS_ORDER, CLASSES } from '../js/physics.js';
 import { judge, overall } from './seatrial/judge.mjs';
@@ -62,7 +63,21 @@ const results = [];
 const TIMEOUT = +(E.TIMEOUT_MIN || 45) * 60e3;
 let next = 0, done = 0;
 function short(checks) { return checks.filter((c) => c.s === 'fail').map((c) => `${c.k} ${c.v}`).concat(checks.filter((c) => c.s === 'warn').map((c) => `(w) ${c.k} ${c.v}`)); }
-await new Promise((resolve) => {
+// REJUDGE=1: no sailing; the last run's metrics (test/out/<name>.json) judged again with the present ranges
+const REJ = !!+(E.REJUDGE || 0);
+let wallPrev = null;
+if (REJ) {
+  const P = JSON.parse(readFileSync(`${HERE}out/${name}.json`, 'utf8'));
+  wallPrev = P.wall;
+  const byId = Object.fromEntries([...FULL_CONDS, ...QUICK_CONDS].map((c) => [c.id, c]));
+  for (const r of P.results) {
+    const c = byId[r.cond]; if (!c || !classes.includes(r.cls) || !modes.includes(r.mode) || !conds.some((x) => x.id === c.id)) continue;
+    const job = { cls: r.cls, cond: c, mode: r.mode, seed: r.seed, scale: r.scale, sails: r.sails, lod: r.lod };
+    const checks = judge(r.metrics, c);
+    results.push({ job, res: r.metrics, checks, st: overall(checks) });
+  }
+  console.log(`re-judged ${results.length} trials from test/out/${name}.json (${P.generated})`);
+} else await new Promise((resolve) => {
   let live = 0;
   const spawn = () => {
     const w = fork(`${HERE}seatrial/worker.mjs`, [], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
@@ -95,7 +110,7 @@ await new Promise((resolve) => {
   };
   for (let i = 0; i < nW; i++) spawn();
 });
-const wall = (Date.now() - t0) / 1000;
+const wall = wallPrev ?? (Date.now() - t0) / 1000;
 
 // ------------------------------------------------------------------ the report
 const ICON = { pass: 'pass', warn: 'WARN', fail: 'FAIL', info: '' };
@@ -123,6 +138,30 @@ for (const cls of classes) {
   md.push(`| ${cls} | ${c.pass}/${c.warn}/${c.fail} | ${top.map(([k, n]) => `${k} (${n})`).join(', ') || '-'} | ${ex.join('; ').replace(/\|/g, '/') || '-'} |`);
 }
 md.push('');
+// the digest: one row per class, the numbers behind the known complaints (where the trial exists)
+{
+  const get = (cls, cid, mode) => by[cls]?.[cid]?.[mode];
+  const n = (x, d = 1) => (x === null || x === undefined || !Number.isFinite(x) ? '-' : x.toFixed(d));
+  const leg = (r, l) => r && r.res.legs && r.res.legs[l] && r.res.legs[l].st;
+  const ratio = (r) => { const s = leg(r, 'beat1'); return s && s.polar ? s.u / s.polar : null; };
+  md.push('## Digest', '', 'Upwind: the first beat\'s speed / polar in 12 kn flat (helm; the published reference in brackets where there is one). Heel: the first beat\'s mean heel in 18 and 25 kn flat (helm) / targetHeel (x: she was dismasted in that trial, the heel is not her sailing heel). Course: beam-reach heading rms, AP / helm, in 12 kn flat and 18 kn sea & gusts. Rig: the lowest rig safety factor in the trials to 18 kn, and dismastings to 18 kn / in all. Tacks: tacks stopped in irons / all tacks (AP + helm, 6-25 kn). Fixed helm: drift in 10 s in 12 kn flat (+ luffing).', '',
+    '| Class | Upwind 12 kn / polar | Heel 18 / 25 kn (target) | Course rms 12 flat | Course rms 18 sea | Zig-zags | Rig SF min (to 18 kn) | Dismasted to 18 kn / all | Irons / tacks | Fixed helm 10 s |', '|---|---|---|---|---|---|---|---|---|---|');
+  for (const cls of classes) {
+    const rs = results.filter((r) => r.job.cls === cls);
+    const h12 = get(cls, 'open-12-flat-steady', 'helm'), kn = h12 && h12.checks.find((c) => c.k === 'knownVMG' || c.k === 'knownUpBsp');
+    const heel = (cid) => { const r = get(cls, cid, 'helm'), s = leg(r, 'beat1'); return s ? n(s.heel.mean, 0) + (r.res.rigDown ? 'x' : '') : '-'; };
+    const crs = (cid) => ['ap', 'helm'].map((m) => { const s = leg(get(cls, cid, m), 'beam'); return s ? n(s.herr.rms) : '-'; }).join(' / ');
+    const zz = rs.filter((r) => r.checks.some((c) => c.k === 'zigzag' && c.s !== 'pass')).length;
+    const low = rs.filter((r) => r.job.cond.tws <= 18 && r.res.struct);
+    const sf = low.length ? Math.min(...low.map((r) => (r.res.struct.maxR > 0 ? 1 / r.res.struct.maxR : 99))) : null;
+    const dm = (xs) => xs.filter((r) => r.res.rigDown).length;
+    const tk = rs.filter((r) => r.job.mode !== 'probe' && r.job.cond.tws >= 6 && r.job.cond.tws <= 25).flatMap((r) => (r.res.tacks || []).filter((m) => m.kind === 'tack'));
+    const irons = tk.filter((m) => m.crossed === null || m.ironsT > 3).length;
+    const P = leg(get(cls, 'open-12-flat-steady', 'probe'), 'fixed'), pr = get(cls, 'open-12-flat-steady', 'probe')?.res.legs?.fixed?.probe;
+    md.push(`| ${cls} | ${n(ratio(h12), 2)}${kn ? ' (' + kn.v.split(' (')[0] + ')' : ''} | ${heel('open-18-flat-steady')} / ${heel('open-25-flat-steady')} (${n(CLASSES[cls].targetHeel * 180 / Math.PI, 0)}) | ${crs('open-12-flat-steady')} | ${crs('open-18-sea-gusty')} | ${zz} | ${n(sf, 2)} | ${dm(low)} / ${dm(rs)} | ${irons} / ${tk.length} | ${pr ? n(pr.d10) : '-'} |`);
+  }
+  md.push('');
+}
 // per class x condition
 md.push('## Per class and condition', '');
 for (const cls of classes) {
