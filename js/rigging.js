@@ -125,6 +125,14 @@ class Rope {
     if (!pa || pa.length !== 3 * n) this._pa = new Float64Array(3 * n);
     for (let i = 0; i < n; i++) { this._pa[3 * i] = path[i].x; this._pa[3 * i + 1] = path[i].y; this._pa[3 * i + 2] = path[i].z; }
     if (!R || this._spans !== spans || this._stale || !R.finite() || (moved && pa)) {
+      // (laid out again while it was being drawn: the new lay is blended in from the old over 0.3 s, in the boat's frame,
+      // so a sheet changing roles in a tack or a tail going over to its other cleat, its ends with it, moves there rather
+      // than jumping)
+      if (R && R.finite() && this.mesh.visible) {
+        const F = this._blendFrom || (this._blendFrom = new Float64Array(3 * N));
+        for (let k = 0; k < N; k++) { F[3 * k] = this.pts[k].x; F[3 * k + 1] = this.pts[k].y; F[3 * k + 2] = this.pts[k].z; }
+        this._blendT = 0;
+      } else this._blendT = undefined;
       this._stale = false;
       const lens = []; let tot = 0;
       for (let i = 0; i < spans; i++) {
@@ -184,6 +192,12 @@ class Rope {
     // (drawn between its last two steps by the time left over: smooth at 144 Hz as at 60)
     const q = this._q3 || (this._q3 = [0, 0, 0]);
     for (let k = 0; k < N; k++) { R.drawn(k, q); this.pts[k].set(q[0], q[1], q[2]); }
+    if (this._blendT !== undefined) {
+      this._blendT += dt;
+      const w = sstep(0, 0.3, this._blendT), F = this._blendFrom;
+      if (w >= 1) this._blendT = undefined;
+      else for (let k = 0; k < N; k++) { const p = this.pts[k]; p.set(F[3 * k] + (p.x - F[3 * k]) * w, F[3 * k + 1] + (p.y - F[3 * k + 1]) * w, F[3 * k + 2] + (p.z - F[3 * k + 2]) * w); }
+    }
   }
 
   buildTube() {

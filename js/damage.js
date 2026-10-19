@@ -42,7 +42,7 @@
 import { planChord } from './sail/plan.js';
 import { G, DEG } from './env.js';
 import { RHO_W, clamp, lerp, sstep, STRIP_W, STRIP_F, sailHooks } from './physics.js';
-import { RIG_DATA, SPAR_MATERIALS, genericRig } from './rig-structure.js';
+import { RIG_DATA, SPAR_MATERIALS, genericRig, rm30 } from './rig-structure.js';
 
 // 1x19 AISI 316 stainless wire rope, minimum breaking load (N) by diameter (mm): Gunnebo / Blue Wave / Sta-Lok
 // tables agree within ~10% (3 mm 7.4 kN, 4 mm 12.8, 5 mm 20.1, 6 mm 28.9). 7x19 flexible: ~70% of it.
@@ -88,7 +88,7 @@ const FLOG_Q0 = 145, FLOG_M = 3;
 // spreader: height of the spreaders (m above the waterline); mRig kg / zRig m: spars, wire and sails.
 export const RIG = {
   blackwatch: { stayed: true, b: 0.95, cap: 0.45, pre: 0.12, spreader: 4.9, mRig: 48, zRig: 4.3, panel: 0.35,
-    mast: { spec: 'Al extrusion ~110 x 75 mm, 2.8 mm wall (~)', r: 0.046, t: 0.0028, sy: 240e6 },
+    mast: { spec: 'Al extrusion ~105 x 70 mm, 3.0 mm wall (~)', r: 0.046, t: 0.003, sy: 240e6 },
     parts: {
       cap: { name: 'Cap shroud', spec: '1x19 316 Ø5 mm', mbl: w1x19(5) },
       lower: { name: 'Lower shrouds', spec: '2 × 1x19 316 Ø5 mm', mbl: 2 * w1x19(5) },
@@ -96,14 +96,14 @@ export const RIG = {
       fore: { name: 'Forestay', spec: '1x19 316 Ø5 mm', mbl: w1x19(5) },
       back: { name: 'Backstay', spec: '1x19 316 Ø4 mm', mbl: w1x19(4) },
     } },
-  // J/70: Southern Spars carbon mast, swept single spreaders; uppers and lowers 1x19 Ø4 mm (~), forestay Ø4 mm
+  // J/70: Southern Spars carbon mast, swept single spreaders; uppers and lowers 1x19 Ø4.8 mm (~), forestay Ø5 mm (~)
   sportboat: { stayed: true, b: 0.86, cap: 0.5, pre: 0.14, spreader: 4.97, mRig: 34, zRig: 4.6, panel: 0.6,
     mast: { spec: 'carbon tube ~105 x 75 mm, 2.5 mm (~), allowable 500 MPa', r: 0.045, t: 0.0025, sy: 500e6 },
     parts: {
-      cap: { name: 'Upper shroud', spec: '1x19 316 Ø4 mm', mbl: w1x19(4) },
-      lower: { name: 'Lower shroud', spec: '1x19 316 Ø4 mm', mbl: w1x19(4) },
+      cap: { name: 'Upper shroud', spec: '1x19 316 Ø4.8 mm (3/16", ~)', mbl: w1x19(4.8) },
+      lower: { name: 'Lower shroud', spec: '1x19 316 Ø4.8 mm (3/16", ~)', mbl: w1x19(4.8) },
       chain: { name: 'Chainplate', spec: 'SS strap, 2 × M8 A4 (~)', mbl: 32e3 },
-      fore: { name: 'Forestay', spec: '1x19 316 Ø4 mm', mbl: w1x19(4) },
+      fore: { name: 'Forestay', spec: '1x19 316 Ø5 mm (~)', mbl: w1x19(5) },
       back: { name: 'Backstay', spec: 'Dynema SK78 Ø5 mm (~)', mbl: 18e3 },
     } },
   // ILCA / Laser: unstayed two-part aluminium mast. Bottom section Ø63.5 mm, top Ø50.8 mm, walls ~1.8 / 1.55 mm (~, from
@@ -142,7 +142,7 @@ export function rigSpec(C) {
   if (C.rigSpec) return C.rigSpec;
   if (RIG[C.id]) return RIG[C.id];
   const m = C.massHull + C.crewN * C.crewEach;
-  const RM = m * G * Math.max(0.3, C.gm) * 0.5 + C.crewN * C.crewEach * G * C.crewMaxOut;   // ~RM at 30-40 deg
+  const RM = rm30(C);                                           // (js/rig-structure.js: the hull's GZ and the crew on the rail)
   const b = 0.42 * (C.multihull ? C.hullSpacing + C.beam * 0.2 : C.beam);
   const need = 2.8 * 0.45 * RM / Math.max(0.3, b);            // designed with ~2.8x on the cap at RM30
   const d = [2.5, 3, 4, 5, 6, 7, 8, 10].find((x) => w1x19(x) >= need) ?? 12;
@@ -327,6 +327,43 @@ export function clothPeak(cl, out = {}) {
   return out;
 }
 
+// ------------------------------------------------------------------ fatigue: rainflow cycle counting, Miner's sum
+// A part's fatigue is spent by load *cycles* (their range and their mean), not by time under load: the load ratio's
+// turning points (reversals of more than 1% of the strength: the rig's flutter at the solver's rate is no cycle)
+// go on a stack, and closed cycles come off it as ASTM E1049's rainflow counts them, each adding 1/N to Miner's sum
+// (half cycles from the residue at the start: 1/2N).
+//  * wire (1x19 is a spiral strand; rod and cable rated alike): API RP 2SK's tension-tension curve for spiral strand,
+//    N R^5.05 = 10^(3.25 - 3.43 Lm), R the range and Lm the mean as fractions of the breaking load (±15% about 35%
+//    of break: 1.6 million cycles, a season's sailing at a wave every 5 s; ±15% about 70%: 8000)
+//  * spar (bending against the section's yield moment; its fittings, rivets and welds set the curve): EN 1999-1-3's
+//    bolted/riveted aluminium detail, ~50 MPa range at 2 million cycles on a ~240 MPa yield (0.2), slope 4, mean
+//    stress by Goodman, no damage under the cut-off at 10^8 cycles (0.075)
+export const SN = {
+  wire: (R, Lm) => Math.pow(10, 3.25 - 3.43 * clamp(Lm, 0, 1)) / Math.pow(Math.max(R, 1e-9), 5.05),
+  spar: (R, Lm) => { const Re = R / Math.max(0.05, 1 - clamp(Lm, 0, 0.95)); return Re < 0.075 ? Infinity : 2e6 * Math.pow(0.2 / Re, 4); },
+};
+const RF_H = 0.01;
+export function rainflow(p, r, N) {
+  if (!(r >= 0 && r < 1e3)) return;
+  const s = p.rf_ || (p.rf_ = { S: [r], hi: r, lo: r, dir: 0 });
+  // (dir: +1 rising toward a peak, -1 falling toward a valley; the extreme so far is the next reversal's candidate)
+  if (r > s.hi) s.hi = r;
+  if (r < s.lo) s.lo = r;
+  if (s.dir >= 0 && s.hi - r > RF_H) { if (s.hi !== s.S[s.S.length - 1]) push(s, s.hi, p, N); s.dir = -1; s.lo = r; }
+  else if (s.dir <= 0 && r - s.lo > RF_H) { if (s.lo !== s.S[s.S.length - 1]) push(s, s.lo, p, N); s.dir = 1; s.hi = r; }
+}
+function push(s, v, p, N) {
+  const S = s.S; S.push(v);
+  while (S.length >= 3) {
+    const n = S.length, X = Math.abs(S[n - 1] - S[n - 2]), Y = Math.abs(S[n - 2] - S[n - 3]);
+    if (X < Y) break;
+    const m = 0.5 * (S[n - 2] + S[n - 3]);
+    if (n === 3) { p.D += 0.5 / N(Y, m); S.shift(); }
+    else { p.D += 1 / N(Y, m); S.splice(n - 3, 2); }
+  }
+  if (S.length > 64) S.splice(0, S.length - 64);   // (bounded: a residue that long holds only tiny ranges)
+}
+
 // the structural rig model's load names -> the parts here; a load is a number (N), [port, starboard], or { T, mbl }
 const RL_MAP = { capShroud: 'cap', capShrouds: 'cap', uppers: 'cap', lowers: 'lower', lowerShrouds: 'lower', forestay: 'fore', backstay: 'back', chainplate: 'chain', chainplates: 'chain', mastComp: 'mastComp' };
 const RL_NAME = { cap: 'Cap shroud', lower: 'Lower shrouds', fore: 'Forestay', back: 'Backstay', chain: 'Chainplate', mastComp: 'Mast (compression)' };
@@ -369,6 +406,7 @@ export class Damage {
     this.Mw = 0; this.Mb = 0; this.Mbj = 0; this.Mslam = 0; this.maxR = 0; this.worst = null; this.age = 0; this.Ma = 0; this._pdf = 0; this._p0 = undefined;
     this.pumping = true;
     this._aground = 0; this._u = 0; this._hv = 0; this._acc = 0; this._pk = {};
+    b.slamJ = 0;          // (a boom's slam from before the damage model watched — a spawn's preset — is no load now)
     b.sailHealth = null; b.rigDown = false; b.mastTop = undefined; b.keelEff = undefined; b.rudderEff = undefined; b.rudderLim = undefined; b.rudderBias = 0;
     b.mHull = undefined; b.zG = undefined; b.water = 0; b.sunk = false;
     if (b._base) recomputeMass(b);
@@ -501,24 +539,28 @@ export class Damage {
     const eta = b._etaAt ? b._etaAt(C.mastX) : 0;
     const r0 = R.mast ? R.mast.r : R.tubes ? R.tubes.bottom.r : 0.05;
     const base = C.freeboard, top = C.mastHeight, n = 12, dz = (top - base) / n;
-    let M = 0;
+    let M = 0, M0 = 0;
     for (let k = 0; k < n; k++) {
-      const z = base + (k + 0.5) * dz; if (z <= zs) continue;
+      const z = base + (k + 0.5) * dz;
       if (z * cphi + b.heave - eta >= 0) continue;
       const v = p * z, f = 0.5 * RHO_W * 1.2 * 2 * r0 * dz * v * v;
-      M += f * (z - zs);
+      M0 += f * z; if (z > zs) M += f * (z - zs);
     }
     for (const s of C.sails) {
       const st = b.diag.strips[s.key], aF = st ? st.areaF ?? 0 : 0; if (aF < 0.05) continue;
       const pz = s.key === 'main' ? C.boomZ : s.tackZ;
       for (let i = 0; i < 3; i++) {
-        const z = pz + STRIP_F[i] * s.luff; if (z <= zs) continue;
+        const z = pz + STRIP_F[i] * s.luff;
         if (z * cphi + b.heave - eta >= 0) continue;
         const v = p * z, A = s.area * STRIP_W[i] * aF;
-        M += 0.5 * 0.5 * RHO_W * 1.2 * A * v * v * (z - zs);
+        const f = 0.5 * 0.5 * RHO_W * 1.2 * A * v * v; M0 += f * z; if (z > zs) M += f * (z - zs);
       }
     }
-    return Math.min(M, b.Ixx * Math.abs(p) / (R.tau ?? 0.12) * (M > 0 ? 1 : 0));
+    // (the cap is on the moment about her roll axis, ~the waterline, that stops the roll: the bending at height zs is that
+    // force's moment about zs, the same distribution's M / M0 of it. Capped whole at every height, a Laser rolling over
+    // at 1.25 rad/s had its top section, 2.6 m up, take all of the arresting moment and part)
+    if (!(M > 0)) return 0;
+    return Math.min(M, b.Ixx * Math.abs(p) / (R.tau ?? 0.12) * M / Math.max(M, M0));
   }
   rigLoads(dt) {
     const b = this.b, C = this.C, R = this.R, d = b.diag, P = this.parts;
@@ -618,10 +660,19 @@ export class Damage {
     if (mbl0) p.mbl = mbl0;
     p.load = T;
     const mbl = p.mbl * (1 - 0.35 * clamp(p.D, 0, 1));
-    const r = T / mbl; p.r = r; p.peak = Math.max(p.peak * Math.exp(-dt / 20), r);
-    // overload: strands yield and break above ~75% of the breaking load; Miner fatigue on every cycle
-    if (r > 0.75) p.D += dt * ((r - 0.75) / 0.25) ** 2 / 2;
-    if (r > 0.15) p.D += dt * 0.3 * Math.pow(r / 0.3, 5) / 1e6;
+    let r = T / mbl;
+    if (k === 'mastComp') {
+      // the column's compression against its critical load (P / Pcr). Buckling is a stability limit, not a fatigue one:
+      // no cycles counted. A column loaded past Pcr for less than a fraction of its own lateral period does not
+      // buckle (dynamic buckling: the impulse must displace it first): the ratio over ~0.25 s, about a quarter of a
+      // small keelboat's mast's first sway period (~1 Hz)
+      p.rf = p.rf === undefined ? r : p.rf + (r - p.rf) * clamp(dt / 0.25, 0, 1);
+      p.r = r; r = p.rf;
+    } else {
+      p.r = r;
+      if (this.age > 3) rainflow(p, r, SN[k === 'mast' || k === 'top' || k === 'bottom' ? 'spar' : 'wire']);
+    }
+    p.peak = Math.max(p.peak * Math.exp(-dt / 20), r);
     if (r > this._wr) { this._wr = r; this._worst = k; }
     if ((r >= 1 || p.D >= 1) && this.age > 3) this.fail(k, r >= 1 ? 'overload' : 'fatigue');
   }
@@ -632,7 +683,7 @@ export class Damage {
     if (!P.boom) P.boom = { name: 'Boom', spec: '(bending, sail model)', mbl: 1, load: 0, r: 0, D: 0, peak: 0 };
     const p = P.boom;
     p.load = ratio; p.r = ratio; p.peak = Math.max(p.peak * Math.exp(-dt / 20), ratio);
-    if (ratio > 0.75) p.D += dt * ((ratio - 0.75) / 0.25) ** 2 / 2;
+    if (this.age > 3) rainflow(p, ratio, SN.spar);
     if ((ratio >= 1 || p.D >= 1) && this.age > 3) this.breakBoom();
   }
   breakBoom() {
