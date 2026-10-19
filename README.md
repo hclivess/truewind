@@ -6,6 +6,13 @@ A browser sailing simulator where the boat is not animated — it is computed. E
 
 **Play:** https://hclivess.github.io/truewind/
 
+| | |
+|---|---|
+| [![Two J Class yachts close-hauled in the Solent at golden hour, a container ship beyond](docs/img/velsheda.jpg)](https://hclivess.github.io/truewind/) | [![TP52s racing, twin carbon wheels and dark laminate sails](docs/img/tp52.jpg)](https://hclivess.github.io/truewind/) |
+| **J Class** in the Solent at golden hour | **TP52s** racing off Newport |
+| [![Shenandoah of Sark, a three-masted gaff schooner under full sail](docs/img/shenandoah.jpg)](https://hclivess.github.io/truewind/) | |
+| ***Shenandoah of Sark***, three-masted gaff schooner | |
+
 It runs in any modern browser with WebGL, with no install and no build step.
 
 ## Sponsorship
