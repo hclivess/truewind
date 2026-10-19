@@ -127,5 +127,13 @@ for (const t of Object.keys(byTest).sort()) {
   for (const e of byTest[t]) md.push(`| ${esc((e.section ? e.section + ': ' : '') + e.quantity)} | ${esc(e.expected)} | ${esc(e.tol)} | ${esc(e.source)} | ${e.line ?? ''} | ${e.checked === false ? 'unchecked' : R ? RES[R.status] || R.status : '-'} |`);
   md.push('');
 }
+// tests on disk with no catalogue entry and no register (added since the catalogue was made)
+const known = new Set([...Object.keys(byTest), ...regs.map((r) => r.test), 'seatrial.mjs', 'passages.mjs']);
+const missing = readdirSync(`${ROOT}test`).filter((f) => f.endsWith('.mjs') && !known.has(f));
+if (missing.length) {
+  md.push('### Not catalogued yet', '', 'These tests are newer than docs/validation-catalog.json: their checks are not listed above (add entries to the catalogue, or have them register their checks through test/lib/validation.mjs).', '', '| Test | Last run |', '|---|---|');
+  for (const f of missing) { const R = runs[f]; md.push(`| ${f} | ${R ? `${RES[R.status] || R.status} (${R.when.slice(0, 16)}Z)` : 'not run'} |`); }
+  md.push('');
+}
 writeFileSync(`${ROOT}docs/VALIDATION.md`, md.join('\n') + '\n');
 console.log(`docs/VALIDATION.md: ${regs.reduce((s, r) => s + r.rows.length, 0)} registered checks, ${cat.length} catalogued, ${Object.keys(runs).length} test runs`);

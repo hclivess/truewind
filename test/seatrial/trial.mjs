@@ -103,7 +103,8 @@ export function startReef(C, kn) {
 // coastal sail; racing crews push to ~25)
 export const KITE_MAX_KN = 22;
 
-// The first Boat of a class built in a process is not the same as every later one: its inertias (massProps) are
+// (Fixed in js/physics.js since (main 1bf888e, "deterministic first boat"); kept as a guard.)
+// The first Boat of a class built in a process was not the same as every later one: its inertias (massProps) were
 // computed before its HullHydro has calibrated the class's hull (js/physics.js Boat constructor; js/hull.js
 // calibrate caches C._fullness / C._depthScale on the class), so the dinghy's zG comes out 0.437 m against 0.462,
 // and a trial's track diverges from the same trial run second. The game builds one for its sail benchmark before the
