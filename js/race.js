@@ -1,7 +1,7 @@
 // Race management (windward-leeward course, start sequence, OCS, roundings, finish), free-sail
 // waypoints, and AI crews that sail the same physics with a helm + tactician model.
 import { DEG, KT, mulberry32 } from './env.js';
-import { autoTrim, autoReefFor, wrap, clamp, lerp } from './physics.js';
+import { autoTrim, autoReefFor, steadyReef, wrap, clamp, lerp } from './physics.js';
 import { aiRules } from './rules.js';
 
 export const LEGS = ['Start', 'Windward mark', 'Leeward gate', 'Windward mark', 'Finish'];
@@ -238,6 +238,7 @@ export class AIHelm {
     let dest = null;
     this.startTack = 0; this.xs = null;
     const leg = racer ? course.legs[racer.leg] : null;
+    this.starting = !!(leg && leg.type === 'start');   // (the start sequence's crowd: steer leaves some seamanship out there)
     const clock = sim.race ? sim.race.clock : 0;
     if (racer && (racer.finished || racer.retired)) { // sail away gently (finished, or out of the race)
       dest = { x: b.x + Math.sin(twd + Math.PI / 2) * 200, z: b.z - Math.cos(twd + Math.PI / 2) * 200 };
@@ -343,7 +344,11 @@ export class AIHelm {
       // her back on her old tack, so a beat's tacks came only once the mark was past the layline and outside the
       // no-go zone, as a reach, overstood by the tide's angle, and the header and tide tacks never)
       if (want !== tack && t - this.lastTack > 12) { this.lastTack = t; this.tackTo = want; this.note('tack', { why, to: want, rel, hdr: -header, off: dist * Math.sin(rel) }); }
-      else if (this.tackTo === -tack && t - this.lastTack < 10) want = this.tackTo;
+      // (and carried on while she is still at it: building speed for it on a close reach, or turning inside the no-go
+      // zone. Dropped after ten seconds, a big boat still bearing away for speed, or still luffing through the eye of
+      // the wind, was sent back onto her old tack, stalled on a close reach and tried again twelve seconds later: a
+      // passage's beat took a hundred tacks; but not, under the rules, into another boat's way)
+      else if (this.tackTo === -tack && (t - this.lastTack < 10 || (t - this.lastTack < 45 && (this.building || Math.abs(twa) < up - 8 * DEG) && !(R && R.on !== false && !R.canTurn(b, twd - this.tackTo * up))))) want = this.tackTo;
       else want = tack;
       desired = twd - want * (up + (this.skill < 1 ? (1 - this.skill) * 6 * DEG : 0));
     } else if (Math.abs(rel) > Math.PI - (Math.PI - dn) - 4 * DEG) {
@@ -380,7 +385,7 @@ export class AIHelm {
     if (sim.world && !sim.world.open) desired = this.avoidShoals(sim, desired, mode, tack, up, twd, t);
     // traffic: under the racing rules (js/rules.js) when the race has them, else a simple swerve
     if (R) desired = aiRules(this, sim, this.gateTurn(R, desired, twd, up), mode, t, up);
-    else for (const o of sim.boats) {
+    else if (!this.lookout) for (const o of sim.boats) {
       if (o === b) continue;
       const dx = o.x - b.x, dz = o.z - b.z, r = Math.hypot(dx, dz);
       if (r > 18) continue;
@@ -389,15 +394,19 @@ export class AIHelm {
     }
     // (the kite down near the bottom mark, and sailing free near the end of the way: hoisted for the last half
     // minute, and dropped again for the shallows' turns, it came up and down by the waypoint)
-    this.sails(mode, twa, (leg && (leg.type === 'gate' || leg.type === 'finish') && dist < 90) || (!leg && !!this.goal && Math.hypot((this.goalEnd || dest).x - b.x, (this.goalEnd || dest).z - b.z) < 150));
+    this.sails(mode, twa, (leg && (leg.type === 'gate' || leg.type === 'finish') && dist < 90) || (!leg && !!this.goal && Math.hypot((this.goalEnd || dest).x - b.x, (this.goalEnd || dest).z - b.z) < 150), dt);
+    // the autopilot's lookout (js/colregs.js): the other vessels under the collision regulations (in a race the rules
+    // above govern the boats, and it watches the traffic only)
+    const look = this.lookout ? this.lookout.step(t, sim, desired, up, { boats: !R, traffic: true }) : null;
+    if (look) { desired = look.desired; if (look.say) this.note('colregs', look.say); }
     if (!this.noTrim) autoTrim(b, dt, this.bias);          // trim first: steering may override it (backing the jib in irons)
-    if (this.ease) this.slow();
+    if (this.ease || (look && look.slow)) this.slow();
     this.steer(dt, desired);
     this.mode = mode;
   }
   // the sails for the point of sailing: the gennaker up on runs and broad reaches, down near the bottom mark; reefs
   // when overpowered
-  sails(mode, twa, nearBottom) {
+  sails(mode, twa, nearBottom, dt = 1 / 60) {
     const b = this.b, d = b.diag;
     if (b.sailBy.gennaker) {
       // (in a blow, only on a run or a broad reach: reaching under a kite in 25 kn the cat's bows go under and it
@@ -413,7 +422,8 @@ export class AIHelm {
       const R = b.cls.reefWind ?? [17, 24], was = b.ctrl.reef | 0;      // (the wind a class reefs at: first, second)
       // (a class whose crew reefs by the wind's angle too, C.autoReef, by the rule its trimmers use, js/physics.js
       // autoTrim: by the true wind alone, the two disagreed off the wind and the reef went in and out every step)
-      b.ctrl.reef = b.cls.autoReef ? autoReefFor(b.cls, tws, Math.abs(twa), was) : tws > R[1] ? 2 : tws > R[0] ? 1 : 0;
+      // (on the wind's trend, not each puff: steadyReef)
+      b.ctrl.reef = steadyReef(b, dt, tws, b.cls.autoReef ? (w, cur) => autoReefFor(b.cls, w, Math.abs(twa), cur) : (w) => (w > R[1] ? 2 : w > R[0] ? 1 : 0));
       if (b.ctrl.reef !== was) this.note('reef', { to: b.ctrl.reef, from: was, tws });
     }
   }
@@ -729,8 +739,13 @@ export class AIHelm {
     const slow = clamp(1 - b.u / (0.7 * vT), 0, 1);
     const up = (this.upAngle ?? 40 * DEG) * 0.95 + 40 * DEG * slow * slow;   // stopped: bear off to a close reach
     // never aim into the no-go zone: pinch at most to close-hauled on the nearer tack
+    // (on the side the course asks for: a tack or a goal on the other tack stays there. Clamped to the tack she was on,
+    // a boat slowed by the luff into a tack, whose no-go zone had just widened with the footing below, was sent back
+    // onto her old tack half way through it, and the autopilot, holding a vane angle on the new tack that lay inside
+    // the widened zone, never tacked at all in a seaway. A goal near dead to windward keeps the tack she is on: in a start's
+    // pre-start dance, aims a little either side of the wind sent the fleet tacking back and forth into each other)
     let rel = wrap(twd - desired);
-    if (Math.abs(rel) < up && !free) desired = twd - (Math.sign(wrap(twd - b.psi)) || 1) * up;
+    if (Math.abs(rel) < up && !free) desired = twd - (Math.abs(rel) > 0.6 * (this.upAngle ?? 40 * DEG) ? Math.sign(rel) : (Math.sign(wrap(twd - b.psi)) || 1)) * up;
     // no tacking from a standstill: bear away on the present tack and build speed first — but not for ever:
     // in a light patch with the tide under it the speed may never come, and holding on sailed the boat away
     // from the mark and onto the shore. After 25 s of that it goes round the other way, gybing (a slow boat
@@ -738,10 +753,21 @@ export class AIHelm {
     const tackNow = Math.sign(wrap(twd - b.psi)) || 1;
     if (this.buildTack !== tackNow) { this.buildTack = tackNow; this.buildT = 0; }
     const wantsOther = (Math.sign(wrap(twd - desired)) || 1) !== tackNow;
-    if (wantsOther && !free && b.u < 0.5 * vT && Math.abs(wrap(twd - b.psi)) > 25 * DEG) {
+    if (!wantsOther) this.buildT = 0;
+    // (and once she has borne away for it she builds to three quarters of her speed before she turns up again: started
+    // back up at half of it, the luff took the half away and she stalled head to wind)
+    // (and so does a luff that has lost its way short of the wind, not turning up any more: sliding sideways in a sea,
+    // a TP52 held there with the helm hard over for fifteen seconds)
+    this.rF = lerp(this.rF ?? b.r, b.r, clamp(dt / 1.5, 0, 1));     // (the yaw rate through the waves' swing)
+    this.building = wantsOther && !free && Math.abs(wrap(twd - b.psi)) > 25 * DEG && (b.u < 0.5 * vT || (!this.starting && b.u < 0.65 * vT && this.rF * tackNow < 2 * DEG) || (!this.starting && this.building && b.u < 0.75 * vT));
+    if (this.building) {
       this.buildT += dt;
       desired = this.buildT < 25 ? twd - tackNow * (up + 30 * DEG) : twd + tackNow * 150 * DEG; // (the other gybe)
     }
+    // (luffing into a tack, before the bow is through the wind: the trimmers bring the main in, js/physics.js autoTrim;
+    // not in a start's crowd, where a luff is how a boat slows and holds her place, and a main sheeted in for it drove
+    // her into the committee boat and the boats to leeward)
+    b.tackIntent = wantsOther && !free && !this.starting && !this.building && Math.abs(wrap(twd - b.psi)) < 80 * DEG ? 0.25 : 0;
     let err = wrap(desired - b.psi);
     this.desired = desired;
     // bearing away from slow: ease the main so the rig stops turning the bow into the wind (a sheeted-in
@@ -782,7 +808,9 @@ export class AIHelm {
     const roundingUp = b.r * (Math.sign(wrap(twd - b.psi)) || 1) > 1 * DEG;
     // (not in a penalty turn, free, where the helm is hard over all the way round by design: there the main eased at
     // every luff left a dinghy, whose main is all her drive, in irons going astern)
-    const dump = free ? false : roundingUp && upNow < upWant - 10 * DEG;
+    // (nor in a tack, the course on the other tack: the main's pull aft is what brings her head to wind, and dumped
+    // there it left her hanging on a close reach with the helm hard over)
+    const dump = free || wantsOther ? false : roundingUp && upNow < upWant - 10 * DEG;
     if (Math.abs(cmd) > 0.4 && dump && upNow < 110 * DEG && b.sailBy.main && !this.backing) b.ctrl.main = Math.max(b.ctrl.main, 0.6);
     const twa = wrap(twd - b.psi);
     // in irons / going astern: the rudder works backwards; the jib is backed by hauling the lazy sheet
@@ -796,9 +824,19 @@ export class AIHelm {
       if (b.sailBy.jib) {
         const clew = Math.sign(b.side.jib) || 1;
         if (clew !== wantTack) { b.ctrl.lazy = 0.15; b.ctrl.jib = 1; } else { b.ctrl.lazy = 1; b.ctrl.jib = Math.min(b.ctrl.jib, 0.35); }
-      } else b.ctrl.pushBoom = wantTack;
+      } else {
+        // (the sheet let run, so the boom can go out; a lateen's sail, much of it forward of the mast, backed turns her
+        // the other way: a Sunfish pushed out to starboard pays off onto port)
+        b.ctrl.pushBoom = (b.sailBy.main && b.sailBy.main.rig === 'lateen' ? -1 : 1) * wantTack;
+        if (b.sailBy.main) b.ctrl.main = 1;
+      }
       cmd = b.u < 0 ? -wantTack * 0.8 * -1 : cmd;
       this.backing = true;
+    } else if (b.u < -0.1 && !free && !this.starting) {
+      // (going astern out of the no-go zone, stopped by a sea in a tack: the rudder works backwards)
+      cmd = -cmd;
+      b.ctrl.pushBoom = 0;
+      if (this.backing) { this.backing = false; b.ctrl.lazy = 1; if (b.backedByLazy) { b.ctrl.jib = 1; b.backedByLazy = false; } }
     } else {
       b.ctrl.pushBoom = 0;
       if (this.backing) { this.backing = false; b.ctrl.lazy = 1; if (b.backedByLazy) { b.ctrl.jib = 1; b.backedByLazy = false; } }

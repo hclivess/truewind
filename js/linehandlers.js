@@ -307,11 +307,15 @@ export function stepLines(b, dt) {
     } else {
       const mode = st.fly ? 'dump' : H.release;
       const ld = SHEETS.has(k) || k === 'trav' ? lineLoad(b, k) / sp : lineLoad(b, k) / (6 * sp) + 0.1 * (ctrl[k] > 0.02);
-      if (ld < 0.01) continue;
+      const pulled = st.fly && (k === 'jib' || k === 'lazy');
+      if (ld < 0.01 && !pulled) continue;
       // let go, the load has to beat the blocks' breakaway through their friction: in light air it needs a pull
       const tk = tackleOf(C, specKey(b, k)), drive = lineLoad(b, k) / (tk.purchase * tk.efficiencyEase);
       const run = Math.min(1, Math.max(0, (drive - tk.f0) / tk.f0));
-      if (mode === 'dump') rate = Math.min(2.5, 0.25 + 1.6 * ld) * run;
+      // (a sheet let fly in a tack is thrown off the winch and its tail pulled through by hand as the sail comes across:
+      // it does not wait for the load to drag it out. Let to run on the flogging sail's load alone, a J-class genoa's
+      // old sheet took 12 s to run out while the new one could not be trimmed)
+      if (mode === 'dump') rate = Math.max(pulled ? 0.8 : 0, Math.min(2.5, 0.25 + 1.6 * ld) * run);
       else if (mode === 'ease') rate = Math.min(0.35, 0.04 + 0.25 * ld) * run;     // surging round the drum / horn
       else if (T > HAND) rate = slipRate(T / HAND);                                 // in the hand: runs if it beats it
     }

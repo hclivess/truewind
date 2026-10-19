@@ -78,6 +78,11 @@ export class Crew {
   begin(b) {
     const c = b.ctrl;
     if (!this.plan || this.plan.b !== b) { this.plan = { b }; this.act = {}; for (const k of CREW_KEYS) if (c[k] !== undefined) this.plan[k] = c[k]; }
+    // (the jib's sheets swapped roles as the clew came across, js/physics.js and js/sail/rigsim.js: the working sheet
+    // is now the one tailed in on the new side, and the plan goes with it, not with the old sheet let fly)
+    const lhJ = b.lh && b.lh.jib;
+    if (lhJ && this.lhJib && lhJ !== this.lhJib && 'jib' in this.plan) this.plan.jib = c.jib;
+    this.lhJib = lhJ;
     this.real = {}; this.locks = b.locks ? { ...b.locks } : null;
     // (only the strings this boat has: the rest autoTrim leaves alone, or sets where nothing is to be seen)
     const S = b.sailBy, C = b.cls, has = { stay: !!S.stay, mizzen: !!S.mizzen, fore: !!S.fore, jib: !!(S.jib || S.gennaker), jibLead: !!S.jib, jibHalyard: !!S.jib, trav: !!S.main.trav, backstay: !!C.hasBackstay, tackLine: !!S.gennaker, board: !!C.hasBoard };
@@ -92,7 +97,8 @@ export class Crew {
       if (this.real[k] === undefined) continue;
       const now = this.real[k], [on, off] = BAND[k];
       // (a plan that runs away from the line while the hands are busy is held within reach: no wind-up)
-      let want = c[k]; if (SHEET.has(k) || k === 'trav') want = Math.min(now + 4 * on, Math.max(now - 4 * on, want));
+      const raw = c[k];
+      let want = raw; if (SHEET.has(k) || k === 'trav') want = Math.min(now + 4 * on, Math.max(now - 4 * on, want));
       this.plan[k] = want; c[k] = now;
       const e = want - now, A = this.act[k] || (this.act[k] = { on: false, dir: 0, from: 0, t: 0 });
       if (!A.on) {
@@ -103,7 +109,10 @@ export class Crew {
       A.t += dt;
       const trimming = RUNS_UP.has(k) ? A.dir < 0 : A.dir > 0;
       // tacking: the old jib sheet is thrown off the winch and runs free (autoTrim lets it fly: plans it fully out)
-      if (k === 'jib' && want >= 0.999 && e > 0.25 && b.sailBy.jib && b.genDeploy < 0.5) {
+      // (read off the plan itself, not the plan held within reach of the line: held there, it never asked for the sheet
+      // fully out, the old sheet was eased a winch-turn at a time, the jib stayed aback on the old side, and a J-class
+      // lay on a close reach at 4 kn for half a minute after every tack)
+      if (k === 'jib' && raw >= 0.999 && raw - now > 0.25 && b.sailBy.jib && b.genDeploy < 0.5) {
         if (!(b.lh && b.lh.jib && b.lh.jib.fly)) { letFly(b, 'jib'); this.touch('jib', 1); this.say(`${lineName(b, 'jib')} let fly: tacking`, 'jib'); }
         A.on = false; continue;
       }

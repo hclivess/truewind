@@ -39,7 +39,7 @@ const FULL_CONDS = [
 const QUICK_CONDS = [cond('open', 12, false, false), cond('open', 25, true, true), cond('solent', 18, true, true)];
 // (sailrocket2 sails one tack only and is checked by test/speedcraft.mjs)
 const ALL = CLASS_ORDER.filter((id) => !CLASSES[id].speed);
-const QUICK_CLASSES = ['catalina30', 'tp52', 'velsheda', 'dinghy'];
+const QUICK_CLASSES = ['catalina30', 'tp52', 'velsheda', 'dinghy', 'sunfish'];
 const list = (s) => (s ? s.split(',').map((x) => x.trim()).filter(Boolean) : null);
 const classes = list(E.CLASSES) || (QUICK ? QUICK_CLASSES : ALL);
 for (const c of classes) if (!CLASSES[c]) { console.error('unknown class ' + c); process.exit(2); }

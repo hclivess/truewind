@@ -6,6 +6,7 @@
 import { DEG, KT } from './env.js';
 import { autoTrim, wrap, clamp, lerp } from './physics.js';
 import { AIHelm, waterTwd } from './race.js';
+import { Lookout } from './colregs.js';
 import { NavGrid } from './traffic.js';
 import { RULE_SHORT } from './rules.js';
 
@@ -39,6 +40,7 @@ export class Autopilot {
     this.b = boat;
     const h = this.helm = new AIHelm(boat, { seed: 0, skill: 1, startFrac: 0.5 });
     h.overstand = 3 * DEG; h.bias = 0; h.log = []; h.cone = 0.6;      // (a steady helm: no personality; off the laylines till close)
+    h.lookout = new Lookout(boat);                                     // (and a lookout: the other vessels, js/colregs.js)
     this.engaged = false; this.events = []; this.line = null; this.info = null;
   }
   engage(t) {
@@ -217,8 +219,11 @@ export class Autopilot {
         this.say('vaneFlip', `Shallows ahead: ${mode === 'run' ? 'gybing' : 'tacking'} away, and holding ${dg(this.vaneTwa)}° off the wind on ${this.vaneTwa > 0 ? 'starboard' : 'port'} now.`, t);
       } else desired = hh;
     }
-    h.sails(mode, wrap(twd - b.psi), false);
+    const look = h.lookout ? h.lookout.step(t, sim, desired, up) : null;
+    if (look) { desired = look.desired; if (look.say) h.note('colregs', look.say); }
+    h.sails(mode, wrap(twd - b.psi), false, dt);
     if (!h.noTrim) autoTrim(b, dt, 0);
+    if (look && look.slow) h.slow();
     h.steer(dt, desired);
     h.mode = mode; this.mode = 'vane';
   }
@@ -279,7 +284,7 @@ export class Autopilot {
       } else if (e.k === 'stand') {
         const nm = e.o.name || 'the other boat';
         if (this.standKey !== nm || t - (this.lastSaid.stand ?? -1e9) > 30) { this.standKey = nm; this.say('stand', `Standing on: ${nm} must keep clear of us (${RULE_SHORT[e.rule] || 'rule ' + e.rule}), so we hold our course${e.danger ? ' — and she is cutting it fine' : ''}.`, t); }
-      }
+      } else if (e.k === 'colregs') this.say('colregs', e.text, t);      // (the lookout: js/colregs.js)
     }
     // the point of sailing, once it has held for a few seconds (the tactician's mode, the reach's own angle)
     const m = this.mode, tw = Math.abs(wrap(twd - (h.desired ?? b.psi)));
