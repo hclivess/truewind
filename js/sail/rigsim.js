@@ -524,7 +524,7 @@ export class BoomSailRig extends ClothRig {
       // hard on, the vang pulls the boom a little below level: that stretch is the leech tension
       const vg = this.clubVang ? 0.8 : clamp(ctrl.vang, 0, 1);
       // (s.vangTravel: a longer boom needs the vang to pull further down for the same leech tension)
-      this.vang.len = L0 - 0.012 * vg * (s.vangTravel ?? 1) + 0.05 * (1 - vg) ** 1.3;
+      this.vang.len = L0 - 0.012 * vg * (s.vangTravel ?? 1) + 0.05 * (1 - vg) ** 1.3 + (this.vangSlip || 0);
     }
     this.topping.len = this.boomless ? 60 : hyp(this.Lb, this.mastHead[2] - this.pz + 0.15 * this.Lb);
   }
@@ -605,6 +605,13 @@ export class BoomSailRig extends ClothRig {
       } else if (this._vsR) this._vsR[0] = this._vsR[1] = this._vsR[2] = 0;
     }
     this.stepCloth(dt, nsub, fr);
+    if (!this.track && this.vang && !this.clubVang && this.isMain) {
+      // (a main without a track, the TP52's, likewise: its vang rated at the load the class's lines put on it,
+      // js/linehandlers.js lineLoad, 4x the sheet power full on)
+      const hold = 2 * (s0.vangMax ?? 4 * (b.cls.sheetPower || 800)), F = this.vang.force;
+      if (F > hold) this.vangSlip = (this.vangSlip || 0) + (F - hold) / this.vang.w;
+      else if (this.vangSlip > 0 && F < 0.5 * hold) this.vangSlip = Math.max(0, this.vangSlip - 0.02 * dt);
+    }
     if (this.track) {
       // the vang pays out past about twice what the crew hauls on it (its cam slips, or they blow it), and is taken back
       // in, a couple of cm/s, once the load is off: the boom end in the sea (the stiff penalty rope alone held 30 kN on a
