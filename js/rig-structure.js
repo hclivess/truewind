@@ -165,16 +165,16 @@ export const RIG_DATA = {
 
 // Star (Star class rules; spar est.): a tapered aluminium mast, famously bendy, stepped on deck; one set of spreaders,
 // uppers to the hounds and lowers, the forestay to the hounds, no backstay: running backstays from the hounds to the
-// quarters (the windward one set up, the leeward one off). Section est. 100 x 76 mm, 3.2 mm wall, tapering above the
+// quarters (the windward one set up, the leeward one off). Section est. 100 x 76 mm, 3.6 mm wall, tapering above the
 // hounds; 5 mm caps, 4.5 mm lowers, 3.5 mm runners. Its bend (the class's main depth control) comes from the runners, the vang and the
 // leech.
 RIG_DATA.star = {
   step: { type: 'deck', z: 0.42 },
-  spans: [{ z0: 0.42, z1: 7.66, a: 0.1, b: 0.076, t: 0.0032, mat: 'alu6061' }, { z0: 7.66, z1: 9.95, a: 0.066, b: 0.054, t: 0.0018, mat: 'alu6061' }],
+  spans: [{ z0: 0.42, z1: 7.66, a: 0.1, b: 0.076, t: 0.0036, mat: 'alu6061' }, { z0: 7.66, z1: 9.95, a: 0.066, b: 0.054, t: 0.0018, mat: 'alu6061' }],
   spreaders: [{ z: 4.2, len: 0.5, sweep: 0.15, EA: 1e7, EI: 800 }],
   chainX: -0.15, chainIn: 0.93,
   wires: [
-    // (5 mm caps, 4.5 mm lowers, a 3.2 mm wall low down, est.: on 4 / 3.5 mm and 2.4 mm the solver's caps and lowers came to
+    // (5 mm caps, 4.5 mm lowers, a 3.6 mm wall low down, est.: on 4 / 3.5 mm and 2.4 mm the solver's caps and lowers came to
     // 1.7 x their load at the righting moment of 30 deg, the mast's critical load 1.3 x its compression)
     { key: 'capShroud', to: 'hounds', via: 0, d: 5, pre: 800 },
     // (the lowers led well aft of the mast: they hold its middle back, the Star's control of its bend low down)
@@ -802,10 +802,10 @@ export class RigStructure {
       cholSolve(K, n, du, this._fc);
       let mx = 0;
       let big = 0; for (let i = 0; i < n; i++) big = Math.max(big, Math.abs(du[i]));
-      // (wires make the problem stiff and one-sided (a slack wire has no stiffness): their steps are kept to 30 mm. An
-      // unstayed spar is a beam-column on its heel and collar, statically determinate and near linear: the whole step,
-      // its compression's P-delta updated each iteration, converges in a few)
-      const cap = this.spec.wires.length ? 0.03 : 0.5, sc = big > cap ? cap / big : 1;
+      // (steps kept to 30 mm: wires make the problem stiff and one-sided (a slack wire has no stiffness), and an unstayed
+      // spar under a cloth whose luff follows it has no stable shape far out (taken whole, a Laser's top ran to 3.8 m):
+      // its steps are the spar's own motion, ~1 m/s at the solver's rate)
+      const cap = 0.03, sc = big > cap ? cap / big : 1;
       for (let i = 0; i < n; i++) { const s = du[i] * sc; u[i] += s; mx = Math.max(mx, Math.abs(s)); }
       if (mx < 1e-5 && kg === 1) { this.converged = true; break; }
     }
@@ -1289,7 +1289,7 @@ export class RigStructure {
       // is a solve gone astray)
       // (an unstayed spar is a cantilever from its deck: its deflection from the vertical is its bend. Its stress is what
       // breaks it (the damage model reads it), and its converged solve is the answer; past 60% of its length it is astray)
-      const st = this.spec.wires.length > 0, Lm = this.zTop - this.zStep, lim = (st ? 0.06 : 0.6) * Lm, u = this.u, nt = 5 * (this.nm - 1);
+      const st = this.spec.wires.length > 0, Lm = this.zTop - this.zStep, lim = (st ? 0.06 : 0.12) * Lm, u = this.u, nt = 5 * (this.nm - 1);
       for (let i = 0; i < this.nm; i++) {
         const f = st ? (this.z[i] - this.zStep) / Lm : 0, bx = u[5 * i] - f * u[nt], by = u[5 * i + 2] - f * u[nt + 2];
         if (!(Math.abs(bx) < lim && Math.abs(by) < lim && Math.abs(u[5 * i]) < (st ? 0.25 : 0.6) * Lm && Math.abs(u[5 * i + 2]) < (st ? 0.25 : 0.6) * Lm)) return true;
@@ -1297,14 +1297,23 @@ export class RigStructure {
       for (const w of this.wires) if (!(w.T < 2 * w.brk)) return true;
       return false;
     };
-    this.solve(this.ready ? (this.spec.wires.length ? 5 : 12) : 10);
+    this.solve(this.ready ? 5 : 10);
     if (RigStructure.debug) RigStructure.debug(this, b);
     // a column past its critical load, or loads beyond anything the rig could stand (a stayed spar bent past 6% of its length (an unstayed one 12%),
     // a wire at twice its breaking load): the rig has failed at this load. Report it (the damage model decides what
     // breaks), and draw the shape at the largest fraction of the load the rig still stands
+    // (an unstayed spar's 12% is a limit on the shape, not a failure. Coupled to a cloth sail whose luff follows it, the
+    // quasi-static spar has no stable shape past it: solved through, a Laser's top bowed 3.8 m at 12 kn and her speed fell
+    // from 5.4 to 3.3 kn. Its step past the limit is not taken (the spar holds the shape it had: the stress it reads is
+    // that shape's, never a fraction's extrapolated: that toggled solve to solve and counted as load cycles))
     let bad = isBad(), frac = 1;
     this.overload = false;
-    if (bad) {
+    if (bad && !this.spec.wires.length) {
+      const held = this.uHeld || uGood;
+      this.u.set(held);
+      for (const e of this.el) { e.N = e.EA / e.L * (this.u[5 * e.j + 4] - this.u[5 * e.i + 4]); e.Ng = e.N; }
+      this._ov = null; bad = false;
+    } else if (bad) {
       this.overload = true;
       const F0 = Float64Array.from(this.F);
       // (the loads at the whole of it are extrapolated from the first fraction solved, 0.6: the lines' pulls (a leech, a
@@ -1326,6 +1335,7 @@ export class RigStructure {
       }
       this.F.set(F0);
     } else if (this.converged) uGood.set(this.u);
+    if (!this.spec.wires.length) (this.uHeld || (this.uHeld = new Float64Array(this.u.length))).set(this.u);
     this.failed = bad; this.loadFrac = frac;
     // the shape the sails' luffs follow: eased toward the solution (~0.3 s, at most ~0.3 m/s). A cloth whose pinned luff
     // is jerked answers with a jerk in its pins' loads: moved at once, the luff and the rig would feed each other.
@@ -1406,10 +1416,15 @@ export class RigStructure {
     const u = this.u;
     let comp = 0, mMax = 0, util = 0;
     const spU = (this._spU || (this._spU = this.spec.spans.map(() => 0))).fill(0);
+    const St = this.spec.wires.length ? null : this._statics();
     for (const e of this.el) {
       comp = Math.max(comp, -e.N);
       const L2 = e.L, bi = 5 * e.i, bj = 5 * e.j;
-      for (const o of [0, 2]) {
+      if (St) {
+        // (an unstayed spar's moments from its loads' statics, the larger at the element's two ends)
+        e.M0 = Math.max(St[e.i][0], St[e.j][0]); e.M2 = Math.max(St[e.i][1], St[e.j][1]);
+        mMax = Math.max(mMax, e.M0, e.M2);
+      } else for (const o of [0, 2]) {
         const EI = o === 0 ? e.EIx : e.EIy;
         const k0 = (-6 * u[bi + o] - 4 * L2 * u[bi + o + 1] + 6 * u[bj + o] - 2 * L2 * u[bj + o + 1]) / (L2 * L2);
         const M = Math.abs(EI * k0);
@@ -1422,6 +1437,35 @@ export class RigStructure {
       util = Math.max(util, ue); spU[e.span] = Math.max(spU[e.span], ue);
     }
     return { comp, mMax, util, spU };
+  }
+  // An unstayed spar is statically determinate: above its collar the bending moment at a height is the moment of the loads
+  // above it (the sail's, the leech's pull, its weight and inertia, at the shape it stands in: their P-delta included),
+  // between heel and collar it falls to nothing at the heel. Read from the solved curvature, its stress was only as good as
+  // the coupled cloth-and-spar solve, which holds its shape at a limit (update): the statics see the load whole.
+  _statics() {
+    const n = this.nm, u = this.u, z = this.z, F = this.F;
+    const P = this._stP || (this._stP = Array.from({ length: n }, () => [0, 0, 0, 0, 0, 0]));   // node: x, y, z, Fx, Fy, Fz
+    for (let i = 0; i < n; i++) { const p = P[i], b = 5 * i; p[0] = this.axisX + u[b]; p[1] = u[b + 2]; p[2] = z[i] + u[b + 4]; p[3] = F[b]; p[4] = F[b + 2]; p[5] = F[b + 4]; }
+    const pa = [0, 0, 0], pb = [0, 0, 0];
+    for (const pl of this.pulls) {
+      this.pos(pl.a, u, pa); this.pos(pl.b, u, pb);
+      const dx = pb[0] - pa[0], dy = pb[1] - pa[1], dz = pb[2] - pa[2], l = hyp3(dx, dy, dz) || 1;
+      if (pl.a.kind === 'mast') { const p = P[pl.a.i]; p[3] += pl.T * dx / l; p[4] += pl.T * dy / l; p[5] += pl.T * dz / l; }
+      if (pl.b.kind === 'mast') { const p = P[pl.b.i]; p[3] -= pl.T * dx / l; p[4] -= pl.T * dy / l; p[5] -= pl.T * dz / l; }
+    }
+    const M = this._stM || (this._stM = Array.from({ length: n }, () => [0, 0]));
+    const iCol = this.supports.length > 1 ? this.supports[1].i : 0;
+    for (let i = 0; i < n; i++) {
+      let mx = 0, my = 0;
+      if (i >= iCol) for (let k = i + 1; k < n; k++) {
+        const q = P[k], ex = q[0] - P[i][0], ey = q[1] - P[i][1], ez = q[2] - P[i][2];
+        mx += q[3] * ez - q[5] * ex; my += q[4] * ez - q[5] * ey;
+      }
+      M[i][0] = Math.abs(mx); M[i][1] = Math.abs(my);
+    }
+    // (heel to collar: the collar's moment falling to nothing at the pinned heel)
+    for (let i = 0; i < iCol; i++) { const f = (z[i] - z[0]) / Math.max(1e-6, z[iCol] - z[0]); M[i][0] = M[iCol][0] * f; M[i][1] = M[iCol][1] * f; }
+    return M;
   }
   outputs(b) {
     const C = this.C, d = b.diag, L = this.loads, u = this.u;
