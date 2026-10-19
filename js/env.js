@@ -720,7 +720,18 @@ export class WaveField {
     this.k2 = 0.5 * wm * wm / G;
     this.drift = { x: sx, z: sz };
     const el = Math.hypot(ex, ez) || 1;
-    this.kv = v0 > 0 ? vk / v0 : 0.1; this.ka = a0 > 0 ? ak / a0 : 0.1; this.kd = d0 > 0 ? dk / d0 : 0.1;
+    // one decay wavenumber per quantity, matched to the whole spectrum's decay at ZR below the surface (about where a
+    // hull's keel and rudder work): the mean k over-attenuates at depth (the long components, which decay slowly, carry
+    // the deep motion: at 3 m in a 15 kn sea the mean gave 0.31 of the surface velocity where the components' sum gives
+    // 0.52). rms ratio of the velocity / acceleration sum: sqrt(sum v_i e^{2 k_i z} / sum v_i); drift: sum d_i e^{2 k_i z}
+    const ZR = 2, ZD = 1;     // (the drift matters at the surface, where it carries the foam: matched shallower)
+    let ve = 0, ae = 0, de = 0;
+    for (const c of this.comps) {
+      const A = c.A * (c.curAmp ?? 1), a2 = A * A, w2 = c.omega * c.omega, e2 = Math.exp(-2 * c.k * ZR);
+      ve += w2 * a2 * e2; ae += w2 * w2 * a2 * e2; de += c.omega * c.k * a2 * Math.exp(-2 * c.k * ZD);
+    }
+    const kFit = (num, den, mean, pw, z = ZR) => (den > 0 && num > 0 ? -Math.log(num / den) / (pw * z) : mean);
+    this.kv = kFit(ve, v0, v0 > 0 ? vk / v0 : 0.1, 2); this.ka = kFit(ae, a0, a0 > 0 ? ak / a0 : 0.1, 2); this.kd = kFit(de, d0, d0 > 0 ? dk / d0 : 0.1, 2, ZD);
     // breaking: where the local envelope's steepness k-bar·|a| passes the onset of spilling (S ~ 0.25,
     // Rapp & Melville 1990) the crest leans forward and throws a jet; plunging by S ~ 0.35
     this.brk = { kb: m0 > 0 ? mk / m0 : 0, S0: 0.2, S1: 0.34, L: 0.9, dx: ex / el, dz: ez / el };
@@ -1127,10 +1138,19 @@ export function drawnSeaKeep(grid, ox, oz, cx, cz, Hs, x, z, st) {
   return st.keep || (st.keep = (k) => st.fade * sstep(3 * st.spc, 6 * st.spc, 2 * Math.PI / k));
 }
 // wavenumber for angular frequency w at depth h (Eckart's approximation of w^2 = g k tanh(k h))
+// the wavenumber of a wave of angular frequency w in water h deep: the linear dispersion relation w^2 = g k tanh(kh),
+// solved (Fenton & McKee 1990's explicit start, within ~2 %, then two Newton steps: exact to 1e-6). Deep water is
+// where the wave is short against the depth (k0 h > 10), not any depth past a fixed 30 m: a 12 s swell in 40 m is a
+// shallow-ish wave (k 14 % above deep water's)
 export function kOfDepth(w, h) {
   const k0 = w * w / G;
-  if (h > 30 || h === null) return k0;
-  return k0 / Math.sqrt(Math.tanh(k0 * h));
+  if (h === null || !(h > 0) || k0 * h > 10) return k0;
+  let k = k0 / Math.pow(Math.tanh(Math.pow(k0 * h, 0.75)), 2 / 3);
+  for (let i = 0; i < 2; i++) {
+    const t = Math.tanh(k * h), f = G * k * t - w * w, df = G * t + G * k * h * (1 - t * t);
+    k -= f / df;
+  }
+  return k;
 }
 
 // ---------- current ----------
