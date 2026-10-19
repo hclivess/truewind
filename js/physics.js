@@ -2064,9 +2064,15 @@ function trimSails(boat, dt, aoaBias = 0, full = true) {
   if (C.canCapsize && !boat.hfoils && boat.sailBy.main && !boat.capsized) {
     const ls = -Math.sign(d.awaMid ?? 0) || 1, h = boat.phi * ls, rate = (boat.p || 0) * ls;
     const on = 1 - sstep(110 * DEG, 150 * DEG, awa);
-    const want = clamp((h - C.targetHeel - 2 * DEG) / (10 * DEG) + rate * 0.35 / (10 * DEG), 0, 1) * 0.55 * on;
+    // (only once she is well past her target, 5 deg, and has been heeled 2 deg past it over the last ~2 s: a roll of a boat
+    // sailing flat is not a gust, and the sheet eased on her rolling cost a Laser 7-9% close-hauled in 12 kn)
+    tb.hS = lerp(tb.hS ?? h, h, clamp(dt / 2, 0, 1)); tb.age = (tb.age ?? 0) + dt;
+    // (nor in her first seconds, the heel a start from rest throws her to: eased then, a Laser's cloth trim settled in a
+    // slower state in 12 kn, 4.49 kn close-hauled against 4.90)
+    const want = tb.age > 8 && h > C.targetHeel + 5 * DEG && tb.hS > C.targetHeel + 2 * DEG ? clamp((h - C.targetHeel - 5 * DEG) / (10 * DEG) + rate * 0.35 / (10 * DEG), 0, 1) * 0.55 * on : 0;
     tb.mp = lerp(tb.mp ?? 0, want, clamp(dt / (want > (tb.mp ?? 0) ? 0.3 : 1.0), 0, 1));
-    const m0 = c.main; c.main = clamp(c.main + tb.mp, 0, 1); tb.mpa = c.main - m0;
+    // (nothing touched while there is no play: the trim's own value, clamped or not, stays as it was)
+    if (tb.mp > 1e-4) { const m0 = c.main; c.main = clamp(c.main + tb.mp, 0, 1); tb.mpa = c.main - m0; } else tb.mpa = 0;
   }
 }
 
