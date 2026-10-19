@@ -8,6 +8,12 @@ A browser sailing simulator where the boat is not animated — it is computed. E
 
 It runs in any modern browser with WebGL, with no install and no build step.
 
+## Sponsorship
+
+**Put your brand on the sails.** True Wind is looking for sponsors. For a monthly fee your logo or name is carried on the sails of boats in the game: on the AI racing fleets, the harbour traffic, or a boat of your choice. It is seen up close, under sail, in every venue from the Solent to Sydney Harbour, by players who love sailing.
+
+Interested? [Open an issue titled "Sponsorship"](https://github.com/hclivess/truewind/issues/new?title=Sponsorship) to get in touch.
+
 ## What's in it
 
 - **37 boats**, from an Optimist to a J/122, the Mariner's trimaran, the TP52 (raced against the real 52 SUPER SERIES teams), the 40 m Swan 131 *Aristarchos*, the J Class (*Shamrock V*, *Velsheda*, *Endeavour*, with a three-boat J regatta), six legends (*America*, *Shenandoah of Sark*, *Jolie Brise*, *Suhaili*, *Gipsy Moth IV*, *Australia II*), and two speed-record craft (*Vestas Sailrocket 2* and *l'Hydroptère*), each with its own hull lines, rig, sailcloth, line hardware and baked velocity polar.
