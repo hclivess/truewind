@@ -104,7 +104,10 @@ const L = (s) => { const l = parseLight(s), P = lightPhases(l); show(s, P); retu
     const inside = j.marks.filter(m => !m.far);
     for (const m of j.marks) types[m.t] = (types[m.t] || 0) + 1;
     console.log(`     ${v.id.padEnd(10)} ${String(j.marks.length).padStart(4)} marks, ${String(lit.length).padStart(3)} lit, ${major.length} major, region ${j.region}`);
-    const lake = v.id === 'garda' || v.id === 'meredith';
+    // (a lake has no buoyage to speak of; nor does the Walvis Bay speed strip, a sand spit's flat water south of the
+    // port: OpenStreetMap / OpenSeaMap has 3 marks within its radius (a light, a beacon, a landmark), refetched with
+    // tools/fetch-venues.mjs --seamarks walvis on 2026-10-19 with the same result. Nothing is invented for it.)
+    const lake = v.id === 'garda' || v.id === 'meredith' || v.id === 'walvis';
     check(Array.isArray(j.marks) && j.region === ialaRegion(v.lat, v.lon), `${v.id}: seamarks file loads (region ${j.region})`);
     if (!lake) check(inside.length >= 10 && lit.length >= 3, `${v.id}: at least 10 marks in the sailing area and 3 lit (${inside.length}, ${lit.length})`);
     let okTiming = true;

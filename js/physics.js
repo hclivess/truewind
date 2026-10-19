@@ -28,14 +28,15 @@
 //  * Waves: Froude-Krylov slope forces (surfing), roll/yaw forcing.
 
 import { G, DEG, KT } from './env.js';
-import { HullHydro, hullForm, hullParts } from './hull.js';
-import { mastXAt, boomContactAngle, goose, sheetLen, boomAngleForSheet, easeForBoomAngle, sheetDir, boomBend, boomDip, boomLen } from './boom.js';
+import { HullHydro, hullForm, hullParts, calibrate } from './hull.js';
+import { mastXAt, mastXOf, boomContactAngle, goose, sheetLen, boomAngleForSheet, easeForBoomAngle, sheetDir, boomBend, boomDip, boomLen } from './boom.js';
 export { mastXAt, rigWires } from './boom.js';
 import { LOCKABLE, initLines, stepLines, swapJib } from './linehandlers.js';
 export { LOCKABLE };
 import { Engine } from './engine.js';
 import { RigStructure } from './rig-structure.js';
-import { foilSpec, foilState, foilGeom, foilCoef as foilCoefR, bulbDrag, kickUpdate, depthAt } from './foils.js';
+import { REEF, reefAt, reefedSail, normaliseTopsail, planChord } from './sail/plan.js';
+import { foilSpec, foilState, foilGeom, foilCoef as foilCoefR, bulbDrag, wingletDrag, kickUpdate, depthAt } from './foils.js';
 import { helmSpec, stockTorque, helmForce, helmFeel, rudderStep } from './helm.js';
 import { massProps } from './massprops.js';
 import { FAMOUS } from './classes/famous.js';
@@ -277,9 +278,14 @@ for (const C of [...RACE, ...FAMOUS, ...SPEED]) CLASSES[C.id] = C;
 // its own mast, a mizzen, keeps its, as does a sail marked fixedRake). A raked mast (mastRake: m aft at the masthead,
 // from the gooseneck up) carries the main's luff and the headsails' heads aft with it: the sails' centre of effort
 // moves aft by about half the rake
+// A schooner's headsails are set on the foremast's stays (s.stayTo: the key of the sail on that mast), and a sail on its
+// own raked mast (s.mast.rake: m aft at its head) takes the mast's rake. A gaff sail with a topsail over it is one
+// planform (js/sail/plan.js normaliseTopsail)
+for (const C of Object.values(CLASSES)) for (const s of C.sails) normaliseTopsail(s);
 for (const C of Object.values(CLASSES)) for (const s of C.sails) {
-  if (s.mast || s.fixedRake) continue;
-  if (s.kind === 'loose' || (s.kind === 'boom' && s.key !== 'main')) s.rake = s.tackX - (mastXAt(C, s.tackZ + s.luff) + 0.07);
+  if (s.mast) { if (s.mast.rake) s.rake = s.mast.rake * s.luff / (s.mast.h - s.tackZ); continue; }
+  if (s.fixedRake) continue;
+  if (s.kind === 'loose' || (s.kind === 'boom' && s.key !== 'main')) s.rake = s.tackX - (mastXOf(C, s.stayTo || 'main', s.tackZ + s.luff) + 0.07);
   else if (s.key === 'main' && C.mastRake) s.rake = C.mastRake * s.luff / (C.mastHeight - C.boomZ);
 }
 // The main boom swings out until it lies on the leeward shroud (an unstayed dinghy's goes past square), and its
@@ -294,7 +300,7 @@ for (const C of Object.values(CLASSES)) {
 // (the menu shows them in this order within their groups: C.group, js/main.js CLASS_GROUPS)
 export const CLASS_ORDER = ['blackwatch', 'sportboat', 'dinghy', 'cat', ...RACE.map(C => C.id), ...FAMOUS.map(C => C.id), ...SPEED.map(C => C.id)];
 // sheets the crew trims (a boomed sail's sheet is keyed by the sail: a mizzen has its own)
-const SHEETS = ['main', 'jib', 'stay', 'lazy', 'mizzen'];
+const SHEETS = ['main', 'jib', 'stay', 'lazy', 'mizzen', 'fore'];
 
 export const STRIP_F = [0.17, 0.5, 0.82];
 export const STRIP_W = [0.43, 0.34, 0.23];
@@ -312,12 +318,8 @@ export function makeBoat(cls, opts = {}) {
   const C = typeof cls === 'string' ? CLASSES[cls] : cls;
   return (C.speed && craftHooks.make && craftHooks.make(C, opts)) || new Boat(C, opts);
 }
-export const REEF = [{ a: 1, l: 1 }, { a: 0.76, l: 0.84 }, { a: 0.56, l: 0.69 }];
-// area / luff factors at a continuous reef position (reefing is a procedure, not a switch)
-export function reefAt(pos) {
-  const i = Math.max(0, Math.min(1, Math.floor(pos))), f = Math.max(0, Math.min(2, pos)) - i;
-  return { a: lerp(REEF[i].a, REEF[Math.min(2, i + 1)].a, f), l: lerp(REEF[i].l, REEF[Math.min(2, i + 1)].l, f) };
-}
+// (reef factors and the planform of a sail with a topsail: js/sail/plan.js)
+export { REEF, reefAt };
 // A furling headsail rolled in with the reefs (s.furlReef: the fraction of it left set at reef 0, 1, 2: a big yacht rolls
 // her jib a turn or two on its hydraulic furler as she reefs the main), at a reef position
 export function furlAt(s, pos) {
@@ -402,7 +404,7 @@ function cfITTC(u, L) {
 export function defaultControls() {
   return {
     helm: 0,            // -1..1 of max rudder (+ = bow turns to starboard)
-    main: 0.3, jib: 0.3, stay: 0.3, mizzen: 0.3, // sheet ease: 0 = hard in, 1 = fully eased
+    main: 0.3, jib: 0.3, stay: 0.3, mizzen: 0.3, fore: 0.3, // sheet ease: 0 = hard in, 1 = fully eased (fore: a schooner's foresail)
     trav: 0.5,          // traveler car: 0 = to windward, 1 = to leeward
     vang: 0.3, cunn: 0.2, outhaul: 0.4, backstay: 0.3,
     jibLead: 0.45,      // jib car: 0 = forward (deep foot, closed leech) .. 1 = aft (flat foot, open leech)
@@ -452,7 +454,7 @@ function sailRollAddedInertia(C, zG) {
     if (s.kind === 'spin' || s.replaces || !(s.luff > 0)) continue;
     const z0 = s.tackZ ?? C.boomZ, n = 8;
     for (let i = 0; i < n; i++) {
-      const f = (i + 0.5) / n, c = s.foot * (1 - f) + (s.head || 0) * f, z = z0 + f * s.luff - zG;
+      const f = (i + 0.5) / n, c = planChord(s, f), z = z0 + f * s.luff - zG;
       I += RHO_A * Math.PI / 4 * c * c * z * z * s.luff / n;
     }
   }
@@ -463,6 +465,11 @@ export class Boat {
   constructor(cls, opts = {}) {
     this.cls = typeof cls === 'string' ? CLASSES[cls] : cls;
     const C = this.cls;
+    // the drawn hull's depth and fullness, fitted to the class's displacement (js/hull.js calibrate, cached on the
+    // class) before anything reads the lines: the engine's transom, the rig's partners and the hull shell's inertia
+    // (massProps) took the uncalibrated lines on the first boat of a class built in a session and the calibrated ones
+    // on every later boat, so the first boat (the player's, usually) sailed differently from the rest
+    calibrate(C);
     this.engine = C.engine ? new Engine(this, C.engine) : null;          // auxiliary engine (js/engine.js)
     this.mass = C.massHull + C.crewN * C.crewEach + (this.engine ? this.engine.addedMass : 0);
     this.crewMass = C.crewN * C.crewEach;
@@ -565,7 +572,7 @@ export class Boat {
     this.side = { jib: 1, gennaker: 1 };
     this.genDeploy = 0; this.genFill = 0;
     this.rudder = 0; this.crewY = 0; this.crewX = 0;
-    this.lines = { main: this.ctrl.main, jib: this.ctrl.jib, stay: this.ctrl.stay, lazy: this.ctrl.lazy, mizzen: this.ctrl.mizzen };
+    this.lines = { main: this.ctrl.main, jib: this.ctrl.jib, stay: this.ctrl.stay, lazy: this.ctrl.lazy, mizzen: this.ctrl.mizzen, fore: this.ctrl.fore };
     this.backedByLazy = false;
     // every line is held by something (js/linehandlers.js: cam, clam, jammer, horn, clutch, ratchet, winch...).
     // Released, a loaded line runs out by itself until it is made fast again (or held: the player is hauling it)
@@ -620,7 +627,8 @@ export class Boat {
         d *= (1 - 0.12 * c.cunn) * (1 + 0.1 * stretch);
         if (this.reefPos > 0) d *= 1 - 0.1 * this.reefPos;
         d *= 1 + 0.9 * this.reefSlack; f += 0.12 * this.reefSlack;
-      } else if (s.key === 'jib') {
+      } else if (s.key === 'jib' || s.kind === 'loose') {
+        // (every headsail on the jib sheets: a schooner's or a cutter's outer jibs are trimmed with the jib)
         const ease = this.lines.jib;
         // (eased, the clew is let up as well as out: the sheet's lead stays on deck, so the leech falls away and the
         // head twists off, 20-40 degrees more than the foot on a reach, as the cloth jib shows)
@@ -754,22 +762,37 @@ export class Boat {
     d.rig[key + 'Limit'] = limit;
   }
 
+  // the planform sail s is set to now (a gaff sail's topsail handed at the first reef: js/sail/plan.js reefedSail),
+  // at the half-reef stages the cloth is rebuilt at
+  setSail(s) {
+    const lv = Math.round(clamp(this.reefPos, 0, 2) * 2) / 2, c = this._setS || (this._setS = {}), k = s.key + lv;
+    return c[k] || (c[k] = reefedSail(s, s.key === 'main' ? lv : Math.min(1, lv)));
+  }
   // Where sail s sits and how it is set this step: the fraction of it hoisted (areaF), the chord angle at
   // its foot (baseAngle, + = to starboard), its pivot/tack, side, how much it flogs and how full it is.
   sailRig(s, reef, o) {
     const C = this.cls, key = s.key, genDef = this.sailBy.gennaker;
-    let areaF = 1, baseAngle, pivotX, pivotZ, side, flogging = 0, fill = 1, luff = s.luff;
+    let areaF = 1, baseAngle, pivotX, pivotZ, side, flogging = 0, fill = 1, luff = s.luff, stream = null;
     if (s.kind === 'boom') {
       const b = this.booms[key];
       baseAngle = b.a; side = Math.sign(b.a) || 1;
       // (a lateen's luff starts at its tack, forward of the mast on the boom)
-      if (key === 'main') { pivotX = C.mastX + (s.rig === 'lateen' ? s.tackFwd : 0); pivotZ = C.boomZ; areaF = reef.a; luff = s.luff * reef.l; }
-      else { pivotX = s.tackX; pivotZ = s.tackZ; }
+      // (a sail with a gaff topsail over it hands the topsail at the first reef: js/sail/plan.js)
+      const rf = s.gaff ? reefAt(this.reefPos, s) : reef;
+      if (key === 'main') { pivotX = C.mastX + (s.rig === 'lateen' ? s.tackFwd : 0); pivotZ = C.boomZ; areaF = rf.a; luff = s.luff * rf.l; }
+      else { pivotX = s.tackX; pivotZ = s.tackZ; if (s.gaff) { areaF = rf.a; luff = s.luff * rf.l; } }
     } else if (s.kind === 'loose') {
       areaF = (genDef && genDef.replaces === key ? 1 - this.genDeploy : 1) * furlAt(s, this.reefPos);
       pivotX = s.tackX; pivotZ = s.tackZ;
-      baseAngle = this.side.jib * lerp(s.min, s.max, jibEaseAngle(this.lines.jib)); side = Math.sign(this.side.jib) || 1;
+      let ang = lerp(s.min, s.max, jibEaseAngle(this.lines.jib)); side = Math.sign(this.side.jib) || 1;
       flogging = 1 - sstep(0.55, 0.95, Math.abs(this.side.jib));
+      // a sheet eased past the apparent wind holds nothing: the clew streams downwind of the luff, the sail lies in the
+      // wind and flogs. (The sheet's angle held a let-fly jib across the wind like a board: head to wind with the
+      // sheets free a J-class's jib took CD ~1 on its whole area, and she stopped in a length.) Backed, the wind
+      // presses the sail against its sheet: as it is.
+      const aw = Math.abs(this.diag.awaMid ?? Math.PI);
+      if (side === -(Math.sign(this.diag.awaMid) || side) && ang > aw) { flogging = Math.max(flogging, clamp((ang - aw) / (10 * DEG), 0, 1)); ang = Math.max(s.min, aw); stream = ang; }
+      baseAngle = this.side.jib * ang;
     } else {
       areaF = this.genDeploy; pivotX = s.tackX; pivotZ = s.tackZ;
       baseAngle = this.side.gennaker * lerp(s.min, s.max, this.lines.jib); side = Math.sign(this.side.gennaker) || 1;
@@ -779,7 +802,7 @@ export class Boat {
     if (this.sailHealth) areaF *= this.sailHealth[key] ?? 1;   // torn, blown out or the rig down (js/damage.js)
     if (this.furl) areaF *= 1 - this.furl;                       // lowered at anchor or alongside (js/gear.js)
     o.areaF = areaF; o.baseAngle = baseAngle; o.pivotX = pivotX; o.pivotZ = pivotZ; o.side = side;
-    o.flogging = flogging; o.fill = fill; o.luff = luff;
+    o.flogging = flogging; o.fill = fill; o.luff = luff; o.stream = stream;   // (stream: a let-fly sail's angle, its twist too)
     return o;
   }
 
@@ -806,9 +829,9 @@ export class Boat {
         for (let i = 0; i < 3; i++) { const st = ds[i]; st.state = 0; st.cl = 0; st.flog = areaF < 0.02 ? 0 : 1; sh[i].ang = baseAngle + side * sh[i].tw; }
       } else for (let i = 0; i < 3; i++) {
         const f = STRIP_F[i], o = ds[i], shp = sh[i];
-        const chord = s.foot * (1 - f) + s.head * f;
+        const chord = planChord(s.gaff ? this.setSail(s) : s, f);
         const zs = pivotZ + f * luff + (s.footRise || 0) * 0.4 * (1 - f);
-        const lim = Math.max(Math.abs(baseAngle), 90 * DEG);  // the leech never twists past square
+        const lim = Math.max(Math.abs(baseAngle), rg.stream ?? 90 * DEG);  // the leech never twists past square (nor past the wind, let fly)
         const ang = clamp(baseAngle + side * shp.tw, -lim, lim);
         shp.ang = ang;
         const ca = Math.cos(ang), sa = Math.sin(ang);
@@ -837,7 +860,7 @@ export class Boat {
         // slot: headsail downwash on the main, main upwash on the headsail
         const sgn = Math.sign(alpha) || 1;
         if (key === 'main') alpha -= sgn * 0.055 * this._clHead;
-        else if (s.mast) alpha -= sgn * 0.04 * this._clMain;   // a mizzen sails in the main's downwash
+        else if (s.mast) alpha += (s.tackX > C.mastX ? 0.03 : -0.04) * sgn * this._clMain;   // a mizzen sails in the main's downwash, a schooner's foresail in its upwash
         else alpha += sgn * 0.03 * this._clMain;
         let a = Math.abs(alpha), rev = 1;
         if (a > Math.PI / 2) { a = Math.PI - a; rev = -1; }
@@ -877,6 +900,7 @@ export class Boat {
         this.genFill = clamp(this.genFill + (target ? 1.4 : -2.6) * dt, 0, 1);
       }
       if (s.kind === 'boom') this.boomDynamics(s, boomTorque, dt, aeroOn, ax);
+      else if (s.kind === 'loose' && key !== 'jib' && this.sailBy.jib) d.rig[key + 'Load'] = lerp(d.rig[key + 'Load'] || 0, Fsum * 0.95 * areaF, 0.1);
       else if (s.kind === 'loose' || (s.kind === 'spin' && this.genDeploy > 0.5)) {
         d.rig.jibLoad = lerp(d.rig.jibLoad || 0, Fsum * 0.95 * areaF, 0.1);
       }
@@ -898,6 +922,7 @@ export class Boat {
 
     // ---- environment at the boat ----
     const cur = env.current.at(this.x, this.z, this._c);
+    if (!(Number.isFinite(cur.x) && Number.isFinite(cur.z))) { cur.x = 0; cur.z = 0; }   // (a bad sample: no stream this step)
     this.diag.curX = cur.x; this.diag.curZ = cur.z;          // the tide the boat is in (the AI plans with it)
     let wv = null, slopeAlong = 0, slopeLat = 0, slopeLatBow = 0, slopeLatStern = 0, orbU = 0, orbV = 0, waveH = 0;
     // the sea along the hull: 7 samples from stern to bow (height, slopes, orbital velocity)
@@ -940,6 +965,7 @@ export class Boat {
     const ug = vgx * fx + vgz * fz, vg = vgx * sx + vgz * sz;
 
     const w = env.wind.sample(this.x, this.z, t, this._w);
+    if (!(Number.isFinite(w.speed) && Number.isFinite(w.dir))) { w.speed = 0; w.dir = Number.isFinite(w.dir) ? w.dir : 0; }   // (nor wind)
     const wsp = w.speed * this.shadow;
     const wx = -Math.sin(w.dir) * wsp, wz = Math.cos(w.dir) * wsp;
     const Wbx = wx * fx + wz * fz, Wby = wx * sx + wz * sz;
@@ -1124,6 +1150,7 @@ export class Boat {
       X += kx; Y += kn * cphi; K += kn * zk; N += g.x * kn * cphi; d.Kkeel = kn * zk;
       // the bulb: a body of revolution's friction and form drag, low down
       if (S.bulb && g.imm > 0.5 && (this.keelEff ?? 1) > 0.5) { const Db = bulbDrag(S.bulb, ul); X -= Db; d.bulbDrag = Db; }
+      if (S.winglets && g.imm > 0.5 && (this.keelEff ?? 1) > 0.5) { const Dw = wingletDrag(S.winglets, ul); X -= Dw; d.wingletDrag = Dw; }
       d.Nkeel = g.x * kn * cphi; d.keelCl = fc.cl;
       d.keelX = kx; d.keelY = kn * cphi; d.keelStall = fc.stalled; d.leeway = Math.atan2(this.v, Math.max(0.05, this.u));
       d.keelARe = g.ARe; d.keelImm = g.imm; d.keelVent = fc.vent; d.keelRe = fc.Re; d.keelStallA = fc.ast;
@@ -1142,7 +1169,12 @@ export class Boat {
       // value by the time it reaches the rudder (the old 1.2 CL / pi AR_e undercut it, and the rudder carried a fifth of
       // the lateral force at zero helm: lee helm); a rudder hung on the keel's trailing edge acts more like a flap
       const dxk = Math.max(0, C.keel.x - F.x), sk = 2 * (this.keelS.span || 1);
-      const eps = keelCl / (Math.PI * d.keelARe) * (1 + dxk / Math.sqrt(dxk * dxk + sk * sk)) * (ul > 0 ? 1 : 0) * (F.transom ? 0.35 : 1);
+      // (the downwash is a sideways velocity, eps times the water the keel meets; in the propeller's slipstream the
+      // rudder's water runs faster than that, and the angle it turns that water by is smaller in proportion. Taken whole,
+      // a Westsail 32 motoring off from rest, her long keel's lift that of a few cm/s of leeway, had the rudder's water
+      // turned past the blade's own angle and spun round with the helm reversed)
+      const uK = Math.max(0, (this.u - wu) * (1 - (F.wake ?? 0.08)));
+      const eps = keelCl * clamp(uK / Math.max(1e-3, ul), 0, 1) / (Math.PI * d.keelARe) * (1 + dxk / Math.sqrt(dxk * dxk + sk * sk)) * (ul > 0 ? 1 : 0) * (F.transom ? 0.35 : 1);
       // one blade, or two: a catamaran's on its hulls (the weather one lifts out as the hull flies), a monohull's twin
       // spades F.y either side of the centreline (heeled, the windward blade rises toward the surface)
       const nb = F.twin ? 2 : 1;
@@ -1278,7 +1310,21 @@ export class Boat {
       // and the difference turns it broadside to the flow, N = -(m_y - m_x) u v (Kirchhoff; the added-mass
       // Coriolis term the surge and sway equations already carry, closed in yaw). With leeway it adds weather
       // helm; in a turn (bow inside the track) it tightens the turn. Water-relative velocities, as for the hull.
-      const Nmunk = -(this.m22 - this.m11) * uw * vw * cphi;
+      // (a class may scale it, C.munkK: a deep long-keeled hull, whose potential-flow moment the viscous flow round its
+      // deep, separated run cuts well down: js/classes/util.js clarkeMunkK)
+      // (potential flow: it holds while the flow stays on the hull, a few degrees of leeway. Skidding round a turn, past
+      // ~15 degrees of drift the flow leaves the run and the cross flow takes over (the strips above): the moment falls
+      // to a quarter by 40 degrees (ship captive-model data: Hooft 1994, Oltmann & Sharma 1984, N(beta) peaks at 10-20
+      // degrees). Whole, it kept spinning a yacht turning hard under power until she pivoted on the spot)
+      const beta = Math.atan2(Math.abs(vw), Math.abs(uw) + 1e-6);
+      // (and the canoe body's, not the boat's: m22 carries the keel's and the rudder's added mass too, whose own lift at
+      // their own stations is in their forces already. For the canoe body Clarke, Gedling & Hine's (1983) regression of
+      // captive-model tests, N'v = -pi (T/L)^2 (0.5 + 2.4 T/L) on 0.5 rho L^3 U v with T its draft, gives ~0.55 of the
+      // whole boat's m22 - m11 on a fin-keeled yacht: the old figure turned a Catalina 30 under power at 24 deg/s, the
+      // hull's moment as large as the rudder's, and she skidded out of the turn. A class's own munkK still applies)
+      const Tc = C.canoeDraft || 0.3, Lw = C.lwl || C.loa;
+      const munkC = C.munkK !== undefined ? C.munkK * (this.m22 - this.m11) : Math.min(this.m22 - this.m11, 0.5 * RHO_W * Math.PI * Lw * Tc * Tc * (0.5 + 2.4 * Tc / Lw));
+      const Nmunk = -munkC * uw * vw * cphi * (1 - 0.75 * sstep(15 * DEG, 40 * DEG, beta));
       N += Nmunk; d.Nmunk = Nmunk;
       d.Nhull = N - N0;
       X -= 2 * uw;
@@ -1292,18 +1338,47 @@ export class Boat {
         const xr = C.rudder.x, dR = world.depthAt(this.x + fx * xr, this.z + fz * xr), tipD = (this.rudS.span / 2 - C.rudder.z) * Math.abs(cphi);
         for (const st of this.rudSt) kickUpdate(this.rudS, st, dR, tipD, dt);
       }
-      const depth = world.depthAt(this.x, this.z);
-      const draft = (C.keel.board ? C.draft * clamp(ctrl.board, 0.2, 1) : C.draft) * Math.abs(cphi) + 0.05;
-      const pen = draft - depth;
-      if (pen > 0) {
-        this.aground = pen;
-        const k = clamp(pen / 0.15, 0, 1);
-        X -= this.u * disp * 4 * k; Y -= this.v * disp * 4 * k; N -= this.r * this.Izz * 3 * k;
-        if (depth < 0.05) { // beached: push back toward water
-          const g = world.gradDepth(this.x, this.z);
-          const gx = g[0] * fx + g[1] * fz, gy = g[0] * sx + g[1] * sz;
-          X += gx * disp * 3; Y += gy * disp * 3;
+      // the keel (at the origin, her full draught) and the forefoot and the heel of the hull at the ends, which meet a
+      // steep shore or a quay before the keel does: a fin keel grounds out in the water, but where the bed drops away
+      // steeply at the waterline (a lake's rocky shore, a harbour wall) the keel finds no bottom until the bow is over
+      // the land (test/aground.mjs: Garda's shore)
+      const draftK = (C.keel.board ? C.draft * clamp(ctrl.board, 0.2, 1) : C.draft) * Math.abs(cphi) + 0.05;
+      const dEnd = 0.3 * (C.canoeDraft || 0.3) * Math.abs(cphi) + 0.05;
+      for (let q = 0; q < 3; q++) {
+        const xp = q === 0 ? 0 : q === 1 ? 0.92 * C.bowX : 0.92 * C.sternX;
+        const px = this.x + fx * xp, pz = this.z + fz * xp, depth = world.depthAt(px, pz);
+        const wP = q === 0 || depth < 0 ? 1 : 0.2;                         // (an end over the land: against the shore)
+        const pen = (q === 0 ? draftK : dEnd) - depth;
+        if (pen <= 0) continue;
+        this.aground = Math.max(this.aground, pen);
+        const vp = this.v + this.r * xp;                                   // (the probe's sideways speed)
+        const k = clamp(pen / 0.15, 0, 1) * wP;
+        let Xb = -this.u * disp * 4 * k, Yb = -vp * disp * 4 * k;
+        if (q === 0) N -= this.r * this.Izz * 3 * k;
+        const g = world.gradDepth(px, pz);
+        if (q === 0 && depth < 0.05) { // beached: push back toward water
+          Xb += (g[0] * fx + g[1] * fz) * disp * 3; Yb += (g[0] * sx + g[1] * sz) * disp * 3;
         }
+        // The bed carries some of her weight (what lifting her by pen would take off her buoyancy, rho g Awp pen, up to
+        // all of it; at an end a share of it) and holds her by it: a keel or a hull driven up a bank ploughs the sand or
+        // mud ahead of it (~0.6 of that weight against going on up the slope), and slides on it (~0.15 every way). The
+        // damping above alone only slowed her: her sails still drawing, a keelboat crept on up the bank at a few tenths
+        // of a knot and a beached dinghy sailed up the beach onto the land (test/aground.mjs). Backing off down the
+        // slope stays free of the plough, as a kedge, the engine astern or the rising tide get a real boat off.
+        const Nb = wP * Math.min(disp * G, RHO_W * G * this.Awp * pen);
+        const vwx = this.u * fx + vp * sx, vwz = this.u * fz + vp * sz, vs = Math.hypot(vwx, vwz);
+        if (vs > 1e-6) {
+          const gl = Math.hypot(g[0], g[1]), w = clamp(gl / 0.02, 0, 1), nx = gl > 1e-9 ? -g[0] / gl : 0, nz = gl > 1e-9 ? -g[1] / gl : 0;
+          const vup = Math.max(0, vwx * nx + vwz * nz);                       // (her speed on up the slope)
+          const rx = w * vup * nx + (1 - w) * vwx, rz = w * vup * nz + (1 - w) * vwz, rs = Math.hypot(rx, rz);
+          let Fx = 0, Fz = 0;
+          if (rs > 1e-6) { const F = Math.min(0.6 * Nb * rs / (rs + 0.05), wP * disp * rs / dt); Fx -= F * rx / rs; Fz -= F * rz / rs; }
+          // (the slide: under the keel only, so that an end lying over the shore by the chart's resolution, alongside a
+          // quay, never holds her there)
+          if (q === 0) { const F2 = Math.min(0.15 * Nb * vs / (vs + 0.05), disp * vs / dt); Fx -= F2 * vwx / vs; Fz -= F2 * vwz / vs; }
+          Xb += Fx * fx + Fz * fz; Yb += Fx * sx + Fz * sz;
+        }
+        X += Xb; Y += Yb; N += xp * Yb;
       }
     }
 
@@ -1426,13 +1501,23 @@ export class Boat {
     this.log += Math.abs(this.u) * dt;
     // a bow driven under keeps going: past what this pitch model can represent, the boat trips over
     // sideways (how a multihull pitchpole usually ends) — the angular momentum goes into roll
-    if (this.pitch <= -0.59 && this.pitchV < 0) { this.p += (Math.sign(this.phi) || 1) * Math.abs(this.pitchV) * 1.5; this.pitchV *= -0.2; }
+    // (over a few tenths of a second, as the buried bow slews her: the pitch's angular momentum handed to roll at a rate,
+    // Iyy w_pitch -> Ixx w_roll with some lost to the water, not all in one step, which spun the roll up by 6 rad/s in
+    // 1/120 s and broke rigs on a J/70 running and on the Hobie)
+    if (this.pitch <= -0.5 && this.pitchV < 0) {
+      const f = clamp(dt / 0.35, 0, 1) * sstep(-0.5, -0.59, this.pitch);
+      const Iy = this.Iyy + (this.hydro.A55 || 0), Ix = this._Ir || this.Ixx;
+      const dL = f * Iy * -this.pitchV;
+      this.p += (Math.sign(this.phi) || 1) * 0.7 * dL / Ix;
+      this.pitchV *= 1 - f;
+    }
     if (this.phi > Math.PI) this.phi -= 2 * Math.PI; if (this.phi < -Math.PI) this.phi += 2 * Math.PI;
 
     // ---- rudder: slew rate limited by hydrodynamic load on the blade ----
     // (the helm puts it over as fast as a hand moves the tiller or the wheel, slower against the stock torque; a torque
     // beyond what the helm can push takes it back: js/helm.js)
-    const target = clamp(ctrl.helm, -1, 1) * C.rudder.max * (this.rudderLim ?? 1) + (this.rudderBias || 0);   // (a bent stock)
+    if (!Number.isFinite(this.rudder)) this.rudder = 0;
+    const target = clamp(Number.isFinite(ctrl.helm) ? ctrl.helm : 0, -1, 1) * C.rudder.max * (this.rudderLim ?? 1) + (this.rudderBias || 0);   // (a bent stock)
     this.rudder = rudderStep(this.helmS, this.rudder, target, d.rudderTorque || 0, C.rudder.max, dt);
 
     // ---- crew: hiking (athwartships) and fore-aft ----
@@ -1448,7 +1533,9 @@ export class Boat {
     const lim = C.crewMaxOut * (this.hikeLimit ?? 1);   // (tired legs: js/fatigue.js)
     if (this.auto.hike) {
       const upwindness = 1 - sstep(80 * DEG, 150 * DEG, Math.abs(awaMid));
-      const tgt = windSide * C.targetHeel * 0.6 * upwindness;
+      // (a crew heels her to the target only when there is a wind to sail by: in a flat calm, sails slatting, they sit
+      // her upright, not on her lee rail for hours)
+      const tgt = windSide * C.targetHeel * 0.6 * upwindness * sstep(0.2, 1.0, qMid);
       const err = this.phi - tgt;
       this._hikeI = clamp((this._hikeI || 0) + err * dt * 1.2, -0.4, 0.4);
       const Mc = this.crewMass * G * lim;
@@ -1702,6 +1789,7 @@ function trimSails(boat, dt, aoaBias = 0, full = true) {
   for (const s of C.sails) {
     if (s.kind === 'spin' && boat.genDeploy < 0.5) continue;
     if (s.kind === 'loose' && boat.genDeploy >= 0.5) continue;
+    if (s.kind === 'loose' && s.key !== 'jib' && boat.sailBy.jib) continue;   // (the outer jibs go on the jib's sheets)
     let midTw = sh[s.key] ? sh[s.key][1].tw : 0;
     if (boat.sailSys && boat.sailSys.owns && boat.sailSys.owns(s.key)) {
       // (a cloth sail's measured twist breathes and, flogging, jumps about: the crew goes by its trend)

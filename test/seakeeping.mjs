@@ -48,11 +48,18 @@ const R = {
   oceanis381: { roll: [2.5, 5], hp: [1.5, 3] }, j122: { roll: [2.5, 5], hp: [1.5, 3] }, tp52: { roll: [2.5, 5], hp: [1.5, 3] },
   // (a 40 m superyacht: a 6-9 s roll with her 53 m rig, heave and pitch ~2.5-4 s over a 35 m waterline)
   swan131: { roll: [5, 10], hp: [2.2, 4.5] },
+  // the legends: heave T ~ 2 pi sqrt((m + A33) / (rho g Awp)) with A33 ~ m (America ~3.2 s, Shenandoah ~3.6, Jolie
+  // Brise ~3.0, the 10-19 m boats 1.8-2.4); roll T = 2 pi k / sqrt(g GM) with the rig's inertia and the sails' air in k:
+  // a big schooner or a deep pilot cutter 6-12 s (square riggers and big schooners roll at 10-15 s), a heavy 10-16 m
+  // ketch 3.5-7, a 12 Metre with her 25 m mast 4-9
+  america: { roll: [6, 13], hp: [2.4, 4.5] }, shenandoah: { roll: [6, 13], hp: [2.6, 5] }, joliebrise: { roll: [5, 11], hp: [2, 4] },
+  suhaili: { roll: [3, 6.5], hp: [1.4, 2.8] }, gipsymoth4: { roll: [3.5, 7.5], hp: [1.4, 3] }, australia2: { roll: [4, 9], hp: [1.5, 3] },
 };
 const classes = quick ? ['dinghy', 'catalina30'] : Object.keys(R);
 console.log('1. free decay in calm water (period s, damping ratio)');
 for (const c of classes) {
-  const r = decay(c, 'phi', 8 * DEG, 12), h = decay(c, 'heave', 0.05, 6), p = decay(c, 'pitch', 2 * DEG, 6);
+  // (a big schooner rolls at ~10 s: the decay is watched for 30 s, three periods, not 12)
+  const r = decay(c, 'phi', 8 * DEG, CLASSES[c].loa > 25 ? 30 : 12), h = decay(c, 'heave', 0.05, 6), p = decay(c, 'pitch', 2 * DEG, 6);
   console.log(`   ${c.padEnd(11)} roll ${r.Tn.toFixed(2)} s z ${r.zeta.toFixed(3)} | heave ${h.Tn.toFixed(2)} s z ${h.zeta.toFixed(3)} | pitch ${p.Tn.toFixed(2)} s z ${p.zeta.toFixed(3)}`);
   const w = R[c];
   check(r.Tn >= w.roll[0] && r.Tn <= w.roll[1], `${c} roll period ${r.Tn.toFixed(2)} s outside ${w.roll}`);
@@ -127,8 +134,11 @@ console.log('4. under way in a 20 kn sea, the autopilot steering (rms about the 
     const row = [];
     // (the J/24 running in this chop broaches now and then under the autopilot: a light 24-footer's death roll, noted
     // in the seakeeping report, not pinned here; the 30-40 footers the reference data are for are checked running)
+    // (and a 24-footer's motions there are chaotic, an occasional broach deciding a run: the median of three seas)
     for (const twa of c === 'j24' ? [52, 100] : [52, 100, 160]) {
-      const env = new Environment({ tws: 20 * KT, twd: 0, fetchKm: 25, seed: 7, weather: 'steady', gust: 0.3, shift: 0 }); env.tick(0);
+     const runs = [];
+     for (const seed of c === 'j24' && !quick ? [7, 8, 9] : [7]) {
+      const env = new Environment({ tws: 20 * KT, twd: 0, fetchKm: 25, seed, weather: 'steady', gust: 0.3, shift: 0 }); env.tick(0);
       const b = new Boat(c, { sailModel: 'strip' });
       b.reset(0, 0, twa * DEG); b.u = 2; for (const k in b.booms) b.booms[k].a = 0.3;
       if (b.sailBy.main.reefs) b.ctrl.reef = 1;
@@ -140,12 +150,50 @@ console.log('4. under way in a 20 kn sea, the autopilot steering (rms about the 
         b.step(dt, env, t);
         if (i >= n0) { const y = b.psi - twa * DEG, add = (a, v) => { a[0] += v; a[1] += v * v; }; add(S.p, b.phi); add(S.q, b.pitch); add(S.y, Math.atan2(Math.sin(y), Math.cos(y))); S.u += b.u; S.n++; }
       }
-      const sd = (a) => Math.sqrt(Math.max(0, a[1] / S.n - (a[0] / S.n) ** 2)) / DEG, r = { roll: sd(S.p), pitch: sd(S.q), yaw: sd(S.y), u: S.u / S.n / KT };
+      const sd = (a) => Math.sqrt(Math.max(0, a[1] / S.n - (a[0] / S.n) ** 2)) / DEG;
+      runs.push({ roll: sd(S.p), pitch: sd(S.q), yaw: sd(S.y), u: S.u / S.n / KT });
+     }
+      const med = (k) => runs.map((q) => q[k]).sort((a, b) => a - b)[runs.length >> 1], r = { roll: med('roll'), pitch: med('pitch'), yaw: med('yaw'), u: med('u') };
       row.push(`${twa}: roll ${r.roll.toFixed(1)} pitch ${r.pitch.toFixed(1)} yaw ${r.yaw.toFixed(1)} deg, ${r.u.toFixed(1)} kn`);
       // (a 24-footer in the same chop, overpowered and hiked, moves more: a quarter more allowed)
       const f = CLASSES[c].loa < 8 ? 1.25 : 1;
       for (const k of ['roll', 'pitch', 'yaw']) check(r[k] < lim[twa][k] * f, `${c} at ${twa} deg: ${k} ${r[k].toFixed(1)} deg rms (under ${(lim[twa][k] * f).toFixed(1)})`);
       check(r.u > 3.5, `${c} at ${twa} deg: ${r.u.toFixed(1)} kn (rounded up and stopped?)`);
+    }
+    console.log(`   ${c.padEnd(11)} ${row.join(' | ')}`);
+  }
+}
+
+// 5. holding a beam reach, flat water. (a) helm held where it was, steady wind: the boat is directionally stable
+// (a yacht with her helm fixed wanders off slowly, she does not spin up or away). (b) the autopilot (wind mode, no
+// waypoint) in the game's own puffy, shifty wind (gust 0.5, shifts +-7 deg): a decent helmsman or autopilot holds a
+// reach within +-2-3 deg; the puffs' 5-15 deg swings in direction are not steered after (the pilot's damped wind)
+console.log('5. holding a beam reach in 14 kn, flat water (heading about its 20 s mean)');
+{
+  const { Autopilot } = await import('../js/autopilot.js');
+  const unwrap = (a) => { const o = [a[0]]; for (let i = 1; i < a.length; i++) o.push(o[i - 1] + Math.atan2(Math.sin(a[i] - a[i - 1]), Math.cos(a[i] - a[i - 1]))); return o; };
+  for (const c of quick ? ['catalina30'] : ['sportboat', 'catalina30', 'tp52', 'velsheda']) {
+    const row = [];
+    for (const mode of ['fixed', 'ap']) {
+      const env = new Environment({ tws: 14 * KT, twd: 0, fetchKm: 25, seed: 7, weather: mode === 'ap' ? 'changing' : 'steady', gust: mode === 'ap' ? 0.5 : 0, shift: mode === 'ap' ? 7 : 0 });
+      env.tick(0); env.wavesOn = false;
+      const b = new Boat(c, { sailModel: 'strip' }), psi0 = 90 * DEG;
+      b.reset(0, 0, psi0); b.u = 3; for (const k in b.booms) b.booms[k].a = 0.5;
+      const ap = new Autopilot(b); ap.engage(0); ap.up = 42 * DEG; ap.dn = 150 * DEG;
+      const n0 = 25 / dt, n1 = n0 + (quick ? 30 : 40) / dt, ys = []; let held = null;
+      for (let i = 0; i < n1; i++) {
+        const t = i * dt; if (i % 12 === 0) env.tick(t);
+        if (i < n0 || mode === 'ap') { if (i) ap.vane(dt, t, { world: null }); else autoTrim(b, dt); }
+        else { if (held === null) held = b.ctrl.helm; b.ctrl.helm = held; autoTrim(b, dt); }
+        b.step(dt, env, t);
+        if (i >= n0 && i % 6 === 0) ys.push(b.psi);
+      }
+      const u = unwrap(ys), W = Math.round(20 / (6 * dt));
+      let s2 = 0; for (let i = 0; i < u.length; i++) { const a = Math.max(0, i - W / 2), z = Math.min(u.length, i + W / 2); let m = 0; for (let j = a; j < z; j++) m += u[j]; s2 += (u[i] - m / (z - a)) ** 2; }
+      const rms = Math.sqrt(s2 / u.length) / DEG, drift = (u[u.length - 1] - u[0]) / DEG;
+      row.push(`${mode}: ${rms.toFixed(1)} deg rms, ${drift.toFixed(0)} deg drift`);
+      if (mode === 'fixed') check(Math.abs(drift) < 15, `${c} helm fixed on a reach: turned ${drift.toFixed(0)} deg in ${quick ? 30 : 40} s (directionally unstable?)`);
+      else check(rms < 2, `${c} autopilot on a reach: heading ${rms.toFixed(1)} deg rms about its mean (zig-zags)`);
     }
     console.log(`   ${c.padEnd(11)} ${row.join(' | ')}`);
   }

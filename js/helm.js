@@ -35,6 +35,17 @@ export function helmSpec(C) {
   const D = { ...fromModel, ...(HELM_DATA[C.id] || {}), ...(C.helm || {}) };
   const type = D.type || 'tiller';
   const maxA = C.rudder.max ?? 0.6;
+  // Hydraulic steering (a wheel pump driving a ram on the tiller arm), standard on yachts much over ~80 ft: the ram,
+  // not the helmsman's arms, holds the blade, at a fixed rate (hard over to hard over in ~12 s), and the wheel feels
+  // only the pump. A 40 m yacht's 3.8 m^2 twin spades load the stock to ~5 kN m reaching in 20 kn: a mechanical wheel's
+  // 250 N on the rim could not hold them past 5 degrees, the blades were taken back and she rounded up, helm hard over
+  if (type === 'hydraulic' || (type === 'wheel' && D.hydraulic !== false && C.loa > 24 && !D.turns)) {
+    const R = D.wheelR ?? 0.7, rate = D.rate ?? 2 * maxA / 12;
+    // (the ram's torque, sized well over the blade's load at full speed; its relief valve lets go past it)
+    const Qram = D.ramTorque ?? 2e5 * (C.rudder.area * (C.rudder.chord ?? 1)) * (C.rudder.twin ? 0.5 : 1);
+    // (the helm force felt: the ram's load scaled to the rim, as a pump's back-pressure is felt; the rim's 250 N is the ram's full torque)
+    return { type: 'hydraulic', R, turns: D.turns ?? 4, gear: 1, lever: Qram / 250, handMax: 250, rate, friction: D.friction ?? 8, tiller: 0, extension: 0 };
+  }
   if (type === 'wheel') {
     const R = D.wheelR ?? clamp(0.12 * C.loa ** 0.6, 0.35, 0.7), turns = D.turns ?? 1.6;
     const gear = turns * 2 * Math.PI / (2 * maxA);                    // wheel angle per rudder angle
