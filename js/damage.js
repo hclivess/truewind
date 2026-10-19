@@ -109,8 +109,8 @@ export const RIG = {
   // ILCA / Laser: unstayed two-part aluminium mast. Bottom section Ø63.5 mm, top Ø50.8 mm, walls ~1.8 / 1.55 mm (~, from
   // the sections' weights: as js/rig-structure.js), alloy yield ~276 MPa (6061-T6, typical)
   dinghy: { stayed: false, mRig: 12, zRig: 2.8, sy: 276e6, tau: 0.2,   // (a bendy unstayed spar gives for longer)
-    tubes: { bottom: { name: 'Bottom section', spec: 'Al tube Ø63.5 × 1.8 mm (~)', r: 0.03175, t: 0.0018 },
-      top: { name: 'Top section', spec: 'Al tube Ø50.8 × 1.55 mm (~)', r: 0.0254, t: 0.00155 } },
+    tubes: { bottom: { name: 'Bottom section', spec: 'Al tube Ø63.5 × 2.2 mm (~)', r: 0.03175, t: 0.0022 },
+      top: { name: 'Top section', spec: 'Al tube Ø50.8 × 1.85 mm (~)', r: 0.0254, t: 0.00185 } },
     joint: 2.6 },        // joint height above the waterline (2.865 m section, heel 0.355 m below the deck)
   // Hobie 16: rotating mast on a ball, one shroud a side and a forestay on a bridle, no spreaders; 1x19 3/16" (~)
   cat: { stayed: true, b: 1.1, cap: 1.0, pre: 0.05, spreader: null, falls: true, mRig: 26, zRig: 3.9, panel: 0.6, hounds: 6.3,

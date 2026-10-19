@@ -115,13 +115,18 @@ export const RIG_DATA = {
     prebend: 0.01, lineMax: 1800,
   },
   // Laser / ILCA 7: unstayed two-piece aluminium mast in a deck tube. Class: bottom section 2865 mm x 63.5 mm, top
-  // section 3600 mm x 50.8 mm (walls est. 1.8 / 1.55 mm from the sections' ~2.8 and ~2.4 kg), heel 355 mm below the deck; the top
+  // section 3600 mm x 50.8 mm (walls est. 2.2 / 1.85 mm: below), heel 355 mm below the deck; the top
   // section slides ~0.27 m into the bottom one at the sleeve. The sail's luff sleeve wraps the mast.
   dinghy: {
     step: { type: 'tube', z: 0.05, collar: 0.41 },
-    spans: [{ z0: 0.05, z1: 2.645, dia: 0.0635, t: 0.0018, mat: 'alu6061' },
-      { z0: 2.645, z1: 2.915, dia: 0.0635, t: 0.0018, mat: 'alu6061', plus: { dia: 0.0508, t: 0.00155 } },
-      { z0: 2.915, z1: 6.24, dia: 0.0508, t: 0.00155, mat: 'alu6061' }],
+    // (walls 2.2 / 1.85 mm, est. No class or builder figure is published that I could find. Sailors put the aluminium top
+    // section at 2.6-3.1 kg, a 1.7-2.0 mm wall where the earlier estimate had 1.55 mm (2.4 kg); the bottom section scaled
+    // by the same 1.19. At 1.8 mm the bottom's first yield, 1.57 kN m, was less than a Laser stopped with her sail aback in
+    // an 18 kn sea breeze's gusts puts on it (a 0.7 kN sail force, 1.26 kN m of heel and its fore-and-aft part): her
+    // bottom section parted in the sea trials, which real ones do not)
+    spans: [{ z0: 0.05, z1: 2.645, dia: 0.0635, t: 0.0022, mat: 'alu6061' },
+      { z0: 2.645, z1: 2.915, dia: 0.0635, t: 0.0022, mat: 'alu6061', plus: { dia: 0.0508, t: 0.00185 } },
+      { z0: 2.915, z1: 6.24, dia: 0.0508, t: 0.00185, mat: 'alu6061' }],
     // (the vang's most: a 15:1 cascade, ~70% efficient, hauled with ~130 N by a sailor sitting out: ~1.4 kN, est. At 2.5 kN
     // the leech's pull bowed the top section a metre and more aft, which a Laser's does not do)
     spreaders: [], wires: [], prebend: 0, lineMax: 1400, noHalyard: true,
