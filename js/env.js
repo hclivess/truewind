@@ -104,9 +104,12 @@ export class WindField {
     let n = 0.65 * noise3d(a1, cross / (0.65 * this.L1), tl + 0.37 * a1, this.seed);
     let dn = 0.65 * _dny / (0.65 * this.L1);
     n += 0.35 * noise3d(a2 + 17.3, cross / (0.7 * this.L2) - 4.1, 1.6 * tl + 0.37 * a2, this.seed + 1);
-    const k = n > 0 ? 1.35 : 0.75;   // puffs are peakier than lulls
-    this._dp = dn * k;              // (the big puffs only: the small ones are too short-lived to fan)
-    return n * k - P_MEAN;
+    // puffs are peakier than lulls: n scaled by 1.35 above zero, 0.75 below, with the knee rounded over |n| ~ 0.05.
+    // (A sharp knee made the slope, and with it the fanning below, jump by 1.8x wherever a puff's edge crossed zero:
+    // the wind's direction stepped 5-10 degrees within a step there, and a boat steering to the wind zig-zagged)
+    const e = 0.05, r = Math.sqrt(n * n + e * e);
+    this._dp = dn * (1.05 + 0.3 * n / r);   // (the big puffs only: the small ones are too short-lived to fan)
+    return 1.05 * n + 0.3 * (r - e) - P_MEAN;
   }
 
   // Sample true wind at 10 m: {speed, dir}. dir is the "from" angle (rad).
