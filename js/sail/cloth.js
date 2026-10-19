@@ -194,6 +194,7 @@ export class Cloth {
   step(dt, nsub, acc) {
     const h = dt / nsub, n = this.n, x = this.x, v = this.v, f = this.f, m = this.m, mg = this.mg, G = this.grav, g = this._g;
     if (this._dirty || this._h !== h) this._factor(h);
+    const free = this.hinge && this.hingeFree, H0 = free ? this._hingeState(true) : null;
     this.v0.set(v);
     for (const r of this.ropes) { r.force = 0; r.taut = false; }
     const damp = Math.max(0, 1 - this.damp * h), y = this.y || (this.y = new Float64Array(3 * n));
@@ -216,12 +217,79 @@ export class Cloth {
         // sail's sections came out flat-topped and hooked.)
         x[i3] += h * v[i3] * damp; x[i3 + 1] += h * v[i3 + 1] * damp; x[i3 + 2] += h * v[i3 + 2] * damp;
       }
+      if (free) this._hingeMode(h, y);
       for (let i = 0; i < n; i++) if (this.kin[i]) { x[3 * i] = y[3 * i]; x[3 * i + 1] = y[3 * i + 1]; x[3 * i + 2] = y[3 * i + 2]; }
       for (let it = 0; it < this.iters; it++) this._iterate(h, y, s === nsub - 1 && it === this.iters - 1);
       this.solveCapsules();
       if (this.wires) this.solveWires();
       const ih = 1 / h;
       for (let i = 0; i < 3 * n; i++) v[i] = (x[i] - this.xo[i]) * ih;
+    }
+    if (free) {
+      // Swinging free (nothing holding it but the luff: the sheet, the shroud stop and the preventer slack), the sail
+      // and its boom gain the angular momentum about the luff that the moment of their loads gives them, less only
+      // what the air takes back (the loads are the air's on the moving cloth): the projective steps above leave most
+      // of it out (each starts from the drift, and the cloth near the pinned luff hands the rest to the pins), and a
+      // gybing main crept across at 40-80 deg/s under a moment that swings a J/70's 3 m boom at a few hundred.
+      const H1 = this._hingeState(false), want = H0.L + H0.T * dt, dL = want - H1.L;
+      // (the momentum it had is kept as well as what the moment gave it; a rope going taut within the step is a
+      // catch, not free: none is added then)
+      let taut = false; for (const r of this.hingeStops || []) if (r && r.taut) { taut = true; break; }
+      const add = taut ? 0 : dL;
+      const w = add / H1.I, o = this.hinge.o, d = this.hinge.d;
+      if (w && Number.isFinite(w)) for (let i = 0; i < n; i++) {
+        if (this.kin[i] || !m[i]) continue;
+        const i3 = 3 * i, rx = x[i3] - o[0], ry = x[i3 + 1] - o[1], rz = x[i3 + 2] - o[2];
+        v[i3] += w * (d[1] * rz - d[2] * ry); v[i3 + 1] += w * (d[2] * rx - d[0] * rz); v[i3 + 2] += w * (d[0] * ry - d[1] * rx);
+      }
+      this.hingeAdd = add / dt;
+    } else this.hingeAdd = 0;
+  }
+  // the cloth's angular momentum about the luff (this.hinge), its moment of inertia about it and (start) the moment of
+  // the loads on it about it
+  _hingeState(withT) {
+    const o = this.hinge.o, d = this.hinge.d, n = this.n, x = this.x, v = this.v, m = this.m, f = this.f, mg = this.mg, G = this.grav;
+    let L = 0, I = 0, T = 0;
+    for (let i = 0; i < n; i++) {
+      if (this.kin[i] || !m[i]) continue;
+      const i3 = 3 * i, rx = x[i3] - o[0], ry = x[i3 + 1] - o[1], rz = x[i3 + 2] - o[2], rd = rx * d[0] + ry * d[1] + rz * d[2];
+      const px = rx - rd * d[0], py = ry - rd * d[1], pz = rz - rd * d[2];
+      I += m[i] * (px * px + py * py + pz * pz);
+      L += m[i] * ((py * v[i3 + 2] - pz * v[i3 + 1]) * d[0] + (pz * v[i3] - px * v[i3 + 2]) * d[1] + (px * v[i3 + 1] - py * v[i3]) * d[2]);
+      if (withT) { const fx = f[i3] + mg[i] * G[0], fy = f[i3 + 1] + mg[i] * G[1], fz = f[i3 + 2] + mg[i] * G[2]; T += (py * fz - pz * fy) * d[0] + (pz * fx - px * fz) * d[1] + (px * fy - py * fx) * d[2]; }
+    }
+    return { L, I, T };
+  }
+
+  // The sail turning about its luff as a body (this.hinge: { o, d }, a point on the luff's line and its unit direction).
+  // The projections start from the drift (above), which leaves a substep's forces out: right for the membrane's own
+  // small lateral loads, but it left out the one motion the luff's pins allow the whole sail, swinging about them, so
+  // a sail driven round the mast (a gybe: the wind's moment about the luff, 400-500 N m on a J/70 main in 16 kn) took
+  // that moment into the pins through the membrane and crept round as a bag at 20-60 deg/s. The forces' moment about
+  // the luff, over the sail's moment of inertia about it, is that swing's acceleration: added to the drift, as a
+  // rotation about the luff (which moves no pin and stretches nothing), it reaches the projections, and the sail and
+  // its boom swing as a body, as they do. (Only while it swings free, js/sail/rigsim.js hingeFree: held by its sheet or
+  // against the shroud, the sheet carries that moment, as the projections already have it, and the sail's shapes and
+  // polars are as they were.)
+  _hingeMode(h, y) {
+    const H = this.hinge, o = H.o, d = H.d, n = this.n, x = this.x, xo = this.xo, m = this.m, kin = this.kin;
+    let T = 0, I = 0;
+    for (let i = 0; i < n; i++) {
+      if (kin[i] || !m[i]) continue;
+      const i3 = 3 * i, rx = xo[i3] - o[0], ry = xo[i3 + 1] - o[1], rz = xo[i3 + 2] - o[2], rd = rx * d[0] + ry * d[1] + rz * d[2];
+      const px = rx - rd * d[0], py = ry - rd * d[1], pz = rz - rd * d[2];
+      // (the force over the substep, as the prediction has it: y - drift = h^2 F / m)
+      const fx = (y[i3] - x[i3]) * m[i], fy = (y[i3 + 1] - x[i3 + 1]) * m[i], fz = (y[i3 + 2] - x[i3 + 2]) * m[i];
+      T += (py * fz - pz * fy) * d[0] + (pz * fx - px * fz) * d[1] + (px * fy - py * fx) * d[2];
+      I += m[i] * (px * px + py * py + pz * pz);
+    }
+    if (!(I > 0)) return;
+    const a = T / I;                                       // (h^2 x the angular acceleration)
+    this.hingeAcc = a / (h * h);
+    for (let i = 0; i < n; i++) {
+      if (kin[i] || !m[i]) continue;
+      const i3 = 3 * i, rx = xo[i3] - o[0], ry = xo[i3 + 1] - o[1], rz = xo[i3 + 2] - o[2];
+      x[i3] += a * (d[1] * rz - d[2] * ry); x[i3 + 1] += a * (d[2] * rx - d[0] * rz); x[i3 + 2] += a * (d[0] * ry - d[1] * rx);
     }
   }
 
