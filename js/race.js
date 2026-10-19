@@ -466,7 +466,11 @@ export class AIHelm {
     // (each wait for speed has an end: in a lull or another boat's wind shadow the speed may never come, and a boat
     // holding a reach for it ran out the umpire's time and was disqualified)
     const vT = Math.max(1, Math.min(this.targetsUpBsp ?? 2, 0.45 * (b.diag.tws ?? 5)));
-    if (!pen.dir && b.u < 0.7 * vT && (this.penBuild = (this.penBuild || 0) + dt) < 15) { this.steer(dt, twd - tack * 100 * DEG); return; }
+    // (a catamaran with no boards slides off sideways when slow, its rudders' angle eaten by the leeway, and stalls
+    // head to wind: it goes for the tack at full reaching speed, as beach-cat sailors do)
+    // (and a long keel, slow to turn and carrying her way through it on momentum alone, at her reaching speed too)
+    const heavyTurn = b.cls.multihull ? 1.2 : b.cls.keel && b.cls.keel.long ? 1.05 : 0.7, vGo = heavyTurn * vT;
+    if (!pen.dir && b.u < vGo && (this.penBuild = (this.penBuild || 0) + dt) < 15) { this.steer(dt, twd - tack * 100 * DEG); return; }
     // coming up toward the tack too slow to carry through it: hold a reach until she has way on (a stall head to
     // wind falls back and the turn is lost)
     const upward = (this.penD > 0) === (twa > 0), a = Math.abs(twa);
@@ -474,9 +478,17 @@ export class AIHelm {
     // last, slow or not, round she goes)
     if (upward && a > 60 * DEG && a < 115 * DEG) {
       const w = (this.penHold = (this.penHold || 0) + dt);
-      if (!this.penGo && b.u < (w < 20 ? 0.8 : w < 35 ? 0.55 : 0) * vT) { this.steer(dt, twd - tack * 100 * DEG); return; }
+      if (!this.penGo && b.u < (w < 20 ? 0.8 : w < 35 ? 0.55 : 0) * vT * (b.cls.multihull ? 1.5 : b.cls.keel && b.cls.keel.long ? 1.3 : 1)) { this.steer(dt, twd - tack * 100 * DEG); return; }
       this.penGo = true;                                       // (once she has gone for it, on round)
     } else { this.penHold = 0; this.penGo = false; }
+    // (stuck: helm hard over and nothing turning, close-hauled and slow, a cat sliding off sideways on her leeway with
+    // its rudders' angle eaten by it; the helm takes her off onto a reach to build speed, then round again)
+    if (b.cls.multihull && Math.abs(b.ctrl.helm) > 0.7 && Math.abs(b.r) < 1.5 * DEG && b.u < vGo && Math.abs(twa) < 60 * DEG) this.penStuck = (this.penStuck || 0) + dt;
+    else if (Math.abs(b.r) > 4 * DEG) this.penStuck = 0;
+    if (this.penStuck > 4) {
+      if (b.u < 1.2 * vGo && this.penStuck < 40) { this.penStuck += dt; this.steer(dt, twd - tack * 100 * DEG); return; }
+      this.penStuck = 0;
+    }
     this.steer(dt, b.psi + this.penD * 70 * DEG, true);
   }
 
@@ -741,6 +753,10 @@ export class AIHelm {
     const turning = b.r * Math.sign(err) > 2 * DEG;
     if (sameTack && off > 10 * DEG && slow > 0.3 && !turning && b.sailBy.jib && b.sailBy.main) b.ctrl.main = Math.max(b.ctrl.main, 0.35 + 0.5 * slow);
     const kp = 2.4 * this.skill, kd = 1.6;
+    // (no integral term: one that found the boat's standing weather helm over ~15 s took 1-2 degrees off the steady
+    // error of the heavy-helmed boats, but in a seaway it held the helm through the waves' yaw and a J/24 reaching in a
+    // 20 kn chop broached three times as often; with the big yachts' hydraulic steering, js/helm.js, the error that
+    // is left is 2-4 degrees, steady, not a zig-zag)
     let cmd = clamp(kp * err - kd * b.r, -0.8, 0.8);
     // A helmsman feels the helm go light as the blade stalls and eases it until it bites again: more helm on a stalled
     // rudder only brakes her while she rounds up anyway (autopilots carry a rudder limit for the same reason). In a
@@ -749,14 +765,25 @@ export class AIHelm {
     const ast = d.rudAst, al = d.rudAlpha, rmax = b.cls.rudder.max * (b.rudderLim ?? 1);
     // (not from a standstill: sliding sideways at a knot or two the blade's angle is the leeway's whatever the helm, and
     // eased to nothing it froze her for minutes, wanting to bear away round onto the other gybe and never turning)
-    if (ast && Number.isFinite(al) && b.u > 0.5 * vT && Math.abs(al) > 0.9 * ast && Math.sign(al) === Math.sign(b.rudder) && Math.sign(cmd) === Math.sign(b.rudder)) {
+    // (and only when easing can give the blade its flow back: rounding up fast in a broach, the water meets the blade
+    // past its stall from the yaw alone, and the helm let go to nothing let a J/70 in a 28 kn gust spin up at 19 deg/s.
+    // There a stalled blade still pushes in proportion to its angle: the helm stays on)
+    const flowA = Number.isFinite(al) ? al - b.rudder : 0;
+    if (ast && Number.isFinite(al) && b.u > 0.5 * vT && Math.abs(al) > 0.9 * ast && Math.sign(al) === Math.sign(b.rudder) && Math.sign(cmd) === Math.sign(b.rudder) && Math.abs(flowA) < 0.8 * ast) {
       const cmax = Math.max(0.05, (Math.abs(b.rudder) - (Math.abs(al) - 0.8 * ast)) / rmax);
       if (Math.abs(cmd) > cmax) cmd = Math.sign(cmd) * cmax;
     }
     // and when the helm is hard over while she rounds up, the crew dumps the main (its pull aft is what turns her
     // into the wind), sheeting in again as she answers (autoTrim, next step)
     const upNow = Math.abs(wrap(twd - b.psi)), upWant = Math.abs(wrap(twd - desired));
-    if (Math.abs(cmd) > 0.4 && upNow < upWant - 6 * DEG && upNow < 110 * DEG && b.sailBy.main && !this.backing) b.ctrl.main = Math.max(b.ctrl.main, 0.6);
+    // (only while she is still turning up, 10 degrees past where she should be: a boat that carries a lot of helm
+    // steadily, a J-class, otherwise had her main dumped and sheeted again every few seconds, and the weather helm
+    // that came and went with it swung her about)
+    const roundingUp = b.r * (Math.sign(wrap(twd - b.psi)) || 1) > 1 * DEG;
+    // (not in a penalty turn, free, where the helm is hard over all the way round by design: there the main eased at
+    // every luff left a dinghy, whose main is all her drive, in irons going astern)
+    const dump = free ? false : roundingUp && upNow < upWant - 10 * DEG;
+    if (Math.abs(cmd) > 0.4 && dump && upNow < 110 * DEG && b.sailBy.main && !this.backing) b.ctrl.main = Math.max(b.ctrl.main, 0.6);
     const twa = wrap(twd - b.psi);
     // in irons / going astern: the rudder works backwards; the jib is backed by hauling the lazy sheet
     // across on the other winch (a una-rig pushes the boom out by hand)

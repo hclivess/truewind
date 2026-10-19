@@ -418,6 +418,11 @@ export class BoomSailRig extends ClothRig {
       this.spritLen = hyp3(this.rest[pk] - this.snotter[0], this.rest[pk + 1], this.rest[pk + 2] - this.snotter[2]);
       cloth.addLength(peak, this.snotter, this.spritLen, 1e6);
     }
+    // a main on its mast swings about its luff as a body (js/sail/cloth.js _hingeMode): the luff's line, tack to head
+    if (isMain && onMast && !lateen && !this.boomless) {
+      const L = hyp(this.rake || 0, s.luff) || 1;
+      cloth.hinge = { o: [this.px, 0, this.pz], d: [-(this.rake || 0) / L, 0, s.luff / L] };
+    }
     // battens: stiff chains of nodes on the batten rows (full length on a fully battened sail, the aft third
     // otherwise), with the batten's bending stiffness on every second node
     const bt = battens(C, s);
@@ -510,11 +515,10 @@ export class BoomSailRig extends ClothRig {
     const ey = c.x[1];
     if (Math.abs(ey) > 0.05 * this.Lb) this.side = Math.sign(ey);
     const R = this.tb * this.Lb;
-    // (upwind, the car goes over to the boom's new side along its track at up to 1.5 m/s, as in mainLines: put there in
-    // one step, with the sheet hard in it snatched the boom back across at 100+ kN and the boom rattled through every
-    // tack; off the wind it goes at once, as there)
-    const phT = this.side * travA, vmax = 1.5 * (this._dt || 1 / 120) / Math.max(0.3, R), up = Math.abs(b.diag.awaMid || 0) < 1.5;
-    this._carPh = this._carSet && up && Number.isFinite(this._carPh) ? this._carPh + clamp(phT - this._carPh, -vmax, vmax) : phT;
+    // (the car goes over to the boom's new side along its track at up to 1.5 m/s, as in mainLines: put there in one
+    // step, with the sheet hard in it snatched the boom back across at 100+ kN and the boom rattled through every tack)
+    const phT = this.side * travA, vmax = 1.5 * (this._dt || 1 / 120) / Math.max(0.3, R);
+    this._carPh = this._carSet && Number.isFinite(this._carPh) ? this._carPh + clamp(phT - this._carPh, -vmax, vmax) : phT;
     this._carSet = true;
     this.car[0] = this.Gp[0] - R * Math.cos(this._carPh); this.car[1] = R * Math.sin(this._carPh);
     const chord = 2 * R * Math.sin(Math.max(0, lim - travA) / 2);
@@ -525,7 +529,7 @@ export class BoomSailRig extends ClothRig {
       // hard on, the vang pulls the boom a little below level: that stretch is the leech tension
       const vg = this.clubVang ? 0.8 : clamp(ctrl.vang, 0, 1);
       // (s.vangTravel: a longer boom needs the vang to pull further down for the same leech tension)
-      this.vang.len = L0 - 0.012 * vg * (s.vangTravel ?? 1) + 0.05 * (1 - vg) ** 1.3;
+      this.vang.len = L0 - 0.012 * vg * (s.vangTravel ?? 1) + 0.05 * (1 - vg) ** 1.3 + (this.vangSlip || 0);
     }
     this.topping.len = this.boomless ? 60 : hyp(this.Lb, this.mastHead[2] - this.pz + 0.15 * this.Lb);
   }
@@ -545,11 +549,10 @@ export class BoomSailRig extends ClothRig {
     // The car runs along its track, it does not jump. Upwind, sheeted in, it is hauled over by its control line in a
     // tack, at up to 1.5 m/s: set straight to the new side, it crossed the track in one 1/120 s step with the sheet hard
     // in, the sheet (shortened 20 cm in a step) snatched the boom at 100-200 kN, ~10^4 m/s^2 at its end, and the boom
-    // rattled from side to side through every tack. Off the wind (a gybe) it still goes over at once: the cloth's
-    // aerodynamics barely push a main standing by the lee across, so the car taking the sheet over is what gybes the
-    // boom, and bangs it across as an unplanned gybe does. (Moved at a car's pace there, the boom stayed by the lee.)
+    // rattled from side to side through every tack. In a gybe too: the wind takes the boom across (with the vang
+    // letting go when a backed main overloads it, below), and the car follows along its track.
     const tgtCar = sheetCar(C, s0, ctrl.trav, this.carSide || this.side, this.a, this._carT || (this._carT = [0, 0, 0]));
-    if (this._carSet && Math.abs(awa) < 1.5) {
+    if (this._carSet) {
       const vmax = 1.5 * (this._dt || 1 / 120);
       this.car[0] = tgtCar[0]; this.car[2] = tgtCar[2];
       this.car[1] += clamp(tgtCar[1] - this.car[1], -vmax, vmax);
@@ -606,22 +609,47 @@ export class BoomSailRig extends ClothRig {
         const r = this._vsR || (this._vsR = [0, 0, 0]); r[0] = -f * vx / l; r[1] = -f * vy / l; r[2] = -f * vz / l;
       } else if (this._vsR) this._vsR[0] = this._vsR[1] = this._vsR[2] = 0;
     }
+    // (swinging free about its luff: nothing but the luff holds it, js/sail/cloth.js step; and gybing: the wind on the
+    // side the boom is on, by the lee, or the boom swinging across, 20 deg/s or more within 50 deg of the centreline,
+    // off the wind. A boom sailing as it is trimmed, eased out, luffing or flogging upwind, is left as it was: its polars
+    // do not change)
+    const awaS = b.diag.awaMid || 0, byLee = Math.abs(awaS) > 0.5 && Math.sign(this.a || 0) === Math.sign(awaS);
+    const crossing = Math.abs(awaS) > 1.6 && Math.abs(this.rate || 0) > 0.35 && Math.abs(this.a || 0) < 0.9;
+    c.hingeFree = !!c.hinge && !wasTaut && !(this.stop && this.stop.taut) && !(this.prev && this.prevOn) && (byLee || crossing);
+    c.hingeStops = this._hs || (this._hs = [this.sheet, this.stop, this.prev].filter(Boolean));
     this.stepCloth(dt, nsub, fr);
+    if (!this.track && this.vang && !this.clubVang && this.isMain) {
+      // (a main without a track, the TP52's, likewise: its vang rated at the load the class's lines put on it,
+      // js/linehandlers.js lineLoad, 4x the sheet power full on)
+      const hold = 2 * (s0.vangMax ?? 4 * (b.cls.sheetPower || 800)), F = this.vang.force;
+      if (F > hold) this.vangSlip = (this.vangSlip || 0) + (F - hold) / this.vang.w;
+      else if (this.vangSlip > 0 && F < 0.5 * hold) this.vangSlip = Math.max(0, this.vangSlip - 0.02 * dt);
+    }
     if (this.track) {
-      // the boom end in the sea: the crew blows the vang (the stiff penalty rope alone held 30 kN on a J/70 whose boom
-      // the water was lifting, and tore the main at the clew), so it pays out past about twice what they haul on it,
-      // and is taken back in, a couple of cm/s, once the boom is clear and the load off
+      // the vang pays out past about twice what the crew hauls on it (its cam slips, or they blow it), and is taken back
+      // in, a couple of cm/s, once the load is off: the boom end in the sea (the stiff penalty rope alone held 30 kN on a
+      // J/70 whose boom the water was lifting, and tore the main at the clew), and a main backed by the lee (its leech
+      // lifting the boom put 12-22 kN on a J/70's 3 kN vang, which held the boom out on the old side, sheet slack and
+      // the wind 75-106 deg on the other side, for good: let go, the boom rises and the wind takes it across)
       if (this.vang && !this.noVang && s0.vangMax) {
         const hold = 2 * s0.vangMax, F = this.vang.force;
-        if (F > hold && b.diag.rig.boomWet > 0) this.vangSlip = (this.vangSlip || 0) + (F - hold) / this.vang.w;
+        if (F > hold) this.vangSlip = (this.vangSlip || 0) + (F - hold) / this.vang.w;
         else if (this.vangSlip > 0 && F < 0.5 * hold) this.vangSlip = Math.max(0, this.vangSlip - 0.02 * dt);
         if (this.vangSlip > 0 && this._vL !== undefined) this.vang.len = this._vL + this.vangSlip;
       }
       const ex = c.x[E3] - this.px, ey = c.x[E3 + 1], r = hyp(ex, ey) || 1, tx = -ey / r, ty = ex / r;   // horizontal tangent
-      // the boom's swing damped by the air it and the foot push aside and by the gooseneck's and blocks' friction,
-      // 15 N per m/s at its end (15 N at a brisk 20 deg/s on a 3 m boom): without it a luffing main with its sheet
-      // eased swung the boom through 60 deg every six seconds, its twist lagging its angle, for want of any loss
-      { const vt = c.v[E3] * tx + c.v[E3 + 1] * ty, k = 1 - 1 / (1 + 15 * dt / c.m[this.E]); c.v[E3] -= k * vt * tx; c.v[E3 + 1] -= k * vt * ty; }
+      // the boom's swing damped by the gooseneck's and blocks' friction and the air the boom pushes aside: 15 N per m/s
+      // at its end up to 1 m/s (15 N at a brisk 20 deg/s on a 3 m boom: without it a luffing main with its sheet eased
+      // swung the boom through 60 deg every six seconds, its twist lagging its angle, for want of any loss), and beyond
+      // that the friction stays at its 15 N and the boom's own air drag grows with the square of its speed. (Kept
+      // viscous at every speed it took 250 N m off a J/70 boom crossing at 100 deg/s, as much as the wind drove it
+      // with: a crash gybe crept across. The sail's own air drag is in its aerodynamics.)
+      {
+        const vt = c.v[E3] * tx + c.v[E3 + 1] * ty, av = Math.abs(vt);
+        const Fd = av < 1 ? 15 * av : 15 + 0.6 * 0.1 * this.Lb * 0.33 * (av * av - 1);
+        const dv = Math.min(av, Fd * dt / c.m[this.E]) * Math.sign(vt);
+        c.v[E3] -= dv * tx; c.v[E3 + 1] -= dv * ty;
+      }
       // boom brake: friction at the boom's swing, a force at its end that slows it and never reverses it
       const Fb = (b.ctrl.brake || 0) * (s0.brake || 0);
       if (Fb > 0) {

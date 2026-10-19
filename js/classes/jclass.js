@@ -122,10 +122,12 @@ function jClass(o) {
     // canoe body's above it, as tools measured them on these lines)
     keel: { x: o.keelX, z: -o.draft / 2, area: o.keelArea, ARe: 2 * o.draft ** 2 / o.keelArea, stall: 24 * DEG, cd0: 0.004, span: o.draft, chord: o.keelArea / o.draft, long: true },
     // the rudder hung on the keel's trailing edge (pintles on the sternpost): no balance, its stock raked aft up through
-    // the counter, a wheel to it through a geared quadrant (est. 2.5 turns lock to lock)
+    // the counter, steered from the wheel through a hydraulic ram (est.: the restored and replica J's carry hydraulic
+    // steering; through a geared quadrant at 2.5 turns a helmsman's 300 N on the rim could not hold this unbalanced
+    // 5 m^2 blade past 2-3 degrees reaching in 14 kn: she rounded up with the wheel hard over)
     rudder: { x: rudderX, z: -2.7, area: 1.35 * hingeLen, ARe: 1.7, stall: 22 * DEG, cd0: 0.012, max: 35 * DEG, span: hingeLen * Math.cos(rake), chord: 1.35, hung: true,
       foil: { root: 'hull', balance: 0.0, tc: 0.14 } },
-    helm: { type: 'wheel', wheelR: 0.8, turns: 2.5, handMax: 300, friction: 60 },
+    helm: { type: 'hydraulic', wheelR: 0.8, turns: 4 },
     hullLat: { area: 6, cd: 0.9, z: -0.6 },
     windage: { area: 0.75 * LOA + 0.35 * o.mastHeight, z: 0.3 * o.mastHeight, cd: 1.0 },
     mastX, mastHeight: o.mastHeight, boomZ: o.boomZ, mastR: o.mastR, keelBulb: false,

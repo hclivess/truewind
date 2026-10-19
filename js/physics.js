@@ -1172,7 +1172,12 @@ export class Boat {
       // value by the time it reaches the rudder (the old 1.2 CL / pi AR_e undercut it, and the rudder carried a fifth of
       // the lateral force at zero helm: lee helm); a rudder hung on the keel's trailing edge acts more like a flap
       const dxk = Math.max(0, C.keel.x - F.x), sk = 2 * (this.keelS.span || 1);
-      const eps = keelCl / (Math.PI * d.keelARe) * (1 + dxk / Math.sqrt(dxk * dxk + sk * sk)) * (ul > 0 ? 1 : 0) * (F.transom ? 0.35 : 1);
+      // (the downwash is a sideways velocity, eps times the water the keel meets; in the propeller's slipstream the
+      // rudder's water runs faster than that, and the angle it turns that water by is smaller in proportion. Taken whole,
+      // a Westsail 32 motoring off from rest, her long keel's lift that of a few cm/s of leeway, had the rudder's water
+      // turned past the blade's own angle and spun round with the helm reversed)
+      const uK = Math.max(0, (this.u - wu) * (1 - (F.wake ?? 0.08)));
+      const eps = keelCl * clamp(uK / Math.max(1e-3, ul), 0, 1) / (Math.PI * d.keelARe) * (1 + dxk / Math.sqrt(dxk * dxk + sk * sk)) * (ul > 0 ? 1 : 0) * (F.transom ? 0.35 : 1);
       // one blade, or two: a catamaran's on its hulls (the weather one lifts out as the hull flies), a monohull's twin
       // spades F.y either side of the centreline (heeled, the windward blade rises toward the surface)
       const nb = F.twin ? 2 : 1;
@@ -1310,7 +1315,19 @@ export class Boat {
       // helm; in a turn (bow inside the track) it tightens the turn. Water-relative velocities, as for the hull.
       // (a class may scale it, C.munkK: a deep long-keeled hull, whose potential-flow moment the viscous flow round its
       // deep, separated run cuts well down: js/classes/util.js clarkeMunkK)
-      const Nmunk = -(C.munkK ?? 1) * (this.m22 - this.m11) * uw * vw * cphi;
+      // (potential flow: it holds while the flow stays on the hull, a few degrees of leeway. Skidding round a turn, past
+      // ~15 degrees of drift the flow leaves the run and the cross flow takes over (the strips above): the moment falls
+      // to a quarter by 40 degrees (ship captive-model data: Hooft 1994, Oltmann & Sharma 1984, N(beta) peaks at 10-20
+      // degrees). Whole, it kept spinning a yacht turning hard under power until she pivoted on the spot)
+      const beta = Math.atan2(Math.abs(vw), Math.abs(uw) + 1e-6);
+      // (and the canoe body's, not the boat's: m22 carries the keel's and the rudder's added mass too, whose own lift at
+      // their own stations is in their forces already. For the canoe body Clarke, Gedling & Hine's (1983) regression of
+      // captive-model tests, N'v = -pi (T/L)^2 (0.5 + 2.4 T/L) on 0.5 rho L^3 U v with T its draft, gives ~0.55 of the
+      // whole boat's m22 - m11 on a fin-keeled yacht: the old figure turned a Catalina 30 under power at 24 deg/s, the
+      // hull's moment as large as the rudder's, and she skidded out of the turn. A class's own munkK still applies)
+      const Tc = C.canoeDraft || 0.3, Lw = C.lwl || C.loa;
+      const munkC = C.munkK !== undefined ? C.munkK * (this.m22 - this.m11) : Math.min(this.m22 - this.m11, 0.5 * RHO_W * Math.PI * Lw * Tc * Tc * (0.5 + 2.4 * Tc / Lw));
+      const Nmunk = -munkC * uw * vw * cphi * (1 - 0.75 * sstep(15 * DEG, 40 * DEG, beta));
       N += Nmunk; d.Nmunk = Nmunk;
       d.Nhull = N - N0;
       X -= 2 * uw;
@@ -1487,7 +1504,16 @@ export class Boat {
     this.log += Math.abs(this.u) * dt;
     // a bow driven under keeps going: past what this pitch model can represent, the boat trips over
     // sideways (how a multihull pitchpole usually ends) — the angular momentum goes into roll
-    if (this.pitch <= -0.59 && this.pitchV < 0) { this.p += (Math.sign(this.phi) || 1) * Math.abs(this.pitchV) * 1.5; this.pitchV *= -0.2; }
+    // (over a few tenths of a second, as the buried bow slews her: the pitch's angular momentum handed to roll at a rate,
+    // Iyy w_pitch -> Ixx w_roll with some lost to the water, not all in one step, which spun the roll up by 6 rad/s in
+    // 1/120 s and broke rigs on a J/70 running and on the Hobie)
+    if (this.pitch <= -0.5 && this.pitchV < 0) {
+      const f = clamp(dt / 0.35, 0, 1) * sstep(-0.5, -0.59, this.pitch);
+      const Iy = this.Iyy + (this.hydro.A55 || 0), Ix = this._Ir || this.Ixx;
+      const dL = f * Iy * -this.pitchV;
+      this.p += (Math.sign(this.phi) || 1) * 0.7 * dL / Ix;
+      this.pitchV *= 1 - f;
+    }
     if (this.phi > Math.PI) this.phi -= 2 * Math.PI; if (this.phi < -Math.PI) this.phi += 2 * Math.PI;
 
     // ---- rudder: slew rate limited by hydrodynamic load on the blade ----
@@ -1510,7 +1536,9 @@ export class Boat {
     const lim = C.crewMaxOut * (this.hikeLimit ?? 1);   // (tired legs: js/fatigue.js)
     if (this.auto.hike) {
       const upwindness = 1 - sstep(80 * DEG, 150 * DEG, Math.abs(awaMid));
-      const tgt = windSide * C.targetHeel * 0.6 * upwindness;
+      // (a crew heels her to the target only when there is a wind to sail by: in a flat calm, sails slatting, they sit
+      // her upright, not on her lee rail for hours)
+      const tgt = windSide * C.targetHeel * 0.6 * upwindness * sstep(0.2, 1.0, qMid);
       const err = this.phi - tgt;
       this._hikeI = clamp((this._hikeI || 0) + err * dt * 1.2, -0.4, 0.4);
       const Mc = this.crewMass * G * lim;
