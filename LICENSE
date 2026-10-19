@@ -1,21 +1,29 @@
-MIT License
+True Wind
+Copyright (c) 2026 hclivess. All rights reserved.
 
-Copyright (c) 2026 hclivess
+This software, including its source code, models, data files, graphics, sounds
+and documentation (the "Software"), is proprietary and confidential to the
+copyright holder.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+No licence or right is granted to copy, modify, merge, publish, distribute,
+sublicense, sell, host, or create derivative works of the Software, in whole or
+in part, without the prior written permission of the copyright holder.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Playing the publicly hosted game at https://hclivess.github.io/truewind/ for
+personal, non-commercial use is permitted. Viewing the source in this repository
+does not grant any licence to use it.
+
+Third-party components and data included with the Software remain under their
+own licences, listed in README.md under "Credits and licences" (among them
+three.js and Trystero under the MIT licence, OpenStreetMap data under the ODbL,
+and bathymetry and tide data under CC BY 4.0 or in the public domain). Nothing
+in this notice limits the rights those licences grant for those components.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF
+OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
+
+For licensing, sponsorship or commercial enquiries, open an issue at
+https://github.com/hclivess/truewind/issues.
