@@ -38,6 +38,8 @@ export class PlanarReflection {
     const mip = { type, depthBuffer: false, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter };
     this.rt = new THREE.WebGLRenderTarget(4, 4, mip);
     this.rtD = new THREE.WebGLRenderTarget(4, 4, mip);
+    // anisotropic filtering: each blur tap covers its own stretch of the streak (REFL_GLSL); 1 where there is none
+    this.rt.texture.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy ? renderer.capabilities.getMaxAnisotropy() : 1);
     this.cam = new THREE.PerspectiveCamera();
     this.cam.matrixAutoUpdate = true;
     this.night = false;
@@ -163,10 +165,11 @@ export class PlanarReflection {
 // The blur is anisotropic, as a real sea's is: a slope along the sight line turns the reflected ray up or down by
 // twice the slope, a slope across it turns it sideways by only twice the slope times tan(angle of view below the
 // horizon), so at a low angle a far reflection is drawn out into vertical streaks and barely widened. It is a
-// Gaussian over that ellipse in N taps on a Vogel spiral, turned per pixel (interleaved gradient noise), each read
-// from the mip level of the taps' spacing (at most level 3): a smooth blur with a fine static grain. (Reading one
-// coarse level for the whole ellipse magnified its texels into blocks, worst at night: a lit window or a nav
-// light on a black sea.)
+// Gaussian over that ellipse in N taps on a Vogel spiral, turned per pixel (a static hash), each tap filtered over
+// its own share of the ellipse (gradients of the ellipse's axes / sqrt(N): anisotropic filtering stretches it along
+// the streak, so a single light is a continuous streak, not a stipple of dots): a smooth blur with a fine grain.
+// (Reading one coarse level for the whole ellipse magnified its texels into blocks, worst at night: a lit window
+// or a nav light on a black sea.)
 export const REFL_GLSL = /* glsl */`
 uniform sampler2D uRefl; uniform sampler2D uReflD; uniform mat4 uReflM; uniform vec4 uReflP;
 vec2 reflUV(vec3 Q) { vec4 c = uReflM * vec4(Q, 1.0); return c.xy / max(c.w, 1e-4); }
@@ -189,18 +192,19 @@ vec3 reflScene(vec3 refl, vec3 P, vec3 R, float sig, float dist, float ey) {
   vec2 aV = dV * sv, aH = dH * sh;
   aV *= min(sqrt(1.0 + fp2 / max(dot(aV, aV), 1e-12)), 0.08 / max(length(aV), 1e-6));
   aH *= min(sqrt(1.0 + fp2 / max(dot(aH, aH), 1e-12)), 0.08 / max(length(aH), 1e-6));
-  // N taps over 2 sigma with Gaussian weights; the level: the taps' spacing in texels
-  float N = uReflP.y;
-  float sp = 4.0 * sqrt(length(aV * sz) * length(aH * sz) / N);
-  float lod = clamp(log2(max(sp, 1.0)), 0.0, 3.0);
-  float rot = 6.2832 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  // N taps over 2 sigma with Gaussian weights, each filtered over its share of the ellipse (at most 24 texels
+  // along an axis: no coarse level magnified)
+  float N = uReflP.y, k = 3.0 / sqrt(N);
+  vec2 gV = aV * k, gH = aH * k, mx = 24.0 / sz;
+  gV *= min(1.0, mx.y / max(length(gV), 1e-6)); gH *= min(1.0, mx.y / max(length(gH), 1e-6));
+  float rot = 6.2832 * fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
   vec4 s = vec4(0.0); float ws = 0.0;
   for (int i = 0; i < 16; i++) {
     if (float(i) >= N) break;
     float r = sqrt((float(i) + 0.5) / N), th = float(i) * 2.39996 + rot;
     vec2 o = 2.0 * r * (aV * cos(th) + aH * sin(th));
     float w = exp(-2.0 * r * r);
-    s += w * textureLod(uRefl, ruv + o, lod); ws += w;
+    s += w * textureGrad(uRefl, ruv + o, gH, gV); ws += w;
   }
   s /= ws;
   vec2 e = min(ruv, 1.0 - ruv);
