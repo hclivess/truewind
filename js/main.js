@@ -1555,7 +1555,7 @@ class Game {
       this.renderer.updateGrabMarkers(show ? vis.rigging.grabs() : [], hid, GRAB_PX);
       // what the automatic crew / weight / autopilot is working glows on deck and in the panel (js/autoglow.js); the
       // labels by the parts go with the coach's text
-      if (vis) {
+      if (vis && !p.speedCraft) {   // (a speed machine has no sheets or crew to light)
         if (!this._autoGlow || this._autoGlow.vis !== vis) { if (this._autoGlow) this._autoGlow.dispose(); this._autoGlow = new AutoGlow(vis, vis.rigging); }
         if (this.crew) this._autoGlow.update(this.crew.hl, this.t, this.renderer.camera, show && this.coachText !== false, vis.wheel ? 'Wheel' : C_TILLER(p));
         else this._autoGlow.clear();
