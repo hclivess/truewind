@@ -84,17 +84,15 @@ export function rrOverHump(tab, f, planing = 0) {
 // The yaw moment a deep, long-keeled hull carries at a drift angle. Potential flow gives the Munk moment (m_y - m_x) u v
 // (js/physics.js), which for a slender body is all destabilising; a real hull's is much less, the flow separating
 // off its deep run aft (as an airship's or a missile's is cut by its separated wake). Ship manoeuvring data put the
-// whole hull's linear yaw moment at N'v = -pi (T/L)^2 (0.5 + 2.4 T/L) on 0.5 rho L^2 T U v (Clarke, Gedling & Hine
+// whole hull's linear yaw moment at N'v = -pi (T/L)^2 (0.5 + 2.4 T/L) on 0.5 rho L^3 U v (Clarke, Gedling & Hine
 // 1983, regressed on captive-model tests of full-depth hulls, which is what a long keel makes a yacht's lateral plane).
 // The factor that brings the sim's Munk moment down to that (between 0.25 and 1): C.munkK. L: waterline length, T:
 // draft, mass: displacement (kg), amX / amY: the class's added-mass fractions.
-// (NB: Clarke's moment derivatives are on 0.5 rho L^3 U, not 0.5 rho L^2 T U as taken here; correctly normalised these deep
-// hulls come out at the cap, 1, not at the 0.25 floor where they all sit. Left as it is for now: the legends' keel lift
-// centres (est.) were set against this figure, and with the cap their close-hauled weather helm in 12 kn went from
-// 1-6 deg to 3-10 (Spray 1.4 -> 8.3, America 5.9 -> 10.2, Shenandoah 4.2 -> 8.2): fixing it means re-setting those
-// lift centres with it, class by class against test/helm.mjs)
+// (Clarke's moment derivatives are on 0.5 rho L^3 U; taken on 0.5 rho L^2 T U, as they were, they came out 5-10x too
+// small and every long-keeled legend sat at the 0.25 floor. Correctly normalised these deep hulls carry about the full
+// potential-flow figure, the cap: their keels' lift centres were re-set with it, class by class, on test/helm.mjs)
 export function clarkeMunkK(L, T, mass, amX, amY) {
-  const Nv = Math.PI * (T / L) ** 2 * (0.5 + 2.4 * T / L) * 0.5 * 1025 * L * L * T;
+  const Nv = Math.PI * (T / L) ** 2 * (0.5 + 2.4 * T / L) * 0.5 * 1025 * L * L * L;
   return Math.round(Math.max(0.25, Math.min(1, Nv / (mass * (amY - amX)))) * 100) / 100;
 }
 

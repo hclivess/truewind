@@ -31,7 +31,7 @@ export default {
   munkK: clarkeMunkK(LWL, 1.67, M + 80, 0.08, 0.95),   // (the hull's yaw moment at a drift angle, util.js)
   rr: rrTable(LWL, M + 80, { prism: -0.05 }),
   // (the long keel and deadwood as one low-aspect wing, its span the whole draft, as the Westsail's)
-  keel: { x: 0.15, z: -0.85, area: 5.6, ARe: 1.0, stall: 26 * DEG, cd0: 0.003, span: 1.67, chord: 4.0, long: true },
+  keel: { x: -0.2, z: -0.85, area: 5.6, ARe: 1.0, stall: 26 * DEG, cd0: 0.003, span: 1.67, chord: 4.0, long: true },
   rudder: { x: -5.05, z: -0.65, area: 0.85, ARe: 2.0, stall: 22 * DEG, cd0: 0.014, max: 35 * DEG, span: 1.4, chord: 0.65, transom: true, loadRef: 2300 },
   hullLat: { area: 1.2, cd: 0.9, z: -0.2 },
   windage: { area: 6.2, z: 2.7, cd: 1.0 },
