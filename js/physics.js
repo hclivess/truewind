@@ -1883,7 +1883,7 @@ function trimSails(boat, dt, aoaBias = 0, full = true) {
       const boomSide = s.kind === 'boom' && boat.booms[s.key] && Math.abs(boat.booms[s.key].a) > 5 * DEG ? Math.sign(boat.booms[s.key].a) : 0;
       const sd = (awa < 150 * DEG ? -Math.sign(d.awaMid) : 0) || boomSide || st.side || Math.sign(st.baseAngle || (s.kind === 'boom' ? boat.booms[s.key].a : boat.side.jib)) || 1;
       let a = 0; for (let i = 0; i < 3; i++) a += clamp((st[i].alpha || 0) * sd, -0.3, 0.6) * STRIP_W[i];
-      const ak = AK[key] || (AK[key] = 'a_' + key); tt[ak] = lerp(tt[ak] ?? a, a, clamp(dt / (runT - 0.4), 0, 1)); a = tt[ak];
+      const ak = AK[key] || (AK[key] = 'a_' + key); tt[ak] = lerp(tt[ak] ?? a, a, clamp(dt / (C.canCapsize && s.kind === 'boom' ? Math.max(1, runT - 0.4) : runT - 0.4), 0, 1)); a = tt[ak];
       // (upwind, a main on a traveller with a vang is trimmed by the car and its leech below: travUp)
       // (not when she is stopped head to wind, in irons or mid-tack: then the main is eased to let the bow fall off,
       // below, as before: held hard in on its sheet, an AI boat that stalled in a tack stayed in irons)
@@ -1928,7 +1928,14 @@ function trimSails(boat, dt, aoaBias = 0, full = true) {
         // (nor hauled in past it by telltales that read a luff only because she is still nearly head to wind)
         if ((c.jib ?? 0.3) < mark - 0.05) { c.jib = Math.min(mark, (c.jib ?? 0.3) + 0.6 * dt); tt[ak] = aim; continue; }
       }
-      let dA = clamp(a - aim, -0.3, 0.3); if (dA < 0 && s.kind === 'spin') dA *= 1 - clamp(tt.over, 0, 1);
+      // (a dinghy's boom swinging inside its sheet, the sheet slack: the sail meets the wind at more than it will once
+      // the boom has gone out to the sheet, by the angle still to go. Trimmed by the angle it meets now, the sheet was
+      // eased as the boom swung in and hauled as it swung out, a Sunfish's every 2 s: the sheet never loaded, the boom
+      // snatching it at 10-60x its mean load. By the angle at the sheet, the sheet holds and the boom comes to rest on it)
+      let aS = a;
+      // (close-hauled: off the wind a boom inside its sheet is a sail eased to its angle, and read so a Sunfish lost 5% at 90 deg)
+      if (s.kind === 'boom' && C.canCapsize && boat.booms[s.key] && awa < 50 * DEG) aS = a - Math.max(0, boat.boomLimit(s) - boat.booms[s.key].a * sd);
+      let dA = clamp(aS - aim, -0.3, 0.3); if (dA < 0 && s.kind === 'spin') dA *= 1 - clamp(tt.over, 0, 1);
       // (and the main out of a tack is not sheeted past the angle the wind's own angle asks for, until she has her
       // speed: the apparent wind is wide while she is slow, and sheeted for full speed by its car and leech a 40 m main
       // stood stalled at 30-40 degrees for half a minute while she sat at 4 kn)
