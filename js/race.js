@@ -385,7 +385,7 @@ export class AIHelm {
     if (sim.world && !sim.world.open) desired = this.avoidShoals(sim, desired, mode, tack, up, twd, t);
     // traffic: under the racing rules (js/rules.js) when the race has them, else a simple swerve
     if (R) desired = aiRules(this, sim, this.gateTurn(R, desired, twd, up), mode, t, up);
-    else for (const o of sim.boats) {
+    else if (!this.lookout) for (const o of sim.boats) {
       if (o === b) continue;
       const dx = o.x - b.x, dz = o.z - b.z, r = Math.hypot(dx, dz);
       if (r > 18) continue;
@@ -395,8 +395,12 @@ export class AIHelm {
     // (the kite down near the bottom mark, and sailing free near the end of the way: hoisted for the last half
     // minute, and dropped again for the shallows' turns, it came up and down by the waypoint)
     this.sails(mode, twa, (leg && (leg.type === 'gate' || leg.type === 'finish') && dist < 90) || (!leg && !!this.goal && Math.hypot((this.goalEnd || dest).x - b.x, (this.goalEnd || dest).z - b.z) < 150), dt);
+    // the autopilot's lookout (js/colregs.js): the other vessels under the collision regulations (in a race the rules
+    // above govern the boats, and it watches the traffic only)
+    const look = this.lookout ? this.lookout.step(t, sim, desired, up, { boats: !R, traffic: true }) : null;
+    if (look) { desired = look.desired; if (look.say) this.note('colregs', look.say); }
     if (!this.noTrim) autoTrim(b, dt, this.bias);          // trim first: steering may override it (backing the jib in irons)
-    if (this.ease) this.slow();
+    if (this.ease || (look && look.slow)) this.slow();
     this.steer(dt, desired);
     this.mode = mode;
   }
