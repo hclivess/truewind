@@ -1925,6 +1925,30 @@ function trimSails(boat, dt, aoaBias = 0, full = true) {
       c[key] = lerp(c[key] ?? 0.3, s.kind === 'loose' ? Math.sqrt(fr) : fr, k * 2);
     }
   }
+  // An unstayed mast (a Laser's, an Optimist's) has only the leech to hold its head: the leech tension, sheet and vang
+  // together, is what bends it, ~500 N of it took a Laser's spar to its section's strength upwind and reaching in
+  // 25-30 kn (test/dismast.mjs). Her sailor watches the mast bend and plays the main in the gusts: past about half the
+  // spar's strength the vang comes off (fast) and the sheet goes out a little (a tenth), and both come back as it
+  // straightens. (It moves the failure, not the whole of it: easing takes the leech load off the top section, but in
+  // 25-30 kn the bottom section still parts under the rig's whole heeling moment, reaching within 3 s: the spar's own
+  // model, not the trim)
+  // (By the bend the crew sees, js/damage.js's load on the spar; no damage model, no bend to see: the polars' bake)
+  if (full && boat.dmg && boat.dmg.R && boat.dmg.R.stayed === false && boat.sailBy.main) {
+    tb.mR = lerp(tb.mR ?? 0, boat.dmg.maxR || 0, clamp(dt / 0.25, 0, 1));
+    const ex = tb.mR - 0.55, cap = 0.1;
+    if (ex > 0) {
+      tb.vE = clamp((tb.vE ?? 0) + ex * dt * 8, 0, 1);
+      tb.mE = clamp((tb.mE ?? 0) + ex * dt * 2, 0, cap);
+    } else {
+      const dk = 20;   // (and come back over ~20 s once it has straightened: it is still blowing)
+      tb.vE = Math.max(0, (tb.vE ?? 0) - dt / dk);
+      tb.mE = Math.max(0, (tb.mE ?? 0) - dt / dk * cap);
+    }
+    // (the sheet out by at most a tenth more than she trims it to, the main still drawing: let run until it flogs, she
+    // stops, rolls and the spar whips (a Laser eased that far in 30 kn broke her mast lying stopped))
+    c.vang = Math.min(c.vang, 1 - tb.vE);
+    c.main = clamp(c.main - (tb.mEa ?? 0) + tb.mE, 0, 1); tb.mEa = tb.mE;
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
