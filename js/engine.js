@@ -235,7 +235,7 @@ export class Engine {
   step(b, dt, uw, vw, cphi, sphi) {
     const S = this.spec, C = b.cls, pr = this.prop, D = pr.D;
     const [xp, yp0, zp] = S.pos, yp = S.twin ? 0 : yp0, nP = S.twin ? 2 : 1;
-    this.X = 0; this.Y = 0; this.K = 0; this.N = 0; this.My = 0; this.washU = 0;
+    this.X = 0; this.Y = 0; this.K = 0; this.N = 0; this.My = 0; this.washU = 0; this.washFr = 0; this.washUs = 0;
     // the outboard's leg is lowered to start and tilted clear when stopped (the crew takes ~1.5 s)
     const wantDown = !this.stowed && (!S.tilts || this.running || this.starting);
     this.down = clamp(this.down + (wantDown ? 1 : -1) * dt / 1.5, 0, 1);
@@ -349,6 +349,8 @@ export class Engine {
       const fr = clamp(0.85 * D / R.span, 0, 1);
       const u0 = Math.max(0, ax);
       this.washU = (ax >= 0 ? Math.sqrt((1 - fr) * u0 * u0 + fr * us * us) - u0 : fr * us) * kv;
+      // (and the slipstream itself, for a rudder taken in two parts: the share of its span in it and the water there)
+      if (ax >= 0) { this.washFr = fr * kv; this.washUs = Math.max(u0, us); }
     }
     // ---- the engine's weight where it is ----
     if (S.mass) {

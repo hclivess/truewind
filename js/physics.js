@@ -1200,25 +1200,40 @@ export class Boat {
       // a Westsail 32 motoring off from rest, her long keel's lift that of a few cm/s of leeway, had the rudder's water
       // turned past the blade's own angle and spun round with the helm reversed)
       const uK = Math.max(0, (this.u - wu) * (1 - (F.wake ?? 0.08)));
-      const eps = keelCl * clamp(uK / Math.max(1e-3, ul), 0, 1) / (Math.PI * d.keelARe) * (1 + dxk / Math.sqrt(dxk * dxk + sk * sk)) * (ul > 0 ? 1 : 0) * (F.transom ? 0.35 : 1);
+      const eps0 = keelCl / (Math.PI * d.keelARe) * (1 + dxk / Math.sqrt(dxk * dxk + sk * sk)) * (F.transom ? 0.35 : 1);
+      const eps = eps0 * clamp(uK / Math.max(1e-3, ul), 0, 1) * (ul > 0 ? 1 : 0);
+      // The propeller's slipstream covers only the part of the blade behind the propeller (its diameter over the span):
+      // that part meets the faster wash, the rest the boat's own water, each at its own angle. Averaged over the whole
+      // blade, the wash stiffened the part outside it against the water swinging in at the stern as she turns (r x), and
+      // she was driven round harder than her lateral plane could follow. At rest the wash part alone turns her: prop kick
+      const eng = this.engine, wFr = eng && eng.washFr > 0 && uK >= 0 ? clamp(eng.washFr, 0, 1) : 0;
+      const parts = this._rudParts || (this._rudParts = [{ f: 1, ul: 0 }, { f: 0, ul: 0 }]);
+      if (wFr > 0) { parts[0].f = 1 - wFr; parts[0].ul = uK; parts[1].f = wFr; parts[1].ul = Math.max(uK, eng.washUs * (1 - (F.wake ?? 0.08)) + uK * (F.wake ?? 0.08)); }
+      else { parts[0].f = 1; parts[0].ul = ul; parts[1].f = 0; }
       // one blade, or two: a catamaran's on its hulls (the weather one lifts out as the hull flies), a monohull's twin
       // spades F.y either side of the centreline (heeled, the windward blade rises toward the surface)
       const nb = F.twin ? 2 : 1;
       let rx = 0, rn = 0, K0 = 0, N0 = 0, Q = 0, vent = 0, cav = 0, stall = false, imm = 0, a0 = 0;
+      const stW = this._rudStW || (this._rudStW = [foilState(), foilState()]);
       for (let k = 0; k < nb; k++) {
-        const yb = F.twin ? (k ? 1 : -1) * (F.y ?? C.hullSpacing / 2) : 0, g = this._rg2[k], st = this.rudSt[k];
-        foilGeom(S, 1, st.kick, zwAt, cphi, sphi, yb, ul, g);
+        const yb = F.twin ? (k ? 1 : -1) * (F.y ?? C.hullSpacing / 2) : 0, g = this._rg2[k];
+        foilGeom(S, 1, this.rudSt[k].kick, zwAt, cphi, sphi, yb, parts[0].ul, g);
         const vl = (this.v - wvv + this.r * g.x + this.p * g.z) * cphi * (1 - (F.wake ?? 0.08));
-        const V2 = ul * ul + vl * vl, V = Math.sqrt(V2) + 1e-9;
-        const al = wrap(Math.atan2(vl, ul) - eps + this.rudder);
-        foilCoefR(S, st, al, V, g, dt, fc);
-        const q = 0.5 * RHO_W * V2 * g.area / nb * (this.rudderEff ?? 1);   // (a bent blade: js/damage.js)
-        const fx = q * (fc.cl * vl / V - fc.cd * ul / V), fn = q * (-fc.cl * ul / V - fc.cd * vl / V);
-        rx += fx; rn += fn; K0 += fn * g.z; N0 += g.x * fn * cphi;
-        // stock torque: the normal force at the centre of pressure about the stock (a kicked-up blade's is far aft)
-        const kickArm = st.kick ? 0.5 * g.span * Math.sin(g.sweep) / S.chord : 0;
-        Q += stockTorque(fc.cn, 0.5 * RHO_W * V2, g.area / nb, S.chord, fc.xcp + kickArm, S.balance);
-        vent += fc.vent / nb; cav += fc.cav / nb; stall = stall || fc.stalled; imm += g.imm / nb; if (!k) a0 = al;
+        for (let pi = 0; pi < 2; pi++) {
+          const P = parts[pi]; if (!(P.f > 0)) continue;
+          const st = pi ? stW[k] : this.rudSt[k], uP = P.ul;
+          if (pi) st.kick = this.rudSt[k].kick;
+          const V2 = uP * uP + vl * vl, V = Math.sqrt(V2) + 1e-9;
+          const al = wrap(Math.atan2(vl, uP) - eps0 * clamp(uK / Math.max(1e-3, uP), 0, 1) * (uP > 0 ? 1 : 0) + this.rudder);
+          foilCoefR(S, st, al, V, g, dt, fc);
+          const q = 0.5 * RHO_W * V2 * g.area * P.f / nb * (this.rudderEff ?? 1);   // (a bent blade: js/damage.js)
+          const fx = q * (fc.cl * vl / V - fc.cd * uP / V), fn = q * (-fc.cl * uP / V - fc.cd * vl / V);
+          rx += fx; rn += fn; K0 += fn * g.z; N0 += g.x * fn * cphi;
+          // stock torque: the normal force at the centre of pressure about the stock (a kicked-up blade's is far aft)
+          const kickArm = st.kick ? 0.5 * g.span * Math.sin(g.sweep) / S.chord : 0;
+          Q += stockTorque(fc.cn, 0.5 * RHO_W * V2, g.area * P.f / nb, S.chord, fc.xcp + kickArm, S.balance);
+          vent += fc.vent * P.f / nb; cav += fc.cav * P.f / nb; stall = stall || fc.stalled; imm += g.imm * P.f / nb; if (!k && !pi) a0 = al;
+        }
       }
       X += rx; Y += rn * cphi; K += K0; N += N0;
       d.Nrud = N0; d.rudAlpha = a0; d.eps = eps; d.rudAst = fc.ast;
@@ -1327,8 +1342,27 @@ export class Boat {
       Y -= cf; K -= cf * H.z;
       const T = C.canoeDraft, L = C.lwl;
       const N0 = N;
-      N -= 0.5 * RHO_W * T * 0.9 * (L ** 4 / 32) * this.r * Math.abs(this.r);
-      N -= 0.5 * RHO_W * T * L ** 3 * 0.03 * (Math.abs(uw) + 0.3) * this.r;
+      // The hull's cross-flow drag strip by strip along the length (Hooft 1994; Oltmann & Sharma 1984): each strip meets
+      // the water sideways at v + r x, so a hull turning while it skids feels it most at the end that swings out. (The
+      // pure-sway part stays the class's cf above: straight-line sailing is unchanged; the strips carry the rotation,
+      // the r|r| term alone before, and the cross terms that were missing.) And the canoe body's linear yaw damping at
+      // the old 0.03 T/L (Clarke, Gedling & Hine's N'r for a canoe body alone), raised to 2.5x of it while the propeller's
+      // race runs over the stern: the faster water there over the run, deadwood and skeg resists the stern's swing as she
+      // turns under power. Set with the strips on the turning circles under power (test/manoeuvres.mjs; without it the
+      // fin keelers pivoted round in half a length); under sail it stays 1x, which the tacks need (test/seatrial.mjs,
+      // 2.5x everywhere put half again as many tacks into irons)
+      {
+        const cs = 0.5 * RHO_W * 0.9 * T, n = 12, dxs = L / n;
+        let Ys = 0, Ns = 0;
+        for (let i = 0; i < n; i++) {
+          const x = -L / 2 + (i + 0.5) * dxs, w = vw + this.r * x;
+          const f = cs * (w * Math.abs(w) - vw * Math.abs(vw)) * dxs;
+          Ys -= f; Ns -= f * x;
+        }
+        Y += Ys * Math.abs(cphi); N += Ns * Math.abs(cphi);   // (a drag: it opposes the motion whichever way she lies)
+      }
+      const yawWash = this.engine && this.engine.washFr > 0 ? clamp(this.engine.washFr / 0.15, 0, 1) : 0;
+      N -= 0.5 * RHO_W * T * L ** 3 * 0.03 * (1 + 1.5 * yawWash) * (Math.abs(uw) + 0.3) * this.r;
       if (!slender) N -= 0.011 * 0.5 * RHO_W * uw * Math.abs(uw) * L * L * T * Math.sin(this.phi);
       // hull drag acts where the immersed volume is: a multihull on its leeward hull wants to bear away
       if (imm.V > 1e-6) N += (Rf + Rr) * Math.sign(uw) * (imm.My / imm.V) * cphi * (slender ? 1 : 0.3);

@@ -500,6 +500,10 @@ export class AIHelm {
       this.penStuck = 0;
     }
     this.steer(dt, b.psi + this.penD * 70 * DEG, true);
+    // bearing away through the reach to the gybe, a sloop's crew lets the main run (its pull aft holds her head up) and
+    // keeps the jib drawing: slow out of the tack, a long-keeler held on the reach with her helm hard over otherwise
+    const awayNow = (Math.sign(twa) || 1) * -this.penD > 0, aT = Math.abs(twa);
+    if (awayNow && aT > 30 * DEG && aT < 120 * DEG && b.sailBy.jib && b.sailBy.main) b.ctrl.main = 1;
   }
 
   // The start. Each crew has her slot on the line (startFrac: spaced along it, in the order the boats lie in the
