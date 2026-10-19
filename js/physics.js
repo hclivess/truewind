@@ -1687,6 +1687,8 @@ function trimSails(boat, dt, aoaBias = 0, full = true) {
   // (upwind and close reaching, as a crew trims to her heel: reaching under a kite in a blow the sheet is eased by
   // the heel itself, above, and an ease built up over 10 s left a kite too soft to break when she broached)
   const tb = boat._tt || (boat._tt = { over: 0 });
+  // (the time since she last tacked or gybed: the apparent wind changed sides)
+  if (lee !== tb.lee0) { tb.lee0 = lee; tb.since = 0; } else tb.since = (tb.since ?? 99) + dt;
   { const e = (heelLee - C.targetHeel) / ((C.overHeel ?? 10) * DEG), on = sstep(75 * DEG, 55 * DEG, awa) * (1 - clamp(boat.genDeploy || 0, 0, 1));
     // (not a dinghy's: her crew keeps her flat by hiking, the vang and the cunningham, and its main eased further
     // stalls: with a build-up of even a quarter a Laser-sized dinghy in 25 kn stopped dead, 0.1-2.5 kn from 4-5.6;
@@ -1826,7 +1828,11 @@ function trimSails(boat, dt, aoaBias = 0, full = true) {
       // to windward, which held it aback; an AI sportboat bearing away round the windward mark in the race test (seed 2)
       // lay there at 1-2 kn with full helm for ten minutes and did not finish. The strip rule below puts the car by the
       // wind's angle, to leeward, and the boom swings across)
-      const travUp = s.key === 'main' && !!s.trav && !!s.track && shapeUp > 0.5 && s.vang !== 'none' && !!sh.main && !(awa < 32 * DEG && boat.u < 1.3) && !(boat.booms.main && boat.booms.main.a * sd > 8 * DEG);
+      const travUp = s.key === 'main' && !!s.trav && !!s.track && shapeUp > 0.5 && s.vang !== 'none' && !!sh.main && !(awa < 32 * DEG && boat.u < 1.3) && !(boat.booms.main && boat.booms.main.a * sd > 8 * DEG)
+        // (nor in the first seconds after a tack: the new side's telltales read the boom still crossing, and the car,
+        // hauled up by them, pulled the boom over to the new windward side (seed 2 again, a sportboat tacking at 2.5 kn),
+        // where it stayed. The strip rule puts the car by the wind's angle until the main has filled on its new side)
+        && tb.since > 6;
       if (s.key === 'main' && s.trav && !travUp) {
         const sheetEase = clamp(0.06 + 0.25 * flat * upwind + (1 - upwind) * 0.3, 0, 1);
         c.trav = lerp(c.trav, clamp((want - sheetEase * (s.max - s.trav[1]) - s.trav[0]) / (s.trav[1] - s.trav[0]), 0, 1), k * 2);
