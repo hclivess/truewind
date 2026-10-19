@@ -739,6 +739,10 @@ export class AIHelm {
     const turning = b.r * Math.sign(err) > 2 * DEG;
     if (sameTack && off > 10 * DEG && slow > 0.3 && !turning && b.sailBy.jib && b.sailBy.main) b.ctrl.main = Math.max(b.ctrl.main, 0.35 + 0.5 * slow);
     const kp = 2.4 * this.skill, kd = 1.6;
+    // (no integral term: one that found the boat's standing weather helm over ~15 s took 1-2 degrees off the steady
+    // error of the heavy-helmed boats, but in a seaway it held the helm through the waves' yaw and a J/24 reaching in a
+    // 20 kn chop broached three times as often; with the big yachts' hydraulic steering, js/helm.js, the error that
+    // is left is 2-4 degrees, steady, not a zig-zag)
     let cmd = clamp(kp * err - kd * b.r, -0.8, 0.8);
     // A helmsman feels the helm go light as the blade stalls and eases it until it bites again: more helm on a stalled
     // rudder only brakes her while she rounds up anyway (autopilots carry a rudder limit for the same reason). In a
@@ -754,7 +758,11 @@ export class AIHelm {
     // and when the helm is hard over while she rounds up, the crew dumps the main (its pull aft is what turns her
     // into the wind), sheeting in again as she answers (autoTrim, next step)
     const upNow = Math.abs(wrap(twd - b.psi)), upWant = Math.abs(wrap(twd - desired));
-    if (Math.abs(cmd) > 0.4 && upNow < upWant - 6 * DEG && upNow < 110 * DEG && b.sailBy.main && !this.backing) b.ctrl.main = Math.max(b.ctrl.main, 0.6);
+    // (only while she is still turning up, 10 degrees past where she should be: a boat that carries a lot of helm
+    // steadily, a J-class, otherwise had her main dumped and sheeted again every few seconds, and the weather helm
+    // that came and went with it swung her about)
+    const roundingUp = b.r * (Math.sign(wrap(twd - b.psi)) || 1) > 1 * DEG;
+    if (Math.abs(cmd) > 0.4 && roundingUp && upNow < upWant - 10 * DEG && upNow < 110 * DEG && b.sailBy.main && !this.backing) b.ctrl.main = Math.max(b.ctrl.main, 0.6);
     const twa = wrap(twd - b.psi);
     // in irons / going astern: the rudder works backwards; the jib is backed by hauling the lazy sheet
     // across on the other winch (a una-rig pushes the boom out by hand)

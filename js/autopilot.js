@@ -194,12 +194,21 @@ export class Autopilot {
   vane(dt, t, sim) {
     const b = this.b, h = this.helm, twd = waterTwd(b), up = this.up;
     if (this.vaneTwa === null) {
+      this.vaneNew = true;
       const a = wrap(twd - b.psi);
       this.vaneTwa = (Math.sign(a) || 1) * clamp(Math.abs(a), up, 175 * DEG);
       this.say('vane', `No waypoint: holding the wind angle like a wind vane, ${dg(this.vaneTwa)}° off the wind on ${this.vaneTwa > 0 ? 'starboard' : 'port'} tack (a ${pointOf(Math.abs(this.vaneTwa))}). Tap the chart for a waypoint to sail to.`, t);
     }
     const A = Math.abs(this.vaneTwa), mode = A < up + 6 * DEG ? 'beat' : A > 150 * DEG ? 'run' : 'reach', tack = Math.sign(wrap(twd - b.psi)) || 1;
-    let desired = twd - this.vaneTwa;
+    // the wind it holds the angle to is the instruments' damped true wind, not each gust's: a puff swings the wind
+    // 5-15 degrees for the 10-30 s it takes to pass (fanning out as it lands), and a pilot that followed it zig-zagged
+    // across the reach. Upwind it follows within ~4 s (sailing to the telltales: the lifts and headers are the race);
+    // reaching and running it keeps its heading through the puffs and follows a shift over ~20 s, as a wind-mode
+    // autopilot's damping does (B&G, Raymarine: 10-30 s true-wind damping)
+    const tau = lerp(4, 20, clamp((A - up - 6 * DEG) / (20 * DEG), 0, 1));
+    this.twdF = this.twdF === undefined || this.vaneNew ? twd : this.twdF + wrap(twd - this.twdF) * clamp(dt / tau, 0, 1);
+    this.vaneNew = false;
+    let desired = this.twdF - this.vaneTwa;
     if (sim.world && !sim.world.open) {
       const hh = h.avoidShoals(sim, desired, mode, tack, up, twd, t);
       // (turned through the wind to get out of the shallows: the same angle on the new tack)
