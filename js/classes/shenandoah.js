@@ -37,10 +37,11 @@ export default {
   rr: rrTable(LWL, M + 1300, { prism: -0.04 }),
   // Balance. Off her sail plan the profile's centre of lateral resistance is ~0.8 m abaft the centre of gravity and the
   // working sails' centre of effort ~0.5 m abaft it: a lead of ~1% LWL, little for a schooner whose biggest sail is the
-  // mizzen. With the hull's yaw moment at Clarke's figure (munkK) and the keel's lift centre at -2.9 m (est.: the deep
-  // fin of her keel is aft of the profile's middle), she carries ~5 deg of weather helm at her close-hauled angle
-  // (55 deg TWA) in 12 kn and ~7 deg pinched at 45 (test/helm.mjs). The rudder on the sternpost 3.6 x 1.7 m (est.)
-  keel: { x: -4.5, z: -2.4, area: 60, ARe: 0.7, stall: 26 * DEG, cd0: 0.003, span: 4.6, chord: 16, long: true },
+  // mizzen. With the hull's yaw moment at Clarke's figure (munkK, correctly normalised: the full potential-flow moment)
+  // the keel's lift centre goes at -4.9 m (est.: the deep fin of her keel is aft of the profile's middle; at -2.9 m with
+  // the full moment she carried ~8 deg), for ~3-5 deg of weather helm close-hauled in 12 kn (test/helm.mjs). The rudder
+  // on the sternpost 3.6 x 1.7 m (est.)
+  keel: { x: -8.2, z: -2.4, area: 60, ARe: 0.7, stall: 26 * DEG, cd0: 0.003, span: 4.6, chord: 16, long: true },
   rudder: { x: -12.6, z: -2.3, area: 6.2, ARe: 2.1, stall: 22 * DEG, cd0: 0.013, max: 35 * DEG, span: 3.6, chord: 1.72, loadRef: 45000 },
   hullLat: { area: 16, cd: 0.9, z: -0.8 },
   windage: { area: 60, z: 9, cd: 1.0 },

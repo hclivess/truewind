@@ -40,11 +40,11 @@ export default {
   // Balance. The long keel is the hull's lateral plane (span the whole draft, ARe 2 b^2 / A); its lift acts 0.1 chord
   // ahead of the middle of its profile (js/foils.js). The geometric centre of lateral resistance of her profile (6 ft
   // of draft forward, 11 ft aft) is ~1.4 m abaft midships, the working sails' centre of effort ~0.3 m abaft that (est.
-  // from the spars): a lead of ~4% LWL. With the hull's yaw moment at Clarke's figure (munkK) and the lift centre at
-  // -2.8 m (the deep heel aft carries more of it than the area alone says), she carries ~5 deg of weather helm at her
-  // close-hauled angle (55 deg TWA, her best VMG) in 12 kn and ~7 deg pinched at 45 (test/helm.mjs); the rudder on
-  // the sternpost 3.1 x 1.5 m (est.)
-  keel: { x: -5.0, z: -1.8, area: 46, ARe: 0.5, stall: 28 * DEG, cd0: 0.003, span: 3.2, chord: 22, long: true },
+  // from the spars): a lead of ~4% LWL. With the hull's yaw moment at Clarke's figure (munkK, correctly normalised: the
+  // full potential-flow moment) the lift centre goes at -6.8 m (est.: the deep heel aft carries far more of it than the
+  // area alone says; at -2.8 m with the full moment she carried 8-10 deg of weather helm), for ~3-5 deg close-hauled in
+  // 12 kn (test/helm.mjs); the rudder on the sternpost 3.1 x 1.5 m (est.)
+  keel: { x: -11.5, z: -1.8, area: 46, ARe: 0.5, stall: 28 * DEG, cd0: 0.003, span: 3.2, chord: 22, long: true },
   rudder: { x: -13.4, z: -1.6, area: 4.6, ARe: 1.9, stall: 22 * DEG, cd0: 0.014, max: 35 * DEG, span: 3.1, chord: 1.5, loadRef: 30000 },
   hullLat: { area: 10, cd: 0.9, z: -0.5 },
   windage: { area: 34, z: 6.5, cd: 1.0 },

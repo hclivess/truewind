@@ -30,7 +30,9 @@ export default {
   munkK: clarkeMunkK(LWL, 1.3, M + 80, 0.09, 1.0),   // (the hull's yaw moment at a drift angle, util.js)
   rr: rrTable(LWL, M + 80, { prism: -0.12 }),
   // (a long keel is part of the lines: its skin friction is in the hull's, so the foil keeps only its form drag)
-  keel: { x: 0.1, z: -0.9, area: 5.2, ARe: 0.75, stall: 28 * DEG, cd0: 0.003, span: 0.6, chord: 8.5, long: true },
+  // (the long keel's lift centre ~0.35 m abaft the CG (est., against Clarke's full yaw moment, munkK): ~3-5 deg of
+  // weather helm close-hauled in 12 kn, test/helm.mjs; famously she steered herself, the helm lashed, on a reach)
+  keel: { x: -2.4, z: -0.9, area: 5.2, ARe: 0.75, stall: 28 * DEG, cd0: 0.003, span: 0.6, chord: 8.5, long: true },
   rudder: { x: -5.55, z: -0.5, area: 1.25, ARe: 1.8, stall: 22 * DEG, cd0: 0.015, max: 35 * DEG, span: 1.4, chord: 0.95, transom: true, loadRef: 3000 },
   hullLat: { area: 4.5, cd: 0.9, z: -0.3 },
   windage: { area: 8.5, z: 2.8, cd: 1.0 },
