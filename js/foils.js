@@ -207,6 +207,11 @@ export function foilCoef(S, st, alpha, V, g, dt, out) {
   const sepT = st.stalled ? sstep(0.8 * ast, 0.88 * ast, a) : sstep(ast, ast + 6 * DEG, a);
   const k = clamp(dt * Va / (3 * S.chord), 0, 1);
   st.sep += (sepT - st.sep) * k;
+  // (the delay is the boundary layer's, a few chord lengths of travel: it holds the flow on a few degrees past the
+  // stall, never at 40-90 degrees. Slow, a blade meeting the water broadside travels almost no chord lengths, and it
+  // kept its attached lift for many seconds there: a yacht skidding round under power had her keel's lift along the
+  // hull, none across it, and pivoted on the spot. Deep past the stall the flow is separated at once)
+  st.sep = Math.max(st.sep, sstep(ast + 10 * DEG, ast + 25 * DEG, a));
   // attached branch (the lift rounds off toward CLmax over the last few degrees)
   let clA = slope * a;
   if (a > 0.85 * ast) clA = slope * 0.85 * ast + (clMax - slope * 0.85 * ast) * Math.sin(Math.min(1, (a - 0.85 * ast) / (0.15 * ast)) * Math.PI / 2);

@@ -464,7 +464,10 @@ export class AIHelm {
     // (each wait for speed has an end: in a lull or another boat's wind shadow the speed may never come, and a boat
     // holding a reach for it ran out the umpire's time and was disqualified)
     const vT = Math.max(1, Math.min(this.targetsUpBsp ?? 2, 0.45 * (b.diag.tws ?? 5)));
-    if (!pen.dir && b.u < 0.7 * vT && (this.penBuild = (this.penBuild || 0) + dt) < 15) { this.steer(dt, twd - tack * 100 * DEG); return; }
+    // (a catamaran with no boards slides off sideways when slow, its rudders' angle eaten by the leeway, and stalls
+    // head to wind: it goes for the tack at full reaching speed, as beach-cat sailors do)
+    const vGo = (b.cls.multihull ? 1.2 : 0.7) * vT;
+    if (!pen.dir && b.u < vGo && (this.penBuild = (this.penBuild || 0) + dt) < 15) { this.steer(dt, twd - tack * 100 * DEG); return; }
     // coming up toward the tack too slow to carry through it: hold a reach until she has way on (a stall head to
     // wind falls back and the turn is lost)
     const upward = (this.penD > 0) === (twa > 0), a = Math.abs(twa);
@@ -472,9 +475,17 @@ export class AIHelm {
     // last, slow or not, round she goes)
     if (upward && a > 60 * DEG && a < 115 * DEG) {
       const w = (this.penHold = (this.penHold || 0) + dt);
-      if (!this.penGo && b.u < (w < 20 ? 0.8 : w < 35 ? 0.55 : 0) * vT) { this.steer(dt, twd - tack * 100 * DEG); return; }
+      if (!this.penGo && b.u < (w < 20 ? 0.8 : w < 35 ? 0.55 : 0) * vT * (b.cls.multihull ? 1.5 : 1)) { this.steer(dt, twd - tack * 100 * DEG); return; }
       this.penGo = true;                                       // (once she has gone for it, on round)
     } else { this.penHold = 0; this.penGo = false; }
+    // (stuck: helm hard over and nothing turning, close-hauled and slow, a cat sliding off sideways on her leeway with
+    // its rudders' angle eaten by it; the helm takes her off onto a reach to build speed, then round again)
+    if (b.cls.multihull && Math.abs(b.ctrl.helm) > 0.7 && Math.abs(b.r) < 1.5 * DEG && b.u < vGo && Math.abs(twa) < 60 * DEG) this.penStuck = (this.penStuck || 0) + dt;
+    else if (Math.abs(b.r) > 4 * DEG) this.penStuck = 0;
+    if (this.penStuck > 4) {
+      if (b.u < 1.2 * vGo && this.penStuck < 40) { this.penStuck += dt; this.steer(dt, twd - tack * 100 * DEG); return; }
+      this.penStuck = 0;
+    }
     this.steer(dt, b.psi + this.penD * 70 * DEG, true);
   }
 
@@ -762,7 +773,10 @@ export class AIHelm {
     // steadily, a J-class, otherwise had her main dumped and sheeted again every few seconds, and the weather helm
     // that came and went with it swung her about)
     const roundingUp = b.r * (Math.sign(wrap(twd - b.psi)) || 1) > 1 * DEG;
-    if (Math.abs(cmd) > 0.4 && roundingUp && upNow < upWant - 10 * DEG && upNow < 110 * DEG && b.sailBy.main && !this.backing) b.ctrl.main = Math.max(b.ctrl.main, 0.6);
+    // (not in a penalty turn, free, where the helm is hard over all the way round by design: there the main eased at
+    // every luff left a dinghy, whose main is all her drive, in irons going astern)
+    const dump = free ? false : roundingUp && upNow < upWant - 10 * DEG;
+    if (Math.abs(cmd) > 0.4 && dump && upNow < 110 * DEG && b.sailBy.main && !this.backing) b.ctrl.main = Math.max(b.ctrl.main, 0.6);
     const twa = wrap(twd - b.psi);
     // in irons / going astern: the rudder works backwards; the jib is backed by hauling the lazy sheet
     // across on the other winch (a una-rig pushes the boom out by hand)
