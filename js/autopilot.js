@@ -217,7 +217,7 @@ export class Autopilot {
         this.say('vaneFlip', `Shallows ahead: ${mode === 'run' ? 'gybing' : 'tacking'} away, and holding ${dg(this.vaneTwa)}° off the wind on ${this.vaneTwa > 0 ? 'starboard' : 'port'} now.`, t);
       } else desired = hh;
     }
-    h.sails(mode, wrap(twd - b.psi), false);
+    h.sails(mode, wrap(twd - b.psi), false, dt);
     if (!h.noTrim) autoTrim(b, dt, 0);
     h.steer(dt, desired);
     h.mode = mode; this.mode = 'vane';
