@@ -466,7 +466,8 @@ export class AIHelm {
     const vT = Math.max(1, Math.min(this.targetsUpBsp ?? 2, 0.45 * (b.diag.tws ?? 5)));
     // (a catamaran with no boards slides off sideways when slow, its rudders' angle eaten by the leeway, and stalls
     // head to wind: it goes for the tack at full reaching speed, as beach-cat sailors do)
-    const vGo = (b.cls.multihull ? 1.2 : 0.7) * vT;
+    // (and a long keel, slow to turn and carrying her way through it on momentum alone, at her reaching speed too)
+    const heavyTurn = b.cls.multihull ? 1.2 : b.cls.keel && b.cls.keel.long ? 1.05 : 0.7, vGo = heavyTurn * vT;
     if (!pen.dir && b.u < vGo && (this.penBuild = (this.penBuild || 0) + dt) < 15) { this.steer(dt, twd - tack * 100 * DEG); return; }
     // coming up toward the tack too slow to carry through it: hold a reach until she has way on (a stall head to
     // wind falls back and the turn is lost)
@@ -475,7 +476,7 @@ export class AIHelm {
     // last, slow or not, round she goes)
     if (upward && a > 60 * DEG && a < 115 * DEG) {
       const w = (this.penHold = (this.penHold || 0) + dt);
-      if (!this.penGo && b.u < (w < 20 ? 0.8 : w < 35 ? 0.55 : 0) * vT * (b.cls.multihull ? 1.5 : 1)) { this.steer(dt, twd - tack * 100 * DEG); return; }
+      if (!this.penGo && b.u < (w < 20 ? 0.8 : w < 35 ? 0.55 : 0) * vT * (b.cls.multihull ? 1.5 : b.cls.keel && b.cls.keel.long ? 1.3 : 1)) { this.steer(dt, twd - tack * 100 * DEG); return; }
       this.penGo = true;                                       // (once she has gone for it, on round)
     } else { this.penHold = 0; this.penGo = false; }
     // (stuck: helm hard over and nothing turning, close-hauled and slow, a cat sliding off sideways on her leeway with
@@ -762,7 +763,11 @@ export class AIHelm {
     const ast = d.rudAst, al = d.rudAlpha, rmax = b.cls.rudder.max * (b.rudderLim ?? 1);
     // (not from a standstill: sliding sideways at a knot or two the blade's angle is the leeway's whatever the helm, and
     // eased to nothing it froze her for minutes, wanting to bear away round onto the other gybe and never turning)
-    if (ast && Number.isFinite(al) && b.u > 0.5 * vT && Math.abs(al) > 0.9 * ast && Math.sign(al) === Math.sign(b.rudder) && Math.sign(cmd) === Math.sign(b.rudder)) {
+    // (and only when easing can give the blade its flow back: rounding up fast in a broach, the water meets the blade
+    // past its stall from the yaw alone, and the helm let go to nothing let a J/70 in a 28 kn gust spin up at 19 deg/s.
+    // There a stalled blade still pushes in proportion to its angle: the helm stays on)
+    const flowA = Number.isFinite(al) ? al - b.rudder : 0;
+    if (ast && Number.isFinite(al) && b.u > 0.5 * vT && Math.abs(al) > 0.9 * ast && Math.sign(al) === Math.sign(b.rudder) && Math.sign(cmd) === Math.sign(b.rudder) && Math.abs(flowA) < 0.8 * ast) {
       const cmax = Math.max(0.05, (Math.abs(b.rudder) - (Math.abs(al) - 0.8 * ast)) / rmax);
       if (Math.abs(cmd) > cmax) cmd = Math.sign(cmd) * cmax;
     }

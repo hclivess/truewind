@@ -4,6 +4,7 @@
 //  1. tacks (the bow through the wind at 30 deg/s, the automatic crew): the boom end's second difference per 1/120 s
 //     step stays under 40 mm (was ~500 mm: the car set straight onto the new side snatched the boom at 100-200 kN)
 //  2. a gybe with the main eased right out: the boom goes over to the new side, without the car throwing it over
+//  3. a crash gybe swings the boom hard (over 120 deg/s at mid-swing), a controlled one gently (under 90)
 // Run: node test/tack-boom.mjs
 import { Boat, autoTrim, makeSteadyEnv } from '../js/physics.js';
 import { attachSails } from '../js/sail/sailsim.js';
@@ -39,6 +40,33 @@ for (const cls of ['sportboat', 'tp52']) {
 {
   const r = sail('sportboat', 16, 150, 240, true);
   check(r.before !== r.after, `sportboat: an unplanned gybe, main eased right out: the boom goes over (side ${r.before} -> ${r.after}, worst ${r.max.toFixed(0)} mm per step)`);
+}
+// 3. a crash gybe swings the boom hard, a controlled one does not: bearing away from 150 deg to 270 deg TWA (the wind
+//    getting ahead of the boom on the new side) at 25 deg/s with the main let right out, the boom crosses at well over
+//    100 deg/s at mid-swing (it crept across at 40-80 deg/s: the sail took its swing's moment into the luff's pins, and a
+//    viscous boom damper took the rest); with the main hauled to the centre first, under 90 deg/s
+function gybe(cls, tws, controlled) {
+  const env = makeSteadyEnv(tws * KT), b = new Boat(cls);
+  attachSails(b, 'cloth', 0);
+  b.reset(0, 0, 150 * DEG); b.u = 3;
+  let hdg = 150 * DEG, mid = 0, side0 = 0, side1 = 0;
+  for (let i = 0; i < 120 * 24; i++) {
+    const t = i * dt, tgt = (t > 12 ? 270 : 150) * DEG, d = tgt - hdg, rate = Math.sign(d) * Math.min(Math.abs(d) / dt, 25 * DEG);
+    hdg += rate * dt;
+    autoTrim(b, dt, 0, true);
+    if (!controlled) { b.ctrl.main = 1; b.lines.main = 1; } else if (t > 4 && t < 18) b.ctrl.main = Math.max(0.05, b.ctrl.main - 0.4 * dt);
+    b.step(dt, env, t); b.psi = hdg; b.r = rate; b.rudder = 0;
+    const R = b.sailSys.cloth('main');
+    if (t > 11 && !side0) side0 = Math.sign(R.a);
+    if (t > 12 && Math.abs(R.a) < 25 * DEG) mid = Math.max(mid, Math.abs(R.rate) / DEG);
+    side1 = Math.sign(R.a);
+  }
+  return { mid, crossed: side1 === -side0 };
+}
+{
+  const a = gybe('sportboat', 16, false), c = gybe('sportboat', 16, true);
+  check(a.crossed && a.mid > 120, `sportboat 16 kn: a crash gybe swings the boom across at ${a.mid.toFixed(0)} deg/s at mid-swing`);
+  check(c.crossed && c.mid < 90, `sportboat 16 kn: a controlled gybe (main hauled in first) at ${c.mid.toFixed(0)} deg/s`);
 }
 console.log(fails ? `${fails} FAILED` : 'all tack and gybe boom checks passed');
 process.exit(fails ? 1 : 0);
