@@ -418,6 +418,11 @@ export class BoomSailRig extends ClothRig {
       this.spritLen = hyp3(this.rest[pk] - this.snotter[0], this.rest[pk + 1], this.rest[pk + 2] - this.snotter[2]);
       cloth.addLength(peak, this.snotter, this.spritLen, 1e6);
     }
+    // a main on its mast swings about its luff as a body (js/sail/cloth.js _hingeMode): the luff's line, tack to head
+    if (isMain && onMast && !lateen && !this.boomless) {
+      const L = hyp(this.rake || 0, s.luff) || 1;
+      cloth.hinge = { o: [this.px, 0, this.pz], d: [-(this.rake || 0) / L, 0, s.luff / L] };
+    }
     // battens: stiff chains of nodes on the batten rows (full length on a fully battened sail, the aft third
     // otherwise), with the batten's bending stiffness on every second node
     const bt = battens(C, s);
@@ -604,6 +609,14 @@ export class BoomSailRig extends ClothRig {
         const r = this._vsR || (this._vsR = [0, 0, 0]); r[0] = -f * vx / l; r[1] = -f * vy / l; r[2] = -f * vz / l;
       } else if (this._vsR) this._vsR[0] = this._vsR[1] = this._vsR[2] = 0;
     }
+    // (swinging free about its luff: nothing but the luff holds it, js/sail/cloth.js step; and gybing: the wind on the
+    // side the boom is on, by the lee, or the boom swinging across, 20 deg/s or more within 50 deg of the centreline,
+    // off the wind. A boom sailing as it is trimmed, eased out, luffing or flogging upwind, is left as it was: its polars
+    // do not change)
+    const awaS = b.diag.awaMid || 0, byLee = Math.abs(awaS) > 0.5 && Math.sign(this.a || 0) === Math.sign(awaS);
+    const crossing = Math.abs(awaS) > 1.6 && Math.abs(this.rate || 0) > 0.35 && Math.abs(this.a || 0) < 0.9;
+    c.hingeFree = !!c.hinge && !wasTaut && !(this.stop && this.stop.taut) && !(this.prev && this.prevOn) && (byLee || crossing);
+    c.hingeStops = this._hs || (this._hs = [this.sheet, this.stop, this.prev].filter(Boolean));
     this.stepCloth(dt, nsub, fr);
     if (!this.track && this.vang && !this.clubVang && this.isMain) {
       // (a main without a track, the TP52's, likewise: its vang rated at the load the class's lines put on it,
@@ -625,10 +638,18 @@ export class BoomSailRig extends ClothRig {
         if (this.vangSlip > 0 && this._vL !== undefined) this.vang.len = this._vL + this.vangSlip;
       }
       const ex = c.x[E3] - this.px, ey = c.x[E3 + 1], r = hyp(ex, ey) || 1, tx = -ey / r, ty = ex / r;   // horizontal tangent
-      // the boom's swing damped by the air it and the foot push aside and by the gooseneck's and blocks' friction,
-      // 15 N per m/s at its end (15 N at a brisk 20 deg/s on a 3 m boom): without it a luffing main with its sheet
-      // eased swung the boom through 60 deg every six seconds, its twist lagging its angle, for want of any loss
-      { const vt = c.v[E3] * tx + c.v[E3 + 1] * ty, k = 1 - 1 / (1 + 15 * dt / c.m[this.E]); c.v[E3] -= k * vt * tx; c.v[E3 + 1] -= k * vt * ty; }
+      // the boom's swing damped by the gooseneck's and blocks' friction and the air the boom pushes aside: 15 N per m/s
+      // at its end up to 1 m/s (15 N at a brisk 20 deg/s on a 3 m boom: without it a luffing main with its sheet eased
+      // swung the boom through 60 deg every six seconds, its twist lagging its angle, for want of any loss), and beyond
+      // that the friction stays at its 15 N and the boom's own air drag grows with the square of its speed. (Kept
+      // viscous at every speed it took 250 N m off a J/70 boom crossing at 100 deg/s, as much as the wind drove it
+      // with: a crash gybe crept across. The sail's own air drag is in its aerodynamics.)
+      {
+        const vt = c.v[E3] * tx + c.v[E3 + 1] * ty, av = Math.abs(vt);
+        const Fd = av < 1 ? 15 * av : 15 + 0.6 * 0.1 * this.Lb * 0.33 * (av * av - 1);
+        const dv = Math.min(av, Fd * dt / c.m[this.E]) * Math.sign(vt);
+        c.v[E3] -= dv * tx; c.v[E3 + 1] -= dv * ty;
+      }
       // boom brake: friction at the boom's swing, a force at its end that slows it and never reverses it
       const Fb = (b.ctrl.brake || 0) * (s0.brake || 0);
       if (Fb > 0) {
