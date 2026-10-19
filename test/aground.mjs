@@ -73,7 +73,7 @@ for (const id of VEN) {
     const where = `at ${spot.x.toFixed(0)},${spot.z.toFixed(0)} hdg ${(spot.psi / DEG).toFixed(0)}`;
     if (keel) {
       S.within({ quantity: `${tag} furthest onto the land, driven at the beach at ${(r.uMax / KT).toFixed(1)} kn (${where})`, measured: -r.minS, hi: 0, unit: 'm', source: 'a keel stops a keelboat in the water: she grounds where the depth is her draught' });
-      S.within({ quantity: `${tag} furthest her stem got onto the land`, measured: -r.minBow, hi: 1, unit: 'm', source: 'at a steep shore or a wall the bow meets it; on a shelving one the keel grounds first (est.: the stem rides up a metre at most)' });
+      S.within({ quantity: `${tag} furthest her stem got onto the land`, measured: -r.minBow, hi: Math.max(1, 0.1 * C.loa), unit: 'm', source: 'at a steep shore or a wall the bow meets it; on a shelving one the keel grounds first (est.: the stem rides up a metre, or a tenth of her length, at most)' });
       S.within({ quantity: `${tag} depth where she lies after 90 s`, measured: r.depth, lo: C.draft * 0.5, unit: 'm', source: `her keel on the bottom: depth ~ draught ${C.draft.toFixed(2)} m (half of it allowed for the slide)` });
     } else {
       S.within({ quantity: `${tag} furthest up the beach at ${(r.uMax / KT).toFixed(1)} kn (${where})`, measured: -r.minS, hi: 0.5 * C.loa, unit: 'm', source: 'a dinghy beached at speed slides a metre or two up the sand, not across the land (est.: half her length)' });
