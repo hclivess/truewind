@@ -1,0 +1,6312 @@
+[
+{
+"test": "anchor.mjs",
+"section": "1. All-chain catenary against the analytic solution",
+"quantity": "all-chain catenary: horizontal tension H and top tension T from rodeSolve, per H in [30,150,600,2500] N (6 mm chain, L 30 m, h 5 m)",
+"expected": "H = analytic H; T = hypot(H, w s) (analytic catenary)",
+"tol": "relative error < 0.01 (1%) each",
+"source": "analytic catenary (textbook solution)",
+"line": 19,
+"checked": true
+},
+{
+"test": "anchor.mjs",
+"section": "1. All-chain catenary against the analytic solution",
+"quantity": "rode nearly straight (past lift-off): shank angle appears and horizontal tension climbs",
+"expected": "ang > 0 and H(X-0.05) > H(X-0.5)",
+"tol": "",
+"source": "none cited",
+"line": 24,
+"checked": true
+},
+{
+"test": "anchor.mjs",
+"section": "1. All-chain catenary against the analytic solution",
+"quantity": "snub load of a 0.2 m surge from a 1 kN lie: chain+nylon (10 m chain + 30 m nylon) vs 40 m all chain",
+"expected": "snub(mixed) < snub(all chain)",
+"tol": "",
+"source": "none cited",
+"line": 32,
+"checked": true
+},
+{
+"test": "anchor.mjs",
+"section": "2. Holding (k x anchor weight by the bottom) and dragging",
+"quantity": "holding of Blackwatch Delta 7 kg anchor in sand vs rock",
+"expected": "holding(sand) > 5 x holding(rock)",
+"tol": "",
+"source": "none cited (HOLD_K table in js/anchor.js)",
+"line": 37,
+"checked": true
+},
+{
+"test": "anchor.mjs",
+"section": "2. Holding (k x anchor weight by the bottom) and dragging",
+"quantity": "holding coefficient in mud: fluke vs delta (plough)",
+"expected": "HOLD_K.fluke.mud > HOLD_K.delta.mud",
+"tol": "",
+"source": "none cited",
+"line": 38,
+"checked": true
+},
+{
+"test": "anchor.mjs",
+"section": "2. Holding (k x anchor weight by the bottom) and dragging",
+"quantity": "anchor dragging at 20 kn wind on sand (6 m depth, 150 s)",
+"expected": "not dragged (dragged <= 3 m or not set)",
+"tol": "",
+"source": "none cited",
+"line": 65,
+"checked": true
+},
+{
+"test": "anchor.mjs",
+"section": "2. Holding (k x anchor weight by the bottom) and dragging",
+"quantity": "anchor dragging at 70 kn wind on sand",
+"expected": "dragged (anchor moved > 3 m with setF >= 1) and peak pull Hmax > 0.95 x holding at max",
+"tol": "",
+"source": "none cited",
+"line": 66,
+"checked": true
+},
+{
+"test": "anchor.mjs",
+"section": "2. Holding (k x anchor weight by the bottom) and dragging",
+"quantity": "anchor movement on rock at 25 kn (will not set, skips)",
+"expected": "anchor dragged > 1 m",
+"tol": "",
+"source": "none cited",
+"line": 67,
+"checked": true
+},
+{
+"test": "anchor.mjs",
+"section": "3. Swinging to the wind",
+"quantity": "bearing of boat from anchor, wind from 000 deg, at t=145 s (15 kn)",
+"expected": "180 deg",
+"tol": "< 25 deg",
+"source": "none cited",
+"line": 78,
+"checked": true
+},
+{
+"test": "anchor.mjs",
+"section": "3. Swinging to the wind",
+"quantity": "bearing of boat from anchor after wind veers to 090 deg, at t=475 s",
+"expected": "270 deg",
+"tol": "< 30 deg",
+"source": "none cited",
+"line": 79,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "1. sailing on the crew",
+"quantity": "crew moves controls: number of moves and controls worked (sportboat 12 kn, 30 s)",
+"expected": "moved > 50 and main and trav among controls moved",
+"tol": "",
+"source": "none cited",
+"line": 35,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "1. sailing on the crew",
+"quantity": "every crew control move touched and fully lit (a >= 0.999) in its step",
+"expected": "miss count = 0",
+"tol": "",
+"source": "none cited",
+"line": 36,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "1. sailing on the crew",
+"quantity": "touch direction matches sign of control change",
+"expected": "wrong count = 0",
+"tol": "",
+"source": "none cited",
+"line": 37,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "2. hands off: HL_HOLD then HL_FADE",
+"quantity": "highlight alpha 0.8 x HL_HOLD s after last touch",
+"expected": "a === 1",
+"tol": "",
+"source": "none cited",
+"line": 41,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "2. hands off: HL_HOLD then HL_FADE",
+"quantity": "highlight alpha halfway through fade, and after fade",
+"expected": "mid in (0.2, 0.8) and final a === 0",
+"tol": "",
+"source": "none cited",
+"line": 45,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "3. helm / reef / throttle: only what the automation changed",
+"quantity": "player helm input before automation not lit",
+"expected": "hl.helm absent",
+"tol": "",
+"source": "none cited",
+"line": 54,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "3. helm / reef / throttle: only what the automation changed",
+"quantity": "autopilot steering to port is lit",
+"expected": "hl.helm.dir === -1 and a > 0.25",
+"tol": "",
+"source": "none cited",
+"line": 56,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "3. helm / reef / throttle: only what the automation changed",
+"quantity": "helm change outside autopilot not credited",
+"expected": "hl.helm.dir remains -1",
+"tol": "",
+"source": "none cited",
+"line": 58,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "3. helm / reef / throttle: only what the automation changed",
+"quantity": "reef put in by automation is lit",
+"expected": "hl.reef.dir === 1",
+"tol": "",
+"source": "none cited",
+"line": 60,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "3. helm / reef / throttle: only what the automation changed",
+"quantity": "reef highlight while reef worked (120 steps)",
+"expected": "a === 1",
+"tol": "",
+"source": "none cited",
+"line": 62,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "3. helm / reef / throttle: only what the automation changed",
+"quantity": "reef highlight after reefing done (120 steps)",
+"expected": "a === 0",
+"tol": "",
+"source": "none cited",
+"line": 64,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "3. helm / reef / throttle: only what the automation changed",
+"quantity": "engine throttle lever moved by automation lit (if boat has engine)",
+"expected": "hl.throttle.dir === 1",
+"tol": "",
+"source": "none cited",
+"line": 65,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "4. the crew's weight",
+"quantity": "crew weight creeping 0.0015 m in a step (0.09 m/s) not lit",
+"expected": "hl.hike absent",
+"tol": "",
+"source": "none cited",
+"line": 74,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "4. the crew's weight",
+"quantity": "crew moving out (crewY 0.2015 -> 0.3) lit",
+"expected": "hl.hike.dir === 1",
+"tol": "",
+"source": "none cited",
+"line": 76,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "4. the crew's weight",
+"quantity": "player placing weight (auto.hike off) not lit",
+"expected": "hl.hike.dir === 0",
+"tol": "",
+"source": "none cited",
+"line": 78,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "5. the words",
+"quantity": "label text for mainsheet",
+"expected": "\"Mainsheet ▲ trim\" (-1) / \"Mainsheet ▼ ease\" (+1)",
+"tol": "",
+"source": "none cited",
+"line": 85,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "5. the words",
+"quantity": "label text for vang",
+"expected": "\"Vang ▲ on\" (+1) / \"Vang ▼ off\" (-1)",
+"tol": "",
+"source": "none cited",
+"line": 86,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "5. the words",
+"quantity": "label text for helm",
+"expected": "\"Helm ◀ port\" (-1) / \"Helm ▶ stbd\" (+1)",
+"tol": "",
+"source": "none cited",
+"line": 87,
+"checked": true
+},
+{
+"test": "autoglow.mjs",
+"section": "5. the words",
+"quantity": "label text for traveller",
+"expected": "\"Traveller ▼ down\" (+1)",
+"tol": "",
+"source": "none cited",
+"line": 88,
+"checked": true
+},
+{
+"test": "autopilot-coast.mjs",
+"section": "common (per case a, b, c, d)",
+"quantity": "time aground and least depth under the keel (per case: a Solent, b Sydney, c SF Bay, d Hauraki)",
+"expected": "aground === 0 s and minUK > 0 m",
+"tol": "",
+"source": "none cited",
+"line": 87,
+"checked": true
+},
+{
+"test": "autopilot-coast.mjs",
+"section": "common (per case a, b, c, d)",
+"quantity": "arrival at waypoint (per case a, b, c, d)",
+"expected": "arrived (arrive event occurs) within maxT (a 1800, b 1500, c 1200, d 2000 s)",
+"tol": "",
+"source": "none cited",
+"line": 88,
+"checked": true
+},
+{
+"test": "autopilot-coast.mjs",
+"section": "common (per case a, b, c, d)",
+"quantity": "number of tacks / gybes (per case: a tacks<=14; b gybes<=8; c tacks<=2, gybes<=4; d tacks<=12; others <=99)",
+"expected": "tacks <= limit and gybes <= limit",
+"tol": "",
+"source": "none cited",
+"line": 89,
+"checked": true
+},
+{
+"test": "autopilot-coast.mjs",
+"section": "common (per case a, b, c, d)",
+"quantity": "heading swings: >=10 deg swing in 1 s undone within 8 s (per case a, b, c, d)",
+"expected": "rev <= 3",
+"tol": "",
+"source": "none cited",
+"line": 90,
+"checked": true
+},
+{
+"test": "autopilot-coast.mjs",
+"section": "common (per case a, b, c, d)",
+"quantity": "coach line rate and burst (per case a, b, c, d)",
+"expected": "< 2.5 lines/min and <= 8 lines in any 60 s",
+"tol": "",
+"source": "none cited",
+"line": 91,
+"checked": true
+},
+{
+"test": "autopilot-coast.mjs",
+"section": "common (per case a, b, c, d)",
+"quantity": "gennaker hoist/drop calls (per case a, b, c, d)",
+"expected": "gen events <= 3",
+"tol": "",
+"source": "none cited",
+"line": 92,
+"checked": true
+},
+{
+"test": "autopilot-coast.mjs",
+"section": "common (per case a, b, c, d)",
+"quantity": "repeated coach lines (per case a, b, c, d)",
+"expected": "leg <= 10, shoal <= 6, shoalClear <= 4",
+"tol": "",
+"source": "none cited",
+"line": 93,
+"checked": true
+},
+{
+"test": "autopilot-coast.mjs",
+"section": "(a) the Solent",
+"quantity": "stops short of too-shallow waypoint: shallowWp event and depth at final target",
+"expected": "shallowWp event and depth at target > draft + 0.5 m",
+"tol": "",
+"source": "none cited",
+"line": 100,
+"checked": true
+},
+{
+"test": "autopilot-coast.mjs",
+"section": "(a) the Solent",
+"quantity": "coach says tacking away from the shallows",
+"expected": "a tack event matching /shallows/",
+"tol": "",
+"source": "none cited",
+"line": 101,
+"checked": true
+},
+{
+"test": "autopilot-coast.mjs",
+"section": "(c) San Francisco Bay",
+"quantity": "coach routes round the land",
+"expected": "a route event",
+"tol": "",
+"source": "none cited",
+"line": 112,
+"checked": true
+},
+{
+"test": "autopilot-coast.mjs",
+"section": "(d) Hauraki Gulf",
+"quantity": "coach: waypoint in no water",
+"expected": "a shallowWp event matching /no water/",
+"tol": "",
+"source": "none cited",
+"line": 118,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(a) upwind",
+"quantity": "arrival at waypoint 800 m dead to windward (12 kn, sportboat)",
+"expected": "arrived within 1500 s",
+"tol": "",
+"source": "none cited",
+"line": 64,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(a) upwind",
+"quantity": "number of tacks upwind",
+"expected": ">= 2",
+"tol": "",
+"source": "none cited",
+"line": 65,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(a) upwind",
+"quantity": "time to windward waypoint vs polar VMG prediction 800 / vmg_up",
+"expected": "arrived / pred = 1",
+"tol": "< 0.25 (25%)",
+"source": "solvePolar / vmgTargets polar (js/physics.js)",
+"line": 66,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(a) upwind",
+"quantity": "distance from waypoint 20 s after arriving (hove to)",
+"expected": "< 4 x LOA",
+"tol": "",
+"source": "none cited",
+"line": 68,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(a) upwind",
+"quantity": "layline call: waypoint bearing off the wind when coach says reached the layline",
+"expected": "at least 1 call; bearing in (twa_up - 6, twa_up + 20) deg",
+"tol": "",
+"source": "polar close-hauled TWA (vmgTargets)",
+"line": 73,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(a) upwind",
+"quantity": "coach \"Beating to the waypoint\" on engaging",
+"expected": "mode event matching /^Beating/",
+"tol": "",
+"source": "none cited",
+"line": 74,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(a) upwind",
+"quantity": "coach \"Arrived: heaving to\"",
+"expected": "arrive event",
+"tol": "",
+"source": "none cited",
+"line": 75,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(b) downwind",
+"quantity": "arrival at waypoint 800 m dead to leeward",
+"expected": "arrived within 1500 s",
+"tol": "",
+"source": "none cited",
+"line": 84,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(b) downwind",
+"quantity": "number of gybes downwind",
+"expected": ">= 1",
+"tol": "",
+"source": "none cited",
+"line": 85,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(b) downwind",
+"quantity": "time to leeward waypoint vs polar downwind VMG prediction 800 / -vmg_dn",
+"expected": "arrived / pred = 1",
+"tol": "< 0.35 (35%)",
+"source": "solvePolar / vmgTargets polar (js/physics.js)",
+"line": 86,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(b) downwind",
+"quantity": "gennaker hoist TWA (if boat has gennaker)",
+"expected": "hoist event exists and |TWA| > 95 deg",
+"tol": "",
+"source": "none cited",
+"line": 89,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(b) downwind",
+"quantity": "coach gybe \"on the other gybe's side\"",
+"expected": "gybe event matching /other gybe/",
+"tol": "",
+"source": "none cited",
+"line": 91,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(c) reach",
+"quantity": "arrival at waypoint 800 m on the beam",
+"expected": "arrived within 1500 s",
+"tol": "",
+"source": "none cited",
+"line": 100,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(c) reach",
+"quantity": "reach directness: tacks, gybes, max off-line distance",
+"expected": "0 tacks, 0 gybes, maxOff < 40 m",
+"tol": "",
+"source": "none cited",
+"line": 101,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(c) reach",
+"quantity": "coach \"Reaching to the waypoint\"",
+"expected": "mode event matching /^Reaching/",
+"tol": "",
+"source": "none cited",
+"line": 102,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(d) San Francisco Bay",
+"quantity": "straight line start->waypoint crosses Alcatraz",
+"expected": "land samples > 0",
+"tol": "",
+"source": "real chart (data/venues/sfbay)",
+"line": 120,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(d) San Francisco Bay",
+"quantity": "plans a water route round the island",
+"expected": "route event",
+"tol": "",
+"source": "none cited",
+"line": 121,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(d) San Francisco Bay",
+"quantity": "arrival behind Alcatraz",
+"expected": "arrived within 1800 s",
+"tol": "",
+"source": "none cited",
+"line": 122,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(d) San Francisco Bay",
+"quantity": "time aground",
+"expected": "aground === 0 s",
+"tol": "",
+"source": "none cited",
+"line": 123,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(e) manual helm / wind vane",
+"quantity": "coach \"No waypoint: holding the wind angle\"",
+"expected": "vane event",
+"tol": "",
+"source": "none cited",
+"line": 134,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(e) manual helm / wind vane",
+"quantity": "TWA hold with no waypoint (20-40 s), |TWA| target 100 deg",
+"expected": "deviation < 6 deg",
+"tol": "",
+"source": "none cited",
+"line": 135,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "(e) manual helm / wind vane",
+"quantity": "manual helm input disengages autopilot",
+"expected": "not engaged and override event",
+"tol": "",
+"source": "none cited",
+"line": 136,
+"checked": true
+},
+{
+"test": "autopilot.mjs",
+"section": "header",
+"quantity": "upwind/downwind polar targets TWA, bsp, VMG at 12 kn (printed reference)",
+"expected": "printed only",
+"tol": "",
+"source": "solvePolar / vmgTargets",
+"line": 21,
+"checked": false
+},
+{
+"test": "balance.mjs",
+"section": "",
+"quantity": "helm balance: net yaw moment Nsail+Nkeel+Nhull at TWA 45 and 90, rudder centred, per class (all non-speed classes), 12 kn default",
+"expected": "printed only; negative = weather helm, positive = LEE helm",
+"tol": "",
+"source": "none cited",
+"line": 14,
+"checked": false
+},
+{
+"test": "bathy.mjs",
+"section": "spot depths",
+"quantity": "charted depth at published spots, per venue: progreso (6 spots), sfbay (5), newport (3), solent (4), kiel (3), marseille (4), sydney (3), auckland (1); e.g. Golden Gate 87.7 m, Hurst Narrows 35.2 m, Rangitoto Channel 12.5 m, Progreso pier head [6, 7.2] m",
+"expected": "chart depth (or [least, most] range) at chart datum: d >= lo - max(1, 0.3 lo) and d <= hi + max(1, 0.3 hi)",
+"tol": "30% or 1 m, whichever larger",
+"source": "SEMAR, Cuestionario del puerto de Progreso; NOAA ENC sounding; EMODnet DTM (LAT); Port Authority of NSW, promulgated depth; J. Mar. Sci. Eng. 9, 518, 2021 (10 m isobath 10 km off Progreso); Ports of Auckland (12.5 m below chart datum)",
+"line": 40,
+"checked": true
+},
+{
+"test": "bathy.mjs",
+"section": "the Progreso shelf",
+"quantity": "least chart depth on the Progreso shelf >= 1.5 km off shore (and >= 3 km off shore)",
+"expected": ">= 2.5 m (1.5 km off) / >= 3.5 m (3 km off) everywhere, with > 500 sample points",
+"tol": "",
+"source": "SEMAR (no shoals); bottom slope ~1:1000 beyond 4 m depth of closure; pier 6.5 km reaches 6-7 m",
+"line": 55,
+"checked": true
+},
+{
+"test": "bathy.mjs",
+"section": "the Progreso shelf",
+"quantity": "chart depth 1 km off Progreso-Chicxulub beach",
+"expected": ">= 1.8 m at every point (> 20 points)",
+"tol": "",
+"source": "none cited (1.45 m keel floats at chart datum)",
+"line": 64,
+"checked": true
+},
+{
+"test": "bathy.mjs",
+"section": "the Progreso shelf",
+"quantity": "chart depth at the game start (spawn)",
+"expected": "> 1.75 m (1.45 m keel + 0.3)",
+"tol": "",
+"source": "none cited",
+"line": 67,
+"checked": true
+},
+{
+"test": "bathy.mjs",
+"section": "the Progreso shelf",
+"quantity": "Progreso tide: median daily range, 95th percentile daily range, lowest level vs chart datum (2026)",
+"expected": "median in (0.3, 0.8) m; p95 < 1.1 m; year low > -(z0) - 0.05 m",
+"tol": "",
+"source": "UHSLC gauge, TICON-4",
+"line": 75,
+"checked": true
+},
+{
+"test": "bathy.mjs",
+"section": "the Progreso shelf",
+"quantity": "depth = bed below MSL + tide level (added once)",
+"expected": "depthAt = bedAt + levelAt",
+"tol": "< 0.01 m",
+"source": "none cited",
+"line": 79,
+"checked": true
+},
+{
+"test": "bathy.mjs",
+"section": "real banks stay banks",
+"quantity": "least chart depth on the Bramble Bank (Solent)",
+"expected": "< 1 m (dries at low springs)",
+"tol": "",
+"source": "none cited",
+"line": 86,
+"checked": true
+},
+{
+"test": "bench-fleet.mjs",
+"section": "",
+"quantity": "physics cost per 120 Hz step: player L0 + n AI at L1, per 60 Hz frame (2 steps)",
+"expected": "printed vs governor budget 6 ms per frame (no check)",
+"tol": "",
+"source": "js/fleet.js governor",
+"line": 21,
+"checked": false
+},
+{
+"test": "bench-fleet.mjs",
+"section": "",
+"quantity": "per-boat costs (L0, L1, L2) and the game's budgeted mix (clothBudget) per frame, n > 6",
+"expected": "printed only (6 ms frame budget)",
+"tol": "",
+"source": "js/fleet.js clothBudget",
+"line": 27,
+"checked": false
+},
+{
+"test": "bench-fleet.mjs",
+"section": "",
+"quantity": "state finite (u, phi) after bench",
+"expected": "printed \"NaN!\" if not finite (no exit code)",
+"tol": "",
+"source": "none cited",
+"line": 21,
+"checked": false
+},
+{
+"test": "bench.mjs",
+"section": "",
+"quantity": "cost of one 120 Hz physics step per boat per class and sail model (strip, vlm, cloth0, cloth1), beam reach 12 kn; plus finiteness of u, v, phi, r",
+"expected": "printed only (\"NaN!\" flag; no check)",
+"tol": "",
+"source": "none cited",
+"line": 27,
+"checked": false
+},
+{
+"test": "big-seas.mjs",
+"section": "1. sea state",
+"quantity": "significant wave height Hs, open ocean (fetch 2000 km, STORM_H duration-limited), per wind 40, 60, 80 kn",
+"expected": "min(Hs_PM = 0.21 U^2/g, Hs_JONSWAP = 1.6e-3 sqrt(chi) U^2/g)",
+"tol": "relative < 0.05 (5%)",
+"source": "Pierson-Moskowitz; duration-limited JONSWAP (SPM 1984)",
+"line": 27,
+"checked": true
+},
+{
+"test": "big-seas.mjs",
+"section": "1. sea state",
+"quantity": "peak period Tp, per wind 40, 60, 80 kn",
+"expected": "min(Tp_PM = 7.14 U/g, Tp_JONSWAP = 0.286 chi^(1/3) U/g)",
+"tol": "relative < 0.12 (12%)",
+"source": "Pierson-Moskowitz; duration-limited JONSWAP (SPM 1984)",
+"line": 28,
+"checked": true
+},
+{
+"test": "big-seas.mjs",
+"section": "1. sea state",
+"quantity": "sampled Hm0 = 4 sigma of surface (4 points, 20 min) vs model Hs, per wind 40, 60, 80 kn",
+"expected": "Hm0 / Hs = 1",
+"tol": "< 0.1 (10%)",
+"source": "none cited",
+"line": 29,
+"checked": true
+},
+{
+"test": "big-seas.mjs",
+"section": "1. sea state",
+"quantity": "Hs vs WMO Beaufort probable heights, at 40 kn (force 8/9) and 60 kn (force 11)",
+"expected": "40 kn: Hs in (0.8 x 5.5, 10) m; 60 kn: Hs in (0.8 x 11.5, 16) m",
+"tol": "",
+"source": "WMO Beaufort table (force 8: 5.5 m, max 7.5; force 9: 7 m, max 10; force 11: 11.5 m, max 16)",
+"line": 33,
+"checked": true
+},
+{
+"test": "big-seas.mjs",
+"section": "2. crest and height statistics at points (20 kn open ocean)",
+"quantity": "crest exceedance P(C > c Hs), sea alone, c = 0.6, 0.8",
+"expected": "Forristall 2-D crest distribution exp(-(c/alpha)^beta), alpha = 0.3536 + 0.2568 S1, beta = 2 - 1.7912 S1",
+"tol": "within a factor 3",
+"source": "Forristall (2000)",
+"line": 65,
+"checked": true
+},
+{
+"test": "big-seas.mjs",
+"section": "2. crest and height statistics at points (20 kn open ocean)",
+"quantity": "crest exceedance with rogue groups, c = 1.1, 1.2",
+"expected": "Forristall 2-D crest distribution",
+"tol": "within a factor 10",
+"source": "Forristall (2000)",
+"line": 66,
+"checked": true
+},
+{
+"test": "big-seas.mjs",
+"section": "2. crest and height statistics at points (20 kn open ocean)",
+"quantity": "wave height exceedance with rogue groups, P(H > 2.0 Hs)",
+"expected": "exp(-2.263 (h/Hs)^2.126)",
+"tol": "within a factor 10",
+"source": "Forristall 1978 fit to storm records",
+"line": 72,
+"checked": true
+},
+{
+"test": "big-seas.mjs",
+"section": "2. crest and height statistics at points (20 kn open ocean)",
+"quantity": "crest and height exceedances vs Rayleigh (exp(-8 c^2), exp(-2 h^2)) and Forristall, c in [0.6..1.3], h in [1.5..2.2]",
+"expected": "printed table",
+"tol": "",
+"source": "Rayleigh; Forristall (2000, 1978)",
+"line": 64,
+"checked": false
+},
+{
+"test": "big-seas.mjs",
+"section": "3. rogue groups: occurrence and height (60 kn)",
+"quantity": "rogue group rate per km^2 per hour vs second-order theory rate of crests > 1.1 Hs",
+"expected": "rate / theory in (0.5, 6)",
+"tol": "",
+"source": "Forristall space-time crest rate (kurtosis-enhanced second-order theory)",
+"line": 95,
+"checked": true
+},
+{
+"test": "big-seas.mjs",
+"section": "3. rogue groups: occurrence and height (60 kn)",
+"quantity": "rogue group crest / Hs range",
+"expected": "max <= 1.46 and min >= 1.1",
+"tol": "",
+"source": "none cited",
+"line": 96,
+"checked": true
+},
+{
+"test": "big-seas.mjs",
+"section": "3. rogue groups: occurrence and height (60 kn)",
+"quantity": "rogue groups identical for another peer (later join, other order)",
+"expected": "diff === 0 and same > 0",
+"tol": "",
+"source": "none cited",
+"line": 107,
+"checked": true
+},
+{
+"test": "big-seas.mjs",
+"section": "3. rogue groups: occurrence and height (60 kn)",
+"quantity": "crest at the focus of a forced group (crestHs 1.25) vs group crest, worst over 3 foci",
+"expected": "best / crest = 1",
+"tol": "< 0.06 (6%)",
+"source": "none cited",
+"line": 129,
+"checked": true
+},
+{
+"test": "big-seas.mjs",
+"section": "3. rogue groups: occurrence and height (60 kn)",
+"quantity": "mean rogue wave height / Hs over 3 forced foci",
+"expected": "in (1.8, 2.6) Hs",
+"tol": "",
+"source": "Draupner wave: 18.5 / 25.6 m in Hs 12 m = 1.55 / 2.15 Hs",
+"line": 130,
+"checked": true
+},
+{
+"test": "big-seas.mjs",
+"section": "3. rogue groups: occurrence and height (60 kn)",
+"quantity": "highest crest about the group -60/-20/0/+20/+60 s from focus",
+"expected": "printed only",
+"tol": "",
+"source": "none cited",
+"line": 134,
+"checked": false
+},
+{
+"test": "big-seas.mjs",
+"section": "4. the GPU's formula against sample()",
+"quantity": "max |sample().h - shader vertex height| in a rogue group (45 kn, crestHs 1.3)",
+"expected": "< 0.03 m (3 cm)",
+"tol": "",
+"source": "render.js vertex shader (ported line for line)",
+"line": 182,
+"checked": true
+},
+{
+"test": "big-seas.mjs",
+"section": "5. boats",
+"quantity": "boat state finite running before 40 and 60 kn seas (Blackwatch, 2 reefs)",
+"expected": "no NaN",
+"tol": "",
+"source": "none cited",
+"line": 202,
+"checked": true
+},
+{
+"test": "big-seas.mjs",
+"section": "5. boats",
+"quantity": "top speed running before 40 kn sea vs hull speed 1.34 sqrt(LWL ft) (~5.6 kn)",
+"expected": "umax > 1.2 x hull speed",
+"tol": "",
+"source": "hull speed 1.34 sqrt(LWL ft); Rr/W ~ 0.085 at Fn 0.5 (est.)",
+"line": 209,
+"checked": true
+},
+{
+"test": "big-seas.mjs",
+"section": "5. boats",
+"quantity": "top speed running before 60 kn sea vs hull speed",
+"expected": "umax > 0.8 x hull speed",
+"tol": "",
+"source": "hull speed 1.34 sqrt(LWL ft)",
+"line": 210,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "sail numbers",
+"quantity": "valid sail numbers normalised, 7 cases (e.g. \"gbr1234\" -> \"GBR 1234\", \"  aus 9 \" -> \"AUS 9\", \"\" -> \"\")",
+"expected": "ok and value === expected",
+"tol": "",
+"source": "RRS Appendix G",
+"line": 8,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "sail numbers",
+"quantity": "invalid sail numbers refused, 7 cases (XYZ 12, GBR, GB 12, 012, GBR 1 2, ABCD, 12 GBR)",
+"expected": "not ok",
+"tol": "",
+"source": "RRS Appendix G",
+"line": 10,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "sail numbers",
+"quantity": "cleanSailNo strips punctuation, upper-cases",
+"expected": "\"g-b.r 1!2\" -> \"GBR 12\"",
+"tol": "",
+"source": "none cited",
+"line": 11,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "sail numbers",
+"quantity": "cleanSailNo maximum length",
+"expected": "\"USA 1234567\" -> \"USA 1234\" (at most 8 characters)",
+"tol": "",
+"source": "none cited",
+"line": 12,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "boat names",
+"quantity": "valid boat names normalised, 7 cases (incl. Élan, 海風, whitespace collapse)",
+"expected": "ok and value === expected",
+"tol": "",
+"source": "none cited",
+"line": 15,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "boat names",
+"quantity": "bad boat names refused or cleaned (!!!, 123, -Dash, <script>)",
+"expected": "not ok after cleaning, or cleaned != input",
+"tol": "",
+"source": "none cited",
+"line": 17,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "boat names",
+"quantity": "boat name max length",
+"expected": "24 characters",
+"tol": "",
+"source": "none cited",
+"line": 18,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "fleet identities",
+"quantity": "fleet deterministic from seed",
+"expected": "identical JSON for same seed",
+"tol": "",
+"source": "none cited",
+"line": 20,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "fleet identities",
+"quantity": "fleet of 30: unique names and numbers",
+"expected": "30 distinct names and 30 distinct numbers",
+"tol": "",
+"source": "none cited",
+"line": 21,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "fleet identities",
+"quantity": "every fleet name and number passes validation",
+"expected": "all ok",
+"tol": "",
+"source": "none cited",
+"line": 22,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "fleet identities",
+"quantity": "150-boat fleet names unique",
+"expected": "150 distinct names",
+"tol": "",
+"source": "none cited",
+"line": 24,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "fleet identities",
+"quantity": "TP52 fleet of 10: teams from 52 SUPER SERIES with own names and numbers",
+"expected": "10 entries, all real teams, name/number match team",
+"tol": "",
+"source": "52 SUPER SERIES teams (js/classes/tp52.js)",
+"line": 27,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "fleet identities",
+"quantity": "TP52 class fleet deterministic from seed",
+"expected": "identical JSON",
+"tol": "",
+"source": "none cited",
+"line": 28,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "fleet identities",
+"quantity": "TP52 fleet: no team twice",
+"expected": "10 distinct names",
+"tol": "",
+"source": "none cited",
+"line": 29,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "fleet identities",
+"quantity": "sailing as Sled: other teams plus one club boat",
+"expected": "length = number of teams, no Sled, teams = N - 1",
+"tol": "",
+"source": "none cited",
+"line": 31,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "fleet identities",
+"quantity": "TP52 fleet bigger than series (30): all teams then club boats, unique",
+"expected": "30 entries, 30 distinct names and numbers",
+"tol": "",
+"source": "none cited",
+"line": 33,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "fleet identities",
+"quantity": "every TP52 team valid: name, sail number /^[A-Z]{3} \\d{1,5}[A-Z]?$/, hull colour finite, bow number",
+"expected": "all valid",
+"tol": "",
+"source": "none cited",
+"line": 34,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "fleet identities",
+"quantity": "classTeam lookup by name",
+"expected": "\"Platoon Aviation\" -> \"GER 52\"; \"Sea Breeze\" -> null",
+"tol": "",
+"source": "none cited",
+"line": 35,
+"checked": true
+},
+{
+"test": "boatid.mjs",
+"section": "fleet identities",
+"quantity": "class without fleet gets club names",
+"expected": "team === null for all",
+"tol": "",
+"source": "none cited",
+"line": 36,
+"checked": true
+},
+{
+"test": "boom.mjs",
+"section": "1. sheet geometry",
+"quantity": "sheet car on straight track position and sheet distance vs by-hand geometry; boom block height",
+"expected": "equal to by-hand",
+"tol": "< 1e-9 m",
+"source": "geometry by hand",
+"line": 16,
+"checked": true
+},
+{
+"test": "boom.mjs",
+"section": "1. sheet geometry",
+"quantity": "boomAngleForSheet round trip: sheet length recovered, per class blackwatch, sportboat, cat (trav 0.2/0.5/0.9, ease 0.2/0.5/0.8)",
+"expected": "worst |error| < 1e-4 m",
+"tol": "",
+"source": "none cited",
+"line": 26,
+"checked": true
+},
+{
+"test": "boom.mjs",
+"section": "1. sheet geometry",
+"quantity": "downward share of mainsheet pull (vang effect)",
+"expected": "> 0.75 over car (tr 0.5, 5 deg); at 20 deg windward end (tr 0) < under-boom (tr 0.9)",
+"tol": "",
+"source": "none cited",
+"line": 30,
+"checked": true
+},
+{
+"test": "boom.mjs",
+"section": "2. the boom as a beam",
+"quantity": "simply supported beam, mid-span point load (L 2.7 m, EI 1.1e4, F 1000 N): bending moment and deflection",
+"expected": "M = F L / 4; dv = F L^3 / (48 EI)",
+"tol": "M abs < 1e-6 N m; dv relative < 1e-9",
+"source": "simply supported beam formulas (M = FL/4, FL^3/48EI)",
+"line": 37,
+"checked": true
+},
+{
+"test": "boom.mjs",
+"section": "2. the boom as a beam",
+"quantity": "Laser vs Blackwatch boom sag under 1.5 kN vang + 400 N sheet",
+"expected": "Laser sag > 5 x Blackwatch sag and > 0.01 m",
+"tol": "",
+"source": "none cited",
+"line": 41,
+"checked": true
+},
+{
+"test": "boom.mjs",
+"section": "3. the boom end in the sea",
+"quantity": "boom dipped at 35 deg heel, 80 deg out: wetted, drag, torque, yaw",
+"expected": "wet > 0 (dry when upright = 0), X < 0, torque < 0 (inboard), N > 0 (toward boom)",
+"tol": "",
+"source": "none cited",
+"line": 52,
+"checked": true
+},
+{
+"test": "boom.mjs",
+"section": "4. the leeward shroud stops the boom",
+"quantity": "boom-shroud contact angle: J/70 (sportboat), Blackwatch, Laser (dinghy)",
+"expected": "J/70 < Blackwatch; Blackwatch < 90 deg; Laser > 90 deg",
+"tol": "",
+"source": "none cited",
+"line": 60,
+"checked": true
+},
+{
+"test": "boom.mjs",
+"section": "5-6. preventer and boom brake",
+"quantity": "accidental gybe free vs held by preventer, per model strip, cloth (Blackwatch TWA 150, 14 kn)",
+"expected": "free gybes (max boom > 30 deg); with preventer does not",
+"tol": "",
+"source": "none cited",
+"line": 85,
+"checked": true
+},
+{
+"test": "boom.mjs",
+"section": "5-6. preventer and boom brake",
+"quantity": "boom brake swing time -20 to +30 deg, per model strip (brake 0.1), cloth (brake 0.02)",
+"expected": "braked swing > 1.3 x free swing",
+"tol": "",
+"source": "none cited",
+"line": 86,
+"checked": true
+},
+{
+"test": "boomrattle.mjs",
+"section": "pinch",
+"quantity": "boom angle sd, peak boom rate, slams pinching at 25 deg TWA 12 kn sheet hard in, per class blackwatch, sportboat, dinghy",
+"expected": "sd < 2 deg, rate < 60 deg/s, slams <= 2",
+"tol": "",
+"source": "none cited",
+"line": 24,
+"checked": true
+},
+{
+"test": "boomrattle.mjs",
+"section": "luff",
+"quantity": "boom angle sd, range, peak rate luffing at 45 deg TWA, sheets 0.7, per class blackwatch, sportboat, dinghy",
+"expected": "sd < 11 deg, hi - lo < 40 deg, rate < 90 deg/s",
+"tol": "",
+"source": "none cited",
+"line": 26,
+"checked": true
+},
+{
+"test": "capsize.mjs",
+"section": "",
+"quantity": "dinghy overpowered in 22 kn: heel, speed, capsized and righting states over 40 s",
+"expected": "printed trace only (no check)",
+"tol": "",
+"source": "none cited",
+"line": 14,
+"checked": false
+},
+{
+"test": "cloth-nan.mjs",
+"section": "",
+"quantity": "non-finite cloth node, shape or boom states in a 60 kn open sea (Hs ~20 m) with resets and LOD switches, per class sportboat, blackwatch, dinghy, cat",
+"expected": "0 bad steps",
+"tol": "",
+"source": "none cited",
+"line": 41,
+"checked": true
+},
+{
+"test": "cloth.mjs",
+"section": "1. tensile test",
+"quantity": "membrane strain under T = 400 N/m, warp / fill / bias (45 deg), per material dacronCruise, laminate",
+"expected": "strain = T / k (bias: 1/k45 = (1/kw + 1/kf + 1/kb) / 4)",
+"tol": "relative < 0.02 (2%)",
+"source": "analytic (orthotropic membrane)",
+"line": 49,
+"checked": true
+},
+{
+"test": "cloth.mjs",
+"section": "2. pressurised strip",
+"quantity": "sag of pressurised strip, p = 150 Pa, L = 1 m, 0.4% pretension",
+"expected": "sag = p L^2 / (8 T)",
+"tol": "relative < 0.03 (3%)",
+"source": "membrane theory (p L^2 / 8T)",
+"line": 80,
+"checked": true
+},
+{
+"test": "cloth.mjs",
+"section": "3. hanging sheet",
+"quantity": "max node speed and drift over last 5 s of 2 x 3 m hanging sheet, finite",
+"expected": "vmax < 5e-3 m/s and drift < 5e-3 m and finite",
+"tol": "",
+"source": "none cited",
+"line": 100,
+"checked": true
+},
+{
+"test": "cloth.mjs",
+"section": "4. laminate gust",
+"quantity": "laminate panel stable (finite) under sudden 300 Pa gust at CLOTH_SUB substeps of 1/120 s",
+"expected": "no NaN",
+"tol": "",
+"source": "none cited",
+"line": 118,
+"checked": true
+},
+{
+"test": "coastal.mjs",
+"section": "1, 2. planar beach",
+"quantity": "refraction on planar slope, 30 deg incidence: wave direction vs Snell (k sin theta conserved), 10 s swell",
+"expected": "theta = Snell",
+"tol": "< 0.5 deg",
+"source": "Snell's law",
+"line": 41,
+"checked": true
+},
+{
+"test": "coastal.mjs",
+"section": "1, 2. planar beach",
+"quantity": "shoaling coefficient K, per incidence 0 and 30 deg",
+"expected": "0: Ks = sqrt(cg0/cg); 30: sqrt(cg0/cg) sqrt(cos a0 / cos a)",
+"tol": "relative < 0.05 (5%)",
+"source": "linear wave theory",
+"line": 42,
+"checked": true
+},
+{
+"test": "coastal.mjs",
+"section": "3. depth-limited breaking",
+"quantity": "offshore wave height vs shoaled unbroken wave (x = -800)",
+"expected": "H / Hun = 1",
+"tol": "< 0.03",
+"source": "linear theory",
+"line": 64,
+"checked": true
+},
+{
+"test": "coastal.mjs",
+"section": "3. depth-limited breaking",
+"quantity": "surf zone H/h vs breaking index BREAK_G (at least 2 points)",
+"expected": "H/h = BREAK_G",
+"tol": "< 0.06",
+"source": "none cited (BREAK_G in js/env.js)",
+"line": 65,
+"checked": true
+},
+{
+"test": "coastal.mjs",
+"section": "4. semi-infinite breakwater",
+"quantity": "diffraction coefficient K in lee of breakwater, 45 deg in, 5 wavelengths (lambda 60 m)",
+"expected": "Penney & Price (Sommerfeld) solution",
+"tol": "abs < 0.1",
+"source": "Penney & Price; Sommerfeld rigid half-plane (Born & Wolf 11.5)",
+"line": 90,
+"checked": true
+},
+{
+"test": "coastal.mjs",
+"section": "4. semi-infinite breakwater",
+"quantity": "diffraction coefficient K behind the wall, 88 deg (~90) in, 5 wavelengths",
+"expected": "Penney & Price solution",
+"tol": "abs < 0.1",
+"source": "Penney & Price; Sommerfeld (Born & Wolf 11.5)",
+"line": 91,
+"checked": true
+},
+{
+"test": "coastal.mjs",
+"section": "4. semi-infinite breakwater",
+"quantity": "K on the shadow line and in open water beside it (-30 deg)",
+"expected": "shadow line 0.5 (tol 0.08); open water > 0.85",
+"tol": "shadow line abs < 0.08",
+"source": "Sommerfeld (shadow line ~1/2)",
+"line": 92,
+"checked": true
+},
+{
+"test": "coastal.mjs",
+"section": "4. semi-infinite breakwater",
+"quantity": "model/Penney-Price K table at r = 2, 5, 8 L and beta -30..88 deg",
+"expected": "printed only",
+"tol": "",
+"source": "Penney & Price",
+"line": 88,
+"checked": false
+},
+{
+"test": "coastal.mjs",
+"section": "5. vertical wall",
+"quantity": "reflection coefficient off vertical wall (R 0.9)",
+"expected": "0.9",
+"tol": "abs < 0.05",
+"source": "none cited",
+"line": 106,
+"checked": true
+},
+{
+"test": "coastal.mjs",
+"section": "5. vertical wall",
+"quantity": "clapotis antinode and node amplitudes / incident",
+"expected": "antinodes 1 + R (tol 0.03); nodes 1 - R (tol 0.05)",
+"tol": "0.03 / 0.05",
+"source": "standing wave theory",
+"line": 107,
+"checked": true
+},
+{
+"test": "coastal.mjs",
+"section": "5. vertical wall",
+"quantity": "antinode offset from wall face (every half wavelength, L 80 m)",
+"expected": "0 (mod L/2)",
+"tol": "< L/16 (5 m)",
+"source": "none cited",
+"line": 108,
+"checked": true
+},
+{
+"test": "coastal.mjs",
+"section": "6. Marseille",
+"quantity": "swell K: open water WSW, Vieux-Port basin, lee of Frioul islands (WSW swell 2.5 m 10 s)",
+"expected": "open > 0.8; port < 0.25; Frioul lee < 0.6",
+"tol": "",
+"source": "none cited",
+"line": 126,
+"checked": true
+},
+{
+"test": "coastal.mjs",
+"section": "6. Marseille",
+"quantity": "max |eta| inside Vieux-Port vs outside",
+"expected": "port < 0.25 x outside",
+"tol": "",
+"source": "none cited",
+"line": 130,
+"checked": true
+},
+{
+"test": "coastal.mjs",
+"section": "6b. finite everywhere",
+"quantity": "sample() outputs finite over whole Marseille map incl. land, with rogue groups",
+"expected": "0 non-finite points",
+"tol": "",
+"source": "none cited",
+"line": 141,
+"checked": true
+},
+{
+"test": "coastal.mjs",
+"section": "7. sample() is the drawn surface",
+"quantity": "|sample().h at displaced point - shader vertex height| (Marseille)",
+"expected": "< 2e-3 m (2 mm)",
+"tol": "",
+"source": "render.js GLSL transcription",
+"line": 168,
+"checked": true
+},
+{
+"test": "coastal.mjs",
+"section": "7. sample() is the drawn surface",
+"quantity": "same through a forced rogue group focus on the coastal field (crestHs 1.3)",
+"expected": "< 1e-2 m (1 cm)",
+"tol": "",
+"source": "render.js GLSL transcription (Newton's 1 cm on a steep crest)",
+"line": 172,
+"checked": true
+},
+{
+"test": "coastal.mjs",
+"section": "--gpu",
+"quantity": "GPU water vertex shader vs sample() (only with --gpu)",
+"expected": "r.ok from tools/verify-coastal.mjs gpuCheck",
+"tol": "",
+"source": "tools/verify-coastal.mjs",
+"line": 178,
+"checked": true
+},
+{
+"test": "crew.mjs",
+"section": "1-4. per class and TWA",
+"quantity": "boat speed with crew hands vs autoTrim alone, per class sportboat, blackwatch, dinghy at TWA 45 and 80 deg (12 kn, last 10 s)",
+"expected": "|crew - autoTrim| / autoTrim < 0.05",
+"tol": "5%",
+"source": "none cited",
+"line": 53,
+"checked": true
+},
+{
+"test": "crew.mjs",
+"section": "1-4. per class and TWA",
+"quantity": "cleats opened to ease and made fast again, per class sportboat, blackwatch, dinghy at TWA 45, 80",
+"expected": "some line freed (or hand/powered line) and no free line left with lock",
+"tol": "",
+"source": "none cited",
+"line": 58,
+"checked": true
+},
+{
+"test": "crew.mjs",
+"section": "1-4. per class and TWA",
+"quantity": "control move rate vs hand/tackle/winch rate (linehandlers handRate), per class at TWA 45 then +40",
+"expected": "no control step exceeds cap x 1.001 + 1e-9",
+"tol": "",
+"source": "js/linehandlers.js handRate",
+"line": 61,
+"checked": true
+},
+{
+"test": "crew.mjs",
+"section": "1-4. per class and TWA",
+"quantity": "crew messages per control in 40 s, per class sportboat, blackwatch, dinghy at TWA 45, 80",
+"expected": "<= ceil(40/8) + 1 = 6",
+"tol": "",
+"source": "none cited",
+"line": 64,
+"checked": true
+},
+{
+"test": "crew.mjs",
+"section": "winch",
+"quantity": "jib sheet haul from fully eased on a winch (sportboat): largest step and time to haul in past 0.35",
+"expected": "maxStep < 0.03 per step and haul time in (0.5, 8) s",
+"tol": "",
+"source": "none cited",
+"line": 78,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "1. Shroud loads against the righting-moment rule",
+"quantity": "cap shroud load 16 kn upwind vs RM rule T = k RM / (b cos 10 deg) + MBL pre, per class blackwatch, sportboat, cat",
+"expected": "RM-rule estimate",
+"tol": "relative < 0.15 (15%)",
+"source": "Nordic Boat Standard / Skene",
+"line": 37,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "1. Shroud loads against the righting-moment rule",
+"quantity": "cap shroud safety factor MBL / T at RM30, per class blackwatch, sportboat, cat",
+"expected": "in (1.8, 6) (expect ~2-5)",
+"tol": "",
+"source": "designers work to ~2.5-3.5 (est.)",
+"line": 43,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "2. Dismasting threshold",
+"quantity": "rig moment at cap failure / largest righting moment, per class blackwatch, sportboat, cat",
+"expected": "in (1.2, 8)",
+"tol": "",
+"source": "none cited (order of magnitude)",
+"line": 52,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "2. Dismasting threshold",
+"quantity": "knockdown to ~80 deg (phi0 70) at roll rate 1-3 rad/s, per class blackwatch, sportboat",
+"expected": "rig stands at 1 rad/s (breaks only at >= 2 or not at all)",
+"tol": "",
+"source": "broach ~0.5-1 rad/s, breaking sea 2-4 rad/s (est.)",
+"line": 67,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "2. Dismasting threshold",
+"quantity": "roll rate at which rig breaks when rolled past 90 deg (phi0 100), per class blackwatch, sportboat, cat, dinghy",
+"expected": "breaks at 0.5 <= p0 <= 3 rad/s",
+"tol": "",
+"source": "broach ~0.5-1 rad/s, breaking sea 2-4 rad/s (est.)",
+"line": 70,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "2. Dismasting threshold",
+"quantity": "unstayed mast bending at 22 kn upwind, per class optimist, sunfish",
+"expected": "stands; peak in (0.15, 0.8) of yield moment",
+"tol": "",
+"source": "none cited (Optimists race in 20+ kn)",
+"line": 85,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "2. Dismasting threshold",
+"quantity": "Optimist mast with 0.5 mm wall at 22 kn",
+"expected": "breaks (rig down)",
+"tol": "",
+"source": "none cited",
+"line": 88,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "2. Dismasting threshold",
+"quantity": "crash gybe, boom at 1.5 rad/s (12 kn) and 3.5 rad/s (30 kn), sportboat",
+"expected": "rig stands",
+"tol": "",
+"source": "J = I_boom omega in ~0.08 s (est.)",
+"line": 99,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "3. Collision energy",
+"quantity": "collision energy lost, two J/70-size boats T-bone at 2 and 6 kn",
+"expected": "1/2 mu v^2 (1 - e^2), e = 0.3",
+"tol": "relative < 0.1 (10%)",
+"source": "analytic (coefficient of restitution)",
+"line": 116,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "3. Collision energy",
+"quantity": "struck boat holed, at 2 and 6 kn",
+"expected": "2 kn: no hole; 6 kn: holed",
+"tol": "",
+"source": "none cited",
+"line": 117,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "3. Collision energy",
+"quantity": "collision energy touching inflatable mark at 6 kn (collisionEnergy(1000, 15, 3, 0.1))",
+"expected": "< 70 J",
+"tol": "",
+"source": "none cited",
+"line": 119,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "3. Collision energy",
+"quantity": "collision energy hitting a pier at 6 kn (collisionEnergy(1000, Inf, 3))",
+"expected": "> 4000 J",
+"tol": "",
+"source": "none cited",
+"line": 120,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "4. Leak rate (Torricelli) and sinking time",
+"quantity": "inflow through 5 cm hole 0.4 m below waterline",
+"expected": "Torricelli Q = Cd A sqrt(2 g h), Cd 0.6",
+"tol": "relative < 0.1 (10%)",
+"source": "Torricelli",
+"line": 132,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "4. Leak rate (Torricelli) and sinking time",
+"quantity": "sinking time with no pumping vs quasi-static hand integration",
+"expected": "tSunk = hand-integrated time",
+"tol": "relative < 0.3 (30%)",
+"source": "Torricelli (hand integration)",
+"line": 149,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "4. Leak rate (Torricelli) and sinking time",
+"quantity": "water aboard after 10 min, 2 cm hole, manual pump (64 L/min)",
+"expected": "not sunk and water < 60 L",
+"tol": "",
+"source": "none cited",
+"line": 154,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "4. Leak rate (Torricelli) and sinking time",
+"quantity": "beam reach speed 12 kn with 400 L aboard vs dry",
+"expected": "v(400 L) < 0.97 x v(dry)",
+"tol": "",
+"source": "none cited",
+"line": 159,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "5. Rudder damage",
+"quantity": "turn rate at full helm with stock bent 60% vs sound",
+"expected": "|r_bent| < 0.7 x |r_sound|",
+"tol": "",
+"source": "none cited",
+"line": 175,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "5. Rudder damage",
+"quantity": "turn rate helm amidships with bent stock vs sound",
+"expected": "|r_bent - r_sound| > 0.5 deg/s",
+"tol": "",
+"source": "none cited",
+"line": 176,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "6. Grounding by the seabed, a lost keel",
+"quantity": "6 kn grounding on sand: keel damage, leak",
+"expected": "keelD < 0.25 and no holes",
+"tol": "",
+"source": "none cited",
+"line": 188,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "6. Grounding by the seabed, a lost keel",
+"quantity": "6 kn grounding on rock: keel bolts leak, keel stays",
+"expected": "holes > 0 and keel not lost",
+"tol": "",
+"source": "none cited",
+"line": 189,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "6. Grounding by the seabed, a lost keel",
+"quantity": "9 kn grounding on rock twice",
+"expected": "keel lost",
+"tol": "",
+"source": "none cited",
+"line": 190,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "6. Grounding by the seabed, a lost keel",
+"quantity": "max heel without keel in 20 kn vs 12 kn (crew on rail)",
+"expected": "maxPhi(20) > 1.5 x maxPhi(12)",
+"tol": "",
+"source": "none cited",
+"line": 202,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "6. Grounding by the seabed, a lost keel",
+"quantity": "max heel, sheets fast, crew in, 16 kn: without keel vs with",
+"expected": "h(no keel) > 1.3 x h(keel)",
+"tol": "",
+"source": "none cited",
+"line": 217,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "6. Grounding by the seabed, a lost keel",
+"quantity": "knocked to 110 deg: final heel after 30 s with keel and without",
+"expected": "with keel < 45 deg; without > 80 deg",
+"tol": "",
+"source": "none cited",
+"line": 227,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "6. Grounding by the seabed, a lost keel",
+"quantity": "keel damage running onto rock shoal at 6 kn in the physics",
+"expected": "keelD > 0.1",
+"tol": "",
+"source": "none cited",
+"line": 234,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "7. Sails",
+"quantity": "Dacron sails flogging head to wind 25 kn for 5 min: tear and fatigue",
+"expected": "no tear and fatigue D < 0.05",
+"tol": "",
+"source": "Miner damage dt / T0 (q0/q)^3 (model)",
+"line": 256,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "7. Sails",
+"quantity": "Dacron main flogging 45 kn: time to tear",
+"expected": "tTear > 0.8 x Tex and < 4500 s, Tex = 14400 (145/q)^3 s",
+"tol": "",
+"source": "Miner damage model (est.)",
+"line": 261,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "7. Sails",
+"quantity": "cloth sail max load ratio and tearing: blackwatch 30 kn 45 deg trim; catalina30 30 kn 45 deg hard; sportboat 30 kn 45 deg trim; j24 18 kn 165 deg; catalina30 25 kn flogging",
+"expected": "no tear and worst ratio < 0.6",
+"tol": "",
+"source": "none cited",
+"line": 277,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "7. Sails",
+"quantity": "0.75 oz nylon gennaker reaching in 14 kn",
+"expected": "no tear",
+"tol": "",
+"source": "none cited",
+"line": 294,
+"checked": true
+},
+{
+"test": "damage.mjs",
+"section": "7. Sails",
+"quantity": "gennaker overpowered in 30 kn and broached",
+"expected": "tear > 0",
+"tol": "",
+"source": "none cited",
+"line": 298,
+"checked": true
+},
+{
+"test": "density.mjs",
+"section": "",
+"quantity": "sail force ratio cold squall air (cold = 1) vs normal, summed over headings 50-80 deg, 15 kn, per class blackwatch, sportboat, dinghy, cat",
+"expected": "ratio in (1.02, 1.05) (~3% denser air, ~9 K colder)",
+"tol": "",
+"source": "none cited",
+"line": 27,
+"checked": true
+},
+{
+"test": "drawn-sea.mjs",
+"section": "1. the grid's filter",
+"quantity": "grid spacing at vertices vs vertex attribute R (a + 3 (1-a) u^2) 2/N",
+"expected": "relative error < 1e-6",
+"tol": "",
+"source": "render.js _buildWater grid",
+"line": 30,
+"checked": true
+},
+{
+"test": "drawn-sea.mjs",
+"section": "1. the grid's filter",
+"quantity": "wave keep near camera (10 m off): 100 m wave and 2 m wave",
+"expected": "keep(100 m) === 1 and keep(2 m) === 0",
+"tol": "",
+"source": "none cited",
+"line": 32,
+"checked": true
+},
+{
+"test": "drawn-sea.mjs",
+"section": "1. the grid's filter",
+"quantity": "300 m off camera: spacing, 30 m wave and 200 m swell",
+"expected": "spacing > 12 m, keep(30 m) === 0, keep(200 m) === 1",
+"tol": "",
+"source": "none cited",
+"line": 34,
+"checked": true
+},
+{
+"test": "drawn-sea.mjs",
+"section": "1. the grid's filter",
+"quantity": "fade 3 km off camera",
+"expected": "fade = 1 - smoothstep(760, 3450, 3000) (tol 1e-9) and fade < 0.2",
+"tol": "1e-9",
+"source": "render.js shader fade",
+"line": 36,
+"checked": true
+},
+{
+"test": "drawn-sea.mjs",
+"section": "2. WaveField.ride",
+"quantity": "drawn + unseen ride parts = whole (h, al, at)",
+"expected": "worst < 1e-3",
+"tol": "",
+"source": "none cited",
+"line": 57,
+"checked": true
+},
+{
+"test": "drawn-sea.mjs",
+"section": "2. WaveField.ride",
+"quantity": "ride at a point vs full surface: rms difference",
+"expected": "rms(h - linear) < 0.15 x rms(h)",
+"tol": "",
+"source": "none cited",
+"line": 58,
+"checked": true
+},
+{
+"test": "drawn-sea.mjs",
+"section": "3. a J/70 drawn at a distance",
+"quantity": "sd of drawn hull - drawn sea under it, at 100, 300, 900 m from camera",
+"expected": "now < 0.5 x old and now < floor (20 m value) + 0.02 m",
+"tol": "",
+"source": "none cited",
+"line": 90,
+"checked": true
+},
+{
+"test": "drawn-sea.mjs",
+"section": "4. the traffic on the drawn sea",
+"quantity": "traffic rms and worst offset vs drawn sea mean, per hull ship 150 m, ferry 30 m, yacht 12 m at 60 and 600 m",
+"expected": "rms < 0.06 m and worst < 0.2 m",
+"tol": "",
+"source": "none cited",
+"line": 111,
+"checked": true
+},
+{
+"test": "drawn-sea.mjs",
+"section": "5. the drawn pose between two steps",
+"quantity": "interpolated heel and heading through pi halfway (3.1 -> -3.1 rad)",
+"expected": "|phi| = pi and |psi| = pi",
+"tol": "< 0.01 rad",
+"source": "none cited",
+"line": 120,
+"checked": true
+},
+{
+"test": "drawn-sea.mjs",
+"section": "5. the drawn pose between two steps",
+"quantity": "interpolated position and heave halfway",
+"expected": "x = 0.5, heave = 0.05",
+"tol": "< 1e-12",
+"source": "none cited",
+"line": 121,
+"checked": true
+},
+{
+"test": "engine.mjs",
+"section": "the propeller alone (B3-50, P/D 0.8)",
+"quantity": "propeller torque coefficient 10KQ at J=0 and efficiency at J=0.6 (printed only)",
+"expected": "10KQ(0) ~ 0.37 (printed, not asserted)",
+"tol": "",
+"source": "Wageningen B-series charts (Oosterveld & van Oossanen 1975, per js/engine.js)",
+"line": 21,
+"checked": false
+},
+{
+"test": "engine.mjs",
+"section": "the propeller alone (B3-50, P/D 0.8)",
+"quantity": "open-water thrust coefficient KT at J=0 and zero-thrust advance ratio J0",
+"expected": "KT(0) = 0.31; J0 = 0.88",
+"tol": "KT ±0.03 (abs); J0 ±0.06 (abs)",
+"source": "Wageningen B-series open-water charts/polynomials (Oosterveld & van Oossanen 1975, per js/engine.js)",
+"line": 22,
+"checked": true
+},
+{
+"test": "engine.mjs",
+"section": "the propeller alone: four quadrants",
+"quantity": "four-quadrant thrust coefficient CT*(beta): continuity and signs",
+"expected": "max step between beta samples 0.01 rad apart < 0.03; CT*(90deg) < 0; CT*(180deg) < 0; CT*(-90deg) > 0; |CT*(180deg)| < CT*(0) (astern weaker than ahead)",
+"tol": "",
+"source": "shape of published four-quadrant series (van Lammeren et al. 1969, per js/engine.js); astern bollard 55-70% of ahead (js/engine.js)",
+"line": 28,
+"checked": true
+},
+{
+"test": "engine.mjs",
+"section": "bollard pull and top speed",
+"quantity": "bollard pull per horsepower at full throttle; per class: blackwatch, sportboat, bw-inboard (Yanmar 1GM10)",
+"expected": "8.5 < kg/hp < 16 (comment: small outboards and auxiliaries ~10-14 kg/hp)",
+"tol": "",
+"source": "none cited (comment rule of thumb ~10-14 kg/hp)",
+"line": 54,
+"checked": true
+},
+{
+"test": "engine.mjs",
+"section": "bollard pull and top speed",
+"quantity": "top speed under full power in flat calm after 90 s; per class: blackwatch, sportboat, bw-inboard",
+"expected": "blackwatch 4.4-5.6 kn; sportboat 5.0-6.3 kn; bw-inboard 5.2-6.6 kn (exclusive)",
+"tol": "",
+"source": "none cited",
+"line": 55,
+"checked": true
+},
+{
+"test": "engine.mjs",
+"section": "crash stop: full ahead, then full astern",
+"quantity": "crash-stop time and distance; per class: blackwatch, sportboat, bw-inboard",
+"expected": "time to u<=0 < 30 s and distance < 8 x LOA",
+"tol": "",
+"source": "none cited",
+"line": 66,
+"checked": true
+},
+{
+"test": "engine.mjs",
+"section": "prop walk: from rest, astern, helm amidships",
+"quantity": "heading change after 8 s astern at throttle -0.7 from rest; per prop hand: right (rh=+1), left (rh=-1)",
+"expected": "right-handed: psi > +3 deg (stern to port); left-handed: psi < -3 deg (stern to starboard)",
+"tol": "",
+"source": "none cited (seamanship convention stated in js/engine.js)",
+"line": 77,
+"checked": true
+},
+{
+"test": "engine.mjs",
+"section": "low-speed turn: helm hard over from rest, half ahead",
+"quantity": "propwash effect: bow swing in first 6 s and steady turning-circle diameter, with vs without propwash on rudder",
+"expected": "kick(wash) > 1.3 x kick(no wash) and circle D(wash) < D(no wash)",
+"tol": "",
+"source": "none cited (momentum-theory slipstream in js/engine.js)",
+"line": 96,
+"checked": true
+},
+{
+"test": "engine.mjs",
+"section": "a stopped engine under sail",
+"quantity": "drag of a stopped prop (folding / windmilling / locked) towed at 3, 5, 6 kn (printed only)",
+"expected": "printed only",
+"tol": "",
+"source": "Gerr, Propeller Handbook (windmilling ~half of locked drag, per js/engine.js)",
+"line": 114,
+"checked": false
+},
+{
+"test": "engine.mjs",
+"section": "a stopped engine under sail (strip VPP, 12 kn TWS)",
+"quantity": "J/70 VPP boat speed with outboard stowed vs no engine; per TWA 45, 90, 135 deg",
+"expected": "exactly equal (s0 === s1)",
+"tol": "0",
+"source": "none cited",
+"line": 123,
+"checked": true
+},
+{
+"test": "engine.mjs",
+"section": "a stopped engine under sail (strip VPP, 12 kn TWS)",
+"quantity": "Blackwatch inboard folding-prop VPP speed vs bare hull; per TWA 45, 90, 135 deg",
+"expected": "bf/b0 = 1",
+"tol": "±0.5% (|bf/b0 - 1| < 0.005)",
+"source": "none cited",
+"line": 124,
+"checked": true
+},
+{
+"test": "engine.mjs",
+"section": "a stopped engine under sail (strip VPP, 12 kn TWS)",
+"quantity": "Blackwatch fixed-prop VPP speed (windmilling bw, locked bl) vs folding (bf) and bare (b0); per TWA 45, 90, 135 deg",
+"expected": "bw < bf; bw/b0 > 0.9; bl <= 1.01 x bw",
+"tol": "",
+"source": "none cited",
+"line": 125,
+"checked": true
+},
+{
+"test": "fatigue.mjs",
+"section": "1. Rohmert endurance of an isometric hold",
+"quantity": "isometric hold endurance rohmert(f); per MVC fraction: 0.45, 0.30, 0.20",
+"expected": "45% MVC: 60-100 s; 30% MVC: 130-170 s; 20% MVC: 350-420 s (exclusive)",
+"tol": "",
+"source": "Rohmert 1960 endurance curve (js/fatigue.js)",
+"line": 12,
+"checked": true
+},
+{
+"test": "fatigue.mjs",
+"section": "1. Rohmert endurance of an isometric hold",
+"quantity": "endurance at FC = 15% MVC (sustainability threshold)",
+"expected": "Infinity",
+"tol": "",
+"source": "Rohmert 1960 (holds under ~15% MVC sustainable, js/fatigue.js)",
+"line": 13,
+"checked": true
+},
+{
+"test": "fatigue.mjs",
+"section": "2. A Laser hiked flat out upwind in 18 kn",
+"quantity": "time for hiking reserve R to fall below 0.2 at full hike",
+"expected": "45 s < t20 < 400 s",
+"tol": "",
+"source": "Rohmert 1960 (full Laser hike ~45% MVC, ~1 min, js/fatigue.js)",
+"line": 30,
+"checked": true
+},
+{
+"test": "fatigue.mjs",
+"section": "2. A Laser hiked flat out upwind in 18 kn",
+"quantity": "hike limit (fraction of full hike) after 10 min",
+"expected": "0.35 < hikeLimit < 0.7 (settles at ~15% MVC sustainable depth)",
+"tol": "",
+"source": "Rohmert 1960 (js/fatigue.js)",
+"line": 31,
+"checked": true
+},
+{
+"test": "fatigue.mjs",
+"section": "2. A Laser hiked flat out upwind in 18 kn",
+"quantity": "effect of fatigue on boat: mean heel and speed fresh (20-40 s) vs tired (>560 s)",
+"expected": "tired mean |heel| > fresh, or tired mean speed < fresh",
+"tol": "",
+"source": "none cited",
+"line": 32,
+"checked": true
+},
+{
+"test": "fatigue.mjs",
+"section": "2. A Laser hiked flat out upwind in 18 kn",
+"quantity": "recovery time of hiking reserve to 80% sitting in",
+"expected": "< 240 s",
+"tol": "",
+"source": "est. (js/fatigue.js: half back in ~1 minute)",
+"line": 36,
+"checked": true
+},
+{
+"test": "fatigue.mjs",
+"section": "3. A trapeze and a cruiser's rail are sustainable",
+"quantity": "hiking reserve after 20 min fully out; per class: cat (trapeze), blackwatch (rail)",
+"expected": "R > 0.95",
+"tol": "",
+"source": "Rohmert 1960 (trapeze/rail ~12-15% MVC, js/fatigue.js)",
+"line": 44,
+"checked": true
+},
+{
+"test": "fatigue.mjs",
+"section": "4. Grinding: the work reserve above critical power",
+"quantity": "time to exhaust W' with two grinders at CP+150 W each",
+"expected": "t = WPRIME/150 = 120 s (W' 18 kJ, CP 150 W)",
+"tol": "±5 s",
+"source": "critical-power model (CP ~150 W, W' ~18 kJ; sailors' grinding tests, js/fatigue.js)",
+"line": 52,
+"checked": true
+},
+{
+"test": "fatigue.mjs",
+"section": "4. Grinding: the work reserve above critical power",
+"quantity": "recovery time of W' to 90% at rest (P=0)",
+"expected": "300 s < tr < 1800 s",
+"tol": "",
+"source": "Skiba W' recovery time constant tau = 546 e^(-0.01(CP-P)) + 316 s (js/fatigue.js)",
+"line": 54,
+"checked": true
+},
+{
+"test": "fatigue.mjs",
+"section": "4. Grinding: the work reserve above critical power",
+"quantity": "time to haul mainsheet in under load (J/70, 26 kn) with crewPower 0.55 vs fresh (1.0)",
+"expected": "t_tired > 1.2 x t_fresh",
+"tol": "",
+"source": "none cited",
+"line": 66,
+"checked": true
+},
+{
+"test": "foils.mjs",
+"section": "1. lift slope",
+"quantity": "J/70 keel 3D lift slope (at 2 deg, 3 m/s) vs Helmbold on AR x (1 + 0.9 end plate + 0.15 bulb) x hullShare, a0 = 0.95 x 2 pi; and hullShare",
+"expected": "slope/Helmbold = 1; 1 < hullShare < 1.1",
+"tol": "±1% (|ratio - 1| < 0.01)",
+"source": "Helmbold lift-slope formula (js/foils.js)",
+"line": 17,
+"checked": true
+},
+{
+"test": "foils.mjs",
+"section": "1. lift slope",
+"quantity": "J/24 keel effective aspect ratio upright and at 25 deg heel",
+"expected": "ARe upright = 3.0; ARe(25 deg) < 0.85 x upright",
+"tol": "upright ±0.05",
+"source": "class ARe 3.0; Keuning & Sonnenberg effective draft (test comment)",
+"line": 21,
+"checked": true
+},
+{
+"test": "foils.mjs",
+"section": "1. lift slope",
+"quantity": "transom-hung J/70 rudder effective aspect ratio at 0.5 m/s vs 8 m/s (free-surface end plate vs free tip)",
+"expected": "ARe(0.5 m/s) > 1.6 x ARe(8 m/s)",
+"tol": "",
+"source": "none cited (js/foils.js: image blended on chord Froude 1-3)",
+"line": 24,
+"checked": true
+},
+{
+"test": "foils.mjs",
+"section": "2. stall",
+"quantity": "NACA 0012 2D CLmax Reynolds dependence",
+"expected": "clMax2D(1e6) > clMax2D(2e5) + 0.25",
+"tol": "",
+"source": "Sheldahl & Klimas 1981; Abbott & von Doenhoff (js/foils.js)",
+"line": 28,
+"checked": true
+},
+{
+"test": "foils.mjs",
+"section": "2. stall",
+"quantity": "section profile drag Cd0 at t/c 0.12, Re 3e5 vs 3e6",
+"expected": "cd0(3e5) > cd0(3e6)",
+"tol": "",
+"source": "Hoerner form factor; ITTC-57 / Prandtl-Schlichting friction lines (js/foils.js)",
+"line": 29,
+"checked": true
+},
+{
+"test": "foils.mjs",
+"section": "2. stall",
+"quantity": "J/70 keel stall angle (angle of peak CL) at 3 m/s",
+"expected": "12 deg < stall < 20 deg",
+"tol": "",
+"source": "none cited",
+"line": 33,
+"checked": true
+},
+{
+"test": "foils.mjs",
+"section": "2. stall",
+"quantity": "stall hysteresis: separated fraction at (stall - 1.5 deg) on the way down and after 20 steps at 0.7 x stall angle",
+"expected": "sep > 0.5 at stall-1.5 deg; sep < 0.1 at 0.7 x stall",
+"tol": "",
+"source": "none cited (js/foils.js: reattaches below 0.8 of stall angle)",
+"line": 37,
+"checked": true
+},
+{
+"test": "foils.mjs",
+"section": "3. ventilation",
+"quantity": "J/70 surface-piercing rudder at 4.5 m/s: ventilation inception angle (vent > 0.5 sweeping up) and washout angle (vent < 0.5 sweeping down)",
+"expected": "9 deg < aOn < 22 deg; aOff < 0.6 x aOn",
+"tol": "",
+"source": "Harwood et al. 2016 (inception ~11-20 deg, washout below 40%, js/foils.js)",
+"line": 48,
+"checked": true
+},
+{
+"test": "foils.mjs",
+"section": "3. ventilation",
+"quantity": "ventilation of the same blade with root 1.2 chords under water (0-30 deg sweep)",
+"expected": "vent < 0.1",
+"tol": "",
+"source": "none cited",
+"line": 52,
+"checked": true
+},
+{
+"test": "foils.mjs",
+"section": "3. ventilation",
+"quantity": "lift coefficient at 12 deg ventilated vs fully wetted",
+"expected": "ventOn and CL_vent < 0.6 x CL_wetted",
+"tol": "",
+"source": "Kirchhoff free-streamline plate (js/foils.js)",
+"line": 56,
+"checked": true
+},
+{
+"test": "foils.mjs",
+"section": "4. cavitation",
+"quantity": "Hobie 16 rudder cavitation onset speed at 0.3 m depth, CL 0.5 and CL 0.05",
+"expected": "CL 0.5: 16-26 kn; CL 0.05: > 35 kn (comment: ~20 kn / ~40 kn)",
+"tol": "",
+"source": "cpMin fit to NACA 0012 pressure data; cavitation number (js/foils.js)",
+"line": 63,
+"checked": true
+},
+{
+"test": "foils.mjs",
+"section": "4. cavitation",
+"quantity": "cavitation lift loss at 8 deg, 5 m/s vs 13 m/s",
+"expected": "cav = 0 at 5 m/s; cav > 0.1 at 13 m/s",
+"tol": "",
+"source": "none cited",
+"line": 66,
+"checked": true
+},
+{
+"test": "foils.mjs",
+"section": "5. the Laser's daggerboard raised",
+"quantity": "Laser daggerboard half up: area ratio, effective AR, centre height",
+"expected": "area_half/area_down = 0.5; ARe_half < 0.6 x ARe_down; z_half > z_down + 0.15 m",
+"tol": "area ratio ±0.01",
+"source": "none cited",
+"line": 71,
+"checked": true
+},
+{
+"test": "foils.mjs",
+"section": "6. kick-up rudder",
+"quantity": "Hobie kick-up rudder in 0.3 m of water: kick fraction, span, centre position",
+"expected": "kick > 0.3; span < unkicked span; centre x aft of unkicked",
+"tol": "",
+"source": "none cited",
+"line": 78,
+"checked": true
+},
+{
+"test": "foils.mjs",
+"section": "6. kick-up rudder",
+"quantity": "kick-up relatch after 100 updates (dt 0.1) in 3 m of water",
+"expected": "kick === 0",
+"tol": "",
+"source": "none cited",
+"line": 80,
+"checked": true
+},
+{
+"test": "governor.mjs",
+"section": "1. a switch right after the start",
+"quantity": "sail drive and stalled strips across a sail-level switch; per case: sportboat L0->L1@0.2s, dinghy L0->L1@0.2s, sportboat L0->L1@0.2s->L0@0.6s, blackwatch L0->L2@0.2s->L0@1.0s (14 kn beam reach)",
+"expected": "min drive after switch > 0.85 x drive before; stalled strips <= before + 1",
+"tol": "",
+"source": "none cited",
+"line": 40,
+"checked": true
+},
+{
+"test": "governor.mjs",
+"section": "2-3. the governor on a slow device",
+"quantity": "sail-level switches when drawing is slow (12 steps in 35 ms of an 8000 ms frame, 60 frames)",
+"expected": "0 switches",
+"tol": "",
+"source": "none cited",
+"line": 69,
+"checked": true
+},
+{
+"test": "governor.mjs",
+"section": "2-3. the governor on a slow device",
+"quantity": "sail-level switches over 200 paused frames then a 3000 ms compile frame",
+"expected": "0 switches",
+"tol": "",
+"source": "none cited",
+"line": 72,
+"checked": true
+},
+{
+"test": "governor.mjs",
+"section": "2-3. the governor on a slow device",
+"quantity": "time of first switch when physics is slow (12 steps, 60 ms, 75 ms frames)",
+"expected": "t >= max(GOV.hold = 3 s, GOV.holdFrames 90 x 12 x 1/120 s = 9 s) = 9 s of sailing",
+"tol": "1e-9 s",
+"source": "none cited",
+"line": 76,
+"checked": true
+},
+{
+"test": "governor.mjs",
+"section": "2-3. the governor on a slow device",
+"quantity": "order of switches: fleet before player",
+"expected": ">= 3 switches; first two not the player (id 0); third is the player",
+"tol": "",
+"source": "none cited",
+"line": 77,
+"checked": true
+},
+{
+"test": "governor.mjs",
+"section": "2-3. the governor on a slow device",
+"quantity": "cloth flying (sailsFlown) at each switch",
+"expected": "true for every switch",
+"tol": "",
+"source": "none cited",
+"line": 78,
+"checked": true
+},
+{
+"test": "governor.mjs",
+"section": "2-3. the governor on a slow device",
+"quantity": "drive and stall in the 1 s after each switch onto cloth",
+"expected": "Fmin > 0.85 x F0; stalled strips <= s0 + 1",
+"tol": "",
+"source": "none cited",
+"line": 79,
+"checked": true
+},
+{
+"test": "governor.mjs",
+"section": "2-3. the governor on a slow device (time warp x4)",
+"quantity": "levels after time warp x4 for 30 frames, and drive/stall of boats returning from L2",
+"expected": "lods '011'; for switches from L2: Fmin > 0.85 x F0 and stalled strips <= 1",
+"tol": "",
+"source": "none cited",
+"line": 83,
+"checked": true
+},
+{
+"test": "governor.mjs",
+"section": "4. the reflection ladder",
+"quantity": "reflection-level changes at 16.7 ms frames for 600 s",
+"expected": "0 changes; level 0",
+"tol": "",
+"source": "none cited",
+"line": 89,
+"checked": true
+},
+{
+"test": "governor.mjs",
+"section": "4. the reflection ladder",
+"quantity": "reflection-level changes with occasional 400 ms frames (every 7 s) over 120 s",
+"expected": "0 changes",
+"tol": "",
+"source": "none cited",
+"line": 91,
+"checked": true
+},
+{
+"test": "governor.mjs",
+"section": "4. the reflection ladder",
+"quantity": "reflection-level changes at 20 ms frames (50 fps) for 120 s",
+"expected": "0 changes",
+"tol": "",
+"source": "none cited",
+"line": 93,
+"checked": true
+},
+{
+"test": "governor.mjs",
+"section": "4. the reflection ladder",
+"quantity": "time and size of first step down at 33 ms frames (mirror-bound: 33/26/21/15 ms per rung)",
+"expected": ">= 1 change; first at t >= RGOV.hold + RGOV.over - 0.1 = 5.4 s; first to level 1",
+"tol": "0.1 s (coded in threshold)",
+"source": "none cited",
+"line": 96,
+"checked": true
+},
+{
+"test": "governor.mjs",
+"section": "4. the reflection ladder",
+"quantity": "final reflection rung for mirror-bound 30 fps device after 60 s",
+"expected": "level === 2",
+"tol": "",
+"source": "none cited",
+"line": 97,
+"checked": true
+},
+{
+"test": "governor.mjs",
+"section": "4. the reflection ladder",
+"quantity": "see-saw back-off: interval between climbs (30 ms at L0, 12 ms otherwise, 400 s)",
+"expected": ">= 3 changes; >= 2 climbs; ups[1].t - ups[0].t > 1.5 x ups[0].t",
+"tol": "",
+"source": "none cited",
+"line": 102,
+"checked": true
+},
+{
+"test": "governor.mjs",
+"section": "4. the reflection ladder",
+"quantity": "futile step-down taken back when slow for other reasons (constant 33 ms, 300 s)",
+"expected": ">= 2 changes; second back to level 0; <= 6 changes; final level 0",
+"tol": "",
+"source": "none cited",
+"line": 106,
+"checked": true
+},
+{
+"test": "governor.mjs",
+"section": "4. the reflection ladder",
+"quantity": "start rung 2 (?q=low) at 8 ms frames for 300 s",
+"expected": "0 changes; level stays 2",
+"tol": "",
+"source": "none cited",
+"line": 108,
+"checked": true
+},
+{
+"test": "helm-load.mjs",
+"section": "1. stock torque",
+"quantity": "J/70 rudder stock torque, unbalanced blade (stock at leading edge) at 5 deg, 3 m/s",
+"expected": "Q < 0 and Q = -N c/4 (-cn q A c x 0.25)",
+"tol": "±1% (|ratio - 1| < 0.01)",
+"source": "Q = N (x_cp - x_stock), CP at quarter chord (js/helm.js)",
+"line": 17,
+"checked": true
+},
+{
+"test": "helm-load.mjs",
+"section": "1. stock torque",
+"quantity": "stock torque of balanced spade (stock at 20% chord) at 5 deg",
+"expected": "Q < 0 and |Q| < 0.25 x |Q_unbalanced|",
+"tol": "",
+"source": "js/helm.js (balance 0.17-0.22 on a spade)",
+"line": 18,
+"checked": true
+},
+{
+"test": "helm-load.mjs",
+"section": "1. stock torque",
+"quantity": "centre of pressure and balanced-blade torque when stalled at 25 deg",
+"expected": "x_cp > 0.35 c; Q_stalled < 2 x Q_balanced (both negative: more than twice the magnitude)",
+"tol": "",
+"source": "js/foils.js (CP moves to 0.42 c separated)",
+"line": 21,
+"checked": true
+},
+{
+"test": "helm-load.mjs",
+"section": "2. the J/70 upwind in 12 kn",
+"quantity": "mean tiller force at the course-holding (balanced) helm, last 10 s of 40 s",
+"expected": "3 N < F < 120 N",
+"tol": "",
+"source": "none cited",
+"line": 38,
+"checked": true
+},
+{
+"test": "helm-load.mjs",
+"section": "2. the J/70 upwind in 12 kn",
+"quantity": "mean tiller force at 3 deg weather helm",
+"expected": "15 N < F < 100 N",
+"tol": "",
+"source": "J/70 tuning guides (3 deg weather helm, test comment); force range none cited",
+"line": 39,
+"checked": true
+},
+{
+"test": "helm-load.mjs",
+"section": "3. a wheel",
+"quantity": "wheel rim force and steering gear ratio (0.5 m radius, 1.6 turns lock to lock, 35 deg rudder max) for 120 N m stock torque",
+"expected": "type wheel; F_rim = 120 / (gear x 0.5) N; 7 < gear < 9",
+"tol": "F_rim 1e-9",
+"source": "js/helm.js: F = Q / (G R), G = turns x 2 pi / rudder travel",
+"line": 45,
+"checked": true
+},
+{
+"test": "helm-load.mjs",
+"section": "3. a wheel",
+"quantity": "J/70 tiller hand force for 120 N m",
+"expected": "type tiller; F = 120 / lever N",
+"tol": "1e-9",
+"source": "js/helm.js: F = Q / lever",
+"line": 47,
+"checked": true
+},
+{
+"test": "helm-load.mjs",
+"section": "4. overpowered",
+"quantity": "Blackwatch rudder angle after 0.5 s at 1.5 x Qmax vs 1 s at 0.5 x Qmax (target 0.3 rad)",
+"expected": "overpowered: r < 0.25 rad (0.3 - 0.05); within capacity: r2 = 0.3 rad",
+"tol": "r2 ±0.01 rad",
+"source": "js/helm.js (handMax ~400 N tiller, ~250 N rim)",
+"line": 54,
+"checked": true
+},
+{
+"test": "helm.mjs",
+"section": "helm balance (12 kn default)",
+"quantity": "steady-course rudder angle (helm balance) at TWA 45, 90, 135 deg; per class: all non-speed classes (printed only)",
+"expected": "~2-4 deg weather helm upwind (comment; not asserted)",
+"tol": "",
+"source": "est. ('Real boats are designed for ~2-4 deg upwind', header comment)",
+"line": 28,
+"checked": false
+},
+{
+"test": "hudlayout.mjs",
+"section": "anchors",
+"quantity": "anchor of top-left panel (12,12,230x200 on 1920x1080)",
+"expected": "ax 'l', ay 't', dx 12, dy 12",
+"tol": "exact",
+"source": "none cited",
+"line": 13,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "anchors",
+"quantity": "anchor of bottom-right panel",
+"expected": "ax 'r', ay 'b', dx 12, dy 10",
+"tol": "exact",
+"source": "none cited",
+"line": 15,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "anchors",
+"quantity": "anchor of bottom-middle panel",
+"expected": "ax 'c', ay 'b', dx 40, dy 10",
+"tol": "exact",
+"source": "none cited",
+"line": 17,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "anchors: round trip",
+"quantity": "anchor -> place round trip position; per rect: (12,12), (900,500), (1600,900)",
+"expected": "x, y equal to original",
+"tol": "±0.51 px",
+"source": "none cited",
+"line": 21,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "resize",
+"quantity": "bottom-right panel position after 1920x1080 -> 1280x720",
+"expected": "x = 1028, y = 410 (1280-252, 720-310)",
+"tol": "exact",
+"source": "none cited",
+"line": 26,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "resize",
+"quantity": "centred panel on a 412x915 phone",
+"expected": "x = 156, y = 100",
+"tol": "exact",
+"source": "none cited",
+"line": 29,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "kept on screen",
+"quantity": "off-screen anchor (l,t,1700,900) clamped into 1280x720 for 240x300 panel",
+"expected": "x = 1040, y = 420",
+"tol": "exact",
+"source": "none cited",
+"line": 33,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "kept on screen",
+"quantity": "clampAnchor result",
+"expected": "ax 'l', dx 1040, dy 420",
+"tol": "exact",
+"source": "none cited",
+"line": 35,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "kept on screen",
+"quantity": "clampAnchor of an on-screen anchor",
+"expected": "unchanged {ax c, ay m, dx 10, dy -20}",
+"tol": "exact",
+"source": "none cited",
+"line": 36,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "kept on screen",
+"quantity": "placement of panel bigger than window (2000x1200 in 1280x720)",
+"expected": "x = 0, y = 0",
+"tol": "exact",
+"source": "none cited",
+"line": 38,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "snapping",
+"quantity": "snap to window margin from x=17",
+"expected": "x = 12, gx = 12, y = 300, gy = null (10 px snap)",
+"tol": "exact",
+"source": "none cited",
+"line": 41,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "snapping",
+"quantity": "snap beside another panel",
+"expected": "x = 400, gx = 400 (8 px gap)",
+"tol": "exact",
+"source": "none cited",
+"line": 43,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "snapping",
+"quantity": "snap left-aligned with and under another panel",
+"expected": "x = 100, y = 258",
+"tol": "exact",
+"source": "none cited",
+"line": 45,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "snapping",
+"quantity": "snap to centre line",
+"expected": "x = 860, gx = 960",
+"tol": "exact",
+"source": "none cited",
+"line": 47,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "snapping",
+"quantity": "no snap far from everything",
+"expected": "x = 500, y = 600, gx = null",
+"tol": "exact",
+"source": "none cited",
+"line": 49,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "css",
+"quantity": "css of centre-bottom anchor",
+"expected": "left 'calc(50% + -30px)', bottom '10px', top 'auto', right 'auto', transform 'translate(-50%, 0)'",
+"tol": "exact",
+"source": "none cited",
+"line": 52,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "css",
+"quantity": "css transform of right-middle anchor",
+"expected": "'translate(0, -50%)'",
+"tol": "exact",
+"source": "none cited",
+"line": 53,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "stored layouts",
+"quantity": "cleanLayout filtering of stored entries",
+"expected": "{rig: {r,t,12,40}, polar: {off: true}} only",
+"tol": "exact",
+"source": "none cited",
+"line": 56,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "stored layouts",
+"quantity": "cleanLayout of null / non-object",
+"expected": "{}",
+"tol": "exact",
+"source": "none cited",
+"line": 57,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "the mixer",
+"quantity": "volume slider gain curve volGain",
+"expected": "volGain(1) = 1; volGain(0) = 0; volGain(0.5) = 0.25 (-12 dB)",
+"tol": "0.5 point ±1e-9",
+"source": "none cited",
+"line": 60,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "the mixer",
+"quantity": "volGain clamping",
+"expected": "volGain(2) = 1; volGain(-1) = 0; volGain('x') = 0",
+"tol": "exact",
+"source": "none cited",
+"line": 61,
+"checked": true
+},
+{
+"test": "hudlayout.mjs",
+"section": "the mixer",
+"quantity": "cleanVol clamping and defaults",
+"expected": "master 0.5; amb 1; eng 1; gear 1; sig 1; key count = CHANNELS.length",
+"tol": "exact",
+"source": "none cited",
+"line": 63,
+"checked": true
+},
+{
+"test": "hullwaves.mjs",
+"section": "the GPU FFT pass (Stockham radix-2) against a DFT",
+"quantity": "max error of 2D Stockham FFT (16x16, 2 channels) vs direct DFT",
+"expected": "< 1e-9",
+"tol": "",
+"source": "none cited (DFT definition)",
+"line": 25,
+"checked": true
+},
+{
+"test": "hullwaves.mjs",
+"section": "the ?q=low table radiates downstream only",
+"quantity": "analytic Kelvin table energy ahead (X > 1) / behind (X < -1)",
+"expected": "< 1e-3",
+"tol": "",
+"source": "none cited",
+"line": 31,
+"checked": true
+},
+{
+"test": "hullwaves.mjs",
+"section": "at rest: flat",
+"quantity": "max |h| outside the hull, hull at rest 10 s (sportboat default)",
+"expected": "< 0.004 m",
+"tol": "",
+"source": "none cited",
+"line": 73,
+"checked": true
+},
+{
+"test": "hullwaves.mjs",
+"section": "Kelvin pattern per Fn",
+"quantity": "transverse wavelength on the track behind the stern; per Fn: 0.2, 0.3, 0.4",
+"expected": "lambda = 2 pi U^2 / g",
+"tol": "±10% (|ratio - 1| < 0.1)",
+"source": "deep-water dispersion / Kelvin wake theory (header comment)",
+"line": 118,
+"checked": true
+},
+{
+"test": "hullwaves.mjs",
+"section": "Kelvin pattern per Fn",
+"quantity": "cusp-line half-angle (Theil-Sen fit at 0.662 Airy envelope level); per Fn: 0.2, 0.3, 0.4",
+"expected": "19.47 deg",
+"tol": "±2 deg",
+"source": "Kelvin angle 19.47 deg (header comment)",
+"line": 119,
+"checked": true
+},
+{
+"test": "hullwaves.mjs",
+"section": "Kelvin pattern per Fn",
+"quantity": "stability: max |h + q| over the run; per Fn: 0.2, 0.3, 0.4",
+"expected": "finite and < 1.0 m",
+"tol": "",
+"source": "none cited",
+"line": 120,
+"checked": true
+},
+{
+"test": "hydro.mjs",
+"section": "hydrostatics per class",
+"quantity": "rest displaced volume vs mass/1025, wetted area vs table, LWL vs spec, buoyancy lateral arm at 5-90 deg; per class: all non-speed classes (printed only)",
+"expected": "printed only",
+"tol": "",
+"source": "class tables (C.wetted, C.lwl)",
+"line": 7,
+"checked": false
+},
+{
+"test": "hydro.mjs",
+"section": "Residuary resistance over the hump",
+"quantity": "Laser residuary resistance Rr/W at Fn 0.548, 0.633, 0.717",
+"expected": "0.056, 0.070, 0.079",
+"tol": "±15% (|ratio - 1| < 0.15)",
+"source": "Day & Nixon 2014 towing tank (Rr/W with ITTC friction on static wetted area); Delft series (js/classes/util.js rrOverHump)",
+"line": 28,
+"checked": true
+},
+{
+"test": "hydro.mjs",
+"section": "Residuary resistance over the hump",
+"quantity": "Blackwatch Rr/W from Delft series vs her own towing-tank table at Fn 0.5, 0.55, 0.6",
+"expected": "_rr(Fn) = rr table(Fn)",
+"tol": "±12% (|ratio - 1| < 0.12)",
+"source": "Blackwatch towing-tank table (class rr); Delft series",
+"line": 30,
+"checked": true
+},
+{
+"test": "hydro.mjs",
+"section": "Residuary resistance over the hump",
+"quantity": "J/24 Rr/W past the hump (no planing plateau)",
+"expected": "Rr/W(0.6) > 0.1; Rr/W(0.7) >= Rr/W(0.6); Rr/W(1.0) >= Rr/W(0.7)",
+"tol": "",
+"source": "Delft series (js/classes/util.js rrOverHump)",
+"line": 32,
+"checked": true
+},
+{
+"test": "knockdown.mjs",
+"section": "breaking crest beam-on",
+"quantity": "numerical stability (phi, x finite) through the breaker; per class: blackwatch, sportboat, dinghy",
+"expected": "finite",
+"tol": "",
+"source": "none cited",
+"line": 37,
+"checked": true
+},
+{
+"test": "knockdown.mjs",
+"section": "breaking crest beam-on",
+"quantity": "max roll from breakers under 25% of LOA (breaker heights 20-70% LOA tried); per class: blackwatch, sportboat, dinghy",
+"expected": "roll <= 75 deg for every breaker with Hb/LOA < 0.25",
+"tol": "",
+"source": "Wolfson Unit and SNAME/USYRU capsize study (Kirkman, Nicholson, Marchaj, 'Safety from capsizing', 1985): ~30% LOA knocks down, ~55% rolls over",
+"line": 53,
+"checked": true
+},
+{
+"test": "knockdown.mjs",
+"section": "breaking crest beam-on",
+"quantity": "max roll from breakers of 55% LOA and over; per class: blackwatch, sportboat, dinghy",
+"expected": "at least one breaker with Hb/LOA >= 0.55 gives roll >= 88 deg",
+"tol": "",
+"source": "Kirkman, Nicholson, Marchaj, 'Safety from capsizing' (SNAME/USYRU, 1985); JONSWAP Tp = 0.286 chi^(1/3) U/g for the sea",
+"line": 54,
+"checked": true
+},
+{
+"test": "land.mjs",
+"section": "codec",
+"quantity": "TWL2 header round trip",
+"expected": "tag === 'x'",
+"tol": "exact",
+"source": "none cited",
+"line": 20,
+"checked": true
+},
+{
+"test": "land.mjs",
+"section": "codec",
+"quantity": "building footprint vertex round-trip error",
+"expected": "3 buildings; max error <= 0.26 m (0.5 m grid)",
+"tol": "",
+"source": "none cited",
+"line": 22,
+"checked": true
+},
+{
+"test": "land.mjs",
+"section": "codec",
+"quantity": "building height, levels, type, roof round trip",
+"expected": "exact equality",
+"tol": "exact",
+"source": "none cited",
+"line": 23,
+"checked": true
+},
+{
+"test": "land.mjs",
+"section": "codec",
+"quantity": "skewed quad preserved",
+"expected": "8 coords; vertex x = 16.5 m",
+"tol": "±0.3 m",
+"source": "none cited",
+"line": 24,
+"checked": true
+},
+{
+"test": "land.mjs",
+"section": "codec",
+"quantity": "street round trip",
+"expected": "cls 6; pts '0,0,50,10,120,-4'",
+"tol": "exact",
+"source": "none cited",
+"line": 25,
+"checked": true
+},
+{
+"test": "land.mjs",
+"section": "codec",
+"quantity": "land-cover area round trip",
+"expected": "kind 5; 6 coords",
+"tol": "exact",
+"source": "none cited",
+"line": 26,
+"checked": true
+},
+{
+"test": "land.mjs",
+"section": "codec",
+"quantity": "street density grid round trip",
+"expected": "'0,9,200,3'",
+"tol": "exact",
+"source": "none cited",
+"line": 27,
+"checked": true
+},
+{
+"test": "land.mjs",
+"section": "OSM -> local lists",
+"quantity": "footprint filtering (on land, within shore band, duplicates merged) and tags",
+"expected": "1 building; lv 2; ty 1",
+"tol": "exact",
+"source": "none cited",
+"line": 47,
+"checked": true
+},
+{
+"test": "land.mjs",
+"section": "OSM -> local lists",
+"quantity": "projection of lat/lon to local metres (first vertex at (0, -100))",
+"expected": "x = 0 m, z = -100 m",
+"tol": "±0.5 m",
+"source": "none cited",
+"line": 48,
+"checked": true
+},
+{
+"test": "land.mjs",
+"section": "OSM -> local lists",
+"quantity": "street extraction",
+"expected": "1 road; cls 6",
+"tol": "exact",
+"source": "none cited",
+"line": 49,
+"checked": true
+},
+{
+"test": "land.mjs",
+"section": "OSM -> local lists",
+"quantity": "named place: name, population, position",
+"expected": "name 'Testby'; pop 1200; x = 300 m",
+"tol": "x ±1 m",
+"source": "none cited",
+"line": 50,
+"checked": true
+},
+{
+"test": "land.mjs",
+"section": "streets split per chunk",
+"quantity": "pieces of a street crossing a chunk edge",
+"expected": "2 chunks, 2 pieces",
+"tol": "exact",
+"source": "none cited",
+"line": 58,
+"checked": true
+},
+{
+"test": "land.mjs",
+"section": "streets split per chunk",
+"quantity": "shared vertex between pieces",
+"expected": "one piece ends and another starts at x = xb - 100",
+"tol": "exact",
+"source": "none cited",
+"line": 60,
+"checked": true
+},
+{
+"test": "land.mjs",
+"section": "streets split per chunk",
+"quantity": "street density: metres of street in its 250 m cell",
+"expected": "10 (100 m)",
+"tol": "exact",
+"source": "none cited",
+"line": 62,
+"checked": true
+},
+{
+"test": "land.mjs",
+"section": "baked venues",
+"quantity": "per baked venue (VENUES with land data): decoded footprint count, footprints within R + 50 m, base town grid and areas present",
+"expected": "count === manifest count; 0 outside; town present; areas > 0",
+"tol": "",
+"source": "none cited",
+"line": 79,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "1. slip load",
+"quantity": "Hobie 16 jib cam cleat (2:1 into Harken 150, 1330 N) at 90% of slip load for 2 s",
+"expected": "jib stays 0.2; not slipping",
+"tol": "exact",
+"source": "Harken 150 cam max working load 1330 N (CAM_SLIP.std, js/linehandlers.js)",
+"line": 31,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "1. slip load",
+"quantity": "cam cleat at 150% of slip load for 0.5 s",
+"expected": "jib > 0.3; slip === 1",
+"tol": "",
+"source": "Harken 150 (1330 N)",
+"line": 32,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "1. slip load",
+"quantity": "slip stops once load falls under rating (4000 N -> 1000 N once jib > 0.5)",
+"expected": "0.5 < jib < 0.6; not slipping",
+"tol": "",
+"source": "none cited",
+"line": 36,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "1. slip load",
+"quantity": "horn cleat under 1e5 N mainLoad (Blackwatch cunningham)",
+"expected": "cunn stays 0.8",
+"tol": "exact",
+"source": "none cited",
+"line": 39,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "1. slip load",
+"quantity": "Laser vang full on: tail load at micro cam through 15:1",
+"expected": "T < 890 N (CAM_SLIP.micro)",
+"tol": "",
+"source": "Harken 468 micro cam 890 N (js/linehandlers.js)",
+"line": 41,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "2. one-way",
+"quantity": "J/70 mainsheet hauled through ratchet + cam while cleated (1500 N)",
+"expected": "work() = 1; locked; state 'locked'",
+"tol": "exact",
+"source": "none cited",
+"line": 48,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "2. one-way",
+"quantity": "J/70 jib halyard pulled in through closed clutch",
+"expected": "work() = 1; state 'locked'",
+"tol": "exact",
+"source": "none cited",
+"line": 49,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "2. one-way",
+"quantity": "Blackwatch jib sheet on horn cleat cannot be hauled until cast off",
+"expected": "work() = 0; locks.jib false",
+"tol": "exact",
+"source": "none cited",
+"line": 52,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "2. one-way",
+"quantity": "cast-off time of winch + horn cleat",
+"expected": "t = HANDLERS.winchHorn.releaseT = 1.5 s, then work() = 1",
+"tol": "±0.05 s",
+"source": "none cited (handler timing est.)",
+"line": 55,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "2. one-way",
+"quantity": "let go: horn being made fast again, line held meanwhile (0.5 s)",
+"expected": "locks true; state 'locking'; jib unchanged",
+"tol": "exact",
+"source": "none cited",
+"line": 57,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "2. one-way",
+"quantity": "horn made fast after a further 3 s",
+"expected": "state 'locked'",
+"tol": "exact",
+"source": "none cited",
+"line": 59,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "2. one-way",
+"quantity": "push-button traveller car stops at a hole (0.57 requested)",
+"expected": "trav = 0.6",
+"tol": "1e-9",
+"source": "none cited (pinStop holes: 11)",
+"line": 63,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "3. ratchet holding",
+"quantity": "hand load on Laser ratchet block with 2000 N at the block",
+"expected": "T = engage + (L - engage)/hold = 90 + 1910/10 = 281 N",
+"tol": "1e-6 N",
+"source": "Harken 2135 Carbo ratchet, 10:1 holding above engaging load (js/linehandlers.js)",
+"line": 69,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "3. ratchet holding",
+"quantity": "hand load below ratchet engaging load (60 N)",
+"expected": "60 N (runs free)",
+"tol": "1e-6 N",
+"source": "none cited",
+"line": 71,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "3. ratchet holding",
+"quantity": "Laser mainsheet with 1200 N gust held in hand through ratchet (1 s)",
+"expected": "main stays 0.2; and 1200/3 = 400 N > HAND (200 N)",
+"tol": "exact",
+"source": "HAND 200 N sustained one-hand hold (est., js/linehandlers.js)",
+"line": 75,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "3. ratchet holding",
+"quantity": "Hobie 16 main at 4200 N (22 kn): load on cam through 6:1 + Ratchamatic",
+"expected": "T < 0.2 x 1330 = 266 N",
+"tol": "",
+"source": "Harken Ratchamatic / 150 cam (js/linehandlers.js)",
+"line": 78,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "4. make-fast time",
+"quantity": "line cast off after 3 s; per case: blackwatch cunn (horn), dinghy vang (cam), blackwatch stay (jam), sportboat jibHalyard (clutch), sportboat jib (winchCam)",
+"expected": "state 'free'",
+"tol": "exact",
+"source": "none cited",
+"line": 85,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "4. make-fast time",
+"quantity": "make-fast time and handler type; per case: horn 3.0 s, cam 0.2 s, jam 1.2 s, clutch 0.15 s, winchCam 0.3 s",
+"expected": "handler matches; t = HANDLERS[h].lockT",
+"tol": "±0.02 s",
+"source": "none cited (handler timing est.)",
+"line": 88,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "5. released under load",
+"quantity": "Hobie jib released from cam cleat at 700 N, after 1 s",
+"expected": "jib > 0.9 (dumps)",
+"tol": "",
+"source": "none cited",
+"line": 96,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "5. released under load",
+"quantity": "J/70 jib released from winch cam at 700 N, after 1 s (eases round drum)",
+"expected": "0.2 < jib < 0.5",
+"tol": "",
+"source": "none cited",
+"line": 97,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "5. released under load",
+"quantity": "Blackwatch jib 3 s after casting off horn at 700 N (surges round winch)",
+"expected": "0.2 < jib < 0.7",
+"tol": "",
+"source": "none cited",
+"line": 98,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "5. released under load",
+"quantity": "J/70 cunningham clutch opened under load, after 1 s",
+"expected": "cunn < 0.05 (dumps)",
+"tol": "",
+"source": "none cited",
+"line": 99,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "5. released under load",
+"quantity": "Hobie mainsheet at 3000 N out of its cam, held through ratchet",
+"expected": "main stays 0.2",
+"tol": "exact",
+"source": "none cited",
+"line": 101,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "5. released under load",
+"quantity": "let fly J/70 jib at 700 N, after 1 s",
+"expected": "jib > 0.9",
+"tol": "",
+"source": "none cited",
+"line": 103,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "5. released under load",
+"quantity": "panel status after let fly",
+"expected": "txt 'FLY'; icon 'winchCam'",
+"tol": "exact",
+"source": "none cited",
+"line": 104,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "6. tackles",
+"quantity": "Laser mainsheet 3:1 on ball bearings: purchase and efficiencies",
+"expected": "purchase 3; 0.9 < efficiency < 1; efficiencyEase > 1",
+"tol": "",
+"source": "sheave efficiency e ~0.975 ball (~2.5% per sheave), efficiency = e(1 - e^n)/(n(1 - e)) (js/linehandlers.js)",
+"line": 110,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "6. tackles",
+"quantity": "Blackwatch 4:1 plain bronze sheaves efficiency vs Laser",
+"expected": "bearing 'plain'; efficiency < Laser efficiency - 0.05",
+"tol": "",
+"source": "plain sheave e ~0.935 (~6.5% per sheave, js/linehandlers.js)",
+"line": 111,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "6. tackles",
+"quantity": "Blackwatch main hand load with 800 N: hauling vs easing vs ideal 800/4",
+"expected": "hauling > 200 N; easing < 200 N",
+"tol": "",
+"source": "js/linehandlers.js tackle friction model",
+"line": 113,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "6. tackles",
+"quantity": "Laser main at 800 N through ratchet: easing/holding vs hauling hand load",
+"expected": "easing < 0.4 x hauling",
+"tol": "",
+"source": "none cited",
+"line": 115,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "6. tackles",
+"quantity": "tackle stretch stiffness and rope length: Laser 15:1 vang vs 3:1 main",
+"expected": "vang stretchK > main stretchK; vang lengthInTackle > 0; main lengthInTackle > 3 m",
+"tol": "",
+"source": "stretchK = n^2 EA / lengthInTackle; polyester E 2.1e3 N/mm^2 (js/linehandlers.js)",
+"line": 117,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "6. tackles",
+"quantity": "let-go vang breakaway: light (0.05) vs loaded (0.6), after 2 s",
+"expected": "light stays 0.05; loaded < 0.6",
+"tol": "exact (light)",
+"source": "none cited",
+"line": 120,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "6. tackles",
+"quantity": "Boat exposes tackle: J/70 main purchase and finite fields",
+"expected": "purchase 6; purchase, efficiency, stretchK, lengthInTackle finite",
+"tol": "exact",
+"source": "none cited",
+"line": 122,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "7. every class",
+"quantity": "every line resolves to a known handler and main, jib, lazy, vang, cunn, outhaul exist; per class: all non-speed classes",
+"expected": "true",
+"tol": "",
+"source": "none cited",
+"line": 129,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "7. every class",
+"quantity": "full boat sailing 10 s upwind (pi/4) in 20 kn: speed, every line locked, slips; per class: all non-speed classes",
+"expected": "u finite and > 1 m/s; all lh states 'locked'; slips = 0",
+"tol": "",
+"source": "none cited",
+"line": 136,
+"checked": true
+},
+{
+"test": "linehandlers.mjs",
+"section": "7. every class",
+"quantity": "rope colour table size and Blackwatch jib pattern",
+"expected": ">= 16 ROPES; pattern 'tracer'",
+"tol": "",
+"source": "none cited",
+"line": 138,
+"checked": true
+},
+{
+"test": "magvar.mjs",
+"section": "WMM2025 test values",
+"quantity": "magnetic declination at 10 NOAA test points (2025.0-2029.5, heights 6-95 km)",
+"expected": "published declinations (-99.77, 20.28, -22.51, -3.10, -17.22, 19.39, 5.10, 15.43, 8.58, 9.04 deg)",
+"tol": "worst error < 0.01 deg",
+"source": "NOAA World Magnetic Model 2025, WMM2025_TestValues.txt",
+"line": 20,
+"checked": true
+},
+{
+"test": "magvar.mjs",
+"section": "venues' variation (2026.5)",
+"quantity": "declination at the Solent (50.77 N, 1.3 W)",
+"expected": "0 < D < 1.5 deg (east)",
+"tol": "",
+"source": "WMM2025; comment: agonic line crossed southern England early 2020s, moving west ~0.2 deg/yr",
+"line": 24,
+"checked": true
+},
+{
+"test": "magvar.mjs",
+"section": "venues' variation (2026.5)",
+"quantity": "declination at San Francisco (37.82 N, 122.43 W)",
+"expected": "12 < D < 14 deg (comment ~13 E)",
+"tol": "",
+"source": "WMM2025 (comment ~13 E)",
+"line": 25,
+"checked": true
+},
+{
+"test": "magvar.mjs",
+"section": "venues' variation (2026.5)",
+"quantity": "declination at Sydney (33.85 S, 151.25 E)",
+"expected": "12 < D < 14 deg (comment ~13 E)",
+"tol": "",
+"source": "WMM2025 (comment ~13 E)",
+"line": 26,
+"checked": true
+},
+{
+"test": "mapimg.mjs",
+"section": "usage",
+"quantity": "venue argument names a non-open venue (else usage error, exit 1); no physical checks, the script renders a PGM image",
+"expected": "venue found and not open",
+"tol": "",
+"source": "none cited",
+"line": 8,
+"checked": true
+},
+{
+"test": "mob.mjs",
+"section": "1. drift",
+"quantity": "person-in-water drift over 600 s in 20 kn wind and 0.3 m/s current: east (current) and downwind (leeway)",
+"expected": "east = 0.3 x 600 = 180 m; downwind = PIW_LEEWAY 0.011 x 20 kn x 600 s ~ 67.9 m",
+"tol": "±5% each",
+"source": "US Coast Guard leeway tables for a person in the water (Allen & Plourde 1999, per js/mob.js)",
+"line": 28,
+"checked": true
+},
+{
+"test": "mob.mjs",
+"section": "2. recovery and the crew's weight",
+"quantity": "crew and boat mass after one crew member goes over (J/70)",
+"expected": "crewMass = c0 - crewEach; mass = m0 - crewEach",
+"tol": "mass 1e-6 kg",
+"source": "none cited",
+"line": 42,
+"checked": true
+},
+{
+"test": "mob.mjs",
+"section": "2. recovery and the crew's weight",
+"quantity": "crew righting moment on the rail in 14 kn, before vs after MOB",
+"expected": "RM1 < 0.9 x RM0",
+"tol": "",
+"source": "none cited",
+"line": 44,
+"checked": true
+},
+{
+"test": "mob.mjs",
+"section": "2. recovery and the crew's weight",
+"quantity": "recovery when passing at 3 kn, 1.5 m off, 1 s",
+"expected": "not recovered (1 person still in water)",
+"tol": "",
+"source": "none cited",
+"line": 49,
+"checked": true
+},
+{
+"test": "mob.mjs",
+"section": "2. recovery and the crew's weight",
+"quantity": "recovery when stopped 1.5 m off (u 0.2 m/s)",
+"expected": "recovered within 30 s; crew mass restored",
+"tol": "",
+"source": "none cited",
+"line": 53,
+"checked": true
+},
+{
+"test": "mob.mjs",
+"section": "3. the single-hander",
+"quantity": "single-hander overboard: boat unmanned",
+"expected": "unmanned === true",
+"tol": "",
+"source": "none cited",
+"line": 64,
+"checked": true
+},
+{
+"test": "mob.mjs",
+"section": "3. the single-hander",
+"quantity": "capsized Laser (85 deg heel, 16 kn) reached by swimmer",
+"expected": "back aboard within 120 s (SWIM 0.5 m/s)",
+"tol": "",
+"source": "none cited (SWIM 0.5 m/s est.)",
+"line": 67,
+"checked": true
+},
+{
+"test": "mob.mjs",
+"section": "3. the single-hander",
+"quantity": "upright Laser on a reach sailing away: max distance and catch time (printed only)",
+"expected": "printed only",
+"tol": "",
+"source": "none cited",
+"line": 75,
+"checked": false
+},
+{
+"test": "mob.mjs",
+"section": "4. the draw is deterministic",
+"quantity": "overboard draw repeatability for seeds 7 and 12345",
+"expected": "same outcome for same seed",
+"tol": "exact",
+"source": "none cited",
+"line": 82,
+"checked": true
+},
+{
+"test": "mob.mjs",
+"section": "4. the draw is deterministic",
+"quantity": "hash01 draw rate at p = 0.1 over 4000 seeds",
+"expected": "0.1",
+"tol": "±0.015",
+"source": "none cited",
+"line": 85,
+"checked": true
+},
+{
+"test": "mob.mjs",
+"section": "4. the draw is deterministic",
+"quantity": "overboard per knockdown at 3 rad/s with 4 crew hiking (400 trials)",
+"expected": "> 0 and < 1.5 per knockdown",
+"tol": "",
+"source": "none cited",
+"line": 89,
+"checked": true
+},
+{
+"test": "mob.mjs",
+"section": "4. the draw is deterministic",
+"quantity": "overboard per gentle roll (0.9 rad/s) with crew in (400 trials)",
+"expected": "< 0.05 per event",
+"tol": "",
+"source": "none cited",
+"line": 91,
+"checked": true
+},
+{
+"test": "npc.mjs",
+"section": "1. COLREG: power gives way to sail",
+"quantity": "closest approach, motor boat min speed, yacht min speed (within 250 m) in a crossing",
+"expected": "minD > (L_yacht + L_motor)/2 + 25 m; motor < 12 kn (from 14); yacht > 5 kn (from 6)",
+"tol": "",
+"source": "COLREG (power gives way to sail; test header)",
+"line": 47,
+"checked": true
+},
+{
+"test": "npc.mjs",
+"section": "2. ship constrained by her draught",
+"quantity": "distance at which the ship sounds five short blasts (doubt signal) at a small sailing boat",
+"expected": "sounded, at > 150 m",
+"tol": "",
+"source": "COLREG Rule 34 and Annex III (js/traffic.js)",
+"line": 64,
+"checked": true
+},
+{
+"test": "npc.mjs",
+"section": "2. ship constrained by her draught",
+"quantity": "ship minimum speed while more than 200 m off (stands on), from 11 kn",
+"expected": "> 9 kn",
+"tol": "",
+"source": "COLREG 18(d), 9(b) (js/traffic.js)",
+"line": 65,
+"checked": true
+},
+{
+"test": "npc.mjs",
+"section": "3. light air (Solent)",
+"quantity": "fraction of traffic yachts under sail and mean speed; per wind: 4 kn, 14 kn",
+"expected": "4 kn: fraction < 0.05 and mean speed > 4.5 kn (motoring); 14 kn: fraction > 0.6",
+"tol": "",
+"source": "none cited (motor below 6 kn of wind)",
+"line": 84,
+"checked": true
+},
+{
+"test": "npc.mjs",
+"section": "4. ships keep to deep water (Solent, 14 kn)",
+"quantity": "least under-keel clearance along transit routes (sampled every 25 m)",
+"expected": ">= 1 ship; clearance > 0.5 m",
+"tol": "",
+"source": "none cited",
+"line": 89,
+"checked": true
+},
+{
+"test": "npc.mjs",
+"section": "5. the waterline on the drawn sea",
+"quantity": "drawn sea minus waterline at 28 points x 200 poses: mean bias, hovering poses, awash poses; per sea: 14 kn, 20 kn + 1.5 m swell",
+"expected": "|mean| < 0.03 m; poses clear of water all round = 0; poses with deck awash (dz > 0.945 m) = 0",
+"tol": "",
+"source": "none cited",
+"line": 124,
+"checked": true
+},
+{
+"test": "race.mjs",
+"section": "race run (traffic)",
+"quantity": "boat state finite (NaN check) with traffic on",
+"expected": "x, z, u finite (else exit 1)",
+"tol": "",
+"source": "none cited",
+"line": 64,
+"checked": true
+},
+{
+"test": "race.mjs",
+"section": "race result",
+"quantity": "boats that did not finish (excluding DSQ) in the run (default solent, sportboat, 6 boats, 25 min)",
+"expected": "0 (else exit 1, unless STOP set)",
+"tol": "",
+"source": "none cited",
+"line": 113,
+"checked": true
+},
+{
+"test": "race.mjs",
+"section": "race result",
+"quantity": "start delays, collisions, contact time, incidents, penalties, DSQ, aground steps (printed only)",
+"expected": "printed only",
+"tol": "",
+"source": "none cited",
+"line": 109,
+"checked": false
+},
+{
+"test": "rig.mjs",
+"section": "1. a cantilever",
+"quantity": "Laser-section mast cantilever tip deflection under 40 N tip load",
+"expected": "P L^3 / 3 EI",
+"tol": "±1%",
+"source": "Euler-Bernoulli beam theory (test comment)",
+"line": 17,
+"checked": true
+},
+{
+"test": "rig.mjs",
+"section": "1. a cantilever",
+"quantity": "P-delta amplification of tip deflection with end compression 0.4 Pcr",
+"expected": "1 / (1 - P/Pcr) = 1.667, Pcr = pi^2 EI / 4 L^2",
+"tol": "±5%",
+"source": "Euler buckling / P-delta (test comment)",
+"line": 21,
+"checked": true
+},
+{
+"test": "rig.mjs",
+"section": "1. a cantilever",
+"quantity": "solver's critical load factor at 0.4 Pcr",
+"expected": "2.5 (0.4 x lcr = 1)",
+"tol": "±3% (|0.4 lcr - 1| < 0.03)",
+"source": "Euler buckling",
+"line": 23,
+"checked": true
+},
+{
+"test": "rig.mjs",
+"section": "1. a cantilever",
+"quantity": "buckling flag at 1.3 Pcr compression",
+"expected": "buckled true",
+"tol": "",
+"source": "Euler buckling",
+"line": 25,
+"checked": true
+},
+{
+"test": "rig.mjs",
+"section": "2. forestay sag",
+"quantity": "J/70 forestay mid-span sag under evenly spread luff load; per W: 150 N, 400 N",
+"expected": "catenary sag = T/w (cosh(w L / 2T) - 1)",
+"tol": "±3%",
+"source": "catenary (test comment)",
+"line": 44,
+"checked": true
+},
+{
+"test": "rig.mjs",
+"section": "2. forestay sag",
+"quantity": "forestay tension with backstay 0 vs 1",
+"expected": "T1 > T0 + 1000 N",
+"tol": "",
+"source": "none cited",
+"line": 49,
+"checked": true
+},
+{
+"test": "rig.mjs",
+"section": "3. shrouds vs righting moment",
+"quantity": "J/70 at 14 kn, 45 deg: windward minus leeward shroud tension vs RM / chainplate half-beam",
+"expected": "0.65 x est < Tw < 1.1 x est",
+"tol": "",
+"source": "rig designer's rule RM / half-beam (test comment)",
+"line": 77,
+"checked": true
+},
+{
+"test": "rig.mjs",
+"section": "3. shrouds vs righting moment",
+"quantity": "J/70 rig loads for damage model: mast compression, step vertical, forestay, backstay",
+"expected": "mastComp > 0; mastStep z > 0; forestay finite; backstay > 0",
+"tol": "",
+"source": "none cited",
+"line": 78,
+"checked": true
+},
+{
+"test": "rig.mjs",
+"section": "5. the J/70's backstay",
+"quantity": "mast bend and forestay sag with backstay 0 vs 1 (14 kn, 45 deg)",
+"expected": "bend increases by > 40 mm; sag decreases",
+"tol": "",
+"source": "none cited",
+"line": 80,
+"checked": true
+},
+{
+"test": "rig.mjs",
+"section": "4. the Hobie's mast rotation",
+"quantity": "Hobie 16 mast rotation upwind (12 kn, 45 deg)",
+"expected": "15 deg < rot < 55 deg",
+"tol": "",
+"source": "none cited",
+"line": 85,
+"checked": true
+},
+{
+"test": "rig.mjs",
+"section": "4. the Hobie's mast rotation",
+"quantity": "Hobie 16 mast rotation off the wind (150 deg) vs upwind and limiter",
+"expected": "rot_run > rot_up and <= limit + 0.5 deg",
+"tol": "0.5 deg",
+"source": "none cited",
+"line": 86,
+"checked": true
+},
+{
+"test": "rig.mjs",
+"section": "5. the Laser's vang bend",
+"quantity": "Laser unstayed mast bend with vang 1 vs 0.1 (main 0.12, 14 kn)",
+"expected": "bend increases by > 15 mm",
+"tol": "",
+"source": "none cited",
+"line": 91,
+"checked": true
+},
+{
+"test": "rig.mjs",
+"section": "6. the wire data",
+"quantity": "1x19 stainless 5 mm wire axial stiffness EA",
+"expected": "1.87e6 N",
+"tol": "±2%",
+"source": "1x19 316 stainless: 125 GPa x 0.76 of nominal area (js/rig-structure.js)",
+"line": 94,
+"checked": true
+},
+{
+"test": "roll.mjs",
+"section": "roll steadiness",
+"quantity": "heel swing (min..max, last 20 s) and mean speed at TWA 45, 90, 150, 180 deg, TWS 12 and 20 kn; per class: all non-speed classes (printed only)",
+"expected": "printed only",
+"tol": "",
+"source": "none cited",
+"line": 19,
+"checked": false
+},
+{
+"test": "rope.mjs",
+"section": "1. dropped, at three frame rates",
+"quantity": "rope tail kinetic energy per unit mass after 2 s (36 pts, 1.5 m, dropped from 0.3 m); per rate x lay: 60 fps, 144 fps, ragged 30-240 fps with 0.1 s stalls; straight, coil",
+"expected": "max E (t > 2 s) < 2e-4 m^2/s^2",
+"tol": "",
+"source": "none cited",
+"line": 46,
+"checked": true
+},
+{
+"test": "rope.mjs",
+"section": "1. dropped, at three frame rates",
+"quantity": "no energy growth after landing; per rate x lay (as above)",
+"expected": "no sample for t > 1.5 s exceeds max(1e-3, 1.2 x E at first sample after 1.5 s)",
+"tol": "",
+"source": "none cited",
+"line": 46,
+"checked": true
+},
+{
+"test": "rope.mjs",
+"section": "1. dropped, at three frame rates",
+"quantity": "creep: max point displacement in the 1 s after 3 s; per rate x lay (as above)",
+"expected": "< 0.003 m",
+"tol": "",
+"source": "none cited",
+"line": 46,
+"checked": true
+},
+{
+"test": "rope.mjs",
+"section": "1. dropped, at three frame rates",
+"quantity": "deck penetration: lowest point above flat deck; and finite state; per rate x lay (as above)",
+"expected": "lowest > -0.002 m; all coordinates finite",
+"tol": "",
+"source": "none cited",
+"line": 46,
+"checked": true
+},
+{
+"test": "rope.mjs",
+"section": "2. heeled",
+"quantity": "slide of the on-deck half of the tail in 2 s on a heeled deck; per heel: 15 deg (held), 45 deg (slides)",
+"expected": "15 deg: moved < 0.01 m; 45 deg: moved > 0.1 m",
+"tol": "",
+"source": "none cited (Coulomb friction MU_S 0.65, MU_K 0.5 in js/ropesim.js, est.)",
+"line": 59,
+"checked": true
+},
+{
+"test": "rope.mjs",
+"section": "3. hauled in and eased through the cleat",
+"quantity": "energy after rest length grows 0.5 -> 2 m and eases to 0.6 m, and creep in next 1 s",
+"expected": "max E (t > 5.5 s) < 1e-3 m^2/s^2; moved < 0.005 m",
+"tol": "",
+"source": "none cited",
+"line": 69,
+"checked": true
+},
+{
+"test": "rope.mjs",
+"section": "4. in a seaway",
+"quantity": "highest point and peak energy with the frame accelerating ±3 m/s^2 (8 s)",
+"expected": "highest y < 0.301 m (not above the 0.3 m cleat); peak E < 0.05 m^2/s^2",
+"tol": "1e-3 m (coded)",
+"source": "none cited",
+"line": 78,
+"checked": true
+},
+{
+"test": "rope.mjs",
+"section": "5. across the side of a cabin top",
+"quantity": "largest per-frame point move after landing (t > 1.5 s) over a 0.25 m step, and penetration",
+"expected": "jump < 0.01 m; lowest above step surface > -0.01 m",
+"tol": "",
+"source": "none cited",
+"line": 88,
+"checked": true
+},
+{
+"test": "rope.mjs",
+"section": "6. pressed against the step in a seaway",
+"quantity": "largest per-frame move and points lifted onto the cabin top (12 s, heel + seaway)",
+"expected": "jump < 0.05 m; 0 points on top",
+"tol": "",
+"source": "none cited",
+"line": 101,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 10",
+"quantity": "port boat holding course into starboard boat on collision course is penalised under rule 10",
+"expected": "incident rule '10' with port as offender, status 'penalty'",
+"tol": "",
+"source": "World Sailing Racing Rules of Sailing (RRS) rule 10",
+"line": 50,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 10",
+"quantity": "port boat ducking astern of starboard produces no incident",
+"expected": "0 incidents (excluding OCS)",
+"tol": "",
+"source": "RRS rule 10",
+"line": 55,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 10",
+"quantity": "port boat crossing clear ahead (4.4 s before) produces no incident",
+"expected": "0 incidents",
+"tol": "",
+"source": "RRS rule 10",
+"line": 60,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 16.1",
+"quantity": "starboard boat bearing away onto a ducking port boat is penalised",
+"expected": "incident rule '16.1' with starboard as offender",
+"tol": "",
+"source": "RRS rule 16.1",
+"line": 65,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 11",
+"quantity": "windward boat sailing down onto leeward (same tack, overlapped 6 m) is penalised",
+"expected": "incident rule '11' with windward as offender",
+"tol": "",
+"source": "RRS rule 11",
+"line": 71,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 11",
+"quantity": "overlapped boats on parallel courses 5 m apart: no incident",
+"expected": "0 incidents",
+"tol": "",
+"source": "RRS rule 11",
+"line": 76,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 12",
+"quantity": "faster clear-astern boat sailing into boat ahead is penalised",
+"expected": "incident rule '12' with astern boat as offender",
+"tol": "",
+"source": "RRS rule 12",
+"line": 82,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 15",
+"quantity": "boat gaining leeward overlap from astern and converging at once is penalised",
+"expected": "incident rule '15' with leeward boat as offender",
+"tol": "",
+"source": "RRS rule 15",
+"line": 88,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 13 / 15",
+"quantity": "port boat tacking onto starboard under a starboard boat's bow is penalised",
+"expected": "incident rule '13' or '15' with tacking boat as offender",
+"tol": "",
+"source": "RRS rules 13, 15",
+"line": 94,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 17",
+"quantity": "leeward boat from astern luffing above proper course on the run is penalised",
+"expected": "incident rule '17' with leeward boat as offender",
+"tol": "",
+"source": "RRS rule 17",
+"line": 106,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 18 mark-room",
+"quantity": "outside (leeward) boat squeezing an inside boat overlapped at the zone at a leeward gate is penalised; inside boat not penalised under 11",
+"expected": "incident '18.2' offender outside boat and no '11' incident on inside boat",
+"tol": "",
+"source": "RRS rule 18.2",
+"line": 120,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 18 mark-room",
+"quantity": "inside overlap established after outside boat reached the zone: inside boat penalised",
+"expected": "first incident's offender is the inside boat",
+"tol": "",
+"source": "RRS rule 18.2",
+"line": 132,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 18 mark-room",
+"quantity": "windward mark, boat clear ahead at the zone; boat that came in inside is penalised",
+"expected": "incident '18.2' offender boat B (inside)",
+"tol": "",
+"source": "RRS rule 18.2(b),(c)",
+"line": 142,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 18.3",
+"quantity": "boat tacking in the zone under a starboard-tack boat is penalised",
+"expected": "incident '18.3' offender tacking boat",
+"tol": "",
+"source": "RRS rule 18.3",
+"line": 151,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 19",
+"quantity": "outside boat not giving room at an obstruction (rock) is penalised",
+"expected": "incident '19' offender outside boat",
+"tol": "",
+"source": "RRS rule 19",
+"line": 158,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 20",
+"quantity": "valid hail for room to tack, answered by tacking, then hailing boat tacks: no incident",
+"expected": "hail valid and 0 incidents",
+"tol": "",
+"source": "RRS rule 20",
+"line": 171,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 20",
+"quantity": "hailed boat not answering a hail is penalised",
+"expected": "incident '20.2' offender hailed (windward) boat",
+"tol": "",
+"source": "RRS rule 20.2",
+"line": 176,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 20",
+"quantity": "hail in open water with no obstruction near: hailing boat penalised",
+"expected": "hail invalid and incident '20.1' offender hailing boat",
+"tol": "",
+"source": "RRS rule 20.1",
+"line": 181,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 31 / 44.2",
+"quantity": "touching the windward mark yields a one-turn penalty",
+"expected": "incident '31' and penalty turns === 1",
+"tol": "",
+"source": "RRS rules 31, 44.2",
+"line": 197,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 31 / 44.2",
+"quantity": "penalty turn (a tack and a gybe) is counted and penalty cleared",
+"expected": "'penaltyDone' event fired",
+"tol": "",
+"source": "RRS rule 44.2",
+"line": 198,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 44.2",
+"quantity": "only one turn of a two-turns penalty: disqualified when time is up",
+"expected": "racer dsq === '10' and no 'penaltyDone' event",
+"tol": "",
+"source": "RRS rule 44.2",
+"line": 211,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 29.1",
+"quantity": "X flag raised for boat over at the gun; boat that returned is started",
+"expected": "xFlag shown, racer ocsAtGun true and started true",
+"tol": "",
+"source": "RRS rule 29.1",
+"line": 226,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "rule 29.1",
+"quantity": "boat that never returns stays OCS",
+"expected": "ocs true, started false, incident '29.1' offender B",
+"tol": "",
+"source": "RRS rule 29.1",
+"line": 227,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "AI crews",
+"quantity": "AI port boat keeps clear of AI starboard boat in a port-starboard crossing (sportboat, 12 kn)",
+"expected": "0 incidents and 0 contact steps",
+"tol": "",
+"source": "RRS rule 10",
+"line": 256,
+"checked": true
+},
+{
+"test": "rules.mjs",
+"section": "AI crews",
+"quantity": "AI crew completes a two-turns penalty in 12 kn without DSQ (loop: dinghy, sportboat, cat, blackwatch)",
+"expected": "penaltyDone within 200 s run, not dsq",
+"tol": "",
+"source": "RRS rule 44.2",
+"line": 276,
+"checked": true
+},
+{
+"test": "sailshape.mjs",
+"section": "beating shape (per non-speed class)",
+"quantity": "mid-height (50%) main camber depth, close-hauled in 12 kn or class fullPowerTws, auto crew, cloth sails",
+"expected": "> 0.10 and < 0.14 (10-14% of chord)",
+"tol": "",
+"source": "none cited",
+"line": 48,
+"checked": true
+},
+{
+"test": "sailshape.mjs",
+"section": "beating shape (per non-speed class)",
+"quantity": "mid-height main draft position",
+"expected": "> 0.40 and < 0.50 (40-50% of chord)",
+"tol": "",
+"source": "none cited",
+"line": 49,
+"checked": true
+},
+{
+"test": "sailshape.mjs",
+"section": "beating shape (per non-speed class)",
+"quantity": "upper (82%) main twist",
+"expected": "> 8 deg and < 15 deg if main has a traveller, else < 22 deg",
+"tol": "",
+"source": "comment: dinghy VMG 4.1 kn vs Laser ~3.6 kn upwind in 12 kn (no citation)",
+"line": 54,
+"checked": true
+},
+{
+"test": "sailshape.mjs",
+"section": "control sign checks (per class)",
+"quantity": "outhaul in (0.1 -> 0.9) flattens main foot depth",
+"expected": "foot depth(0.9) < foot depth(0.1)",
+"tol": "",
+"source": "none cited",
+"line": 59,
+"checked": true
+},
+{
+"test": "sailshape.mjs",
+"section": "control sign checks (per class)",
+"quantity": "cunningham on (0 -> 1) moves mid main draft forward",
+"expected": "draft(1) < draft(0)",
+"tol": "",
+"source": "none cited",
+"line": 63,
+"checked": true
+},
+{
+"test": "sailshape.mjs",
+"section": "control sign checks (classes with a vang)",
+"quantity": "vang on (0.1 -> 0.9) at TWA 90 reduces upper main twist",
+"expected": "twist(0.9) < twist(0.1)",
+"tol": "",
+"source": "none cited",
+"line": 69,
+"checked": true
+},
+{
+"test": "sailshape.mjs",
+"section": "control sign checks (classes with backstay)",
+"quantity": "backstay on (0 -> 1) flattens mid main depth",
+"expected": "depth(1) < depth(0)",
+"tol": "",
+"source": "none cited",
+"line": 73,
+"checked": true
+},
+{
+"test": "sailshape.mjs",
+"section": "control sign checks (classes with backstay and jib)",
+"quantity": "backstay on reduces jib mid depth (headstay sag)",
+"expected": "jib depth(1) < jib depth(0)",
+"tol": "",
+"source": "none cited",
+"line": 74,
+"checked": true
+},
+{
+"test": "sailshape.mjs",
+"section": "control sign checks (classes with jib)",
+"quantity": "jib halyard up (0.1 -> 0.9) moves jib mid draft forward",
+"expected": "jib draft(0.9) < jib draft(0.1)",
+"tol": "",
+"source": "none cited",
+"line": 79,
+"checked": true
+},
+{
+"test": "sailshape.mjs",
+"section": "control sign checks (yankee jibs, clew > 1 m above deck)",
+"quantity": "jib car aft opens leech (twist at 50+82%) with foot no deeper",
+"expected": "twist sum(0.9) > twist sum(0.1) and foot depth(0.9) <= foot depth(0.1) + 0.002",
+"tol": "0.002 (foot depth fraction)",
+"source": "none cited",
+"line": 88,
+"checked": true
+},
+{
+"test": "sailshape.mjs",
+"section": "control sign checks (other jibs)",
+"quantity": "jib car aft flattens jib foot and opens upper jib leech",
+"expected": "foot depth decreases and upper (82%) twist increases",
+"tol": "",
+"source": "none cited",
+"line": 89,
+"checked": true
+},
+{
+"test": "seakeeping.mjs",
+"section": "1. free decay in calm water (loop over classes)",
+"quantity": "roll natural period from free decay (8 deg initial heel)",
+"expected": "optimist/dinghy [1.3, 3] s; cat [1.0, 2.5] s; j24/catalina30 [2, 4] s; oceanis381/j122/tp52 [2.5, 5] s; swan131 [5, 10] s",
+"tol": "",
+"source": "header: naval architecture, T = 2 pi sqrt((Ixx + Ia)/(m g GM)) (no author cited); swan131 range est. in comment",
+"line": 58,
+"checked": true
+},
+{
+"test": "seakeeping.mjs",
+"section": "1. free decay in calm water (loop over classes)",
+"quantity": "heave natural period from free decay (0.05 m initial)",
+"expected": "optimist/dinghy/cat [0.7, 1.6] s; j24 [1.2, 2.5] s; catalina30 [1.4, 2.6] s; oceanis381/j122/tp52 [1.5, 3] s; swan131 [2.2, 4.5] s",
+"tol": "",
+"source": "header: T = 2 pi sqrt((m + A33)/(rho g Awp)) (js/hull.js heaveAddedMass), no author cited",
+"line": 59,
+"checked": true
+},
+{
+"test": "seakeeping.mjs",
+"section": "1. free decay in calm water (loop over classes)",
+"quantity": "pitch natural period from free decay (2 deg initial)",
+"expected": "same ranges as heave per class (hp)",
+"tol": "",
+"source": "header: naval architecture, no author cited",
+"line": 60,
+"checked": true
+},
+{
+"test": "seakeeping.mjs",
+"section": "1. free decay in calm water (loop over classes)",
+"quantity": "roll damping ratio (log decrement of first peak)",
+"expected": "0.04 <= zeta <= 0.2",
+"tol": "",
+"source": "header: naval architecture ranges, no author cited",
+"line": 61,
+"checked": true
+},
+{
+"test": "seakeeping.mjs",
+"section": "1. free decay in calm water (loop over classes)",
+"quantity": "heave damping ratio",
+"expected": "0.15 <= zeta <= 0.45",
+"tol": "",
+"source": "header: naval architecture ranges, no author cited",
+"line": 62,
+"checked": true
+},
+{
+"test": "seakeeping.mjs",
+"section": "1. free decay in calm water (loop over classes)",
+"quantity": "pitch damping ratio",
+"expected": "0.15 <= zeta <= 0.45",
+"tol": "",
+"source": "header: naval architecture ranges, no author cited",
+"line": 63,
+"checked": true
+},
+{
+"test": "seakeeping.mjs",
+"section": "1. free decay in calm water (loop over classes)",
+"quantity": "step-to-step acceleration chatter in roll/heave/pitch decay (sign flips of jerk > 5% of rms)",
+"expected": "< 3 flips",
+"tol": "",
+"source": "none cited",
+"line": 64,
+"checked": true
+},
+{
+"test": "seakeeping.mjs",
+"section": "2. regular head seas (dinghy, catalina30, oceanis381)",
+"quantity": "heave RAO (heave/A) and pitch RAO (pitch/kA) in deep-water wave of length 10 LWL, A = 0.05 m",
+"expected": "heave RAO 1, pitch RAO 1",
+"tol": "|heave-1| < 0.1, |pitch-1| < 0.15",
+"source": "header: heave RAO -> 1 in waves much longer than hull (naval architecture, no author cited)",
+"line": 94,
+"checked": true
+},
+{
+"test": "seakeeping.mjs",
+"section": "2. regular head seas (dinghy, catalina30, oceanis381)",
+"quantity": "heave and pitch RAO in wave of length 0.5 LWL, A = 0.02 m",
+"expected": "heave RAO < 0.25 and pitch RAO < 0.25",
+"tol": "",
+"source": "header: -> ~0 in waves shorter than hull (no author cited)",
+"line": 95,
+"checked": true
+},
+{
+"test": "seakeeping.mjs",
+"section": "3. 35 kn sea, fetch 100 km (j24, catalina30, oceanis381)",
+"quantity": "max vertical (heave) acceleration, TWA 110",
+"expected": "< 2 g",
+"tol": "",
+"source": "none cited",
+"line": 113,
+"checked": true
+},
+{
+"test": "seakeeping.mjs",
+"section": "3. 35 kn sea, fetch 100 km",
+"quantity": "heave acceleration chatter flips",
+"expected": "< 1% of steps",
+"tol": "",
+"source": "none cited",
+"line": 114,
+"checked": true
+},
+{
+"test": "seakeeping.mjs",
+"section": "3. 35 kn sea, fetch 100 km",
+"quantity": "time with hull out of water (displaced volume < 5% of rest volume)",
+"expected": "0 steps",
+"tol": "",
+"source": "none cited",
+"line": 115,
+"checked": true
+},
+{
+"test": "seakeeping.mjs",
+"section": "4. under way in 20 kn sea, fetch 25 km (Hs ~0.8 m, Tp ~4 s), autopilot (j24, catalina30, oceanis381)",
+"quantity": "rms roll, pitch, yaw about the mean at TWA 52/100/160 (j24 only 52,100)",
+"expected": "TWA 52: roll < 6, pitch < 5, yaw < 6 deg; TWA 100 and 160: roll < 6.5, pitch < 3.5, yaw < 7 deg; limits x1.25 for LOA < 8 m",
+"tol": "",
+"source": "Gerritsma, Keuning & Versluis 1993; Marchaj, 'Seaworthiness' (1986) ch. 7",
+"line": 147,
+"checked": true
+},
+{
+"test": "seakeeping.mjs",
+"section": "4. under way in 20 kn sea, autopilot",
+"quantity": "mean boat speed (did not round up and stop)",
+"expected": "> 3.5 kn",
+"tol": "",
+"source": "Gerritsma, Keuning & Versluis 1993; Marchaj 1986 (qualitative)",
+"line": 148,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "parsing",
+"quantity": "parse 'Fl(2) W 10s'",
+"expected": "ch 'Fl', group '2', colours 'W', period 10 s",
+"tol": "",
+"source": "light character notation (IALA / OpenSeaMap seamark tags; no document cited)",
+"line": 18,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "parsing",
+"quantity": "parse 'VQ(6)+LFl 10s'",
+"expected": "ch 'VQ+LFl', group '6', period 10 s",
+"tol": "",
+"source": "light character notation (no document cited)",
+"line": 19,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "parsing",
+"quantity": "parse 'Mo(U)'",
+"expected": "ch 'Mo', group 'U'",
+"tol": "",
+"source": "none cited",
+"line": 20,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "parsing",
+"quantity": "parse 'Iso WRG 4s'",
+"expected": "ch 'Iso', colours W,R,G, period 4 s",
+"tol": "",
+"source": "none cited",
+"line": 21,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "parsing",
+"quantity": "parse 'Fl.G.5s'",
+"expected": "ch 'Fl', colour G, period 5 s",
+"tol": "",
+"source": "none cited",
+"line": 22,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "parsing",
+"quantity": "parse 'Al.WR 4s'",
+"expected": "ch 'Al', colours W,R, period 4 s",
+"tol": "",
+"source": "none cited",
+"line": 23,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Fl(2) W 10s",
+"quantity": "phase durations sum to the period",
+"expected": "period 10 s, sum 10 s",
+"tol": "1e-6 s",
+"source": "none cited",
+"line": 28,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Fl(2) W 10s",
+"quantity": "number and length of flashes",
+"expected": "2 flashes of 0.5 s each",
+"tol": "",
+"source": "none cited",
+"line": 29,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Fl(2) W 10s",
+"quantity": "light state at times",
+"expected": "on at 0.25 s and 1.75 s, off at 0.9 s and 5 s, on at 10.25 s",
+"tol": "",
+"source": "none cited",
+"line": 30,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Fl(2) W 10s",
+"quantity": "integrated light time per period",
+"expected": "1 s",
+"tol": "0.01 s",
+"source": "none cited",
+"line": 32,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Oc(3) 15s",
+"quantity": "period and number of eclipses",
+"expected": "sum 15 s, 3 eclipses",
+"tol": "1e-6 s",
+"source": "none cited",
+"line": 38,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Oc(3) 15s",
+"quantity": "total eclipse time (light longer than dark)",
+"expected": "< 7.5 s",
+"tol": "",
+"source": "none cited",
+"line": 39,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Oc 10s",
+"quantity": "single eclipse length",
+"expected": "sum 10 s, 1 eclipse, eclipse < 5 s",
+"tol": "1e-6 s",
+"source": "none cited",
+"line": 41,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Q, VQ",
+"quantity": "Q period and flashes per period",
+"expected": "period 1 s, 1 flash (60/min)",
+"tol": "1e-6",
+"source": "none cited",
+"line": 45,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Q, VQ",
+"quantity": "VQ period and flashes per period",
+"expected": "period 0.5 s, 1 flash (120/min)",
+"tol": "1e-6",
+"source": "none cited",
+"line": 46,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Q, VQ",
+"quantity": "Q flashes counted in 60 s at 0.01 s sampling",
+"expected": "60",
+"tol": "",
+"source": "none cited",
+"line": 48,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "VQ(6)+LFl 10s (south cardinal)",
+"quantity": "total flashes and period",
+"expected": "sum 10 s, 7 flashes",
+"tol": "1e-6 s",
+"source": "none cited",
+"line": 54,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "VQ(6)+LFl 10s (south cardinal)",
+"quantity": "flash lengths",
+"expected": "first six < 0.5 s, seventh >= 2 s",
+"tol": "",
+"source": "none cited",
+"line": 55,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "VQ(6)+LFl 10s",
+"quantity": "Q(9) 15s west cardinal",
+"expected": "sum 15 s, 9 flashes",
+"tol": "1e-6 s",
+"source": "none cited",
+"line": 56,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "VQ(6)+LFl 10s",
+"quantity": "VQ(3) 5s east cardinal",
+"expected": "sum 5 s, 3 flashes",
+"tol": "1e-6 s",
+"source": "none cited",
+"line": 57,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Morse",
+"quantity": "Mo(U) on-durations",
+"expected": "0.5, 0.5, 1.5 s (dot, dot, dash)",
+"tol": "",
+"source": "none cited",
+"line": 62,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Morse",
+"quantity": "Mo(A) 6s on-durations and period",
+"expected": "0.5, 1.5 s; sum 6 s",
+"tol": "1e-6 s",
+"source": "none cited",
+"line": 63,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Iso, fixed, alternating, composite, OSM",
+"quantity": "Iso 4s on-duration and period",
+"expected": "2 s on, sum 4 s",
+"tol": "1e-6 s",
+"source": "none cited",
+"line": 67,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Iso, fixed, alternating, composite, OSM",
+"quantity": "F (fixed) light always on",
+"expected": "on at 0.3 s and 123.4 s",
+"tol": "",
+"source": "none cited",
+"line": 68,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Iso, fixed, alternating, composite, OSM",
+"quantity": "Al.WR always on with alternating colour",
+"expected": "colour at 0.5 s != colour at 2.5 s, on at 2.5 s",
+"tol": "",
+"source": "none cited",
+"line": 69,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Iso, fixed, alternating, composite, OSM",
+"quantity": "Fl(2+1) 15s composite group",
+"expected": "3 flashes, sum 15 s",
+"tol": "1e-6 s",
+"source": "none cited",
+"line": 70,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Iso, fixed, alternating, composite, OSM",
+"quantity": "OSM sequence '8+(2)' for Oc 10",
+"expected": "8 s light, sum 10 s",
+"tol": "1e-6 s",
+"source": "OpenSeaMap seamark:light:sequence tag",
+"line": 71,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Iso, fixed, alternating, composite, OSM",
+"quantity": "OSM tags character=Q+LFl group=6 period=15",
+"expected": "7 flashes, sum 15 s",
+"tol": "1e-6 s",
+"source": "OpenSeaMap seamark tags",
+"line": 72,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "Iso, fixed, alternating, composite, OSM",
+"quantity": "OSM sequence of a Fl(3) 10",
+"expected": "3 flashes, sum 10 s",
+"tol": "1e-6 s",
+"source": "OpenSeaMap seamark tags",
+"line": 73,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "sectors and labels",
+"quantity": "sector 350-010 deg wraps through north",
+"expected": "in at 355 and 5 deg, out at 20 deg",
+"tol": "",
+"source": "none cited",
+"line": 78,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "sectors and labels",
+"quantity": "all-round light visible from any bearing",
+"expected": "inSector true at 123 deg",
+"tol": "",
+"source": "none cited",
+"line": 79,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "sectors and labels",
+"quantity": "chart label for Fl 2 G 5",
+"expected": "'Fl(2) G 5s'",
+"tol": "",
+"source": "none cited",
+"line": 80,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "sectors and labels",
+"quantity": "chart label for Q+LFl 6 W 15",
+"expected": "'Q(6)+LFl W 15s'",
+"tol": "",
+"source": "none cited",
+"line": 81,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "sectors and labels",
+"quantity": "sector light label G/W/R Oc 10",
+"expected": "'Oc GWR 10s'",
+"tol": "",
+"source": "none cited",
+"line": 83,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "IALA regions (loop over 10 venues)",
+"quantity": "IALA buoyage region of each venue",
+"expected": "solent A, sfbay B, garda A, sydney A, kiel A, newport B, auckland A, marseille A, meredith B, progreso B",
+"tol": "",
+"source": "IALA Maritime Buoyage System regions A/B (no document cited)",
+"line": 88,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "IALA regions",
+"quantity": "IALA region at Tokyo, Manila, Incheon, Singapore",
+"expected": "B, B, B, A",
+"tol": "",
+"source": "IALA MBS (no document cited)",
+"line": 89,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "IALA regions",
+"quantity": "port-hand lateral buoy colour/shape by region",
+"expected": "region A red can; region B green",
+"tol": "",
+"source": "IALA MBS",
+"line": 91,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "IALA regions",
+"quantity": "south cardinal buoy appearance",
+"expected": "yellow over black, topmark '2 cones down', white light",
+"tol": "",
+"source": "IALA MBS",
+"line": 93,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "baked venues (loop over non-open venues)",
+"quantity": "seamarks file exists",
+"expected": "data/venues/<id>.seamarks.json present",
+"tol": "",
+"source": "none cited",
+"line": 101,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "baked venues",
+"quantity": "seamarks file loads and region matches ialaRegion",
+"expected": "marks array, region === ialaRegion(lat, lon)",
+"tol": "",
+"source": "none cited",
+"line": 108,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "baked venues (not lakes garda, meredith)",
+"quantity": "marks inside the sailing area and lit marks",
+"expected": ">= 10 inside and >= 3 lit",
+"tol": "",
+"source": "none cited",
+"line": 109,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "baked venues",
+"quantity": "every light's phases fill its period and are positive",
+"expected": "per > 0, sum == per, every phase > 0",
+"tol": "1e-6 s",
+"source": "none cited",
+"line": 112,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "baked venues",
+"quantity": "mark positions finite",
+"expected": "all x, z finite",
+"tol": "",
+"source": "none cited",
+"line": 113,
+"checked": true
+},
+{
+"test": "seamarks.mjs",
+"section": "baked venues",
+"quantity": "lighthouses + major lights across all venues",
+"expected": ">= 5",
+"tol": "",
+"source": "none cited",
+"line": 115,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "1. sections",
+"quantity": "base-ventilated wedge (t/c 0.12, chord 0.15 m) at 2 deg, 25.7 m/s (50 kn), 0.4 m deep: wetted lift coefficient, no cavitation",
+"expected": "cav < 0.01 and 0.12 < cl < 0.2",
+"tol": "",
+"source": "comment: lift ~ 0.9 x 2 pi x alpha x Helmbold (Helmbold aspect-ratio formula)",
+"line": 27,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "1. sections",
+"quantity": "wedge at 2.8 deg leading-edge cavitation onset vs sigma: wetted at 50 kn, cavitating at 75 kn (38.6 m/s)",
+"expected": "cav(50 kn) < 0.5, cav(75 kn) > 0.5, cl(75 kn) < 0.8 cl(50 kn)",
+"tol": "",
+"source": "comment: onset when kLE cl passes sigma (cavitation number); no author cited",
+"line": 31,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "1. sections",
+"quantity": "supercavitating/ventilated flat plate at 6 deg, sigma ~0, infinite AR: lift coefficient",
+"expected": "cl = cnKirchhoff(6 deg) cos(6 deg)",
+"tol": "5% relative",
+"source": "Kirchhoff-Rayleigh free-streamline normal force",
+"line": 34,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "1. sections",
+"quantity": "planing float (b 0.6 m, deadrise 12 deg, trim 4 deg, 15 m/s, lambda 2): wetted length ratio and dynamic lift; total lift exceeds dynamic (buoyancy)",
+"expected": "lambda = 2; dynamic lift = 0.5*1025*225*0.36*CLb with CL0 = 4^1.1*0.012*sqrt(lambda), CLb = CL0 - 0.0065*12*CL0^0.6; L > dyn",
+"tol": "|lambda-2| < 0.05; lift 2% relative",
+"source": "Savitsky planing lift equation",
+"line": 40,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "2. mass and rest",
+"quantity": "Sailrocket 2 parts mass sum (empty)",
+"expected": "275 kg",
+"tol": "0.5 kg",
+"source": "sailrocket.com/node/291",
+"line": 45,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "2. mass and rest",
+"quantity": "at rest: total float lift vs weight, heel, each float loaded",
+"expected": "sum L > 0.9 m g, |heel| < 4 deg, each pod L > 100 N",
+"tol": "",
+"source": "none cited",
+"line": 49,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "3. alignment and balance",
+"quantity": "26 kn TWA 100: mean heel, foil centre distance from wing line of force, wing force",
+"expected": "|heel| < 2 deg, misalignment < 0.75 m, wing force > 3000 N",
+"tol": "",
+"source": "header: 0.75 m over ~9 m lever is the drawing's accuracy (no citation)",
+"line": 75,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "3. alignment and balance",
+"quantity": "rear float load at speed (rear float flies)",
+"expected": "< 50 N",
+"tol": "",
+"source": "sailrocket.com node/561",
+"line": 77,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "4. polar",
+"quantity": "VPP speed/wind ratio at 26 kn TWS, TWA 100",
+"expected": "2.15 < bsp/26 < 2.65",
+"tol": "",
+"source": "Sailrocket team: 2.4-2.5 x wind; WSSRC records 59.4 kn/500 m and 55.3 kn/mile in 23-26 kn",
+"line": 83,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "4. polar",
+"quantity": "VPP boat speed at 22 kn TWS, TWA 100",
+"expected": "38 < bsp < 56 kn",
+"tol": "",
+"source": "sailrocket.com node/603 (43.85 kn in 17-22 kn), node/623 (54.08 kn in 24.5 kn)",
+"line": 84,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "4. polar",
+"quantity": "VPP boat speed at 28 kn and 34 kn TWS, TWA 100",
+"expected": "28 kn: 60 < bsp < 69 kn; 34 kn: bsp < 73 kn",
+"tol": "",
+"source": "WSSRC record 65.45 kn in 27-29 kn; team: foil cavitates above ~65 kn",
+"line": 85,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "4. polar",
+"quantity": "VPP boat speed at 18 kn TWS (light air)",
+"expected": "< 45 kn",
+"tol": "",
+"source": "comment: needs ~17-20 kn to get going (team, no URL)",
+"line": 86,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "4. polar",
+"quantity": "upwind VMG at 26 kn, TWA 45",
+"expected": "bsp cos 45 < 26 kn",
+"tol": "",
+"source": "none cited",
+"line": 88,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "5. wrong tack",
+"quantity": "wind on port side (TWA -100, 26 kn): capsizes or slow",
+"expected": "capsized or u < 10 kn",
+"tol": "",
+"source": "none cited",
+"line": 93,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "5. wrong tack",
+"quantity": "makeBoat builds sailrocket2 as SpeedCraft",
+"expected": "instanceof SpeedCraft",
+"tol": "",
+"source": "none cited",
+"line": 94,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "6. l'Hydroptere",
+"quantity": "VPP speed and heel at 30 kn TWS, TWA 120",
+"expected": "42 < bsp < 56 kn, |heel| < 10 deg",
+"tol": "",
+"source": "WSSRC 2009: 51.36 kn over 500 m in 30 kn",
+"line": 100,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "6. l'Hydroptere",
+"quantity": "time-domain speed on port tack (30 kn, TWA -120) vs VPP starboard speed",
+"expected": "equal to VPP bsp",
+"tol": "6% relative",
+"source": "none cited",
+"line": 105,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "6. l'Hydroptere",
+"quantity": "VPP speed at 12 kn TWS, TWA 110 (not flying)",
+"expected": "< 20 kn",
+"tol": "",
+"source": "none cited",
+"line": 106,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "6. l'Hydroptere",
+"quantity": "flying in 30 kn TWA 120: displaced hull mass, leeward foil immersion, windward foil lift",
+"expected": "displaced < 0.1 mass, 0.2 < leeward immersion < 0.97, windward lift < 0.3 leeward lift",
+"tol": "",
+"source": "comment: leeward foil in nearly to its root 'as photographed' (no citation)",
+"line": 113,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "6. l'Hydroptere",
+"quantity": "20 kn TWA 90 steady flight: heel range, max heel, mean speed",
+"expected": "heel range < 5 deg, max heel < 14 deg, mean speed > 22 kn",
+"tol": "",
+"source": "none cited",
+"line": 120,
+"checked": true
+},
+{
+"test": "speedcraft.mjs",
+"section": "6. l'Hydroptere",
+"quantity": "surface-piercing NACA foil (t/c 0.09) at 16 deg, 12 m/s: ventilation and lift loss vs sealed foil",
+"expected": "piercing vent > 0.9, sealed vent < 0.01, cl(piercing) < 0.6 cl(sealed)",
+"tol": "",
+"source": "none cited",
+"line": 125,
+"checked": true
+},
+{
+"test": "storm-sea.mjs",
+"section": "",
+"quantity": "heavy air in a fetch-limited sea (default blackwatch, 40 kn, fetch 8 km, 120 s, helm centred): max heel, time with leeway > 45 deg, mean speed, Hs",
+"expected": "printed only (no pass/fail)",
+"tol": "",
+"source": "none cited",
+"line": 22,
+"checked": false
+},
+{
+"test": "storm.mjs",
+"section": "",
+"quantity": "heavy air in steady wind (default blackwatch, 40 kn, 60 s, helm centred): max heel; header says boat should round up or be knocked down, not sit stalled",
+"expected": "printed only (no pass/fail)",
+"tol": "",
+"source": "none cited",
+"line": 23,
+"checked": false
+},
+{
+"test": "syntax.mjs",
+"section": "",
+"quantity": "every js/**/*.js file parses as an ES module (node --check on an .mjs copy)",
+"expected": "0 parse failures",
+"tol": "",
+"source": "none cited",
+"line": 17,
+"checked": true
+},
+{
+"test": "tack.mjs",
+"section": "",
+"quantity": "time to cross the wind in a tack (or dead downwind in a gybe) with helm held over (default blackwatch, 14 kn)",
+"expected": "printed only ('NEVER CROSSED' if none; no exit code)",
+"tol": "",
+"source": "none cited",
+"line": 24,
+"checked": false
+},
+{
+"test": "thermal.mjs",
+"section": "1. determinism",
+"quantity": "wind speed/dir samples and wave Hs identical between two environments sampled in different orders (Garda, squally)",
+"expected": "bitwise equal",
+"tol": "",
+"source": "none cited",
+"line": 31,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "2. open water",
+"quantity": "weather trend equals synoptic trend with no thermal",
+"expected": "trend(t).f === synoptic(t).f and .d equal",
+"tol": "",
+"source": "none cited",
+"line": 47,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "2. open water",
+"quantity": "all-water 'land' at noon leaves wind unchanged",
+"expected": "max |diff| of speed and dir < 1e-9",
+"tol": "1e-9",
+"source": "none cited",
+"line": 48,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "3. Lake Garda, 15 July, calm gradient",
+"quantity": "Peler (N-NNE, 345-035 deg) mean wind at 03:00, 06:00, 08:00 local solar",
+"expected": "9-20 kn from 345-035 deg",
+"tol": "",
+"source": "none cited (regional Garda wind lore)",
+"line": 60,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "3. Lake Garda",
+"quantity": "late-morning lull at 10:12",
+"expected": "< 4 kn",
+"tol": "",
+"source": "none cited",
+"line": 61,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "3. Lake Garda",
+"quantity": "Ora in by noon",
+"expected": "> 10 kn from 180-220 deg",
+"tol": "",
+"source": "none cited",
+"line": 62,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "3. Lake Garda",
+"quantity": "Ora strength at 15:00 and 17:00",
+"expected": "15-25 kn from 180-220 deg (S-SSW)",
+"tol": "",
+"source": "none cited",
+"line": 63,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "3. Lake Garda",
+"quantity": "Ora died by 20:18",
+"expected": "< 3 kn",
+"tol": "",
+"source": "none cited",
+"line": 64,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "3. Lake Garda",
+"quantity": "no Ora on 15 January at 15:00",
+"expected": "< 6 kn and not from 180-220 deg",
+"tol": "",
+"source": "none cited",
+"line": 67,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "3. Lake Garda",
+"quantity": "Ora + 8 kn gradient from 195 vs against 8 kn gradient from 015 at 15:00",
+"expected": "with: > 25 kn; against: < with - 14 kn",
+"tol": "",
+"source": "none cited",
+"line": 71,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "3b. San Francisco, 15 July",
+"quantity": "morning wind at 09:00",
+"expected": "< 8 kn",
+"tol": "",
+"source": "none cited",
+"line": 82,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "3b. San Francisco",
+"quantity": "afternoon westerly at 13:00 and 16:00",
+"expected": "15-25 kn from 235-275 deg",
+"tol": "",
+"source": "none cited",
+"line": 83,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "3b. San Francisco",
+"quantity": "peaks late afternoon, still blowing at dusk (20:00)",
+"expected": "speed(16) > speed(13), speed(20) > 10 kn from 235-275 deg",
+"tol": "",
+"source": "none cited",
+"line": 84,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "3b. San Francisco",
+"quantity": "January 15:00 wind",
+"expected": "< half of July 16:00 speed",
+"tol": "",
+"source": "none cited",
+"line": 87,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "3b. San Francisco",
+"quantity": "spatial uniformity of westerly at two points 16:00",
+"expected": "|speed difference| < 3 kn, both from 235-275 deg",
+"tol": "3 kn",
+"source": "none cited",
+"line": 90,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "3c. setClock",
+"quantity": "moving built environment's clock to 15:00 equals one built at 15:00 (wind sample, mean, Hs)",
+"expected": "exactly equal",
+"tol": "",
+"source": "none cited",
+"line": 103,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "4. Kiel (54 N), July",
+"quantity": "summer sea breeze strength at noon and veer noon->17:00",
+"expected": "> 5 kn and veer > 15 deg",
+"tol": "",
+"source": "none cited (northern-hemisphere Coriolis veer)",
+"line": 112,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "4. Kiel",
+"quantity": "night (03:00) land breeze: strength and direction vs noon",
+"expected": "< 5 kn and direction within 60 deg of the reverse of noon (|((d3-d12+540)%360)-180| > 120)",
+"tol": "",
+"source": "none cited",
+"line": 113,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "4. Kiel",
+"quantity": "no onshore sea breeze in December 14:00",
+"expected": "< 1 kn or direction roughly opposite noon July (|diff-180| > 120)",
+"tol": "",
+"source": "none cited",
+"line": 114,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "5. Sydney (34 S), January",
+"quantity": "easterly sea breeze at noon backing by 17:00",
+"expected": "> 5 kn from 30-120 deg, direction change < -15 deg",
+"tol": "",
+"source": "none cited (southern-hemisphere backing)",
+"line": 122,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "6. diurnal stability (Kiel, 12 kn from 250)",
+"quantity": "gust coefficient of variation night (02:00) vs day (13:00)",
+"expected": "night sd/mean < day sd/mean",
+"tol": "",
+"source": "none cited",
+"line": 135,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "7. sea follows thermal (Garda, fetch 8 km)",
+"quantity": "Hs at dawn under the Peler",
+"expected": "> 0.15 m",
+"tol": "",
+"source": "none cited",
+"line": 146,
+"checked": true
+},
+{
+"test": "thermal.mjs",
+"section": "7. sea follows thermal (Garda, fetch 8 km)",
+"quantity": "Hs under the afternoon Ora vs fetch-limited estimate Hs = 0.0016 U sqrt(F/g), F = 8000 m",
+"expected": "Hs / (0.0016 U sqrt(8000/9.81)) = 1",
+"tol": "35% relative",
+"source": "JONSWAP fetch-limited growth (Hasselmann et al. 1973; named 'JONSWAP' only)",
+"line": 147,
+"checked": true
+},
+{
+"test": "tide-ai.mjs",
+"section": "",
+"quantity": "AI helm in 1.5 kn cross-tide toward a bank 60 m to leeward (blackwatch, sportboat, dinghy, 10 kn, 180 s): time aground",
+"expected": "0 s aground (aground > 0.05 m never)",
+"tol": "",
+"source": "none cited",
+"line": 24,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "1. harmonic prediction vs official (sfbay, newport)",
+"quantity": "high/low water times and heights from harmonic constants vs NOAA CO-OPS predictions at San Francisco 9414290 and Newport 8452660 (10 extremes each, Sep 2026 and Mar 2027)",
+"expected": "time error < 15 min and height error < 0.10 m",
+"tol": "15 min, 0.10 m",
+"source": "NOAA CO-OPS predictions, stations 9414290 and 8452660",
+"line": 34,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "1. harmonic prediction vs official",
+"quantity": "Portsmouth low-water times (4 lows, 25-26 Sep 2026)",
+"expected": "time error < 15 min",
+"tol": "15 min",
+"source": "UKHO Admiralty EasyTide; TICON-4 constants",
+"line": 43,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "1. harmonic prediction vs official",
+"quantity": "Southampton young flood stand and long high water: mid-flood min rise rate vs max, hours within 30 cm of HW",
+"expected": "min mid-flood rate < 0.35 x max rate and stand >= 170 min (pure semidiurnal: 2.2 h)",
+"tol": "",
+"source": "none cited (Solent double high water, M4/M6 on M2)",
+"line": 51,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "1. harmonic prediction vs official",
+"quantity": "September 2026 astronomical tidal range at Kiel and Marseille",
+"expected": "Kiel < 0.3 m, Marseille < 0.5 m",
+"tol": "",
+"source": "none cited",
+"line": 58,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "2. tidal streams (sfbay)",
+"quantity": "baked stream maps exist for San Francisco",
+"expected": "tide.json has streams",
+"tol": "",
+"source": "none cited",
+"line": 71,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "2. tidal streams (sfbay)",
+"quantity": "strongest spring ebb across the Golden Gate narrows, 29 Sep 12:00 - 1 Oct 2026",
+"expected": "3.5-5.5 kn",
+"tol": "",
+"source": "none cited ('published')",
+"line": 80,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "2. tidal streams (sfbay)",
+"quantity": "timing of flood/ebb maxima and slacks and speed ratio vs NOAA current station SFB1203 (Golden Gate Bridge, flood 069 deg), 29-30 Sep 2026",
+"expected": "max/slack time errors <= 45 min; speed ratio model/NOAA in (0.6, 1.6)",
+"tol": "45 min",
+"source": "NOAA current prediction station SFB1203",
+"line": 95,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "2. tidal streams (sfbay)",
+"quantity": "Gate spring ebb vs max stream off Crissy Field shallows",
+"expected": "ebb > 2 x bay",
+"tol": "",
+"source": "none cited",
+"line": 98,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "2. tidal streams (solent)",
+"quantity": "baked stream maps exist for Solent",
+"expected": "tide.json has streams",
+"tol": "",
+"source": "none cited",
+"line": 103,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "2. tidal streams (solent)",
+"quantity": "Hurst Narrows max spring stream, 10-12 Oct 2026",
+"expected": "3-4.5 kn",
+"tol": "",
+"source": "none cited (comment: Portsmouth springs range 3.9 m as MHWS-MLWS)",
+"line": 107,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "2. tidal streams (solent)",
+"quantity": "ordering of spring max stream: Hurst > off Cowes > Beaulieu shallows",
+"expected": "hurst > cowes > shoal",
+"tol": "",
+"source": "none cited",
+"line": 110,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "2. tidal streams (solent)",
+"quantity": "Hurst neap (4-6 Oct) max vs spring max",
+"expected": "neap < 0.75 x spring",
+"tol": "",
+"source": "none cited (neaps range 2.1 m)",
+"line": 113,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "3. shallow-water solve (synthetic inlet)",
+"quantity": "1.5 days of M2 1.0 m + S2 0.3 m forcing runs without blow-up",
+"expected": "no exception",
+"tol": "",
+"source": "none cited",
+"line": 144,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "3. shallow-water solve",
+"quantity": "relative mass balance error (volume change vs boundary flux)",
+"expected": "< 1e-9",
+"tol": "",
+"source": "none cited",
+"line": 145,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "3. shallow-water solve",
+"quantity": "stream acceleration through 1.2 km narrows vs open 8 km inlet",
+"expected": "max speed narrows > 3 x max in inlet",
+"tol": "",
+"source": "none cited (continuity)",
+"line": 146,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "3. shallow-water solve",
+"quantity": "tidal flat (0.4 m above MSL) wets and dries: min and max water depth",
+"expected": "min depth < 0.06 m and max depth > 0.3 m",
+"tol": "",
+"source": "none cited",
+"line": 147,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "4. grounding on a drying bank",
+"quantity": "high water depth over bank and Blackwatch grounding",
+"expected": "aground 0 and depth > 0.61 m (draft)",
+"tol": "",
+"source": "none cited",
+"line": 167,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "4. grounding on a drying bank",
+"quantity": "low water: bank dries and keel aground",
+"expected": "aground > 0.3 m and depth < 0",
+"tol": "",
+"source": "none cited",
+"line": 168,
+"checked": true
+},
+{
+"test": "tide.mjs",
+"section": "4. grounding on a drying bank",
+"quantity": "chart depth of bank relative to chart datum (z0 1.4 m, bank 0.3 m above MSL)",
+"expected": "chartDepth = -1.7 m (drying 1.7 m above CD)",
+"tol": "0.05 m",
+"source": "none cited",
+"line": 169,
+"checked": true
+},
+{
+"test": "traffic.mjs",
+"section": "per venue (loop over all VENUES, 20 min, busy)",
+"quantity": "harbour traffic: no vessel on land (sdf <= 1 m), no non-ferry mover traveling < 300 m, every ferry completes a leg when time allows, no rail vessel through a pier, no leaps (> 20 m/s +1 m or > 3 rad/s turn per 0.2 s)",
+"expected": "all conditions false (no worst, stuck, lazy, pierHit, leap)",
+"tol": "",
+"source": "none cited",
+"line": 63,
+"checked": true
+},
+{
+"test": "vlm.mjs",
+"section": "1. elliptic flat plate AR 6 (8x80 lattice)",
+"quantity": "lift slope CL_alpha vs Helmbold lifting-surface value 2 pi AR/(2 + sqrt(AR^2+4))",
+"expected": "CLa = Helmbold value (~4.67 /rad for AR 6)",
+"tol": "3% relative",
+"source": "Helmbold lifting-surface formula (header also mentions lifting line 2pi/(1+2/AR) and Jones 2pi/(E+2/AR), printed only)",
+"line": 73,
+"checked": true
+},
+{
+"test": "vlm.mjs",
+"section": "1. elliptic flat plate AR 6 (8x80 lattice)",
+"quantity": "lift slope vs Prandtl lifting line 2pi/(1+2/AR)",
+"expected": "printed % difference only",
+"tol": "",
+"source": "Prandtl lifting-line theory",
+"line": 71,
+"checked": false
+},
+{
+"test": "vlm.mjs",
+"section": "1. elliptic flat plate AR 6 (8x80 lattice)",
+"quantity": "span efficiency e from Trefftz-plane induced drag and from Kutta-Joukowski forces on bound vortices",
+"expected": "e = 1 (elliptic loading)",
+"tol": "Trefftz |e-1| < 0.03; forces |e-1| < 0.05",
+"source": "classical elliptic-loading result (Prandtl)",
+"line": 74,
+"checked": true
+},
+{
+"test": "vlm.mjs",
+"section": "1. elliptic AR 6 at game resolution (6x10)",
+"quantity": "span efficiency from forces",
+"expected": "0.97 < e < 1.12",
+"tol": "",
+"source": "none cited",
+"line": 75,
+"checked": true
+},
+{
+"test": "vlm.mjs",
+"section": "2. rectangular AR 20",
+"quantity": "lift slope vs Prandtl lifting line solved by Glauert's series (60 odd terms)",
+"expected": "CLa = lifting-line value",
+"tol": "2% relative",
+"source": "Prandtl lifting line; Glauert series solution",
+"line": 95,
+"checked": true
+},
+{
+"test": "vlm.mjs",
+"section": "3. image plane",
+"quantity": "CL of half wing (span 3) on mirror plane vs free wing of twice the span",
+"expected": "ratio 1",
+"tol": "0.5% relative",
+"source": "method of images (classical)",
+"line": 111,
+"checked": true
+},
+{
+"test": "vlm.mjs",
+"section": "4. parabolic camber h/c = 0.1, AR 40",
+"quantity": "zero-lift angle from lattice",
+"expected": "-2h/c = -0.2 rad",
+"tol": "3% relative",
+"source": "thin-airfoil theory",
+"line": 121,
+"checked": true
+},
+{
+"test": "vlm.mjs",
+"section": "4. parabolic camber h/c = 0.1, AR 40",
+"quantity": "zero-lift angle from strip thin-airfoil integral (L.sa0 mid-span)",
+"expected": "-0.2 rad",
+"tol": "3% relative",
+"source": "thin-airfoil theory",
+"line": 122,
+"checked": true
+},
+{
+"test": "vlm.mjs",
+"section": "5. tandem headsail + main",
+"quantity": "sheeting headsail in (0,4,8,12 deg): main mid-strip circulation falls and headsail circulation rises monotonically",
+"expected": "strictly decreasing main, strictly increasing jib",
+"tol": "",
+"source": "none cited (slot / backwind effect)",
+"line": 145,
+"checked": true
+},
+{
+"test": "vpp.mjs",
+"section": "",
+"quantity": "VPP polars per class at 6/12/20 kn: upwind TWA, bsp, VMG, reaching speeds, downwind VMG, heel, leeway",
+"expected": "printed only",
+"tol": "",
+"source": "none cited",
+"line": 13,
+"checked": false
+},
+{
+"test": "weather-fx.mjs",
+"section": "1. lightning determinism",
+"quantity": "strike list over [600,1800) s in one pass equals union of 0.37 s frame passes; count",
+"expected": "> 20 strikes and identical keys",
+"tol": "",
+"source": "none cited",
+"line": 16,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "1. lightning determinism",
+"quantity": "second computation identical",
+"expected": "identical",
+"tol": "",
+"source": "none cited",
+"line": 17,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "1. lightning determinism",
+"quantity": "different seed gives different strikes",
+"expected": "keys differ",
+"tol": "",
+"source": "none cited",
+"line": 19,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "1. lightning determinism",
+"quantity": "no active cells outside squally weather",
+"expected": "0 cells",
+"tol": "",
+"source": "none cited",
+"line": 20,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "1. lightning determinism",
+"quantity": "flash rate over two mature cells",
+"expected": "0.5 < rate < 9 per min",
+"tol": "",
+"source": "none cited",
+"line": 22,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "2. thunder timing",
+"quantity": "each thunder fires only once",
+"expected": "no duplicate id",
+"tol": "",
+"source": "none cited",
+"line": 28,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "2. thunder timing",
+"quantity": "thunder arrival time = flash time + distance / 343 m/s",
+"expected": "> 10 thunders, |t - ts - d/343| <= 1/60 s",
+"tol": "1/60 s + 1e-9",
+"source": "speed of sound 343 m/s (SOUND constant)",
+"line": 33,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "2. thunder timing",
+"quantity": "every strike within 25 km heard",
+"expected": "all fired",
+"tol": "",
+"source": "none cited",
+"line": 35,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "2. thunder timing",
+"quantity": "time jump > 5 s plays nothing",
+"expected": "0 thunders for interval 1000-1030 s",
+"tol": "",
+"source": "none cited",
+"line": 36,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "3. flash and bolt",
+"quantity": "flash intensity before/at/after stroke",
+"expected": "0 at ts-0.01, > 0.5 at ts, 0 at ts+2 s",
+"tol": "",
+"source": "none cited",
+"line": 39,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "3. flash and bolt",
+"quantity": "bolt geometry deterministic, segment count",
+"expected": "identical arrays, > 100 segments",
+"tol": "",
+"source": "none cited",
+"line": 42,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "3. flash and bolt",
+"quantity": "bolt vertical extent from cloud base (900 m) to sea",
+"expected": "min end height 0, max < 901 m",
+"tol": "",
+"source": "none cited",
+"line": 43,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "4. convection",
+"quantity": "cumulus base, thickness, cover: morning (sun 10 deg) vs afternoon (50 deg)",
+"expected": "all increase morning -> afternoon",
+"tol": "",
+"source": "none cited",
+"line": 46,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "4. convection",
+"quantity": "towering cumulus index",
+"expected": "squally afternoon > 0.5, steady < 0.3, squally no heat = 0",
+"tol": "",
+"source": "none cited",
+"line": 47,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "4. convection",
+"quantity": "strong wind (30 kn) stratocumulus share and base",
+"expected": "strat > 0.9 and base < afternoon base",
+"tol": "",
+"source": "none cited",
+"line": 48,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "5. mist",
+"quantity": "dawn radiation mist visibility; burnt off at 11 h; wind 18 kn clears",
+"expected": "dawn vis < 2500 m, late rad = 0, windy sigma < 0.2 x dawn",
+"tol": "",
+"source": "none cited",
+"line": 51,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "5. mist",
+"quantity": "sea (advection) fog at 38 deg latitude, 8 kn: worst visibility and occurrence",
+"expected": "250 < min vis < 600 m and some minutes < 1 km",
+"tol": "",
+"source": "none cited",
+"line": 53,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "5. mist",
+"quantity": "no afternoon sea fog at 21 deg latitude",
+"expected": "min vis = Infinity",
+"tol": "",
+"source": "none cited",
+"line": 55,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "6. thunder bearing",
+"quantity": "stereo pan / front for strikes E, W, N, S of camera looking north, and turned east",
+"expected": "E pan > 0.99, W pan < -0.99, N |pan| < 1e-9 front > 0.99, S front < -0.99, turned |pan| < 1e-9 front > 0.99",
+"tol": "",
+"source": "none cited",
+"line": 61,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "7. rain sound",
+"quantity": "rain sound levels when dry",
+"expected": "all 0 except hissF",
+"tol": "",
+"source": "none cited",
+"line": 68,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "7. rain sound",
+"quantity": "light (0.15) vs heavy (0.9) rain levels",
+"expected": "light pat > 0.1, drum < 0.01; heavy drum > 0.4, roar > 0.1; hiss rises, hissF falls",
+"tol": "",
+"source": "none cited",
+"line": 69,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "7. rain sound",
+"quantity": "hiss, wash, drum monotonic non-decreasing in rain rate",
+"expected": "monotone",
+"tol": "",
+"source": "none cited",
+"line": 72,
+"checked": true
+},
+{
+"test": "weather-fx.mjs",
+"section": "7. rain sound",
+"quantity": "squall over listener: peak rain, drumming, dry fraction over 2 h",
+"expected": "peak > 0.6, drum(peak) > 0.3, dry > 30% of samples",
+"tol": "",
+"source": "none cited",
+"line": 75,
+"checked": true
+},
+{
+"test": "wetrig.mjs",
+"section": "",
+"quantity": "capsized boat (cat, dinghy) with sails in water at 60 and 120 Hz after a shove (v=8, r=3): finite state and damped sway/yaw",
+"expected": "all state finite and max |v|,|r| < 5 after 3 s",
+"tol": "",
+"source": "none cited",
+"line": 12,
+"checked": true
+},
+{
+"test": "whitecaps.mjs",
+"section": "1. the curve",
+"quantity": "whitecap cover vs Monahan & O'Muircheartaigh fit W = 3.84e-6 U10^3.41 at 10,15,20,25,30,35 kn",
+"expected": "ratio 1",
+"tol": "3% for <= 30 kn, 6% for 35 kn",
+"source": "Monahan & O'Muircheartaigh (1980)",
+"line": 17,
+"checked": true
+},
+{
+"test": "whitecaps.mjs",
+"section": "1. the curve",
+"quantity": "cover monotone increasing in U (0.5-40 m/s)",
+"expected": "strictly increasing",
+"tol": "",
+"source": "none cited",
+"line": 19,
+"checked": true
+},
+{
+"test": "whitecaps.mjs",
+"section": "1. the curve",
+"quantity": "saturation past storm force",
+"expected": "cover(40 kn) < Monahan(40 kn), cover(60 kn) < 0.25, cover(80 kn) <= WC.max",
+"tol": "",
+"source": "Monahan & O'Muircheartaigh 1980 (fit beyond its data)",
+"line": 20,
+"checked": true
+},
+{
+"test": "whitecaps.mjs",
+"section": "1. the curve",
+"quantity": "cover at 8 kn (Beaufort 3)",
+"expected": "< 0.001 (0.1%)",
+"tol": "",
+"source": "WMO Beaufort descriptions",
+"line": 24,
+"checked": true
+},
+{
+"test": "whitecaps.mjs",
+"section": "1. the curve",
+"quantity": "cover at 19 kn (Beaufort 5)",
+"expected": "0.005-0.02",
+"tol": "",
+"source": "WMO Beaufort descriptions",
+"line": 25,
+"checked": true
+},
+{
+"test": "whitecaps.mjs",
+"section": "1. the curve",
+"quantity": "cover at 25 kn (Beaufort 6)",
+"expected": "0.015-0.04",
+"tol": "",
+"source": "WMO Beaufort descriptions",
+"line": 26,
+"checked": true
+},
+{
+"test": "whitecaps.mjs",
+"section": "1. the curve",
+"quantity": "cover at 44 kn (Beaufort 9)",
+"expected": "0.1-0.25",
+"tol": "",
+"source": "WMO Beaufort descriptions",
+"line": 27,
+"checked": true
+},
+{
+"test": "whitecaps.mjs",
+"section": "2. shader curve",
+"quantity": "WC_GLSL translated to JS vs whitecapCover, U 0-40 m/s",
+"expected": "max |diff| < 1e-6",
+"tol": "1e-6",
+"source": "none cited",
+"line": 34,
+"checked": true
+},
+{
+"test": "whitecaps.mjs",
+"section": "3. foam budget",
+"quantity": "active-crest share of cover WC.A",
+"expected": "0.15 < A < 0.5",
+"tol": "",
+"source": "comment: stage A ~1 s vs stage B ~2-10 s (Monahan stages)",
+"line": 38,
+"checked": true
+},
+{
+"test": "whitecaps.mjs",
+"section": "3. foam budget",
+"quantity": "foam e-folding time WC.tauB",
+"expected": "2-6 s",
+"tol": "",
+"source": "Monahan & Lu 1990; Callaghan et al. 2012 (2-10 s, most 3-5)",
+"line": 39,
+"checked": true
+},
+{
+"test": "whitecaps.mjs",
+"section": "4. the sea (open sea, fetch 2000 km, loop 10/20/30/45/60 kn)",
+"quantity": "seaHsTp significant wave height vs WMO Beaufort probable (max) heights 10 kn 0.6 (1), 20 kn 2 (2.5), 30 kn 4 (5.5), 45 kn 7 (10), 60 kn 11.5 (16) m",
+"expected": "Hs > 0.7 x probable and Hs <= 1.05 x max",
+"tol": "",
+"source": "WMO Beaufort table probable heights",
+"line": 48,
+"checked": true
+},
+{
+"test": "whitecaps.mjs",
+"section": "4. the sea (loop)",
+"quantity": "steepness Hs/Lp with Lp = g Tp^2 / 2pi (deep water)",
+"expected": "1/50 < Hs/Lp < 1/20",
+"tol": "",
+"source": "none cited ('a wind sea's')",
+"line": 49,
+"checked": true
+},
+{
+"test": "whitecaps.mjs",
+"section": "4. the sea",
+"quantity": "8 km fetch, 30 kn: Hs and Tp",
+"expected": "0.6 < Hs < 0.9 m and 3 < Tp < 3.6 s",
+"tol": "",
+"source": "fetch-limited JONSWAP",
+"line": 52,
+"checked": true
+},
+{
+"test": "whitecaps.mjs",
+"section": "4. the sea",
+"quantity": "WaveField Hs (60 kn, fetch 2000 km) vs seaHsTp spectrum Hs",
+"expected": "ratio 1",
+"tol": "5% relative",
+"source": "none cited",
+"line": 53,
+"checked": true
+},
+{
+"test": "whitecaps.mjs",
+"section": "--gpu",
+"quantity": "rendered whitecap cover at 20/30/45 kn vs whitecapCover",
+"expected": "want/1.6 < mean < want*1.6 + 0.004",
+"tol": "factor 1.6 (+0.004)",
+"source": "none cited",
+"line": 61,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "1. species by venue and month",
+"quantity": "Solent basking sharks present in July, absent in January",
+"expected": "July yes, January no",
+"tol": "",
+"source": "none cited",
+"line": 37,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "1. species by venue and month",
+"quantity": "Solent July fauna includes gannets, harbour porpoises, herring gulls, sandwich terns",
+"expected": "all present",
+"tol": "",
+"source": "none cited",
+"line": 38,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "1. species by venue and month",
+"quantity": "Kiel fauna: porpoises, no other cetaceans, sharks or turtles",
+"expected": "porpoise yes; no shark/turtle/other cetacean",
+"tol": "",
+"source": "none cited",
+"line": 40,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "1. species by venue and month",
+"quantity": "Sydney humpback group abundance June vs February (migration)",
+"expected": "June > 10 x February",
+"tol": "",
+"source": "none cited",
+"line": 43,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "1. species by venue and month",
+"quantity": "Southern Ocean January: black-browed albatross, southern right whale, no gulls",
+"expected": "as stated",
+"tol": "",
+"source": "none cited",
+"line": 45,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "1. species by venue and month",
+"quantity": "open ocean: no gulls",
+"expected": "no gull-morph birds",
+"tol": "",
+"source": "none cited",
+"line": 47,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "1. species by venue and month",
+"quantity": "Progreso (Yucatan) July species list",
+"expected": "frigatebird, brown pelican, green, hawksbill, loggerhead turtles, bull and blacktip sharks all present",
+"tol": "",
+"source": "none cited",
+"line": 49,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "1. species by venue and month",
+"quantity": "Hauraki Gulf (Auckland) July species",
+"expected": "Australasian gannet, Bryde's whale, common dolphin, humpback present",
+"tol": "",
+"source": "none cited",
+"line": 51,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "1. species by venue and month",
+"quantity": "Lake Garda fauna",
+"expected": "gulls only",
+"tol": "",
+"source": "none cited",
+"line": 52,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "1. species by venue and month",
+"quantity": "every species listed in VENUE_FAUNA defined in SPECIES",
+"expected": "all defined",
+"tol": "",
+"source": "none cited",
+"line": 54,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "1. species by venue and month",
+"quantity": "frigatebirds and common terns never sit on the sea",
+"expected": "sit === 0",
+"tol": "",
+"source": "none cited",
+"line": 55,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "2. determinism",
+"quantity": "same venue, seed and day give identical animal states after 10 min",
+"expected": "signatures equal",
+"tol": "",
+"source": "none cited",
+"line": 75,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "2. determinism",
+"quantity": "another seed gives different animals",
+"expected": "signatures differ",
+"tol": "",
+"source": "none cited",
+"line": 76,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "2. determinism",
+"quantity": "Math.random calls in simulation",
+"expected": "0",
+"tol": "",
+"source": "none cited",
+"line": 77,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "2. determinism",
+"quantity": "frozen boat object unchanged (visual only)",
+"expected": "no throw and JSON identical",
+"tol": "",
+"source": "none cited",
+"line": 78,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "3. water and land",
+"quantity": "swimming animals in water shallower than 0.6 x their required depth",
+"expected": "> 1000 samples and 0 violations",
+"tol": "",
+"source": "none cited",
+"line": 102,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "3. water and land",
+"quantity": "swimmers or sitting birds on land",
+"expected": "0",
+"tol": "",
+"source": "none cited",
+"line": 103,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "3. water and land",
+"quantity": "nearest approach of rorqual/right whales to shore",
+"expected": "> 250 m",
+"tol": "",
+"source": "none cited",
+"line": 104,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "4. humpback surfacing",
+"quantity": "surfacing sequences in 3 h",
+"expected": ">= 5 full sequences",
+"tol": "",
+"source": "none cited",
+"line": 122,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "4. humpback surfacing",
+"quantity": "blows per sequence",
+"expected": "3-5",
+"tol": "",
+"source": "none cited",
+"line": 123,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "4. humpback surfacing",
+"quantity": "dive duration between sequences (gaps > 150 s)",
+"expected": ">= 4 long gaps, each 300-960 s (5-15 min plus fluke and rise)",
+"tol": "",
+"source": "none cited",
+"line": 125,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "4. humpback surfacing",
+"quantity": "interval between blows in a sequence",
+"expected": "15-70 s (message: 15-60 s)",
+"tol": "",
+"source": "none cited",
+"line": 127,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "5. bow-riding",
+"quantity": "common dolphin pod bow-rides at 6 kn in 20 seeded meetings",
+"expected": "5-18 of 20",
+"tol": "",
+"source": "none cited",
+"line": 153,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "5. bow-riding",
+"quantity": "bow-riding position just ahead of stem (3.5-12 m ahead, within 13 m)",
+"expected": "every riding pod > 200 samples on the bow",
+"tol": "",
+"source": "none cited",
+"line": 154,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "5. bow-riding",
+"quantity": "bow-riding at 3 kn",
+"expected": "0 of 20",
+"tol": "",
+"source": "none cited",
+"line": 155,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "5. bow-riding",
+"quantity": "harbour porpoise bow-ride propensity",
+"expected": "0",
+"tol": "",
+"source": "none cited",
+"line": 156,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "6. shark fin vs dolphin roll",
+"quantity": "basking shark dorsal fin height above local surface (0.25 m sea)",
+"expected": "> 0.3 m minimum",
+"tol": "",
+"source": "none cited",
+"line": 176,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "6. shark fin vs dolphin roll",
+"quantity": "shark depth and pitch range vs dolphin",
+"expected": "shark y range < dolphin y range / 4, shark pitch range < 0.12 rad, dolphin pitch range > 0.3 rad",
+"tol": "",
+"source": "none cited",
+"line": 177,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "7. flushing and diving",
+"quantity": "distance at which a sitting gull flock flushes from an approaching boat (2.5 m/s)",
+"expected": "15-80 m",
+"tol": "",
+"source": "none cited",
+"line": 198,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "7. flushing and diving",
+"quantity": "basking green turtle dives away from an approaching boat",
+"expected": "FLEE state reached",
+"tol": "",
+"source": "none cited",
+"line": 208,
+"checked": true
+},
+{
+"test": "wildlife.mjs",
+"section": "7. flushing and diving",
+"quantity": "relative bearing words for crew calls",
+"expected": "'off the starboard bow', 'on the port beam', 'astern'",
+"tol": "",
+"source": "none cited",
+"line": 209,
+"checked": true
+}
+]

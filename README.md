@@ -10,13 +10,18 @@ It runs in any modern browser with WebGL, with no install and no build step.
 
 ## What's in it
 
-- **30 boats**, from an Optimist to a J/122, the Mariner's trimaran and six legends (two- and three-masted gaff schooners with their topsails, a pilot cutter, two circumnavigating ketches and the winged-keel 12 Metre), each with its own hull lines, rig, sailcloth, line hardware and baked velocity polar.
+- **37 boats**, from an Optimist to a J/122, the Mariner's trimaran, the TP52 (raced against the real 52 SUPER SERIES teams), the 40 m Swan 131 *Aristarchos*, the J Class (*Shamrock V*, *Velsheda*, *Endeavour*, with a three-boat J regatta), six legends (*America*, *Shenandoah of Sark*, *Jolie Brise*, *Suhaili*, *Gipsy Moth IV*, *Australia II*), and two speed-record craft (*Vestas Sailrocket 2* and *l'Hydroptère*), each with its own hull lines, rig, sailcloth, line hardware and baked velocity polar.
 - **Sails as cloth** under one vortex lattice, trimmed through the real running rigging: sheets, traveller, vang, cunningham, outhaul, backstay, jib cars and halyard, reefs, on the cleats, clutches and winches the real boat has. An automatic crew can work the same lines for you.
 - **Ten real harbours and lakes**, the Southern Ocean, and any latitude and longitude: OpenStreetMap coastlines, piers, towns and villages over the whole sailing area, surveyed depths and the real tide and tidal streams for the date (on the sea venues), seamarks and lights, and harbour traffic (moored yachts, ferries on their routes, fishing and motor boats).
 - **Weather and sea**: puffs and shifts that move with the wind, sea and land breezes, squall cells with rain and lightning, a fetch-limited sea with swell, whitecaps, rogue groups, waves that refract and break at the coast, and each boat's own Kelvin wake.
 - **Racing** against up to 29 AI boats under the Racing Rules of Sailing Part 2, umpired on the water; **online** rooms, peer to peer, with the same wind for everyone.
 - **An autopilot with a coach** that sails to a waypoint or round the course and says why it does what it does.
 - **Things break when their loads say so**: rigs, sails, hulls, keels and rudders; anchoring, mooring, man overboard, engines, and a crew that tires.
+- **Wildlife by place and season**: gulls, terns, gannets, pelicans, frigatebirds, albatrosses and petrels; dolphins that ride your bow, porpoises; humpback, southern right, Bryde's and fin whales with their own blows; green, hawksbill, loggerhead and leatherback turtles; basking, blue, bull, blacktip, bronze whaler, great white and porbeagle sharks. Visual only: they never touch the physics.
+- **A HUD you arrange** (Shift+L or *Arrange HUD*): drag any panel, snap to edges, hide what you don't use; layouts are saved per device. A sound mixer under **Snd** (master, wind & sea, sails & gear, engines, horn & signals, wildlife).
+- **The automatic crew shows its hands**: whatever the autopilot or auto-trim works (a sheet, the traveller, a winch, the tiller) glows on deck and in the rig panel, with a label saying what it does.
+- **The sea goes on when you look away**: a hidden or minimised window keeps sailing in real time; only Pause (P) stops it.
+- **Validated against the real thing**: sea trials, A→B passages and physics-law tests, every checked quantity listed with its expected value, tolerance and source in [docs/VALIDATION.md](docs/VALIDATION.md).
 
 ## What you can sail
 
@@ -349,6 +354,28 @@ In 20 kn the Laser-type dinghy does 12.5 kn at 90° and 14.6 kn at 120° (it is 
 
 Helm balance (`node test/helm.mjs`) is the rudder angle that holds a steady course. The keels are where the real boats have them; what balances the sails' centre of effort, which lies well ahead of the keel as on the real boats, is the Munk moment of the hull, the long keel's lift carried ahead of its quarter chord (a tenth of its chord forward: a low-aspect-ratio foil's lift gathers toward its leading edge; more than that and the Blackwatch's bow is held down enough to stop her surfing in big seas), and the keel's downwash at the rudder (lifting line, nearly twice the downwash at the keel that far aft). In 12 kn the Blackwatch carries 2.4° of weather helm upwind and 2.9° reaching; the J/70 carries 0.4° of lee helm upwind and 1.2° of weather helm reaching, short of the 2–4° a J/70 carries upwind because its 0.6 m of mast rake is left out (the solved rig models a plumb mast, and a raked luff on it lost the backstay's flattening).
 
+## Validation
+
+The simulation is checked against published data, not only against itself. Every checked quantity, with its expected value, tolerance, source, the test that checks it and the current result, is in **[docs/VALIDATION.md](docs/VALIDATION.md)** (rebuilt by `node tools/validation-doc.mjs`).
+
+- **Sea trials** (`test/seatrial.mjs`): every class sails a scripted short passage (out on a close reach, a beat with tacks, a beam reach held, a broad reach under the kite, a gybe, heave to) in 6–32 kn, flat and in the game's seaway, steady and gusty, in open water and the Solent's tide, three ways: on the autopilot, with a scripted competent helmsman, and with the helm fixed. Speed against the polar and ORC certificates, heel, course-keeping, directional stability, weather helm, tack times, motions, rig and sail safety factors, damage, load spikes. `QUICK=1` runs a few classes in minutes; `REJUDGE=1` re-scores the last run.
+- **Passages** (`test/passages.mjs`): sail from A to B (Cowes–Yarmouth, harbour crossings, 20 nm open-water legs) against a VMG router's time on the same polar and tide.
+- **Physics laws**: waves (`micro-waves.mjs`: Airy dispersion, group speed, orbital motion, JONSWAP/PM growth, Rayleigh statistics, breaking steepness, Stokes drift), ropes (`micro-rope.mjs`: catenary sag, stretch, wave speed, swing period, capstan), and `laws.mjs`, `navcalc.mjs`, `robust.mjs` (fuzzing, NaN recovery, determinism, 2 h stability), `aground.mjs`, `manoeuvres.mjs`, `dismast.mjs`, `netstate.mjs`, `budget.mjs`, plus the older per-subsystem tests.
+
+### Known failures (the current baseline)
+
+The suite is honest about what does not yet match real boats; these are open:
+
+- **Tacking**: in the sea trials, boats too often fail a tack and hang in irons or on a close reach, and the autopilot's beats (Cowes to Yarmouth) take 40–90 % longer than routed.
+- **Heel in a breeze**: big boats heel past their target (TP52, J Class about 33–36° in 25 kn, against 18–22°); the automatic crew's depowering is being reworked.
+- **The J Class** is slow at 12 kn (8–9 kn against 9.5–10.5 kn published).
+- **Rigs**: the Laser's unstayed top section still overloads in 25–30 kn; the 49er's and Star's rigs fail in some trials; the J Class tears sails in strong wind.
+- **Turning under power**: some boats pivot on the spot at full helm instead of turning in 2–4 lengths.
+- **Gybes**: a crash gybe swings the boom at 130–200°/s on small boats but only 50–85°/s on the Swan 131 and the TP52 in light air, and from 45° by the lee only the sportboat goes across.
+- **Waves and ropes**: long waves in 30–50 m depth use the deep-water wavelength (14–23 % off); the orbital motion decays too fast with depth; the rope simulation stretches 2–5 % where a rope should not, and a free tail can gain energy.
+- **Stability**: no coachroof buoyancy, so the angle of vanishing stability is low (Contessa 32: 133° against a published 155°).
+- **Others**: wind turbulence about twice its design value, the venue projection 0.7 % short north–south, the autopilot reefing on and off in gusts, AI starts 24–30 s late on average, l'Hydroptère at 32–37 kn on cloth sails against her 51 kn record.
+
 ## What is approximated
 
 These are the honest limits:
@@ -407,7 +434,8 @@ These are the honest limits:
 | `-` `=` (or `+`) | Time warp, up to ×8 (free sail, or racing until 20 s before the gun; not online) |
 | `P` | Pause (not online) |
 | `Esc` | Menu; first closes the help, the chart, the results or the phone's rig panel |
-| `O` | Sound on / off |
+| `O` | Sound on / off (click **Snd** for the mixer: master and per-channel volume) |
+| `Shift`+`L` | Arrange the HUD: drag panels, hide them, reset (also *Arrange HUD* in the menu) |
 | `Shift`+`B` | Racing: "Protest!" |
 | `Shift`+`U` | Racing: hail for room to tack at an obstruction; when hailed, answer "You tack" |
 | `?`, `F1`, `Shift`+`H` | Help |
