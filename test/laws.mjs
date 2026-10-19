@@ -13,7 +13,7 @@
 import { suite } from './lib/check.mjs';
 import { CLASSES, CLASS_ORDER, Boat, makeSteadyEnv, solvePolarAngle, RHO_W } from '../js/physics.js';
 import { KT, DEG, G, WindField } from '../js/env.js';
-import { RIG_DATA } from '../js/rig-structure.js';
+import { RIG_DATA, rm30 } from '../js/rig-structure.js';
 const QUICK = !!+(process.env.QUICK || 0);
 const S = suite('laws');
 
@@ -163,8 +163,8 @@ S.near({ quantity: 'one knot', measured: KT, expected: 1852 / 3600, tol: 1e-6, r
   const pick = QUICK ? generic.slice(0, 4) : generic;
   for (const id of pick) {
     const b = get(id), C = b.cls, gz30 = gzCurve(b).find((p) => p[0] === 30)[1] + b.crewMass * (C.crewMaxOut || 0) * Math.cos(30 * DEG) / b.mass;
-    const assumed = (C.gm || 1) * Math.sin(30 * DEG) * 0.8;                 // js/rig-structure.js genericRig RM30 / (m g)
-    S.near({ quantity: `${C.name}: rig sized for RM30 / hull's RM30`, measured: assumed / gz30, expected: 1, tol: 0.25, unit: '', source: 'Nordic Boat Standard rig sizing from the boat\'s own RM30 (js/rig-structure.js genericRig uses C.gm)' });
+    const assumed = rm30(C) / (b.mass * G);                                  // js/rig-structure.js genericRig's RM30 / (m g)
+    S.near({ quantity: `${C.name}: RM30 the generic rig is sized from / the hull's own (crew out)`, measured: assumed / gz30, expected: 1, tol: 0.25, unit: '', source: 'Nordic Boat Standard rig sizing from the boat\'s own RM30 (js/rig-structure.js rm30 uses C.gm, C.bmForm; GENERIC_K may correct the wires)' });
   }
 }
 
