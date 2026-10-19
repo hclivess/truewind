@@ -1709,7 +1709,11 @@ export function autoTrim(boat, dt, aoaBias = 0, full = true) {
       // (upwind, a main on a traveller with a vang is trimmed by the car and its leech below: travUp)
       // (not when she is stopped head to wind, in irons or mid-tack: then the main is eased to let the bow fall off,
       // below, as before: held hard in on its sheet, an AI boat that stalled in a tack stayed in irons)
-      const travUp = s.key === 'main' && !!s.trav && !!s.track && shapeUp > 0.5 && s.vang !== 'none' && !!sh.main && !(awa < 32 * DEG && boat.u < 1.3);
+      // (nor with her boom over on the windward side, the main aback: read by its telltales the car was hauled further
+      // to windward, which held it aback; an AI sportboat bearing away round the windward mark in the race test (seed 2)
+      // lay there at 1-2 kn with full helm for ten minutes and did not finish. The strip rule below puts the car by the
+      // wind's angle, to leeward, and the boom swings across)
+      const travUp = s.key === 'main' && !!s.trav && !!s.track && shapeUp > 0.5 && s.vang !== 'none' && !!sh.main && !(awa < 32 * DEG && boat.u < 1.3) && !(boat.booms.main && boat.booms.main.a * sd > 8 * DEG);
       if (s.key === 'main' && s.trav && !travUp) {
         const sheetEase = clamp(0.06 + 0.25 * flat * upwind + (1 - upwind) * 0.3, 0, 1);
         c.trav = lerp(c.trav, clamp((want - sheetEase * (s.max - s.trav[1]) - s.trav[0]) / (s.trav[1] - s.trav[0]), 0, 1), k * 2);
