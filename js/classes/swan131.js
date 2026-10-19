@@ -99,9 +99,9 @@ export default {
   // 9.2 with the first reef held to 22 kn)
   autoReef: { up: [17, 22], off: [23, 29] }, reefWind: [17, 22],
   // (her crew holds her near 17 degrees, but not at any cost: in the cloth model the full depower build-up held her at
-  // 17-19 degrees in 20-25 kn and cost 10-17 % of her speed close-hauled; capped at 0.7 she sails at 19-22 degrees and
-  // gives up 2-8 %. Estimate)
-  targetHeel: 17 * DEG, depowerMax: 0.7, canCapsize: false, hasBackstay: true, hasBoard: false, reefTime: 75,
+  // 17-19 degrees in 20-25 kn and cost 10-17 % of her speed close-hauled, the main eased until it luffed; capped at 0.5
+  // she sails at 21-24 degrees and gives up 0-4 %. Estimate)
+  targetHeel: 17 * DEG, depowerMax: 0.5, canCapsize: false, hasBackstay: true, hasBoard: false, reefTime: 75,
   // (powered: every working line is on a hydraulic winch or ram, so the "crew power" is the hydraulics': a Rondal
   // captive winch pulls ~8-10 t; no hand tires on it: js/fatigue.js)
   sheetPower: 60000, powered: true,
