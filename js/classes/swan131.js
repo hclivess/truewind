@@ -93,10 +93,15 @@ export default {
   // = the forestay's hounds at 52.67; the 54 m keel-stepped spar [NJ] has its heel ~1.3 m under the DWL)
   mastX: 3.85, mastHeight: 53.2, boomZ: 5.4, mastR: 0.32, keelBulb: false,
   vppSecs: 160,
-  // the crew rolls the main down into its boom as the wind rises (a superyacht reefs from ~19-20 kn true upwind, later
-  // off the wind) rather than twist its head off; the AI's race reefing by the same winds
-  autoReef: { up: [19, 24], off: [25, 31] }, reefWind: [19, 24],
-  targetHeel: 14 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, reefTime: 75,
+  // the crew rolls the main down into its boom as the wind rises (a superyacht reefs from ~17-22 kn true upwind, later
+  // off the wind) rather than twist its head off; the AI's race reefing by the same winds (estimate: tuned in the cloth
+  // model, where the reefed main beat the full one eased to her ~17 degree target: 20 kn 11.1 kn at 40 deg against
+  // 9.2 with the first reef held to 22 kn)
+  autoReef: { up: [17, 22], off: [23, 29] }, reefWind: [17, 22],
+  // (her crew holds her near 17 degrees, but not at any cost: in the cloth model the full depower build-up held her at
+  // 17-19 degrees in 20-25 kn and cost 10-17 % of her speed close-hauled, the main eased until it luffed; capped at 0.5
+  // she sails at 21-24 degrees and gives up 0-4 %. Estimate)
+  targetHeel: 17 * DEG, depowerMax: 0.5, canCapsize: false, hasBackstay: true, hasBoard: false, reefTime: 75,
   // (powered: every working line is on a hydraulic winch or ram, so the "crew power" is the hydraulics': a Rondal
   // captive winch pulls ~8-10 t; no hand tires on it: js/fatigue.js)
   sheetPower: 60000, powered: true,

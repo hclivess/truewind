@@ -135,7 +135,9 @@ function jClass(o) {
     vppSecs: 150, hydroStations: 44, hullStations: 120,
     // (sailed on her lines: a J races heeled ~20-25 degrees upwind in a breeze, the lee rail near the water; the crew
     // reefs (or changes down) from ~20 kn of true wind upwind, later off the wind: autoReef as the game's crews reef)
-    targetHeel: 22 * DEG, autoReef: { up: [20, 26], off: [26, 32] }, canCapsize: false, hasBackstay: true, hasBoard: false, runners: true,
+    // (the depower build-up to that heel capped at 0.75, est.: in the cloth model the full build-up held a J at 22-26 deg
+    // in 20-25 kn and cost Velsheda 12 % of her VMG in 25 kn; at 0.5 she sailed at 25-33 deg and lost ~2 %)
+    targetHeel: 22 * DEG, depowerMax: 0.75, autoReef: { up: [20, 26], off: [26, 32] }, canCapsize: false, hasBackstay: true, hasBoard: false, runners: true,
     // the deck's hydraulic power: what the crew and the winches can pull on a sheet (N): a J's genoa sheet runs to
     // 10 - 15 t, the mainsheet to ~10 t (est.)
     sheetPower: 60000, reefTime: 180, reefWind: [20, 26],          // (est.: a J reefs at ~18-22 kn; J Class racing stops at ~25 kn)

@@ -17,6 +17,9 @@ export function rigMargins(id, spec = null, tws = 22) {
   const C = CLASSES[id];
   const b = new Boat(id, { sailModel: 'strip', lod: 2 });
   if (spec) b.rigStruct = new RigStructure(b, spec);
+  // (under full sail: the loads are scaled to RM30 by the heeling moment, and a crew that reefs at 18 kn (C.autoReef)
+  // carried the Oceanis's rig at 22 kn under a reefed main and a rolled genoa, a different share between the stays)
+  if (b.auto) b.auto.reef = false;
   const RM30 = rm30(C);
   // the dock: no wind, upright
   const env0 = makeSteadyEnv(0.01);

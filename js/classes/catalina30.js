@@ -28,7 +28,11 @@ export default {
   hullLat: { area: 2.3, cd: 0.9, z: -0.2 },
   windage: { area: 4.6, z: 2.6, cd: 0.95 },
   mastX: 1.06, mastHeight: 13.85, boomZ: 2.78, mastR: 0.07, keelBulb: false,
-  targetHeel: 18 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 2200, reefTime: 60,
+  targetHeel: 18 * DEG,
+  // (reefed by her crew as owners sail her: the first reef and the genoa rolled to ~110% in ~18 kn of true wind
+  // close-hauled, the second reef and the genoa to ~90% in ~24; later off the wind)
+  autoReef: { up: [18, 24], off: [24, 30] }, reefWind: [18, 24],
+  canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 2200, reefTime: 60,
   // inboard: Universal M25XP (3-cyl diesel, 23 hp at 3,000 rpm, 2:1 Hurth box), 2-blade fixed 13 x 9 in prop
   engine: { type: 'inboard', model: 'Universal M25XP', kW: 23 * HP, rpmMax: 3000, rpmIdle: 850, cyl: 3, fuel: 'diesel', gear: 2.0,
     prop: { D: 0.33, P: 0.23, Z: 2, BAR: 0.35, folding: false, rh: 1 }, pos: [-2.75, 0, -0.62], mount: [-1.9, 0, -0.05], mass: 125, inMass: true,
@@ -40,7 +44,7 @@ export default {
     { key: 'main', kind: 'boom', area: 201.3 * SQFT * 1.04, luff: 35 * FT, foot: 11.5 * FT, head: 0.15, depth: [0.12, 0.14, 0.13], twistMax: 20 * DEG,
       cd0: 0.07, ARe: 4.2, min: 2 * DEG, max: 80 * DEG, trav: [-6 * DEG, 12 * DEG], Iboom: 150, boomMass: 22, reefs: 2,
       vangBend: 0.05, sheetBend: 0.04, color: 0xf2f0e8 },
-    { key: 'jib', kind: 'loose', area: 30.0, tackX: 4.58, tackZ: 1.36, luff: 12.3, foot: 4.9, head: 0.06, footRise: 0.35,
+    { key: 'jib', kind: 'loose', furlReef: [1, 0.8, 0.65], area: 30.0, tackX: 4.58, tackZ: 1.36, luff: 12.3, foot: 4.9, head: 0.06, footRise: 0.35,
       depth: [0.12, 0.13, 0.11], cd0: 0.045, ARe: 3.8, min: 10 * DEG, max: 50 * DEG, sagK: 1.3, color: 0xf2f0e8, window: false },
   ],
   hull: { color: 0xf3f2ec, stripe: 0xb3262a, deck: 0xe9e3d3, boot: 0x1b2f52, bootTop: 0x6b3f22, levels: [0.03, 0.09, 0.2, 0.12] },
