@@ -1207,7 +1207,16 @@ export class RigStructure {
         // twice its strength close-hauled in 25 kn. A stayed rig's luff round and bend were set with it as it was: there
         // it is left for a recalibration of those.)
         if (!this.spec.wires.length) this.loadMast(zH, -0.5 * tcx, -0.5 * tcy, 0, -this.track, 0);
-        if (!this.spec.wires.length) this.pull({ kind: 'mast', i: this.node(zH), ox: -this.track, oy: 0 }, { kind: 'fixed', p: [this.axisX - this.track + lx, ly, C.boomZ] }, Th);
+        if (!this.spec.wires.length) {
+          this.pull({ kind: 'mast', i: this.node(zH), ox: -this.track, oy: 0 }, { kind: 'fixed', p: [this.axisX - this.track + lx, ly, C.boomZ] }, Th);
+          // (and its other end: the leech pulls the clew toward the head, and what of that pull lies along the boom the
+          // boom, a strut on its gooseneck, pushes into the mast (the sheet takes the rest, up and across). Left out, the
+          // leech's pull aft at the head stood unbalanced on a Laser's mast: its bottom section took 0.7 kN m more than
+          // the bow it bends between head and gooseneck, and parted close-hauled in 25 kn)
+          const hx = -lx, hy = -ly, hz = zH - C.boomZ, hl = Math.hypot(hx, hy, hz) || 1, bl = Math.hypot(lx, ly) || 1;
+          const ebx = lx / bl, eby = ly / bl, along = Th * (hx * ebx + hy * eby) / hl;
+          this.loadMast(C.boomZ, along * ebx, along * eby, 0, -this.track, 0);
+        }
         else this.loadMast(zH, Th * dx / dn, Th * dy / dn, Th * dz / dn, -this.track, 0);
       }
       if (!this.spec.noHalyard && !lat && s.rig !== 'sprit') this.pull(head, { kind: 'mast', i: 0, ox: 0, oy: 0 }, Th);
