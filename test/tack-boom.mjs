@@ -1,9 +1,9 @@
 // The boom through a tack and a gybe (cloth sails, js/sail/rigsim.js): the traveller car goes over along its track,
-// so the boom swings across under its sheet and is not snatched; off the wind it still gybes, and an unplanned gybe
-// with the main eased still crosses.
+// so the boom swings across under its sheet and is not snatched; and a main by the lee gybes from the wind (the vang
+// letting go when the backed main overloads it), the car following at its own pace.
 //  1. tacks (the bow through the wind at 30 deg/s, the automatic crew): the boom end's second difference per 1/120 s
 //     step stays under 40 mm (was ~500 mm: the car set straight onto the new side snatched the boom at 100-200 kN)
-//  2. a gybe with the main eased right out: the boom goes over to the new side
+//  2. a gybe with the main eased right out: the boom goes over to the new side, without the car throwing it over
 // Run: node test/tack-boom.mjs
 import { Boat, autoTrim, makeSteadyEnv } from '../js/physics.js';
 import { attachSails } from '../js/sail/sailsim.js';

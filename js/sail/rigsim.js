@@ -510,11 +510,10 @@ export class BoomSailRig extends ClothRig {
     const ey = c.x[1];
     if (Math.abs(ey) > 0.05 * this.Lb) this.side = Math.sign(ey);
     const R = this.tb * this.Lb;
-    // (upwind, the car goes over to the boom's new side along its track at up to 1.5 m/s, as in mainLines: put there in
-    // one step, with the sheet hard in it snatched the boom back across at 100+ kN and the boom rattled through every
-    // tack; off the wind it goes at once, as there)
-    const phT = this.side * travA, vmax = 1.5 * (this._dt || 1 / 120) / Math.max(0.3, R), up = Math.abs(b.diag.awaMid || 0) < 1.5;
-    this._carPh = this._carSet && up && Number.isFinite(this._carPh) ? this._carPh + clamp(phT - this._carPh, -vmax, vmax) : phT;
+    // (the car goes over to the boom's new side along its track at up to 1.5 m/s, as in mainLines: put there in one
+    // step, with the sheet hard in it snatched the boom back across at 100+ kN and the boom rattled through every tack)
+    const phT = this.side * travA, vmax = 1.5 * (this._dt || 1 / 120) / Math.max(0.3, R);
+    this._carPh = this._carSet && Number.isFinite(this._carPh) ? this._carPh + clamp(phT - this._carPh, -vmax, vmax) : phT;
     this._carSet = true;
     this.car[0] = this.Gp[0] - R * Math.cos(this._carPh); this.car[1] = R * Math.sin(this._carPh);
     const chord = 2 * R * Math.sin(Math.max(0, lim - travA) / 2);
@@ -545,11 +544,10 @@ export class BoomSailRig extends ClothRig {
     // The car runs along its track, it does not jump. Upwind, sheeted in, it is hauled over by its control line in a
     // tack, at up to 1.5 m/s: set straight to the new side, it crossed the track in one 1/120 s step with the sheet hard
     // in, the sheet (shortened 20 cm in a step) snatched the boom at 100-200 kN, ~10^4 m/s^2 at its end, and the boom
-    // rattled from side to side through every tack. Off the wind (a gybe) it still goes over at once: the cloth's
-    // aerodynamics barely push a main standing by the lee across, so the car taking the sheet over is what gybes the
-    // boom, and bangs it across as an unplanned gybe does. (Moved at a car's pace there, the boom stayed by the lee.)
+    // rattled from side to side through every tack. In a gybe too: the wind takes the boom across (with the vang
+    // letting go when a backed main overloads it, below), and the car follows along its track.
     const tgtCar = sheetCar(C, s0, ctrl.trav, this.carSide || this.side, this.a, this._carT || (this._carT = [0, 0, 0]));
-    if (this._carSet && Math.abs(awa) < 1.5) {
+    if (this._carSet) {
       const vmax = 1.5 * (this._dt || 1 / 120);
       this.car[0] = tgtCar[0]; this.car[2] = tgtCar[2];
       this.car[1] += clamp(tgtCar[1] - this.car[1], -vmax, vmax);
@@ -608,12 +606,14 @@ export class BoomSailRig extends ClothRig {
     }
     this.stepCloth(dt, nsub, fr);
     if (this.track) {
-      // the boom end in the sea: the crew blows the vang (the stiff penalty rope alone held 30 kN on a J/70 whose boom
-      // the water was lifting, and tore the main at the clew), so it pays out past about twice what they haul on it,
-      // and is taken back in, a couple of cm/s, once the boom is clear and the load off
+      // the vang pays out past about twice what the crew hauls on it (its cam slips, or they blow it), and is taken back
+      // in, a couple of cm/s, once the load is off: the boom end in the sea (the stiff penalty rope alone held 30 kN on a
+      // J/70 whose boom the water was lifting, and tore the main at the clew), and a main backed by the lee (its leech
+      // lifting the boom put 12-22 kN on a J/70's 3 kN vang, which held the boom out on the old side, sheet slack and
+      // the wind 75-106 deg on the other side, for good: let go, the boom rises and the wind takes it across)
       if (this.vang && !this.noVang && s0.vangMax) {
         const hold = 2 * s0.vangMax, F = this.vang.force;
-        if (F > hold && b.diag.rig.boomWet > 0) this.vangSlip = (this.vangSlip || 0) + (F - hold) / this.vang.w;
+        if (F > hold) this.vangSlip = (this.vangSlip || 0) + (F - hold) / this.vang.w;
         else if (this.vangSlip > 0 && F < 0.5 * hold) this.vangSlip = Math.max(0, this.vangSlip - 0.02 * dt);
         if (this.vangSlip > 0 && this._vL !== undefined) this.vang.len = this._vL + this.vangSlip;
       }
