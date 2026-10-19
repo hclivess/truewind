@@ -117,13 +117,15 @@ export function primeClass(C) { if (!PRIMED.has(C.id)) { PRIMED.add(C.id); makeB
 // most 1.5 of its travel per second, no more than 60% of the helm on a straight leg and 85% in a manoeuvre (up to
 // 90% once she is 25 deg off where he wants her), an
 // integral term only near the course (no wind-up through a tack), and a little more helm when she is slow (he feels
-// her go soft). Gains in helm travel per radian: 10 deg of heading error -> a quarter of the helm.
+// her go soft), and less when the blade stalls (the helm goes light). Gains in helm travel per radian: 10 deg of
+// heading error -> a quarter of the helm. Stopped head to wind on any leg, he gets her out the way the AI crews do
+// (backing the jib, bearing away: js/race.js AIHelm.steer), and the trial notes it.
 export class Helmsman {
   constructor(b, uRef) {
     this.b = b; this.uRef = Math.max(1, uRef); this.I = 0; this.out = 0;
     this.lag = Math.round(0.25 / DT); this.buf = []; this.Kp = 1.4; this.Kd = 1.1; this.Ki = 0.25; this.rate = 1.5;
   }
-  step(dt, target, maxCmd) {
+  step(dt, target, maxCmd, turning = false) {
     const b = this.b;
     this.buf.push([b.psi, b.r]); if (this.buf.length > this.lag) this.buf.shift();
     const [psi, r] = this.buf[0];
@@ -132,7 +134,15 @@ export class Helmsman {
     const k = clamp(Math.sqrt(this.uRef / Math.max(0.3, b.u)), 0.75, 1.6);
     // (more helm when she is getting away from him: up to 90% of the travel at 25 deg off)
     const lim = Math.max(maxCmd, Math.min(0.9, maxCmd + (0.9 - maxCmd) * (Math.abs(err) - 10 * DEG) / (15 * DEG)));
-    const cmd = clamp(k * (this.Kp * err - this.Kd * r) + this.I, -lim, lim);
+    let cmd = clamp(k * (this.Kp * err - this.Kd * r) + this.I, -lim, lim);
+    // he feels the helm go light as the blade stalls and eases it until it bites again (as the AI helm does,
+    // js/race.js steer): more helm on a stalled blade only brakes her
+    const d = b.diag, ast = d.rudAst, al = d.rudAlpha, rmax = b.cls.rudder.max * (b.rudderLim ?? 1);
+    // (not through a tack or a gybe: there he puts the helm over and holds it)
+    if (!turning && ast && Number.isFinite(al) && b.u > 1 && Math.abs(al) > 0.9 * ast && Math.sign(al) === Math.sign(b.rudder) && Math.sign(cmd) === Math.sign(b.rudder)) {
+      const cmax = Math.max(0.05, (Math.abs(b.rudder) - (Math.abs(al) - 0.8 * ast)) / rmax);
+      if (Math.abs(cmd) > cmax) cmd = Math.sign(cmd) * cmax;
+    }
     this.out += clamp(cmd - this.out, -this.rate * dt, this.rate * dt);
     b.ctrl.helm = this.out;
   }
@@ -218,7 +228,7 @@ export async function runTrial(job) {
   let t = 0, step = 0, legIdx = -1, legT = 0, leg = null, legData = null;
   let target = psi0, desiredTwa = twa0, ramp = null, fixedHelm = null;
   let prevSign = Math.sign(wrap(twd0 - b.psi)) || 1;
-  let manoeuvre = null;
+  let manoeuvre = null, stopT = 0, freeing = false;
 
   const startLeg = (k) => {
     legIdx = k; legT = 0; leg = legs[k][0];
@@ -228,7 +238,7 @@ export async function runTrial(job) {
     // If she is not on it (a tack that failed and fell back, or one she made unbidden) the script carries on from the
     // tack she is on, as a crew would: a failed tack is scored once, on its own leg, not again in every leg after it
     // (her side read off the wind angle held over the last 3 s, clear of a swing through the wind)
-    if (twaHist.length >= 30) { let m = 0; for (let i = twaHist.length - 30; i < twaHist.length; i++) m += twaHist[i]; m /= 30; if (Math.abs(m) > 20 * DEG && Math.sign(m) !== side) { out.events.push({ t: +t.toFixed(1), type: 'script-resync', msg: `on the other tack at the start of ${leg}: the script carries on from it`, leg }); side = Math.sign(m); } }
+    if (twaHist.length >= 30) { let m = 0; for (let i = twaHist.length - 30; i < twaHist.length; i++) m += twaHist[i]; m /= 30; if (Math.abs(m) <= 20 * DEG) m = twaHist[twaHist.length - 1] || side; if (Math.sign(m) !== side) { out.events.push({ t: +t.toFixed(1), type: 'script-resync', msg: `on the other tack at the start of ${leg}: the script carries on from it`, leg }); side = Math.sign(m); } }
     const sgn = side;
     // the angle this leg sails, signed by tack (+ starboard)
     const A = { leave: 60 * DEG, beat1: up, tack1: up, tack2: up, beam: 90 * DEG, broad: 145 * DEG, gybe: 145 * DEG, heave: 50 * DEG, settle: 90 * DEG, fixed: 90 * DEG }[leg];
@@ -290,8 +300,13 @@ export async function runTrial(job) {
           maxCmd = manoeuvre && manoeuvre.leg === leg ? 0.85 : 0.7;
         }
         // stuck in irons (or stopped short of the wind): the AI crew's recovery (backing the jib, bearing away)
-        if (manoeuvre && manoeuvre.leg === leg && manoeuvre.crossed === null && t - manoeuvre.t0 > 15) { rescue.steer(DT, goal); manoeuvre.rescued = true; }
-        else helm.step(DT, tgt, maxCmd);
+        // stopped within 40 deg of the wind for 5 s on any leg (in irons): the same recovery until she moves again
+        const twaN = Math.abs(wrap((twdS ?? twd0) - b.psi));
+        stopT = b.u < 0.3 && twaN < 40 * DEG ? stopT + DT : 0;
+        if (!freeing && stopT > 5 && !(manoeuvre && manoeuvre.leg === leg && manoeuvre.end === null)) { freeing = true; out.events.push({ t: +t.toFixed(1), type: 'irons', msg: `stopped head to wind on ${leg}`, leg }); }
+        if (freeing && b.u > 1) freeing = false;
+        if ((manoeuvre && manoeuvre.leg === leg && manoeuvre.crossed === null && t - manoeuvre.t0 > 15) || freeing) { rescue.steer(DT, goal); if (manoeuvre && manoeuvre.leg === leg) manoeuvre.rescued = true; }
+        else helm.step(DT, tgt, maxCmd, !!(manoeuvre && manoeuvre.leg === leg && manoeuvre.end === null));
         helmHist.push(b.ctrl.helm); if (helmHist.length > 600) helmHist.shift();
       }
     }
@@ -351,7 +366,7 @@ export async function runTrial(job) {
       if (M.crossed !== null && sNow !== M.from && settled) { M.end = t; M.turnTime = t - M.t0; }
     }
     if (manoeuvre && manoeuvre.end !== null && manoeuvre.recover === undefined && b.u > 0.9 * manoeuvre.uPre) manoeuvre.recover = t - manoeuvre.t0;
-    if (sNow !== prevSign && !(manoeuvre && manoeuvre.leg === leg)) out.events.push({ t: +t.toFixed(1), type: Math.abs(twaNow) < 90 * DEG ? 'unplanned-tack' : 'unplanned-gybe', msg: `crossed the wind unbidden on ${leg}`, leg });
+    if (sNow !== prevSign && !(manoeuvre && manoeuvre.leg === leg && manoeuvre.end === null) && !freeing) out.events.push({ t: +t.toFixed(1), type: Math.abs(twaNow) < 90 * DEG ? 'unplanned-tack' : 'unplanned-gybe', msg: `crossed the wind unbidden on ${leg}`, leg });
     prevSign = sNow;
     // ---- 10 Hz samples for the legs
     if (step % 12 === 0) {

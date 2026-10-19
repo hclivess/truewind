@@ -35,6 +35,8 @@ export function judge(r, cond) {
   }
   add('maxHeel', r.capsized ? 'info' : r.maxHeel > r.targetHeel + 35 ? 'warn' : 'pass', `${f1(r.maxHeel)} deg`, 'a knockdown past target + 35');
   if (r.aground > 0) add('aground', 'warn', `${f1(r.aground)} s`);
+  const irons = r.events.filter((e) => e.type === 'irons');
+  if (irons.length) add('ironsOnLeg', cond.tws >= 6 && cond.tws <= 25 ? 'fail' : 'warn', irons.map((e) => `${e.leg} @${e.t}s`).slice(0, 3).join(', '), 'stopped head to wind outside a tack (the helmsman backed the jib to get her out)');
   const unpl = r.events.filter((e) => e.type.startsWith('unplanned'));
   if (unpl.length) add('unplanned', 'warn', unpl.map((e) => `${e.type.slice(10)} on ${e.leg} @${e.t}s`).slice(0, 3).join(', '), 'crossed the wind unbidden (broach / round-up / crash gybe)');
   // smoothness
