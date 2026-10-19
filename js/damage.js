@@ -88,7 +88,7 @@ const FLOG_Q0 = 145, FLOG_M = 3;
 // spreader: height of the spreaders (m above the waterline); mRig kg / zRig m: spars, wire and sails.
 export const RIG = {
   blackwatch: { stayed: true, b: 0.95, cap: 0.45, pre: 0.12, spreader: 4.9, mRig: 48, zRig: 4.3, panel: 0.35,
-    mast: { spec: 'Al extrusion ~105 x 70 mm, 3.0 mm wall (~)', r: 0.046, t: 0.003, sy: 240e6 },
+    mast: { spec: 'Al extrusion ~105 x 70 mm, 3.0 mm wall (~)', r: 0.046, t: 0.003, sy: 276e6 },
     parts: {
       cap: { name: 'Cap shroud', spec: '1x19 316 Ø5 mm', mbl: w1x19(5) },
       lower: { name: 'Lower shrouds', spec: '2 × 1x19 316 Ø5 mm', mbl: 2 * w1x19(5) },
@@ -107,14 +107,14 @@ export const RIG = {
       back: { name: 'Backstay', spec: 'Dynema SK78 Ø5 mm (~)', mbl: 18e3 },
     } },
   // ILCA / Laser: unstayed two-part aluminium mast. Bottom section Ø63.5 mm, top Ø50.8 mm, walls ~1.8 / 1.55 mm (~, from
-  // the sections' weights: as js/rig-structure.js), alloy yield ~240 MPa (6000-series T6)
-  dinghy: { stayed: false, mRig: 12, zRig: 2.8, sy: 240e6, tau: 0.2,   // (a bendy unstayed spar gives for longer)
+  // the sections' weights: as js/rig-structure.js), alloy yield ~276 MPa (6061-T6, typical)
+  dinghy: { stayed: false, mRig: 12, zRig: 2.8, sy: 276e6, tau: 0.2,   // (a bendy unstayed spar gives for longer)
     tubes: { bottom: { name: 'Bottom section', spec: 'Al tube Ø63.5 × 1.8 mm (~)', r: 0.03175, t: 0.0018 },
       top: { name: 'Top section', spec: 'Al tube Ø50.8 × 1.55 mm (~)', r: 0.0254, t: 0.00155 } },
     joint: 2.6 },        // joint height above the waterline (2.865 m section, heel 0.355 m below the deck)
   // Hobie 16: rotating mast on a ball, one shroud a side and a forestay on a bridle, no spreaders; 1x19 3/16" (~)
   cat: { stayed: true, b: 1.1, cap: 1.0, pre: 0.05, spreader: null, falls: true, mRig: 26, zRig: 3.9, panel: 0.6, hounds: 6.3,
-    mast: { spec: 'Al wing section ~76 x 127 mm, 2.3 mm (~)', r: 0.049, t: 0.0023, sy: 240e6 },
+    mast: { spec: 'Al wing section ~76 x 127 mm, 2.3 mm (~)', r: 0.049, t: 0.0023, sy: 276e6 },
     parts: {
       cap: { name: 'Shroud', spec: '1x19 316 Ø4.8 mm (3/16", ~)', mbl: w1x19(4.8) },
       chain: { name: 'Shroud adjuster / tang', spec: 'SS adjuster (~)', mbl: 22e3 },
@@ -214,6 +214,14 @@ export function impactPair(a, b, v, nx, nz) {
 export function torricelli(A, h, Cd = 0.6) { return h > 0 ? Cd * A * Math.sqrt(2 * G * h) : 0; }
 // yield moment of a thin-walled round tube (N m)
 export function tubeYield(r, t, sy) { return sy * Math.PI * r * r * t; }
+// what a round tube carries in bending before it fails: past its first yield (the outer fibre) a ductile tube goes on to
+// nearly its plastic moment unless its wall buckles first. AISC 360 F8: compact (D/t <= 0.07 E/Fy) M = Mp = 4/pi My;
+// noncompact M = (0.021 E / (D/t) + Fy) S (a laminate, brittle (allowable 500 MPa), at its first failure). A Laser's top section, 50.8 x 1.55 mm (D/t 33) in alloy: 1.19 My.
+// (Yielded short of it, a spar is bent, not broken: the fatigue counts its cycles on the yield.)
+export function tubeStrength(r, t, sy, E = 70e9) {
+  const Dt = 2 * r / t, My = tubeYield(r, t, sy);
+  return Dt <= 0.07 * E / sy ? My * 4 / Math.PI : Math.min(4 / Math.PI, (0.021 * E / Dt + sy) / sy) * My;
+}
 // what the seabed is: 'rock' | 'gravel' | 'sand' | 'mud'. Charted dangers (seamark rock / wreck / obstruction)
 // are rock within ~40 m; within 60 m of an OSM beach it is sand; steep shores (the land rises fast) are rock near
 // the shore; else the venue's bottom (by region) with patches
@@ -397,7 +405,7 @@ export class Damage {
       for (const k in R.parts) if (R.parts[k]) this.parts[k] = { ...R.parts[k], load: 0, r: 0, D: 0, peak: 0 };
       if (R.mast) this.parts.mast = { name: 'Mast', spec: R.mast.spec, mbl: tubeYield(R.mast.r, R.mast.t, R.mast.sy), load: 0, r: 0, D: 0, peak: 0 };
     }
-    else for (const k in R.tubes) this.parts[k] = { ...R.tubes[k], mbl: tubeYield(R.tubes[k].r, R.tubes[k].t, R.sy), load: 0, r: 0, D: 0, peak: 0 };
+    else for (const k in R.tubes) this.parts[k] = { ...R.tubes[k], My: tubeYield(R.tubes[k].r, R.tubes[k].t, R.sy), mbl: R.sy >= 500e6 ? tubeYield(R.tubes[k].r, R.tubes[k].t, R.sy) : tubeStrength(R.tubes[k].r, R.tubes[k].t, R.sy, R.E), load: 0, r: 0, D: 0, peak: 0 };
     this.rig = { down: false, breakZ: null, side: 1, why: '', wreck: null, cut: false };
     this.sails = {};
     for (const s of C.sails) this.sails[s.key] = { D: 0, tear: 0, u: 0.8, v: 0.55, peak: 0, ratio: 0, blown: false, mat: null };
@@ -643,7 +651,7 @@ export class Damage {
           const p = P[k]; if (!p) continue;
           let u = 0;
           for (const sp of UR) if (k === 'top' ? sp.z0 >= R.joint - 1e-6 : !(R.joint && sp.z0 >= R.joint - 1e-6)) u = Math.max(u, sp.util || 0);
-          load(k, u * p.mbl + (k === 'top' ? (this.Mbj || 0) + Math.abs(this.Mslam) * 0.6 : this.Mb + Math.abs(this.Mslam)));
+          load(k, u * (p.My ?? p.mbl) + (k === 'top' ? (this.Mbj || 0) + Math.abs(this.Mslam) * 0.6 : this.Mb + Math.abs(this.Mslam)));
         }
       } else {
         const Mp = Math.abs(Maero) + this.Mb + Math.abs(this.Mslam) + R.mRig * G * R.zRig * Math.abs(Math.sin(b.phi));
@@ -670,7 +678,8 @@ export class Damage {
       p.r = r; r = p.rf;
     } else {
       p.r = r;
-      if (this.age > 3) rainflow(p, r, SN[k === 'mast' || k === 'top' || k === 'bottom' ? 'spar' : 'wire']);
+      // (a spar's cycles on its yield moment, the curve's reference)
+      if (this.age > 3) rainflow(p, p.My ? r * p.mbl / p.My : r, SN[k === 'mast' || k === 'top' || k === 'bottom' ? 'spar' : 'wire']);
     }
     p.peak = Math.max(p.peak * Math.exp(-dt / 20), r);
     if (r > this._wr) { this._wr = r; this._worst = k; }
@@ -871,7 +880,9 @@ export class Damage {
     if (this.rig.down) { s.dm = [Math.round(this.rig.breakZ * 100) / 100, this.rig.side, this.rig.cut ? 1 : 0]; }
     const t = {}; let any = false; for (const k in this.sails) if (this.sails[k].tear > 0) { t[k] = [Math.round(this.sails[k].tear * 100) / 100, Math.round(this.sails[k].u * 100) / 100, Math.round(this.sails[k].v * 100) / 100]; any = true; }
     if (any) s.tr = t;
-    if (this.water > 5) s.w = Math.round(this.water);
+    // (the water always: under 5 L it is sent as 0, so a remote copy pumps dry when the owner does; left out, its absence
+    // read as 'no change' and the copy kept the water)
+    s.w = this.water > 5 ? Math.round(this.water) : 0;
     if (this.hull.sunk) s.sk = 1;
     return Object.keys(s).length ? s : null;
   }
@@ -881,7 +892,7 @@ export class Damage {
     if (s.dm && !this.rig.down) { this.dismast(s.dm[0], 'remote', s.dm[1]); this.events.length = 0; }
     if (s.dm && s.dm[2]) this.rig.cut = true;
     if (s.tr) for (const k in s.tr) if (this.sails[k]) { const S = this.sails[k]; [S.tear, S.u, S.v] = s.tr[k]; S.blown = S.tear >= 0.75; (b.sailHealth || (b.sailHealth = {}))[k] = S.blown ? 0 : 1 - S.tear; }
-    if (s.w) { this.water = s.w; b.water = s.w; recomputeMass(b); }
+    if (s.w !== undefined && s.w !== this.water) { this.water = s.w; b.water = s.w; recomputeMass(b); }
     if (s.sk) { this.hull.sunk = true; b.sunk = true; }
   }
 }

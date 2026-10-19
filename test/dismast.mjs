@@ -57,7 +57,7 @@ function WIRE_MAT(spec, key) { const w = spec.wires.find((x) => key.test(x.key))
 
 // ---------------------------------------------------------------- 3. hard, seamanlike sailing
 console.log(`\n3. Hard but seamanlike sailing in the seaway: ${MIN} min each, autopilot and crew (no dismasting; fatigue spent)`);
-const SAIL = ['sportboat', 'j24', 'melges24', 'dinghy', 'catalina30', 'oceanis381', 'blackwatch', 'swan131', 'tp52', 'velsheda', 'cat', 'mariner', 'joshua', 'spray']
+const SAIL = ['sportboat', 'j24', 'melges24', 'dinghy', 'star', 'catalina30', 'oceanis381', 'blackwatch', 'swan131', 'tp52', 'velsheda', 'australia2', 'cat', 'mariner', 'joshua', 'spray']
   .filter((id) => CLASSES[id] && (!ONLY || ONLY.includes(id)));
 function sail(id, kn, twa, secs, o = {}) {
   const env = new Environment({ tws: kn * KT, twd: 0, fetchKm: 30, seed: 7, weather: 'steady' }); env.tick(0);
@@ -77,7 +77,7 @@ function sail(id, kn, twa, secs, o = {}) {
     const E = b.ext = b.ext || {}; E.X = 0; E.Y = 0; E.N = 0; E.K = 0;
     D.pre(dt, E, env, t); b.step(dt, env, t, null); D.post(dt, { env, t, seabed: () => 'sand' });
     if (D.maxR > maxR && t > 3) { maxR = D.maxR; worst = D.worst; }
-    if (Math.abs(b.phi) > 70 * DEG || b.pitch < -0.35) rolled = t;     // (capsized, or her bows driven under)
+    if (Math.abs(b.phi) > 45 * DEG || b.pitch < -0.35) rolled = t;     // (knocked down or capsized, or her bows driven under)
     for (const e of D.events.splice(0)) if (e.type === 'dismast' && !down) down = { t, msg: e.msg, rolled: t - rolled < 2 };
     if (down) break;
   }
@@ -91,15 +91,15 @@ for (const id of SAIL) {
     for (const [name, twa] of [['close-hauled', 45], ['reaching', 100], ['running', id === 'dinghy' ? 135 : 150]]) {
       const r = sail(id, kn, twa, MIN * 60);
       const okFat = r.Dmax < 0.02, line = `${id.padEnd(11)} ${kn} kn ${name.padEnd(12)} ${r.down ? `DISMASTED at ${r.down.t.toFixed(0)} s: ${r.down.msg}` : `stands ${MIN} min`}; worst load ${(r.maxR * 100).toFixed(0)}% (${r.worst}), fatigue spent ${(r.Dmax * 100).toFixed(2)}% (${r.Dk || '-'})`;
-      // (a rig broken in a capsize or a pitchpole is a rolled boat's, and real: reported, the boat's handling being the
-      // question there, not the rig's strength)
-      if (r.down && r.down.rolled) { console.log(`CAPS ${line} — she capsized or pitchpoled first`); capsized++; }
+      // (a rig broken in a knockdown, a capsize or a pitchpole is real, the sea or the air on a rig driven through it:
+      // reported, the boat's handling being the question there, not the rig's strength)
+      if (r.down && r.down.rolled) { console.log(`KNOCK ${line} — knocked down, capsized or pitchpoled first`); capsized++; }
       else check(!r.down && okFat, line);
     }
   }
 }
 
-if (capsized) console.log(`     ${capsized} run(s) capsized or pitchpoled and broke the rig in it (not counted against the rig)`);
+if (capsized) console.log(`     ${capsized} run(s) knocked down (past 45 deg), capsized or pitchpoled and broke the rig in it (a true failure, the boat's handling: not counted against the rig)`);
 
 // ---------------------------------------------------------------- 4. the failures that are real
 console.log('\n4. What does break a rig');

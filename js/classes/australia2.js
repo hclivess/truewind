@@ -37,22 +37,28 @@ export default {
   rudder: { x: -5.3, z: -1.0, area: 1.4, ARe: 2.6, stall: 18 * DEG, cd0: 0.011, max: 32 * DEG, span: 1.65, chord: 0.85, loadRef: 6000 },
   hullLat: { area: 4.2, cd: 0.9, z: -0.3 },
   windage: { area: 11, z: 3.0, cd: 0.95 },
-  // the rig as a structure (js/rig-structure.js): a keel-stepped alloy mast, section est. 360 x 220 mm with a 9 mm wall
+  // the rig as a structure (js/rig-structure.js): a keel-stepped alloy mast, section est. 400 x 250 mm with a 10 mm wall
   // in 7075, tapering above the hounds; three sets of spreaders; rod caps and lowers, backstay and runners (est.: a 12
   // Metre of 1983; sized to ~2.8x the cap's load at her righting moment at 30 deg, ~130 kN m). The generic sizing
   // (wire from the righting moment, a wall from the Euler load of the caps alone) gave 14.5 mm wire, 160 kN of mast
   // compression at the dock with backstay and runners both set up, and a mast that buckled in 20 kn
+  // (resized on this solver's sailing loads, js/../test/dismast.mjs: on 11 mm caps rated as 1x19 wire and a 360 x 220 x 9 mm
+  // section the caps came to 2.0 x their load at RM30 and the mast's critical load to 1.3 x its compression. A 12 Metre of
+  // 1983 was rigged in Nitronic rod (rated here as rod, WIRE_MATS), caps 17 mm, lowers 10, forestay 12, and an
+  // alloy section ~400 x 250 x 10 mm (est.; 12 Metre spars of the period were 7075 extrusions of about that size))
   rigStructure: {
     step: { type: 'keel', z: -0.3, partners: 1.0 },
-    spans: [{ z0: -0.3, z1: 21.5, a: 0.36, b: 0.22, t: 0.009, mat: 'alu7075' }, { z0: 21.5, z1: 26.0, a: 0.24, b: 0.15, t: 0.006, mat: 'alu7075' }],
+    spans: [{ z0: -0.3, z1: 21.5, a: 0.40, b: 0.25, t: 0.010, mat: 'alu7075' }, { z0: 21.5, z1: 26.0, a: 0.26, b: 0.16, t: 0.006, mat: 'alu7075' }],
     spreaders: [{ z: 8.5, len: 1.1, sweep: 0, EA: 6e7, EI: 3e5 }, { z: 14.8, len: 0.85, sweep: 0, EA: 5e7, EI: 2e5 }, { z: 20.4, len: 0.6, sweep: 0, EA: 4e7, EI: 1.2e5 }],
     chainX: -0.15, chainIn: 0.93,
     wires: [
-      { key: 'capShroud', to: 'hounds', via: 0, d: 11, pre: 9000 },
-      { key: 'lowerShroud', to: 8.5, dx: 0.1, d: 9, pre: 4500 },
-      { key: 'forestay', stay: 'jib', d: 11 },
-      { key: 'backstay', to: 'top', off: -0.1, low: 'transom', d: 10, pre: 7000, adjust: 0.05 },
-      { key: 'runner', to: 'hounds', runner: true, d: 10, pre: 4500 },
+      // (the caps over all three spreaders' tips to the hounds: led over the lowest alone they reached the hounds at 4 deg
+      // to the mast, ~14 x the hounds' side load in them, and the upper spreaders held nothing)
+      { key: 'capShroud', to: 'hounds', via: [0, 1, 2], d: 17, mat: 'rod', pre: 12000 },
+      { key: 'lowerShroud', to: 8.5, dx: 0.1, d: 10, mat: 'rod', pre: 4500 },
+      { key: 'forestay', stay: 'jib', d: 12, mat: 'rod' },
+      { key: 'backstay', to: 'top', off: -0.1, low: 'transom', d: 10, mat: 'rod', pre: 7000, adjust: 0.05 },
+      { key: 'runner', to: 'hounds', runner: true, d: 10, mat: 'rod', pre: 4500 },
     ],
     houndsZ: 23.5, prebend: 0.06, lineMax: 13000,
   },
