@@ -145,7 +145,9 @@ export default {
   hullLat: { area: 5.5, cd: 0.9, z: -0.2 },
   windage: { area: 11, z: 3.4, cd: 0.9 },
   mastX: MAST_X, mastHeight: MAST_TOP, boomZ: BOOM_Z, mastR: 0.07, keelBulb: { len: 2.6, r: 0.2 }, houndsF: (MAST_TOP - HOUNDS) / (MAST_TOP - DECK_MAST),
-  targetHeel: 18 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 15000, reefWind: [40, 50],
+  // (the depower build-up to that heel capped at 0.3, est.: a TP52 is sailed hard, heeled ~25 deg in a breeze, and in
+  // the cloth model a full build-up stopped her in 20-25 kn)
+  targetHeel: 18 * DEG, depowerMax: 0.3, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 15000, reefWind: [40, 50],
   helm: { type: 'wheel', wheelR: 0.7, turns: 1.3 },          // (twin 1.4 m carbon wheels, est. from photographs; turns est.)
   cloth: 'laminate',
   sails: [

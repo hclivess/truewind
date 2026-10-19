@@ -568,11 +568,26 @@ class Game {
     const P = makeProjection(v.lat, v.lon);
     // (with a real tide: deep enough at the lowest tide, below chart datum)
     const dep = (x, z) => world.bed && world.tide && !world.tide.still ? Math.min(world.depthAt(x, z), world.chartDepthAt(x, z)) : world.depthAt(x, z);
-    const safe = (x, z, need) => { // nearest water deep enough for this keel
-      if (dep(x, z) > need) return [x, z];
+    // clear of the piers and bridges too (Progreso's 6 km viaduct crosses the spawn's water): a boat length and a
+    // margin off any pier's deck, so she never starts inside one
+    const pierGap = (x, z) => {
+      let g = Infinity;
+      for (const p of this.obstacles || []) {
+        const P = p.pts, hw = (p.w || 6) / 2;
+        for (let i = 0; i + 3 < P.length; i += 2) {
+          const ax = P[i], az = P[i + 1], bx = P[i + 2], bz = P[i + 3], dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
+          const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / L2));
+          g = Math.min(g, Math.hypot(x - ax - t * dx, z - az - t * dz) - hw);
+        }
+      }
+      return g;
+    };
+    const clearOf = cls.loa + 15;
+    const safe = (x, z, need) => { // nearest water deep enough for this keel, clear of piers
+      if (dep(x, z) > need && pierGap(x, z) > clearOf) return [x, z];
       for (let r = 20; r < 3000; r += 20) for (let a = 0; a < 6.28; a += 0.3) {
         const px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
-        if (dep(px, pz) > need && world.sdfAt(px, pz) > 25) return [px, pz];
+        if (dep(px, pz) > need && world.sdfAt(px, pz) > 25 && pierGap(px, pz) > clearOf) return [px, pz];
       }
       return [x, z];
     };
@@ -988,7 +1003,7 @@ class Game {
   grabIdForKey(k) { return Rigging.idForKey(k, this.player); }
   setReef(r) {
     const b = this.player, max = b.sailBy.main.reefs || 0;
-    b.ctrl.reef = clamp(r, 0, max);
+    b.ctrl.reef = clamp(r, 0, max); b.auto.reef = false;          // (the crew's own reefing stands down: js/physics.js autoTrim)
     this.hud.toast(b.ctrl.reef > b.reefPos ? `Reefing to ${['full', 'first', 'second'][b.ctrl.reef]} reef — halyard off` : b.ctrl.reef < b.reefPos ? 'Shaking out the reef' : 'Reef unchanged', 2);
   }
   rightBoat() {
@@ -1174,7 +1189,7 @@ class Game {
     else if (g.action === 'gen') this.toggleGen();
     else if (g.action === 'reef') {
       const max = b.sailBy.main.reefs;
-      b.ctrl.reef = clamp((b.ctrl.reef | 0) + (shift ? -1 : 1), 0, max);
+      b.ctrl.reef = clamp((b.ctrl.reef | 0) + (shift ? -1 : 1), 0, max); b.auto.reef = false;
       this.hud.toast(shift ? 'Shaking out a reef' : `Reefing to ${b.ctrl.reef === 1 ? 'first' : 'second'} reef — halyard off`);
     }
   }
@@ -1248,6 +1263,8 @@ class Game {
       if ($('#menu').hidden) this.openMenu(); else if (this.running) this.closeMenu();
       return;
     }
+    // cinematic mode (F2, or Shift+C): every panel, label and marker hidden, the sea and the boat alone; again to bring them back
+    if (k === 'F2' || (k === 'c' && e.shiftKey)) { e.preventDefault(); document.body.classList.toggle('cine'); return; }
     if (k === 'F1' || k === '?' || (k === 'h' && e.shiftKey)) { e.preventDefault(); if ($('#help').hidden) this.openHelp(); else this.closeHelp(); return; }
     if (!this.running || !$('#menu').hidden || !$('#help').hidden) return;
     const b = this.player;

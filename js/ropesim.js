@@ -14,7 +14,7 @@
 //  - constraints: each segment's rest length, relaxed ITERS times a step (sweeping both ways), and a bending limit
 //    (a rope does not fold back on itself in a sharp kink; it lies in loops).
 export const H = 1 / 120, MAX_DT = 1 / 20, MAX_SUB = 6;
-export const DAMP = 2.5, MU_S = 0.65, MU_K = 0.5, ITERS = 10, BEND = 1.55, STEP = 0.05;
+export const DAMP = 2.5, MU_S = 0.65, MU_K = 0.5, ITERS = 10, MAX_ITERS = 40, BEND = 1.55, STEP = 0.05;
 
 export class RopeSim {
   constructor(n) {
@@ -63,6 +63,22 @@ export class RopeSim {
     out[0] = s[i] + (x[i] - s[i]) * a; out[1] = s[i + 1] + (x[i + 1] - s[i + 1]) * a; out[2] = s[i + 2] + (x[i + 2] - s[i + 2]) * a;
     return out;
   }
+  _lra(x, pin, rest, n) {
+    // (only a rope held at both ends: a free tail swinging from one pin keeps its pendulum, which the tether stiffens)
+    let pins = 0; for (let k = 0; k < n; k++) if (pin[k]) pins++;
+    if (pins < 2) return;
+    for (const dir of [1, -1]) {
+      let p = -1, along = 0;
+      for (let q = 0; q < n; q++) {
+        const k = dir > 0 ? q : n - 1 - q;
+        if (pin[k]) { p = k; along = 0; continue; }
+        if (p < 0) continue;
+        along += rest[dir > 0 ? k - 1 : k];
+        const a = 3 * p, b = 3 * k, dx = x[b] - x[a], dy = x[b + 1] - x[a + 1], dz = x[b + 2] - x[a + 2], d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (d > along) { const f = along / d; x[b] = x[a] + dx * f; x[b + 1] = x[a + 1] + dy * f; x[b + 2] = x[a + 2] + dz * f; }
+      }
+    }
+  }
   _step(h, env) {
     const { n, x, xp, pin, rest, contact, pen } = this, g = env.g, air = env.air || ZERO, cd = env.cd ?? 0.03;
     const r = h / this.hPrev, damp = Math.exp(-DAMP * h), h2 = h * h, floorY = env.floorY, rad = env.rad || 0.004;
@@ -87,17 +103,25 @@ export class RopeSim {
       if (d > 0) { contact[k] = 1; pen[k] = d; }
     }
     // constraints: segment lengths (sweeping forward then back), the bending limit, the surface
-    for (let it = 0; it < ITERS; it++) {
+    // (at least ITERS sweeps, then on until no segment is stretched more than 0.3 %, up to MAX_ITERS: ten sweeps left
+    // a 2 m span 2-5 % long, sagging up to 2.4x the catenary's depth and swinging 85 % slow)
+    let worst = 1;
+    for (let it = 0; it < ITERS || (worst > 0.003 && it < MAX_ITERS); it++) {
       const fwd = (it & 1) === 0;
+      worst = 0;
       for (let q = 0; q < n - 1; q++) {
         const k = fwd ? q : n - 2 - q, a = 3 * k, b = a + 3;
         const dx = x[b] - x[a], dy = x[b + 1] - x[a + 1], dz = x[b + 2] - x[a + 2], len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-9;
         const pa = pin[k], pb = pin[k + 1];
         if (pa && pb) continue;
         const diff = (len - rest[k]) / len, wa = pa ? 0 : pb ? 1 : 0.5, wb = pb ? 0 : pa ? 1 : 0.5;
+        const st = (len - rest[k]) / rest[k]; if (st > worst) worst = st;
         x[a] += dx * diff * wa; x[a + 1] += dy * diff * wa; x[a + 2] += dz * diff * wa;
         x[b] -= dx * diff * wb; x[b + 1] -= dy * diff * wb; x[b + 2] -= dz * diff * wb;
       }
+      // long-range attachments (Kim, Chentanez & Müller 2012): no free point farther from a pinned point than the rope
+      // between them, so a rope hanging from its ends cannot stretch however few sweeps it gets
+      this._lra(x, pin, rest, n);
       if (it % 3 === 2) for (let k = 0; k < n - 2; k++) {
         // (k and k+2 no closer than BEND x the shorter rest: no hairpin kinks)
         const a = 3 * k, b = a + 6, pa = pin[k], pb = pin[k + 2];
@@ -109,7 +133,7 @@ export class RopeSim {
         x[a] += dx * diff * wa * 0.5; x[a + 1] += dy * diff * wa * 0.5; x[a + 2] += dz * diff * wa * 0.5;
         x[b] -= dx * diff * wb * 0.5; x[b + 1] -= dy * diff * wb * 0.5; x[b + 2] -= dz * diff * wb * 0.5;
       }
-      if (floorY && (it === ITERS - 1 || it === 4)) for (let k = 0; k < n; k++) {
+      if (floorY && (it === ITERS - 1 || it === 4 || it === MAX_ITERS - 1)) for (let k = 0; k < n; k++) {
         if (pin[k]) continue;
         const d = this._floor(k, floorY, it === ITERS - 1 ? env.contain : null, rad);
         if (d > 0) { contact[k] = 1; pen[k] += d; }

@@ -595,6 +595,15 @@ export class BoomSailRig extends ClothRig {
       const m = (s0.max ?? 1.4) - Math.abs(this.a);
       for (const w of this.shrouds) w.off = w.off ? m > 0.52 : m > 0.61;
     }
+    // una rig in irons: the sailor's hand pushing the boom out to backwind the sail (ctrl.pushBoom; js/physics.js has
+    // the strip model's): up to ~300 N where it can be reached, ~1.5 m out, toward 46 degrees on the side asked
+    if (b.ctrl.pushBoom && this.isMain && !b.sailBy.jib) {
+      const ex = c.x[E3] - this.px, ey = c.x[E3 + 1], r = hyp(ex, ey) || 1, tx = -ey / r, ty = ex / r;
+      const aB = Math.atan2(ey, -ex), Tmax = 300 * Math.min(1.5, 0.5 * r), vt = c.v[E3] * tx + c.v[E3 + 1] * ty;
+      const T = clamp((b.ctrl.pushBoom * 0.8 - aB) / 0.15 * Tmax + 0.3 * Tmax * vt / r, -Tmax, Tmax);
+      const dv = -T / r / c.m[this.E] * dt;                          // (the angle grows against the tangent)
+      c.v[E3] += dv * tx; c.v[E3 + 1] += dv * ty;
+    }
     if (this.track) {
       // the boom end in the sea (sailsim.js hands the water's pull over in dipF), and the rigid kicker's gas spring
       // pushing the boom up whenever the strut is shorter than its free length

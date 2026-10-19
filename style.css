@@ -486,3 +486,7 @@ body.hud-edit #nextmark, body.hud-edit #work, body.hud-edit #grab-tip { visibili
   body.touch .he-frame .he-hide { padding: 7px 10px; }
 }
 @media (max-width: 640px) { .menu-foot #hud-arrange { flex: 0 1 auto; font-size: 13px; padding: 10px; } }
+
+/* cinematic mode (F2 / Shift+C): nothing over the picture */
+body.cine .panel, body.cine #compass-tape, body.cine #coach, body.cine #toast, body.cine #nextmark, body.cine #touch,
+body.cine #paused-badge, body.cine .grab-label, body.cine .ag-label, body.cine #rules-tag { display: none !important; }
