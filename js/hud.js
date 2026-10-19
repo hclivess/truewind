@@ -474,8 +474,8 @@ export class HUD {
     const btn = (k, a, z) => `<span class="nb"><button class="nbtn" data-k="${k}" data-d="-1">${a}</button><button class="nbtn" data-k="${k}" data-d="1">${z}</button></span>`;
     let h = `<div class="rg"><h3>Wing</h3><div class="lines">`;
     h += `<div class="ln" data-k="main"><i style="background:#dfe3e6"></i><span>Wing trim (W/S)</span><b id="o-main"></b><span class="lk-sp"></span>${btn('main', 'In', 'Ease')}<span class="bar" id="bar-main"></span></div>`;
-    h += `<div class="ln"><i style="background:#8a5a2b"></i><span>Helm (wheel)</span><b id="o-helm"></b><span class="lk-sp"></span>${btn('helm', 'Port', 'Stbd')}</div>`;
-    h += `</div><div class="toggles acts"><button class="chip" id="a-tow">Tow back (R)</button><button class="chip" id="a-center">Centre helm</button></div>`;
+    h += `<div class="ln"><i style="background:#8a5a2b"></i><span>Course (A/D)</span><b id="o-helm"></b><span class="lk-sp"></span>${btn('helm', 'Port', 'Stbd')}</div>`;
+    h += `</div><div class="toggles acts"><button class="chip" id="a-tow">Tow back (R)</button><button class="chip" id="a-center">Hold this heading</button></div>`;
     h += `<div class="toggles"><button class="chip" id="t-trim">Automatic trim</button><button class="chip" id="t-hike" hidden>Automatic weight</button></div></div>`;
     h += `<div class="rg"><h3>Speed trial <span class="muted" style="font-weight:500;letter-spacing:.02em;text-transform:none">WSSRC: distance / time</span></h3><div class="loads" id="trial"></div></div>`;
     h += `<div class="rg"><h3>Forces</h3><div class="loads" id="loads"></div></div>`;
@@ -483,7 +483,7 @@ export class HUD {
     this.rows = ['main'];
     $('#t-trim').addEventListener('click', () => this.g.toggleAutoTrim());
     $('#a-tow').addEventListener('click', () => this.g.towCraft());
-    $('#a-center').addEventListener('click', () => { this.g.manualHelm(); b.ctrl.helm = 0; });
+    $('#a-center').addEventListener('click', () => { b._course = this.g.speedCourse(b, b.psi); });
     document.querySelectorAll('#rig-body .nbtn').forEach(bt => {
       let timer = null;
       const stop = () => { clearInterval(timer); timer = null; bt.classList.remove('held'); };
@@ -494,9 +494,10 @@ export class HUD {
   updateSpeedRig(b) {
     const d = b.diag, w = d.wing || {}, f = d.foil || {}, kn = (v) => `${fmt(v / KT, 1)} kn`, N = (v) => `${Math.round(v || 0)} N`;
     const set = (id, v) => { const e = document.getElementById(id); if (e && e.innerHTML !== v) e.innerHTML = v; };
-    set('o-main', `${deg(b.wing.delta || 0)}° · α ${fmt((w.alpha || 0) / DEG, 0)}°${w.stalled ? ' STALL' : ''}`);
+    set('o-main', `${deg(b.wing.delta || 0)}° · α ${fmt((w.alpha || 0) / DEG, 0)}°${w.stalled ? ' STALL' : ''} (best ${deg(b._aBest ?? 0.2)}°)`);
     const bar = document.getElementById('bar-main'); if (bar) bar.style.setProperty('--v', `${Math.round((1 - b.ctrl.main) * 1000) / 10}%`);
-    const r = deg(b.rudder); set('o-helm', `${r > 0 ? 'S' : r < 0 ? 'P' : ''}${Math.abs(r)}°`);
+    const r = deg(b.rudder), twa = Math.abs(deg(wrap((d.twd ?? 0) - (b._course ?? b.psi))));
+    set('o-helm', `${twa}° to the wind · rudder ${r > 0 ? 'S' : r < 0 ? 'P' : ''}${Math.abs(r)}°`);
     document.getElementById('t-trim').classList.toggle('on', b.auto.trim);
     const T = b.trial;
     if (T) set('trial', `<span>500 m now</span><b>${T.cur.m500 ? kn(T.cur.m500) : '–'}</b><span>500 m best</span><b>${T.best.m500 ? kn(T.best.m500) : '–'}</b>` +

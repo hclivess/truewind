@@ -22,7 +22,7 @@ import { AutoGlow } from './autoglow.js';
 const C_TILLER = (b) => (b.cls.hw && b.cls.hw.helm) || 'Tiller';
 import { sunPosition } from './sky.js';
 import './sail/sailsim.js';   // (registers the cloth / lattice sail model with physics.js)
-import './speedcraft.js';     // (registers the speed machines, a wing on foils and floats, with physics.js)
+import { speedTow, speedHelm, speedBestAoa } from './speedcraft.js';     // (registers the speed machines, a wing on foils and floats, with physics.js)
 import { SpeedTrial } from './speedtrial.js';
 import { SailGovernor, setSailLevel, sailsFlown } from './governor.js';
 import { Tide } from './tide.js';
@@ -556,7 +556,8 @@ class Game {
     const player = makeBoat(cls, { id: 0, name: this.settings.boatName || 'You', sailModel: SAIL_MODEL, lod: SAIL_MODEL === 'strip' ? 2 : this.sailLevelFor(cls) });
     const myTeam = classTeam(cls, this.settings.boatName);      // (the player sailing as one of the class's teams)
     if (SAIL_MODEL !== 'strip') await loadBakedPolars(cls.id);      // (the cloth sails' polar: data/sails/<class>.json)
-    player.auto.trim = S.autoTrim; player.auto.hike = S.autoHike;
+    // (a speed machine is let go with her pilot on the wing: W/S take it over, T gives it back)
+    player.auto.trim = S.autoTrim || !!cls.speed; player.auto.hike = S.autoHike;
     // in a blow the crew ties in the reefs before leaving (shaking one out is a keypress away)
     // (for the wind at the dock now: the gradient with the venue's thermal breeze in it)
     const kt0 = Math.round(Math.max(cond.tws, env.wind.mean(0).speed / KT));
@@ -592,6 +593,7 @@ class Game {
       return [x, z];
     };
     // (a speed machine sails one tack only: it cannot race round a course; it runs speed trials instead)
+    if (cls.speed && !idle) setTimeout(() => this.hud.toast(`${cls.name}: towed up to speed and let go on starboard tack, her only one. A/D steer (she holds the course you set) · the pilot trims the wing: W/S to trim it yourself, to the angle of attack the panel shows (T: back to the pilot) · R: towed back up the course`, 9), S.mode === 'race' ? 6500 : 600);
     if (cls.speed && S.mode === 'race' && !idle) setTimeout(() => this.hud.toast(`${cls.name} sails on one tack only: no course racing — speed trial instead (500 m and nautical mile, as the WSSRC times them)`, 5), 3800);
     if (S.mode === 'race' && !idle && !cls.speed) {
       // (the boats lie along the line bow to stern before the start: the class's own spacing, or 14 m, or 1.4 lengths
@@ -645,11 +647,12 @@ class Game {
       else if (!world.open) { const c = world.findCourse(twd, 400); x = c.x; z = c.z; }
       if (online) { const a = Math.random() * 6.28, r = 40 + Math.random() * 120; x += Math.cos(a) * r; z += Math.sin(a) * r; }
       [x, z] = safe(x, z, cls.draft + 0.6);
-      // (a speed machine starts as she does at Walvis Bay: towed up to speed on her one tack and let go)
-      if (cls.speed) hdg = twd - (cls.speed.windSide ?? 1) * 100 * DEG;
+      // (a speed machine starts as she does at Walvis Bay: towed up to speed on her one tack and let go, on a run of
+      // open water: js/main.js towSpot)
+      if (cls.speed) { this._towBase = { x, z }; const T = this.towSpot(cls, twd, x, z, world); x = T.x; z = T.z; hdg = T.psi; }
       player.reset(x, z, hdg);
       player.u = cls.speed ? Math.min(0.7 * env.wind.mean(0).speed, 15) : 1.2;
-      if (cls.speed) { player.trial = new SpeedTrial(); this._towAt = { x, z }; }
+      if (cls.speed) player.trial = new SpeedTrial();
       this.presetTrim(player);
       this.renderer.setMarks([], null);
       if (idle) { player.auto.trim = true; }
@@ -857,7 +860,7 @@ class Game {
   presetTrim(b) {
     // (a speed machine is let go from the tow with her wing set by the pilot: js/speedcraft.js speedAutoTrim takes it
     // from there)
-    if (b.speedCraft) { b.ctrl.main = b.lines.main = b.cls.speed.trim0 ?? 0.3; return; }
+    if (b.speedCraft) { speedTow(b, this.env, this.t || 0, b.psi, b.u); return; }
     b.reefPos = b.ctrl.reef | 0;   // reefs tied in at the dock are already in, not being tied in
     const keep = { x: b.x, z: b.z, psi: b.psi };
     // (four seconds at the physics step: cloth sails need the game's step to settle)
@@ -987,6 +990,7 @@ class Game {
   }
   nudge(k, d, dt) {
     const b = this.player, c = b.ctrl, C = b.cls;
+    if (k === 'helm' && b.speedCraft) { b._course = this.speedCourse(b, (b._course ?? b.psi) + d * 8 * DEG * dt); return; }
     if (k === 'helm') { this.manualHelm(); c.helm = clamp(c.helm + d * 0.9 * dt, -1, 1); return; }
     if (k === 'pushBoom') { c.pushBoom = d; this.pushHeld = true; clearTimeout(this._pbT); this._pbT = setTimeout(() => { this.pushHeld = false; c.pushBoom = 0; }, 120); return; }
     if (k === 'hike') { this.userTouched('hike'); c.hike = clamp(c.hike + d * 1.2 * dt, -1, 1); return; }
@@ -1015,11 +1019,46 @@ class Game {
   // a speed machine is never sailed off a beach: the support boat tows her back up the course, points her on her tack
   // (starboard: the wind 100 deg on that side) and lets her go at about 0.7 of the wind's speed, as the team does
   towCraft() {
-    const b = this.player, C = b.cls, twd = (b.diag.twd ?? 0), w = this.env.wind.mean(this.t).speed;
-    const at = this._towAt || { x: b.x, z: b.z };
-    b.reset(at.x, at.z, twd - (C.speed.windSide ?? 1) * 100 * DEG);
-    b.u = Math.min(0.7 * w, 15); b.ctrl.helm = 0;
-    this.hud.toast(`Towed back up the course and let go at ${(b.u / KT).toFixed(0)} kn, starboard tack`, 3);
+    const b = this.player, C = b.cls, m = this.env.wind.mean(this.t), w = m.speed;
+    const at = this._towBase || { x: b.x, z: b.z }, T = this.towSpot(C, m.dir, at.x, at.z, this.world);
+    b.reset(T.x, T.z, T.psi);
+    b.u = Math.min(0.7 * w, 15);
+    this.presetTrim(b);
+    this.hud.toast(`Towed back up the course and let go at ${(b.u / KT).toFixed(0)} kn on starboard tack, ${Math.round(T.twa / DEG)}° to the wind, the wing trimmed`, 3.5);
+  }
+  // where the support boat lets her go: her one tack, ~100 deg off the wind, on a run of open water (her foil draws
+  // ~1 m: 1.5 m of water at least, 2 km of it ahead and 100 m either side of her track). The venue's spot first (at
+  // Walvis Bay: in the lee of the spit, the wind blowing over the beach); if the day's wind gives no run from there,
+  // the nearest spot that does.
+  towSpot(C, twd, x0, z0, world) {
+    const twa = 100 * DEG, psi = twd - (C.speed.windSide ?? 1) * twa;
+    const fx = Math.sin(psi), fz = -Math.cos(psi);
+    const deep = (x, z) => !world || world.open || world.depthAt(x, z) > 1.5;
+    const run = (x, z) => {
+      for (let r = 0; r <= 2000; r += 50) {
+        const px = x + fx * r, pz = z + fz * r;
+        if (!deep(px, pz) || !deep(px - fz * 100, pz + fx * 100) || !deep(px + fz * 100, pz - fx * 100)) return r;
+      }
+      return 2000;
+    };
+    let best = { x: x0, z: z0, len: run(x0, z0) };
+    if (best.len < 2000) {
+      for (let R = 250; R <= 4000 && best.len < 2000; R += 250) {
+        for (let k = 0; k < 24; k++) {
+          const a = k / 24 * 2 * Math.PI, x = x0 + Math.cos(a) * R, z = z0 + Math.sin(a) * R;
+          if (world && !world.open && (Math.abs(x) > world.R - 200 || Math.abs(z) > world.R - 200)) continue;
+          const len = run(x, z);
+          if (len > best.len) best = { x, z, len };
+        }
+      }
+    }
+    return { x: best.x, z: best.z, psi, twa, run: best.len };
+  }
+  // a speed machine's course: the heading the pilot holds, within her tack's range (50-170 deg off the wind, on her side)
+  speedCourse(b, psi) {
+    const s = b.cls.speed.windSide ?? 1, twd = this.env.wind.mean(this.t).dir;
+    const twa = clamp(s * wrap(twd - psi), 50 * DEG, 170 * DEG);
+    return twd - s * twa;
   }
   toggleGen() {
     const b = this.player; if (!b.sailBy.gennaker) return;
@@ -1292,6 +1331,7 @@ class Game {
     }
     else if (k === 'f' && b.sailBy.jib) this.letFly();
     else if (k === 'b') this.toggleEngine();
+    else if (k === ' ' && b.speedCraft) b._course = this.speedCourse(b, b.psi);
     else if (k === ' ') { this.manualHelm(); b.ctrl.helm = 0; }
     else if (k === '=' || k === '+') this.warp(2);
     else if (k === '-') this.warp(0.5);
@@ -1366,7 +1406,14 @@ class Game {
     if (has('a', 'ArrowLeft')) steer -= 1;
     if (has('d', 'ArrowRight')) steer += 1;
     if (this.settings.tiller) steer = -steer; // push the tiller to port, the bow goes to starboard
-    if (steer) { this.manualHelm(); c.helm = clamp(c.helm + steer * 0.9 * dt, -1, 1); }
+    // (a speed machine: the keys set the course and the pilot's hands hold it on the wheel; on her own she rounds up
+    // into the wind, the rudder needs a few degrees held against it, more as she slows)
+    if (b.speedCraft) {
+      if (b._course === undefined) b._course = b.psi;
+      if (steer) b._course = this.speedCourse(b, b._course + steer * 8 * DEG * dt);
+      speedHelm(b, b._course, 4, dt);
+    }
+    else if (steer) { this.manualHelm(); c.helm = clamp(c.helm + steer * 0.9 * dt, -1, 1); }
     // the helmsman holds the tiller where it was put (Space centres it)
     const rate = (b.speedCraft ? 0.06 : 0.28) * dt;   // (a speed machine's wing trim: ~9 deg a second)
     const trim = (key, dir) => { this.userTouched(key); const tr = ['main', 'jib', 'stay', 'lazy', 'trav', 'tackLine'].includes(key) ? dir < 0 : dir > 0; const hr = b.speedCraft ? null : handRate(b, key, tr); c[key] = clamp(c[key] + dir * (hr === null ? rate : hr * dt) * this.working(key, tr), 0, 1); };
@@ -1736,8 +1783,10 @@ class Game {
       if (b.capsized) this.hud.alert('Over — press R: the support boat rights her and tows her back', true);
       else if (wrong) this.hud.alert('Wind on the wrong side: she sails on starboard tack only — the wing cannot meet it and the foil pulls the wrong way. R to be towed back', true);
       else if ((d.foil?.cav || 0) > 0.5) this.hud.alert('Foil cavitating — it has lost its grip: ease the wing', true);
+      else if (!b.auto.trim && b.u > 1 && d.wing && (d.wing.stalled || d.wing.alpha > speedBestAoa(b) + 5 * DEG)) this.hud.alert(`Wing stalled (α ${Math.round(d.wing.alpha / DEG)}°) — ease it: S, to α ~${Math.round(speedBestAoa(b) / DEG)}° (or T: the pilot trims)`, true);
+      else if (!b.auto.trim && b.u > 1 && d.wing && d.wing.alpha < speedBestAoa(b) - 6 * DEG) this.hud.alert(`Wing under-trimmed (α ${Math.round(d.wing.alpha / DEG)}°) — sheet it in: W, to α ~${Math.round(speedBestAoa(b) / DEG)}° (or T: the pilot trims)`, true);
       else if (b.aground > 0.02) this.hud.alert('The foil is on the bottom', true);
-      else if (b.u < 3 && (d.tws || 0) > 0) this.hud.alert(b.u < 1 ? `Stopped — she needs a tow to get going (R), and ~17-20 kn of wind` : 'Too slow to plane: bear away, sheet the wing in, or R for a tow');
+      else if (b.u < 3 && (d.tws || 0) > 0) this.hud.alert(b.u < 1 ? `Stopped — she needs a tow to get going (R), and ~17-20 kn of wind` : `Too slow to plane: steer ~90° off the wind (in a light breeze she goes best there), trim the wing to α ~${Math.round(speedBestAoa(b) / DEG)}°, or R for a tow`);
       else this.hud.alert(null);
       return;
     }

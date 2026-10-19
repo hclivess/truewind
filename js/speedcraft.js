@@ -402,17 +402,16 @@ export class SpeedCraft {
 }
 
 // ------------------------------------------------------------------------------------------------ automatic trim
-// The pilot's wing trim: the wing set to the angle of attack of its best drive for the course, about 9 deg (the
-// section's lift/drag peaks at 6-10 deg at Re ~ 3e6; past ~12 deg it nears the stall): the control line moves the trim
-// at the pilot's speed. (Upwind or overpowered the target falls: the heeling moment is the craft's limit.)
-export function speedAutoTrim(b, dt, aoaBias = 0) {
-  const W = b.cls.speed.wing, wg = b.wing, a = b.diag.wing ? b.diag.wing.alpha : 0, awa = Math.abs(b.diag.awaMid ?? 0);
-  // the angle of attack of the wing's best drive (lift across the course less drag along it) in this apparent wind,
-  // from the wing's own section and span (the pilot's "full power" is this; easing from it is the depower), every
-  // 0.2 s (with a margin of 2 deg from the stall)
+// the angle of attack of the wing's best drive (lift across the course less drag along it) in this apparent wind, from
+// the wing's own section and span (the pilot's "full power" is this; easing from it is the depower), every 0.2 s (with
+// a margin of 2 deg from the stall). The pilot's target, and the HUD's for a player trimming by hand
+export function speedBestAoa(b, dt = 0) {
+  const W = b.cls.speed.wing, wg = b.wing, awa = Math.abs(b.diag.awaMid ?? 0);
+  // (dt: the caller's step; without one, the craft's own clock)
   b._atT = (b._atT || 0) - dt;
+  if (!dt && Math.abs((b.t || 0) - (b._atAt ?? -1)) >= 0.2) b._atT = 0;
   if (b._atT <= 0 || b._aBest === undefined) {
-    b._atT = 0.2;
+    b._atT = 0.2; b._atAt = b.t || 0;
     const S = wg.strips[wg.n >> 1], st = { stalled: false, sep: 0, vent: 0, ventOn: false, cav: 0 }, o = b._atO || (b._atO = {});
     const V = Math.max(3, wg.diag.V || 10), ARe = wg.diag.ARe || 4, a0 = W.sec.alpha0 || 0;
     let best = -Infinity, aB = 8 * DEG;
@@ -425,6 +424,14 @@ export function speedAutoTrim(b, dt, aoaBias = 0) {
     }
     b._aBest = aB;
   }
+  return b._aBest;
+}
+// The pilot's wing trim: the wing set to the angle of attack of its best drive for the course, about 9 deg (the
+// section's lift/drag peaks at 6-10 deg at Re ~ 3e6; past ~12 deg it nears the stall): the control line moves the trim
+// at the pilot's speed. (Upwind or overpowered the target falls: the heeling moment is the craft's limit.)
+export function speedAutoTrim(b, dt, aoaBias = 0) {
+  const W = b.cls.speed.wing, a = b.diag.wing ? b.diag.wing.alpha : 0;
+  speedBestAoa(b, dt);
   // (the foil boiling: she slows, slides to leeward and the ride goes rough. The pilot eases the wing until it holds
   // again, and sheets back on slowly)
   const cav = b.diag.foil ? b.diag.foil.cav || 0 : 0;
@@ -439,9 +446,40 @@ export function speedAutoTrim(b, dt, aoaBias = 0) {
 // ------------------------------------------------------------------------------------------------ helm
 // The pilot's steering to a heading: the wheel on the front rudder, against the yaw rate (a person's hands: the
 // rudder itself moves at its own rate, step)
-export function speedHelm(b, psi, gain = 4) {
+export function speedHelm(b, psi, gain = 4, dt = 0) {
   const e = wrap(psi - b.psi);
-  b.ctrl.helm = clamp(gain * e - 1.6 * b.r, -1, 1);
+  // (with dt, the game's: the weather helm she needs, a few degrees of rudder held against her rounding up, found by
+  // the pilot's hands over a few seconds, so she sails the course set and not 6 deg above it)
+  if (dt) b._hI = clamp((b._hI || 0) + e * dt * (Math.abs(b.ctrl.helm) < 1 ? 1 : 0), -0.4, 0.4);
+  b.ctrl.helm = clamp(gain * e + (dt ? 1.5 * b._hI : 0) - 1.6 * b.r, -1, 1);
+}
+
+// ------------------------------------------------------------------------------------------------ the tow
+// The support boat tows her up to speed on her course and the pilot sets the wing on the line before letting go (as the
+// team does at Walvis Bay): the line holds her at the tow's speed and heading, floating level on her pods, while the
+// pilot sets the wing for the apparent wind she will be let go in; released with that trim and the tow's speed.
+// (Held there, the wing's pull is the tow line's to take: its thrust, high up, would otherwise trim her bow down.)
+export function speedTow(b, env, t, psi, U, secs = 5) {
+  const x = b.x, z = b.z, ph = b.phi, th = b.pitch, hv = b.heave, dt = 1 / 60;
+  const hold = () => {
+    b.x = x; b.z = z; b.psi = psi; b.phi = ph; b.pitch = th; b.heave = hv;
+    b.vb[0] = U; b.vb[1] = 0; b.vb[2] = 0; b.wb[0] = b.wb[1] = b.wb[2] = 0;
+    b.u = b._uOut = U; b.v = b._vOut = 0; b.r = b.p = b.pitchV = b.heaveV = 0;
+  };
+  // (in a strong wind the pilot lets go with the wing eased, its pull no more than ~3 kN, est.: fully powered there it
+  // would pull 5 kN and more on a 355 kg craft, ~1.5 g, the thrust high above the floats, and she trims down onto her
+  // nose before the speed comes; past the release the pilot sheets on as the apparent wind comes forward)
+  const Fcap = b.cls.speed.releaseF ?? 3000;
+  let ease = 0;
+  for (let i = 0; i < secs / dt; i++) {
+    const F = Math.hypot(b.wing.F[0], b.wing.F[1], b.wing.F[2]);
+    ease = clamp(ease + (F > Fcap ? 4 : -4) * dt, 0, 14);
+    speedAutoTrim(b, dt, -ease);
+    b.lines.main = b.ctrl.main;                       // (on the tow the pilot has the time: the wing where he wants it)
+    hold(); b.step(dt, env, t, null);
+  }
+  hold(); b.rudder = 0; b.ctrl.helm = 0; b._course = psi; b._hI = 0;
+  if (b.trial) b.trial.reset();
 }
 
 // ------------------------------------------------------------------------------------------------ VPP

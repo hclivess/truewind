@@ -311,11 +311,13 @@ export function planeCoef(P, d, tau, V, Vs, out, trim = tau) {
   const lam = clamp((Lk + Lc) / (2 * b), 0.05, P.len / b);
   const Cv = Va / Math.sqrt(G * b);
   // the immersed volume: the bottom's V section (deadrise beta, then the sides) under the water along the pod, the
-  // depth falling off toward the bow with the trim (six stations), up to the pod's depth (depthMax)
+  // depth falling off toward the bow with the geometric trim (six stations: the water the hull displaces is a matter of
+  // its shape and place, not of how fast it moves; the flow angle would make the buoyancy fall as a pod drops in, and
+  // pump it), up to the depth of the pod (depthMax)
   const hV = 0.5 * b * Math.tan(beta), Dm = P.depthMax ?? 1;
   const Asec = (z) => { z = Math.min(z, Dm); return z <= 0 ? 0 : z <= hV ? z * z / Math.max(1e-3, Math.tan(beta)) : hV * b / 2 + b * (z - hV); };
   let vol = 0, mx = 0;
-  for (let i = 0; i < 6; i++) { const x = (i + 0.5) / 6 * P.len, a = Asec(d - x * Math.sin(tau)) * P.len / 6; vol += a; mx += a * x; }
+  for (let i = 0; i < 6; i++) { const x = (i + 0.5) / 6 * P.len, a = Asec(d - x * Math.sin(trim)) * P.len / 6; vol += a; mx += a * x; }
   const wl = lam * b, xB = vol > 0 ? mx / vol : 0;
   const buoy = RHO_W * G * vol;
   const tauD = tauA / DEG;
