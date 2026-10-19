@@ -104,6 +104,6 @@ check(rl.length >= 3 && ups.length >= 2 && ups[1].t - ups[0].t > ups[0].t * 1.5,
 rg = new ReflGovernor(0);
 rl = rrun(rg, 33, 300);
 check(rl.length >= 2 && rl[1].l === 0 && rl.length <= 6 && rg.level === 0, `a device slow for the physics' sake keeps its reflection (${rl.map((e) => `${e.t.toFixed(0)} s -> ${e.l}`).join(', ')})`);
-rg = new ReflGovernor(2);
-check(rrun(rg, 8, 300).length === 0 && rg.level === 2, '?q=low: never climbs above its start rung');
+rg = new ReflGovernor(3);
+check(rrun(rg, 8, 300).length === 0 && rg.level === 3, '?q=low: never climbs above its start rung');
 process.exit(bad ? 1 : 0);
