@@ -91,7 +91,14 @@ export function foilSpec(C, which) {
   if (which === 'keel' && C.keelBulb && typeof C.keelBulb === 'object' && !fromModel.bulb) fromModel.bulb = { len: C.keelBulb.len, dia: 2 * C.keelBulb.r };
   if (which === 'keel' && F.board && F.pivot) { const ch = F.chord ?? 0.4; fromModel.board = 'pivot'; fromModel.pivot = { x: F.x + 0.6 * ch, z: -(C.canoeDraft || 0.15) }; }
   if (which === 'rudder' && F.lifting) fromModel.kickUp = true;
+  if (which === 'keel' && Md.keel && Md.keel.winglets) fromModel.winglets = Md.keel.winglets;
   const D = { ...fromModel, ...((FOIL_DATA[C.id] || {})[which] || {}), ...(F.foil || {}) };
+  // winglets at the tip (Australia II's): an end plate there. Their effect as one: the induced drag at a given side
+  // force down by the fraction W.kDi (van Oossanen's NLR panel calculations for the 1983 keel: up to 35%; Wikipedia
+  // 'Australia II': 30%), i.e. the effective aspect ratio up by 1 / (1 - kDi), which on the hull's image (1 + ep) is a
+  // tip plate of (1 + ep) kDi / (1 - kDi); their own skin friction and form drag on their wetted area (wingletDrag)
+  const W = D.winglets || null, ep0 = D.endPlate ?? (F.long ? 0.3 : 0.9);
+  const tipPlate = W ? (1 + ep0) * W.kDi / (1 - W.kDi) : D.bulb ? 0.15 : 0;
   const chord = F.chord ?? Math.sqrt(F.area / Math.max(0.5, F.ARe || 3)), span = F.span ?? F.area / chord;
   const spade = which === 'rudder' && !F.transom && !F.hung && !F.twin && !D.root;
   return {
@@ -100,8 +107,9 @@ export function foilSpec(C, which) {
     // what caps the root: 'hull' (an end plate), 'surface' (a transom-hung blade whose head is at the water)
     root: D.root ?? (which === 'keel' || spade ? 'hull' : 'surface'),
     endPlate: D.endPlate ?? (F.long ? 0.3 : 0.9),        // (a long keel is its own hull: its image counts little)
-    tipPlate: D.bulb ? 0.15 : 0,
+    tipPlate,
     bulb: D.bulb || null,
+    winglets: W,
     board: D.board ?? (F.board ? 'dagger' : null),
     pivot: D.pivot || null,                               // pivoting centreboard: { x, z } of the pin
     balance: D.balance ?? (spade ? 0.2 : 0.02),           // stock axis aft of the leading edge / chord
@@ -113,7 +121,7 @@ export function foilSpec(C, which) {
     // body lifts too, and its draft adds span: the J/24's 0.88 m fin under 0.3 m of hull is ARe 3.0, its bare fin
     // 1.6). The fin's geometry alone left the J/24, Etchells, Catalina 30, Contessa 32 and Star at 8-12 deg of
     // leeway upwind in a breeze, twice a real keelboat's, which the heading-locked polar sails as pointing and speed
-    hullShare: which === 'keel' && !F.long && F.ARe && F.span && F.chord ? Math.max(1, F.ARe / (F.span / F.chord * (1 + (D.endPlate ?? 0.9) + (D.bulb ? 0.15 : 0)))) : 1,
+    hullShare: which === 'keel' && !F.long && F.ARe && F.span && F.chord ? Math.max(1, F.ARe / (F.span / F.chord * (1 + (D.endPlate ?? 0.9) + tipPlate))) : 1,
     // the class's hand-set stall angle is kept as a floor for very low aspect ratios (a long keel)
     stall0: F.stall ?? 15 * DEG,
   };
@@ -256,6 +264,13 @@ export function foilCoef(S, st, alpha, V, g, dt, out) {
 export function bulbDrag(b, V) {
   const Re = Math.max(1e5, Math.abs(V) * b.len / NU_W), cf = 0.075 / (Math.log10(Re) - 2) ** 2, dl = b.dia / b.len;
   return 0.5 * RHO_W * V * Math.abs(V) * 0.75 * Math.PI * b.dia * b.len * cf * (1 + 1.5 * dl ** 1.5 + 7 * dl ** 3);
+}
+
+// winglets: their skin friction and form drag (Hoerner's form factor on a section of t/c) on both faces of both
+// wings, span x mean chord each
+export function wingletDrag(w, V) {
+  const c = w.chord, Re = Math.max(1e5, Math.abs(V) * c / NU_W), A = 2 * 2 * w.span * c;
+  return 0.5 * RHO_W * V * Math.abs(V) * A * cfFoil(Re) * (1 + 2 * (w.tc ?? 0.1) + 60 * (w.tc ?? 0.1) ** 4);
 }
 
 // kick-up blade: pushed up by the bottom (depth: water depth under it), relatched by the crew after a while in deep

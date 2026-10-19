@@ -17,6 +17,7 @@ import { DEG } from '../env.js';
 import { SailLattice } from './vlm.js';
 import { latticeSize } from './specs.js';
 import { BoomSailRig, JibRig, SpinRig, PoleSpinRig, chordAt, areaScale } from './rigsim.js';
+import { planChord, planRise } from './plan.js';
 import './surrogate.js';
 import { boomDip } from '../boom.js';
 // (Math.hypot allocates when V8 does not inline it: these do not)
@@ -132,26 +133,26 @@ export class SailSystem {
 
   // ------------------------------------------------------------------ geometry from the rig-set shape
   surface(b, x, rg, sh) {
-    const s = x.s, C = b.cls, q = x.part, { nc, ns } = q, W = nc + 1, S = q.surf, o = this._o;
+    const s0 = x.s, s = s0.gaff ? b.setSail(s0) : s0, C = b.cls, q = x.part, { nc, ns } = q, W = nc + 1, S = q.surf, o = this._o;
     let px, pz, luff = rg.luff;
     const rake = s.rake || 0;
     if (s.key === 'main') { px = C.mastX - 0.02; pz = C.boomZ; } else { px = s.tackX; pz = s.tackZ; }
     if (s.kind === 'spin' || s.kind === 'loose') luff *= Math.sqrt(rg.areaF);
     // chords scaled so the lattice carries the sail's rated area (times the hoisted / reefed fraction)
-    const kc = areaScale(s, luff, s.area * rg.areaF);
+    const kc = areaScale(s, luff, s0.area * rg.areaF);
     const side = Math.sign(rg.baseAngle || 1), slack = s.key === 'main' ? b.reefSlack : 0;
     for (let j = 0; j <= ns; j++) {
       const fv = j / ns;
       shapeAt(fv, sh, rg.baseAngle ?? 0, o);
       const chord = chordAt(s, fv) * kc;
-      const lx = px - rake * fv, lz = pz + fv * luff * (1 - 0.06 * slack);
+      const lx = px - rake * fv, lz = pz + fv * luff * (1 - 0.06 * slack), rise = planRise(s, fv);
       const ca = Math.cos(o.a), sa = Math.sin(o.a);
       const cx = -ca, cy = sa, nx = sa * side, ny = ca * side, ff = o.f, depth = o.d;
       for (let i = 0; i <= nc; i++) {
         const fu = i / nc;
         const camb = fu < ff ? 1 - (1 - fu / ff) ** 2 : 1 - ((fu - ff) / (1 - ff)) ** 2;
         const off = depth * chord * camb, k = 3 * (j * W + i);
-        S[k] = lx + cx * chord * fu + nx * off; S[k + 1] = cy * chord * fu + ny * off; S[k + 2] = lz + (s.footRise || 0) * fu * (1 - fv);
+        S[k] = lx + cx * chord * fu + nx * off; S[k + 1] = cy * chord * fu + ny * off; S[k + 2] = lz + rise * fu;
       }
     }
     for (let j = 0; j < ns; j++) {
@@ -240,11 +241,13 @@ export class SailSystem {
         const lv = Math.round(b.reefPos * 2) / 2;
         x.rig = new JibRig(b, furledSail(s, furlAt(s, lv)), this.lod); x.rig.furlLevel = lv; rebuild = true;
       }
-      if (x.rig && key === 'main' && x.rig.reefLevel !== Math.round(b.reefPos * 2) / 2) {
+      // (a gaff sail's topsail comes down at the first reef, on whichever mast: js/sail/plan.js)
+      const lv = Math.round(clamp(b.reefPos, 0, 2) * 2) / 2, lvS = key === 'main' ? lv : Math.min(1, lv);
+      if (x.rig && s.kind === 'boom' && (key === 'main' || s.gaff) && x.rig.reefLevel !== lvS) {
         // tying in (or shaking out) a reef: the cloth above the reef points is the sail now
         const a = x.rig.a;
-        x.rig = new BoomSailRig(b, s, this.lod, Math.round(b.reefPos * 2) / 2);
-        b.booms.main.a = a; rebuild = true;
+        x.rig = new BoomSailRig(b, s, this.lod, lvS);
+        b.booms[key].a = a; rebuild = true;
       }
       if (x.rig) {
         // a cloth sail: the rig sets its lines and pins; its shape is its own. (A headsail furled while the
@@ -470,7 +473,8 @@ export class SailSystem {
           bm.a = rig.a; bm.rate = rig.rate; bm.elev = rig.elev;
           d.rig[key + 'Load'] = lerp(d.rig[key + 'Load'] || 0, rig.sheetLoad(), 0.1);
           d.rig[key + 'Limit'] = b.boomLimit(s);
-        } else if (s.kind === 'loose' || b.genDeploy > 0.5) {
+        } else if (s.kind === 'loose' && key !== 'jib' && b.sailBy.jib) d.rig[key + 'Load'] = lerp(d.rig[key + 'Load'] || 0, rig.sheetLoad(), 0.1);   // (an outer jib)
+        else if (s.kind === 'loose' || b.genDeploy > 0.5) {
           d.rig.jibLoad = lerp(d.rig.jibLoad || 0, rig.sheetLoad(), 0.1);
           d.rig.lazyLoad = lerp(d.rig.lazyLoad || 0, rig.lazyLoad(), 0.1);
         }
@@ -503,7 +507,7 @@ export class SailSystem {
       for (let i = 0; i < 3; i++) {
         const o = ds[i], shp = sh[i];
         // water drag of the sail where it lies in the sea, as the strip model has it
-        const f = STRIP_F[i], chord = s.foot * (1 - f) + s.head * f, rg = x.rg;
+        const f = STRIP_F[i], chord = planChord(s.gaff ? b.setSail(s) : s, f), rg = x.rg;
         const zs = rg.pivotZ + f * rg.luff + (s.footRise || 0) * 0.4 * (1 - f);
         const ca = Math.cos(shp.ang), sa = Math.sin(shp.ang);
         const xce = rg.pivotX - (s.rake || 0) * f - 0.4 * chord * ca, yce = 0.4 * chord * sa;
@@ -532,6 +536,7 @@ export class SailSystem {
       }
       x.torque = torque; x.F = Fsum;
       if (s.kind === 'boom' && !x.rig) b.boomDynamics(s, torque, dt, true);
+      else if (!x.rig && s.kind === 'loose' && s.key !== 'jib' && b.sailBy.jib) d.rig[s.key + 'Load'] = lerp(d.rig[s.key + 'Load'] || 0, Fsum * 0.95 * x.rg.areaF, 0.1);
       else if (!x.rig && (s.kind === 'loose' || (s.kind === 'spin' && b.genDeploy > 0.5))) d.rig.jibLoad = lerp(d.rig.jibLoad || 0, Fsum * 0.95 * x.rg.areaF, 0.1);
     }
     b._clHead = lerp(b._clHead, clHeadSum, 0.2);
@@ -561,7 +566,7 @@ export class SailSystem {
       else {
         const sd = Math.sign(target), e = clamp(b.lines.jib, 0, 1);
         rig.pose(sd * lerp(s.min, s.max, e)); rig.side = sd;
-        if (s.kind === 'loose') b.side.jib = sd; else b.side.gennaker = sd;
+        if (s.kind === 'loose') { if (s.key === 'jib' || !b.sailBy.jib) b.side.jib = sd; } else b.side.gennaker = sd;
       }
     }
   }
