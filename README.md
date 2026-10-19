@@ -6,12 +6,9 @@ A browser sailing simulator where the boat is not animated — it is computed. E
 
 **Play:** https://hclivess.github.io/truewind/
 
-| | |
-|---|---|
-| [![Two J Class yachts close-hauled in the Solent at golden hour, a container ship beyond](docs/img/velsheda.jpg)](https://hclivess.github.io/truewind/) | [![TP52s racing, twin carbon wheels and dark laminate sails](docs/img/tp52.jpg)](https://hclivess.github.io/truewind/) |
-| **J Class** in the Solent at golden hour | **TP52s** racing off Newport |
-| [![Shenandoah of Sark, a three-masted gaff schooner under full sail](docs/img/shenandoah.jpg)](https://hclivess.github.io/truewind/) | |
-| ***Shenandoah of Sark***, three-masted gaff schooner | |
+[![The Swan 131 Aristarchos beating off Puerto Progreso on the autopilot in 30 kn, the rig panel, the coach and the instruments around her](docs/img/swan131-progreso.jpg)](https://hclivess.github.io/truewind/)
+
+[![The Blackwatch 19/24 reefing on the autopilot in Sydney Harbour, her wake on the dark water, the waterfront and moored boats beyond](docs/img/blackwatch-sydney.jpg)](https://hclivess.github.io/truewind/)
 
 It runs in any modern browser with WebGL, with no install and no build step.
 
@@ -448,6 +445,7 @@ These are the honest limits:
 | `P` | Pause (not online) |
 | `Esc` | Menu; first closes the help, the chart, the results or the phone's rig panel |
 | `O` | Sound on / off (click **Snd** for the mixer: master and per-channel volume) |
+| `F2` / `Shift`+`C` | Cinematic mode: hide the whole interface for a clean picture (again to bring it back) |
 | `Shift`+`L` | Arrange the HUD: drag panels, hide them, reset (also *Arrange HUD* in the menu) |
 | `Shift`+`B` | Racing: "Protest!" |
 | `Shift`+`U` | Racing: hail for room to tack at an obstruction; when hailed, answer "You tack" |

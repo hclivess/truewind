@@ -1263,6 +1263,8 @@ class Game {
       if ($('#menu').hidden) this.openMenu(); else if (this.running) this.closeMenu();
       return;
     }
+    // cinematic mode (F2, or Shift+C): every panel, label and marker hidden, the sea and the boat alone; again to bring them back
+    if (k === 'F2' || (k === 'c' && e.shiftKey)) { e.preventDefault(); document.body.classList.toggle('cine'); return; }
     if (k === 'F1' || k === '?' || (k === 'h' && e.shiftKey)) { e.preventDefault(); if ($('#help').hidden) this.openHelp(); else this.closeHelp(); return; }
     if (!this.running || !$('#menu').hidden || !$('#help').hidden) return;
     const b = this.player;
