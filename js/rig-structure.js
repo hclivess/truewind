@@ -34,7 +34,8 @@ const DEG = Math.PI / 180;
 
 // E (Pa), density (kg/m^3), allowable stress (Pa: yield for alloys, compressive allowable for the laminate)
 export const SPAR_MATERIALS = {
-  alu6061: { E: 70e9, rho: 2700, sy: 240e6 },
+  // (6061-T6: typical yield 276 MPa (ASM), the design minimum 241: a simulated spar is a typical one, not the code's worst)
+  alu6061: { E: 70e9, rho: 2700, sy: 276e6 },
   alu7075: { E: 71.7e9, rho: 2810, sy: 480e6 },
   carbon: { E: 115e9, rho: 1550, sy: 500e6 },
   spruce: { E: 10e9, rho: 450, sy: 40e6 },
@@ -71,7 +72,7 @@ export const RIG_DATA = {
   // J/70: deck-stepped tapered carbon mast (Southern Spars), one pair of swept spreaders 4.97 m up, cap shrouds over
   // them to the hounds, lowers to the spreader root, forestay to the hounds (fractional), adjustable backstay from the
   // masthead crane (8:1 cascade + fine tune: ~80 mm of stay). Section est. 125 x 80 mm, 3 mm wall (~15 kg with fittings), tapering above the
-  // hounds; 4 mm caps, lowers and forestay (as js/damage.js's class data). Dock tune ~ North Sails' base setting order (caps ~10% of
+  // hounds; 4.8 mm caps and lowers, a 5 mm forestay (est.; as js/damage.js's class data). Dock tune ~ North Sails' base setting order (caps ~10% of
   // break, lowers slacker).
   sportboat: {
     step: { type: 'deck', z: 0.95 },
@@ -79,9 +80,11 @@ export const RIG_DATA = {
     spreaders: [{ z: 4.97, len: 0.78, sweep: 0.27, EA: 1.5e7, EI: 3000 }],
     chainX: -0.45, chainIn: 0.93,
     wires: [
-      { key: 'capShroud', to: 'hounds', via: 0, d: 4, pre: 1600 },
-      { key: 'lowerShroud', to: 4.97, dx: 0.08, d: 4, pre: 700 },
-      { key: 'forestay', stay: 'jib', d: 4 },
+      // (4.8 mm, 3/16 in, est.: on 4 mm the solver's caps and lowers came to 2.0-2.3 x their load at RM30)
+      { key: 'capShroud', to: 'hounds', via: 0, d: 4.8, pre: 1600 },
+      { key: 'lowerShroud', to: 4.97, dx: 0.08, d: 4.8, pre: 700 },
+      // (5 mm, est.: on 4 mm the solver's forestay carried 9.6 kN at the righting moment of 30 deg, 1.3 x on its break)
+      { key: 'forestay', stay: 'jib', d: 5 },
       { key: 'backstay', to: 'top', off: -0.22, low: 'transom', d: 5, pre: 350, adjust: 0.12 },
     ],
     prebend: 0.015, lineMax: 3000,
@@ -89,10 +92,12 @@ export const RIG_DATA = {
   // Blackwatch 19: aluminium mast deck-stepped on the cabin top (compression post), one spreader set at mid-height,
   // cap shrouds to the hounds, forward and aft lowers, forestay to the teak bowsprit's end, inner forestay for the
   // staysail, a backstay with a small adjuster; the bowsprit held down by its bobstay and sideways by whisker stays.
-  // Section est. 105 x 70 x 2.4 mm (a 1970s section for a 20 ft cruiser); 5 mm wire, 6 mm bobstay (est.)
+  // Section est. 105 x 70 x 3.0 mm (a 1970s section for a 20 ft cruiser); 5 mm wire, 6 mm bobstay (est.)
   blackwatch: {
     step: { type: 'deck', z: 1.15 },
-    spans: [{ z0: 1.15, z1: 8.4, a: 0.105, b: 0.07, t: 0.0024, mat: 'alu6061' }],
+    // (3.0 mm wall, est.: on 2.4 mm the solver's critical load was 1.75 x the mast's compression at the righting moment of
+    // 30 deg, and it buckled close-hauled in 35 kn)
+    spans: [{ z0: 1.15, z1: 8.4, a: 0.105, b: 0.07, t: 0.003, mat: 'alu6061' }],
     spreaders: [{ z: 4.75, len: 0.82, sweep: 0.15, EA: 1.2e7, EI: 1500 }],
     chainX: -0.1, chainIn: 0.93,
     wires: [
@@ -117,7 +122,9 @@ export const RIG_DATA = {
     spans: [{ z0: 0.05, z1: 2.645, dia: 0.0635, t: 0.0018, mat: 'alu6061' },
       { z0: 2.645, z1: 2.915, dia: 0.0635, t: 0.0018, mat: 'alu6061', plus: { dia: 0.0508, t: 0.00155 } },
       { z0: 2.915, z1: 6.24, dia: 0.0508, t: 0.00155, mat: 'alu6061' }],
-    spreaders: [], wires: [], prebend: 0, lineMax: 2500, noHalyard: true,
+    // (the vang's most: a 15:1 cascade, ~70% efficient, hauled with ~130 N by a sailor sitting out: ~1.4 kN, est. At 2.5 kN
+    // the leech's pull bowed the top section a metre and more aft, which a Laser's does not do)
+    spreaders: [], wires: [], prebend: 0, lineMax: 1400, noHalyard: true,
   },
   // Optimist: IODA rules: mast approximately circular, 45 mm; a sprit of 27.5 +/- 2 mm, at most 2286 mm; stepped on the
   // hull bottom and held by the mast thwart at the gunwale (the mast 7 ft 5 in above its step). Selden's class masts
@@ -158,33 +165,41 @@ export const RIG_DATA = {
 
 // Star (Star class rules; spar est.): a tapered aluminium mast, famously bendy, stepped on deck; one set of spreaders,
 // uppers to the hounds and lowers, the forestay to the hounds, no backstay: running backstays from the hounds to the
-// quarters (the windward one set up, the leeward one off). Section est. 100 x 76 mm, 2.4 mm wall, tapering above the
-// hounds; 4 mm wire, 3.5 mm runners. Its bend (the class's main depth control) comes from the runners, the vang and the
+// quarters (the windward one set up, the leeward one off). Section est. 100 x 76 mm, 3.2 mm wall, tapering above the
+// hounds; 5 mm caps, 4.5 mm lowers, 3.5 mm runners. Its bend (the class's main depth control) comes from the runners, the vang and the
 // leech.
 RIG_DATA.star = {
   step: { type: 'deck', z: 0.42 },
-  spans: [{ z0: 0.42, z1: 7.66, a: 0.1, b: 0.076, t: 0.0024, mat: 'alu6061' }, { z0: 7.66, z1: 9.95, a: 0.066, b: 0.054, t: 0.0018, mat: 'alu6061' }],
+  spans: [{ z0: 0.42, z1: 7.66, a: 0.1, b: 0.076, t: 0.0032, mat: 'alu6061' }, { z0: 7.66, z1: 9.95, a: 0.066, b: 0.054, t: 0.0018, mat: 'alu6061' }],
   spreaders: [{ z: 4.2, len: 0.5, sweep: 0.15, EA: 1e7, EI: 800 }],
   chainX: -0.15, chainIn: 0.93,
   wires: [
-    { key: 'capShroud', to: 'hounds', via: 0, d: 4, pre: 800 },
+    // (5 mm caps, 4.5 mm lowers, a 3.2 mm wall low down, est.: on 4 / 3.5 mm and 2.4 mm the solver's caps and lowers came to
+    // 1.7 x their load at the righting moment of 30 deg, the mast's critical load 1.3 x its compression)
+    { key: 'capShroud', to: 'hounds', via: 0, d: 5, pre: 800 },
     // (the lowers led well aft of the mast: they hold its middle back, the Star's control of its bend low down)
-    { key: 'lowerShroud', to: 4.2, dx: -0.35, d: 3.5, pre: 500 },
+    { key: 'lowerShroud', to: 4.2, dx: -0.35, d: 4.5, pre: 500 },
     { key: 'forestay', stay: 'jib', d: 4 },
     { key: 'runner', to: 'hounds', runner: true, d: 3.5, pre: 700 },
+    // (the checkstays, from the quarters to the mast a little above the spreaders, the windward one set up with its runner:
+    // they hold the middle of the bendy spar back against the forestay's and the leech's pull, as on every Star; without
+    // them the solver's mast stood at 1.2 x its critical load sailing at the righting moment of 30 deg)
+    { key: 'checkstay', to: 5.2, runner: true, d: 3.5, pre: 800 },
   ],
   houndsZ: 7.66, prebend: 0.03, lineMax: 2400,
 };
 // The Mariner's trimaran (a 60 ft racing trimaran's rig, est.): a rotating aluminium wing mast (0.9 m chord) on a ball
 // in its tabernacle, turned by the luff up to its limiter as the Hobie's is; shrouds to the floats at the forward
-// beam, runners to the floats aft, diamonds over spreaders at mid-height, the forestay to the bow. 12 mm caps, 10 mm
+// beam, runners to the floats aft, diamonds over spreaders at mid-height, the forestay to the bow. 16 mm caps, 10 mm
 // runners, 8 mm diamonds.
 RIG_DATA.mariner = {
   step: { type: 'ball', z: 1.6 },
   spans: [{ z0: 1.6, z1: 27.3, a: 0.9, b: 0.32, t: 0.007, mat: 'alu6061' }],
   spreaders: [{ z: 13.2, len: 1.1, sweep: 0.1, EA: 5e7, EI: 2e5, diamond: true }],
   wires: [
-    { key: 'capShroud', to: 'hounds', at: [2.9, 6.7, 1.7], d: 12, pre: 9000 },
+    // (16 mm caps, est.: a trimaran's righting moment is her weight over the float's offset, ~6000 kg x 6.7 m, ~0.4 MN m, twice
+    // the rule's 30 deg figure; on 12 mm the caps parted reaching in 20 kn, the float flying)
+    { key: 'capShroud', to: 'hounds', at: [2.9, 6.7, 1.7], d: 16, pre: 9000 },
     { key: 'runner', to: 'hounds', at: [-3.6, 6.7, 1.7], runner: true, d: 10, pre: 6000 },
     { key: 'diamond', diamond: [24.0, 2.8], via: 0, d: 8, pre: 5000 },
     { key: 'forestay', stay: 'jib', d: 12 },
@@ -200,10 +215,59 @@ RIG_DATA.mariner = {
 // spreader set under 13 m of mast, two above; keel-stepped over 9 m LOA, masthead or fractional as the jib's head says.
 // What the class's drawing (C.model.masts.main: its radius, round or not, material, spreaders as fractions of the mast
 // above the deck, shrouds: false for an unstayed spar) says is used; the rest is sized.
-export function genericRig(C) {
-  const disp = C.massHull + (C.crewN || 0) * (C.crewEach || 80), hb = C.beam / 2 * 0.9;
-  const RM30 = disp * G * (C.gm || 1) * Math.sin(30 * DEG) * 0.8, Tsh = RM30 / hb;
+// The generic rigs as checked on this solver, sailing (tools/size-rigs.mjs): the rule of thumb's sizes do not see how a
+// rig shares its load (swept spreaders put the forestay's pull in the caps; the mast's whole column bows on stretching
+// stays where the rule sees panels between rigid supports), so each class's caps, lowers (a side's together) and
+// forestay are scaled to ~2.8 x their load sailing upwind at the righting moment of 30 deg, and its mast's stiffness to
+// a critical load ~2.7 x its compression there. Factors on the breaking load (wire area) and on EI.
+export const GENERIC_K = {
+  '470': {cap: 0.42, low: 0.44, ei: 1, fore: 1},
+  folkboat: {cap: 0.66, low: 0.71, ei: 0.6, fore: 1},
+  // (the J/24's stays one size up, 6.3 mm: on 5 mm her jib sagged a tenth past its cut (sagN 1.1) on the autopilot
+  // in a 20 kn sea and she luffed off her reach, yaw 9 deg rms; at 6.3 mm, 0.85, as the Catalina 30's and Oceanis's)
+  j24: {cap: 0.6, low: 0.45, ei: 1, fore: 1.59, foreSag: 1.59},
+  j122: {cap: 1.43, low: 0.12, ei: 4.2, fore: 1},
+  '49er': {cap: 0.1, low: 0.1, ei: 0.67, fore: 1},
+  catalina22: {cap: 0.82, low: 0.48, ei: 1.44, fore: 1},
+  catalina30: {cap: 0.7, low: 0.43, ei: 1, fore: 1},
+  oceanis381: {cap: 0.82, low: 0.23, ei: 2.11, fore: 1},
+  contessa32: {cap: 0.74, low: 0.43, ei: 1, fore: 1},
+  westsail32: {cap: 0.77, low: 0.41, ei: 1, fore: 1},
+  flyingscot: {cap: 0.67, low: 0.69, ei: 1, fore: 1},
+  dragon: {cap: 1.14, low: 0.76, ei: 1.33, fore: 1},
+  etchells: {cap: 0.97, low: 0.33, ei: 1, fore: 1},
+  melges24: {cap: 1, low: 0.27, ei: 2.14, fore: 1},
+  spray: {cap: 0.49, low: 0.4, ei: 1, fore: 1},
+  joshua: {cap: 1.27, low: 0.43, ei: 3, fore: 1},
+  america: {cap: 1.87, low: 0.47, ei: 0.45, fore: 1},
+  shenandoah: {cap: 1.28, low: 0.2, ei: 0.2, fore: 1},
+  joliebrise: {cap: 1.71, low: 0.37, ei: 1.18, fore: 1},
+  suhaili: {cap: 0.78, low: 0.52, ei: 1.42, fore: 1},
+  gipsymoth4: {cap: 1.88, low: 0.18, ei: 6.74, fore: 1},
+  hydroptere: {cap: 1.5, low: 7.37, ei: 4.65, fore: 1},
+};
+// The righting moment a rig is designed to at 30 deg: the hull's (its GZ curve, as the physics has it: GM and the
+// form's share) on the whole sailing displacement, plus the crew sitting out on the rail. (It was GM sin 30 x 0.8 on
+// the displacement alone: no crew, which on a sportboat or a dinghy is half the righting moment or more, so that the
+// generic rigs came out at 1.3-2.3 times their load where a designer works to ~2.5-3.5: a Melges 24's caps parted
+// sailing upwind in 20 kn.)
+export function rm30(C) {
+  const crew = (C.crewN || 0) * (C.crewEach || 80), disp = C.massHull + crew, ph = 30 * DEG;
+  const gm = C.gm ?? 1, bm = C.bmForm ?? 0, gz = (gm - bm) * Math.sin(ph) + bm * Math.sin(2 * ph) / 2;
+  return disp * G * Math.max(0.05, gz) + (C.multihull ? 0 : crew * G * (C.crewMaxOut || 0) * Math.cos(ph));
+}
+// k: the sizing pass's corrections (GENERIC_K: tools/size-rigs.mjs): breaking-load factors on the caps, the lowers and
+// the forestay and backstay (sized for the headsail's sag), and on the mast's stiffness
+export function genericRig(C, k = GENERIC_K[C.id] || {}) {
+  const crew = (C.crewN || 0) * (C.crewEach || 80), hb = C.beam / 2 * 0.9, kc = Math.sqrt(k.cap ?? 1), kl = Math.sqrt(k.low ?? 1), kf = Math.sqrt(k.fore ?? 1);
+  const RM30 = rm30(C), Tsh = RM30 / hb;
   const d = clamp(Math.sqrt(2.8 * Tsh / 800), 3, 16);
+  // (the fore-and-aft stays are sized for their stiffness, the headsail's sag, as they were when the classes' balance was
+  // set: on the displacement's GM alone, without the crew. Sized on the whole RM30 with the shrouds, a Catalina 30's 8.5
+  // mm forestay and backstay took a fifth off the jib's sag, and on the autopilot in a 20 kn sea she luffed into the wind
+  // and stopped (test/seakeeping.mjs 4). The sizing (kf, tools/size-rigs.mjs) then sets them for the headsail's sag to
+  // be what its luff was cut for, never under 2.2 x their load.)
+  const dS = clamp(Math.sqrt(2.8 * (C.massHull + crew) * G * (C.gm || 1) * Math.sin(30 * DEG) * 0.8 / hb / 800), 3, 16);
   // (the drawing's description: C.model.masts.main for the detailed boats, or the race classes' own fields: mastR,
   // carbonMast, spreaders { n, sweep } with spreader (length), houndsF (the hounds' distance from the top, a fraction
   // of the mast), runners)
@@ -233,7 +297,7 @@ export function genericRig(C) {
   const zStep = keelStep ? Math.max(-0.2, -0.5 * (C.canoeDraft || 0.4)) : deck, L = C.mastHeight - zStep;
   const drawn = MD.spreaders && MD.spreaders.length ? MD.spreaders : null;
   const nSpr = drawn ? drawn.length : L > 13 ? 2 : 1, panel = 1.1 * (C.mastHeight - deck) / (nSpr + 1);
-  const Pd = 2 * Tsh + 0.3 * wireBreak(d), EIneed = 3 * Pd * panel * panel / (Math.PI ** 2);
+  const Pd = 2 * Tsh + 0.3 * wireBreak(d), EIneed = (k.ei ?? 1) * 3 * Pd * panel * panel / (Math.PI ** 2);
   let A, B, T;
   if (MD.r) {
     // the drawn section (deeper fore-and-aft unless round), its wall what the Euler requirement asks (a solid wooden spar
@@ -242,6 +306,10 @@ export function genericRig(C) {
     let lo = A / 120, hi = mat === 'spruce' ? A / 2.2 : A / 12;
     for (let k = 0; k < 40; k++) { const t = 0.5 * (lo + hi), sc = section({ a: A, b: B, t, mat }); if (Math.min(sc.EIx, sc.EIy) > EIneed) hi = t; else lo = t; }
     T = hi;
+    // (a drawn spar that cannot carry its rig at its thickest wall is bigger than drawn: the section grows, its wall in
+    // proportion, until it does. A mast that would buckle at the heel she sails at is no mast anyone stepped.)
+    const sc0 = section({ a: A, b: B, t: T, mat }), short = EIneed / Math.min(sc0.EIx, sc0.EIy);
+    if (short > 1.0001) { const g = Math.pow(short, 1 / 4); A *= g; B *= g; T *= g; }
   } else {
     let lo = 0.05, hi = 0.5;
     for (let k = 0; k < 40; k++) { const a = 0.5 * (lo + hi), sc = section({ a, b: a / 1.55, t: a / 45, mat }); if (Math.min(sc.EIx, sc.EIy) > EIneed) hi = a; else lo = a; }
@@ -252,17 +320,27 @@ export function genericRig(C) {
     const sd = drawn ? drawn[k] : null, z = deck + (C.mastHeight - deck) * (sd ? sd.f : (k + 1) / (nSpr + 1.3)), len = sd ? sd.len : C.beam * 0.36 / (1 + 0.4 * k);
     spreaders.push({ z, len, sweep: sd ? len * Math.sin(sd.sweep || 0) : 0.12, EA: 3e7, EI: 5e3 * (A / 0.1) ** 4 });
   }
+  // (never under 2.5 mm: the smallest 1x19 a builder fits, a dinghy's margin is then its wire's size)
+  const dc = Math.max(2.5, d * kc), dl = Math.max(2.5, d * 0.85 * kl);
   const wires = [
-    { key: 'capShroud', to: 'hounds', via: 0, d, pre: 0.12 * wireBreak(d) },
-    { key: 'lowerFwd', to: spreaders[0].z, dx: 0.3, d: d * 0.85, pre: 0.08 * wireBreak(d * 0.85) },
-    { key: 'lowerAft', to: spreaders[0].z, dx: -0.3, d: d * 0.85, pre: 0.08 * wireBreak(d * 0.85) },
+    { key: 'capShroud', to: 'hounds', via: 0, d: dc, pre: 0.12 * wireBreak(dc) },
+    { key: 'lowerFwd', to: spreaders[0].z, dx: 0.3, d: dl, pre: 0.08 * wireBreak(dl) },
+    { key: 'lowerAft', to: spreaders[0].z, dx: -0.3, d: dl, pre: 0.08 * wireBreak(dl) },
   ];
-  if (C.sails.some((s) => s.key === 'jib')) wires.push({ key: 'forestay', stay: 'jib', d });
-  if (C.sails.some((s) => s.key === 'stay')) wires.push({ key: 'innerForestay', stay: 'stay', d: d * 0.85 });
+  // (a schooner's headsails are on the foremast's stays (s.stayTo): the mainmast is held forward by its spring stay,
+  // from its hounds to the foremast's head, which is taken as fixed (the foremast as stiff as its own stays make it))
+  const onMain = (k) => C.sails.some((s) => s.key === k && (!s.stayTo || s.stayTo === 'main'));
+  if (onMain('jib')) wires.push({ key: 'forestay', stay: 'jib', d: Math.max(2.5, dS * kf) });
+  if (onMain('stay')) wires.push({ key: 'innerForestay', stay: 'stay', d: dS * 0.85 });
+  const fore = C.sails.find((s) => s.key === 'fore' && s.mast);
+  if (fore && !onMain('jib')) {
+    const zf = Math.min(fore.mast.h, MD.hounds ?? C.mastHeight - 0.5) - 0.3, xf = fore.tackX - (fore.mast.rake || 0) * (zf - fore.tackZ) / (fore.mast.h - fore.tackZ);
+    wires.push({ key: 'forestay', to: 'hounds', at: [xf, 0, zf], d: Math.max(2.5, dS * kf), pre: 0.06 * wireBreak(Math.max(2.5, dS * kf)) });
+  }
   if (C.runners) wires.push({ key: 'runner', to: 'hounds', runner: true, d: d * 0.85, pre: 0.1 * wireBreak(d * 0.85) });
   // (a backstay where the class has one: adjustable where it has the control, fixed where only its drawing has one)
   const fixedBs = !C.hasBackstay && C.model && C.model.backstay;
-  if (C.hasBackstay || fixedBs) wires.push({ key: 'backstay', to: 'top', off: -0.05, low: 'transom', d, pre: (fixedBs ? 0.14 : 0.1) * wireBreak(d), adjust: fixedBs ? 0 : 0.0025 * L });
+  if (C.hasBackstay || fixedBs) wires.push({ key: 'backstay', to: 'top', off: -0.05, low: 'transom', d: Math.max(2.5, dS * kf), pre: (fixedBs ? 0.14 : 0.1) * wireBreak(Math.max(2.5, dS * kf)), adjust: fixedBs ? 0 : 0.0025 * L });
   return { step: { type: keelStep ? 'keel' : 'deck', z: zStep, partners: keelStep ? deck : undefined }, spans: [{ z0: zStep, z1: C.mastHeight, a: A, b: B, t: T, mat }],
     spreaders, chainX: -0.1, chainIn: 0.93, wires, prebend: 0.002 * L, generic: true, lineMax: 2.5 * (C.sheetPower || 1000),
     houndsZ: MD.hounds, noHalyard: !!(C.sails.find((x) => x.key === 'main') || {}).rig, trapeze: !!C.trapeze };
@@ -348,11 +426,24 @@ function cholSolve(A, n, b, fc) {
 const PEN = 1e10;
 const TUNE = new WeakMap();
 
+
+// a stay's solved state (its numbers and number arrays; not its attachments), to start every boat of a class alike
+function snapStay(st) {
+  const o = {};
+  for (const k in st) { const v = st[k]; if (typeof v === 'number') o[k] = v; else if (v instanceof Float64Array) o[k] = Float64Array.from(v); else if (Array.isArray(v) && v.every((x) => typeof x === 'number')) o[k] = v.slice(); }
+  return o;
+}
+function restoreStay(st, o) {
+  for (const k in st) { const v = st[k]; if ((typeof v === 'number' || v instanceof Float64Array || (Array.isArray(v) && v.every((x) => typeof x === 'number'))) && !(k in o)) delete st[k]; }
+  for (const k in o) st[k] = o[k] instanceof Float64Array ? Float64Array.from(o[k]) : Array.isArray(o[k]) ? o[k].slice() : o[k];
+}
 export class RigStructure {
   constructor(boat, spec = null) {
     const C = boat.cls;
     this.boat = boat; this.C = C;
-    const R = this.spec = spec || C.rigStructure || RIG_DATA[C.id] || genericRig(C);   // (C.rigSpec is the damage model's table: js/damage.js)
+    // (a class may give its structure in C.rigSpec together with the damage model's parts, as the J Class's do: it had
+    // been missed, and the J Class sailed on a generic rig a tenth as strong as its own rod)
+    const R = this.spec = spec || C.rigStructure || (C.rigSpec && C.rigSpec.spans && C.rigSpec.wires ? C.rigSpec : null) || RIG_DATA[C.id] || genericRig(C);
     this.axisX = C.mastX + 0.03;
     // the most a line on the boom carries (its purchase times what the crew can pull): the vang and the sheet
     this.lineMax = R.lineMax ?? 2 * (C.sheetPower || 700);
@@ -380,11 +471,24 @@ export class RigStructure {
     this.loads = {};
     this.bendN = 0; this.sagN = 0; this.bendMM = 0; this.sagMM = 0;
     // (the dock tune depends only on the class: found once, shared by every boat of it)
-    const tc = TUNE.get(C);
-    if (tc && tc.spec === R) { this.wires.forEach((w, k) => { w.L0 = tc.L0[k]; w.Lrest0 = w.Lrest = tc.Lrest0[k]; w.T = tc.T[k]; }); this.u.set(tc.u); }
-    else { this.tune(); TUNE.set(C, { spec: R, L0: this.wires.map((w) => w.L0), Lrest0: this.wires.map((w) => w.Lrest0), T: this.wires.map((w) => w.T), u: Float64Array.from(this.u) }); }
+    // (every boat of a class starts from the same tuned state: the wires, the shape, the spar elements' forces and the
+    // stays' solved state. The first one used to keep what designLuffRound's load case left in its stays and elements
+    // (its forestay at 4.7 kN, the later boats' at 1.1): the player and an identical AI boat, or two peers, diverged)
+    let tc = TUNE.get(C);
+    if (!(tc && tc.spec === R)) {
+      this.tune();
+      tc = { spec: R, L0: this.wires.map((w) => w.L0), Lrest0: this.wires.map((w) => w.Lrest0), T: this.wires.map((w) => w.T), u: Float64Array.from(this.u),
+        eN: this.el.map((e) => [e.N, e.Ng]), stays: Object.fromEntries(Object.entries(this.stays).map(([k, st]) => [k, snapStay(st)])) };
+      TUNE.set(C, tc);
+      tc.luffRound = this.designLuffRound();
+    }
+    this.wires.forEach((w, k) => { w.L0 = tc.L0[k]; w.Lrest0 = w.Lrest = tc.Lrest0[k]; w.T = tc.T[k]; });
+    this.u.set(tc.u);
+    if (tc.eN) this.el.forEach((e, k) => { e.N = tc.eN[k][0]; e.Ng = tc.eN[k][1]; });
+    if (tc.stays) for (const k in this.stays) if (tc.stays[k]) restoreStay(this.stays[k], tc.stays[k]);
+    this.pulls.length = 0; this.F.fill(0);
     this.u0dock = Float64Array.from(this.u);
-    this.luffRound = TUNE.get(C).luffRound ?? (TUNE.get(C).luffRound = this.designLuffRound());
+    this.luffRound = tc.luffRound;
   }
 
   // ---------------------------------------------------------------- geometry
@@ -456,7 +560,10 @@ export class RigStructure {
     this.wires = [];
     // (a wire of the spec's material: 1x19 by default, rod or carbon cable where the spec says (WIRE_MATS))
     const matOf = (key) => { const ws = R.wires.find((x) => x.key === key); return ws && WIRE_MATS[ws.mat]; };
-    const W = (key, a, b, d, pre = null, o = {}) => { const M = matOf(key); const w = { key, a, b, d, EA: M ? M.EA(d) : wireEA(d), brk: M ? M.brk(d) : wireBreak(d), pre, T: 0, Lrest: 0, side: o.side ?? 0, ...o }; this.wires.push(w); return w; };
+    // (a running backstay's or checkstay's wires carry the spec's runner flag: the step sets up the windward one and lets
+    // the leeward one off)
+    const isRunner = (key) => !!(R.wires.find((x) => x.key === key) || {}).runner;
+    const W = (key, a, b, d, pre = null, o = {}) => { const M = matOf(key); const w = { key, a, b, d, EA: M ? M.EA(d) : wireEA(d), brk: M ? M.brk(d) : wireBreak(d), pre, T: 0, Lrest: 0, side: o.side ?? 0, runner: isRunner(key), ...o }; this.wires.push(w); return w; };
     let sprit = null, apex = null;
     for (const w of R.wires) {
       if (w.sprit || w.stay || w.bridle) continue;
@@ -679,24 +786,34 @@ export class RigStructure {
   solve(maxIt = 8) {
     const n = this.n, K = this.K, R = this.R, u = this.u, du = this.du;
     if (!this._fc) this._fc = new Int32Array(n);
-    let ok = true, kg = 1;
+    let ok = true, kg = 1, lost = false;
     this.buckled = false; this.converged = false;
     for (let it = 0; it < maxIt; it++) {
       this.assemble(kg);
       du.set(R);
       if (!cholesky(K, n, this._fc)) {
-        // no stiffness left: the column has buckled. Say so, and take the shape at a reduced compression
-        this.buckled = true; ok = false; kg *= 0.5; this.failDof = cholesky.fail; this.failKg = kg;
-        if (kg < 0.05) break;
+        // no stiffness left at this iterate: take this step at a reduced geometric stiffness (whether the column has
+        // buckled is asked of the shape the iterations end at, below)
+        lost = true; kg *= 0.5; this.failDof = cholesky.fail; this.failKg = kg;
+        if (kg < 0.05) { this.buckled = true; ok = false; break; }
         it--; continue;
       }
+      kg = Math.min(1, kg * 2);
       cholSolve(K, n, du, this._fc);
       let mx = 0;
       let big = 0; for (let i = 0; i < n; i++) big = Math.max(big, Math.abs(du[i]));
-      const sc = big > 0.03 ? 0.03 / big : 1;
+      // (wires make the problem stiff and one-sided (a slack wire has no stiffness): their steps are kept to 30 mm. An
+      // unstayed spar is a beam-column on its heel and collar, statically determinate and near linear: the whole step,
+      // its compression's P-delta updated each iteration, converges in a few)
+      const cap = this.spec.wires.length ? 0.03 : 0.5, sc = big > cap ? cap / big : 1;
       for (let i = 0; i < n; i++) { const s = du[i] * sc; u[i] += s; mx = Math.max(mx, Math.abs(s)); }
-      if (mx < 1e-5) { this.converged = true; break; }
+      if (mx < 1e-5 && kg === 1) { this.converged = true; break; }
     }
+    // (a column has buckled when its tangent stiffness, with the whole of its compression's geometric stiffness, is
+    // singular at the shape it stands in. Flagged at the first iterate that lost it, as it was, a wire going slack
+    // between two iterates read as buckling: a Hobie's mast 'buckled' at half its critical load in 25 kn, the loads were
+    // extrapolated from 60% of them and its shroud parted)
+    if (lost && ok) { this.assemble(1); if (!cholesky(K, n, this._fc)) { this.buckled = true; ok = false; } }
     for (const e of this.el) e.Ng = e.N;
     // what the step and the collar hold the mast with (z: the step's compression)
     this.stepF = [this._reac(0), this._reac(2), this._reac(4)];
@@ -791,7 +908,10 @@ export class RigStructure {
     const cphi = Math.cos(b.phi), sphi = Math.sin(b.phi);
     // frame accelerations (rig axes) from the last solve's rates
     const fr = this._fr || (this._fr = { u: b.u, v: b.v, p: b.p, pv: b.pitchV, hv: b.heaveV, t: b.t });
-    const dtf = Math.max(1e-3, b.t - fr.t);
+    // (the time since the last solve: the boat's clock, or the steps it took where the clock stands still (a preset at
+    // t = 0, a test): taken as 1 ms there, each rate's change over it was an acceleration of hundreds of g, clamped at
+    // 20, on every solve: the mast loaded with its own weight times 2 g at random)
+    const dtf = b.t - fr.t > 1e-4 ? b.t - fr.t : (this._dtSolve || 1 / 30);
     const acc = { ud: clamp((b.u - fr.u) / dtf, -20, 20), vd: clamp((b.v - fr.v) / dtf, -20, 20), pd: clamp((b.p - fr.p) / dtf, -20, 20), qdd: clamp(((b.pitchV || 0) - fr.pv) / dtf, -20, 20), hd: clamp(((b.heaveV || 0) - fr.hv) / dtf, -30, 30) };
     fr.u = b.u; fr.v = b.v; fr.p = b.p; fr.pv = b.pitchV || 0; fr.hv = b.heaveV || 0; fr.t = b.t;
     this.gravityLoads(cphi, sphi, { x: acc.ud, y: acc.vd * cphi + acc.hd * sphi, z: acc.hd * cphi - acc.vd * sphi, pd: acc.pd, qdd: acc.qdd });
@@ -1010,7 +1130,7 @@ export class RigStructure {
     if (s.key === 'main') { this._entry = 0; this._entryW = 0; }
     // the leech's half of each row's normal load is carried by the leech tension along the curved leech to its ends:
     // about half of it to the head (up the mast, by the halyard), half to the clew (the boom and sheet)
-    let Lhx = 0, Lhy = 0, An0 = 0;
+    let Lhx = 0, Lhy = 0, An0 = 0, tcx = 0, tcy = 0;
     // a lateen's luff is laced to its yard, which hangs on its halyard from the masthead and sits on the boom's fore end
     // at the tack: each row's luff load goes to those two by the yard's lever (the chord's tension closes through the
     // yard and boom, not the mast)
@@ -1026,8 +1146,12 @@ export class RigStructure {
       if (lat) { const w = (z - zT) / (zHy - zT); yard[0] += w * Lx; yard[1] += w * Ly; yard[2] += (1 - w) * Lx; yard[3] += (1 - w) * Ly; }
       else if (s.key === 'main') this.loadMast(Math.min(this.zTop, z), Lx, Ly, 0, -this.track, 0);
       else if (stay) { const v = clamp((z - s.tackZ) / Math.max(0.5, s.luff), 0.03, 0.97); stay.P.push([v, Lx, Ly, 0]); }
-      luff[0] += Lx; luff[1] += Ly;
-      Lhx += 0.25 * An * nx; Lhy += 0.25 * An * ny; An0 += Math.abs(An);
+      luff[0] += Lx; luff[1] += Ly; tcx += Tc * cx; tcy += Tc * cy;
+      // (the leech's half of a row's load runs along the leech to its ends as a string's would: to the head in proportion to
+      // how far up it the row is. Split evenly, as it is for a stayed rig's (its bend set with it), an unstayed spar's head
+      // took the foot's share too)
+      const fh = this.spec.wires.length ? 0.5 : clamp((z - zT) / Math.max(0.5, (s.luff || 1)), 0, 1);
+      Lhx += 0.5 * fh * An * nx; Lhy += 0.5 * fh * An * ny; An0 += Math.abs(An);
       if (s.key === 'main') { const w = Math.abs(An); this._entry += w * (ang + Math.sign(An) * Math.atan(4 * dep)); this._entryW += w; }
     }
     // the leech tension: the sheet's load (a cloth sail's, as the cloth's sheet reports it), no more than the purchase
@@ -1056,7 +1180,19 @@ export class RigStructure {
         // turn the head-to-clew direction 12 deg toward the horizontal, aft along the boom
         const ex = lx / ll, ey = ly / ll, ez = lz / ll, hx = lx / hl, hy = ly / hl;
         const dx = ex * ca + hx * sa * Math.abs(ez), dy = ey * ca + hy * sa * Math.abs(ez), dz = ez * ca + sa * hl / ll, dn = Math.hypot(dx, dy, dz);
-        this.loadMast(zH, Th * dx / dn, Th * dy / dn, Th * dz / dn, -this.track, 0);
+        // (an unstayed spar has only the leech to hold its head fore-and-aft: there the leech is a string from the head to
+        // the clew (the boom's end, held by its sheet and vang: the clew's pull is theirs, as before), which pulls the head
+        // back toward its line as the spar bends. As a load in a fixed
+        // direction it had no such stiffness, and the P-delta of its own pull down the mast bowed a Laser's converged
+        // solve 3 m at the top in 20 kn)
+        // (the rows' chord tension pulls the luff aft and, as much, the leech forward: the leech's half reaching the head is
+        // the head's, pulled forward. Left out, the mast took a net aft pull of the sail's own tension, ~0.4 of its normal
+        // load, that nothing balanced: on an unstayed spar, which has no stays to take it, a Laser's top section was at
+        // twice its strength close-hauled in 25 kn. A stayed rig's luff round and bend were set with it as it was: there
+        // it is left for a recalibration of those.)
+        if (!this.spec.wires.length) this.loadMast(zH, -0.5 * tcx, -0.5 * tcy, 0, -this.track, 0);
+        if (!this.spec.wires.length) this.pull({ kind: 'mast', i: this.node(zH), ox: -this.track, oy: 0 }, { kind: 'fixed', p: [this.axisX - this.track + lx, ly, C.boomZ] }, Th);
+        else this.loadMast(zH, Th * dx / dn, Th * dy / dn, Th * dz / dn, -this.track, 0);
       }
       if (!this.spec.noHalyard && !lat && s.rig !== 'sprit') this.pull(head, { kind: 'mast', i: 0, ox: 0, oy: 0 }, Th);
       if (!lat && s.rig !== 'sprit') this.loadMast(zH, Lhx, Lhy, 0, -this.track, 0);
@@ -1117,6 +1253,7 @@ export class RigStructure {
     this.count++;
     const every = b.lod >= 2 || !b.sailSys ? 12 : b.lod >= 1 ? 8 : 4;
     if (this.ready && this.count % every !== 0) return;
+    this._dtSolve = dt * (this.ready ? every : 1);
     // (while a cloth-sailed boat is set aside at L2 for a moment, the strip model sailing, the rig stays as the cloth
     // left it: the cloth flies on from there when it comes back)
     // (for a moment only: a boat that stays on the strip model, a slow device's, has its rig solved from the strips)
@@ -1130,7 +1267,9 @@ export class RigStructure {
     // the backstay adjuster
     // (the backstay adjuster; the running backstays: the windward one set up, the leeward one let off)
     const wsd = Math.sign(b.diag.awaMid || 0) || 1;
-    for (const w of this.wires) w.Lrest = w.runner && w.side !== wsd ? w.Lrest0 * 1.03 : w.Lrest0 - (w.adjust ? w.adjust * clamp(b.ctrl.backstay ?? 0, 0, 1) : 0);
+    // (ctrl.runners 0: neither runner set up: the crew late with the new one in a gybe, or a runner lost)
+    const runOff = b.ctrl.runners === 0;
+    for (const w of this.wires) w.Lrest = w.runner && (runOff || w.side !== wsd) ? w.Lrest0 * 1.03 : w.Lrest0 - (w.adjust ? w.adjust * clamp(b.ctrl.backstay ?? 0, 0, 1) : 0);
     for (const st of Object.values(this.stays)) this.stayPrep(st);
     // the loads, low-passed over ~0.15 s (a quasi-static rig does not follow the cloth's every flutter)
     const k = this.ready ? clamp(dt * every / 0.15, 0, 1) : 1, F = this.F, Fs = this.Fs || (this.Fs = Float64Array.from(F));
@@ -1143,12 +1282,22 @@ export class RigStructure {
     const uGood = this.uGood || (this.uGood = Float64Array.from(this.u));
     const isBad = () => {
       if (this.buckled) return true;
-      const lim = (this.spec.wires.length ? 0.06 : 0.12) * (this.zTop - this.zStep);   // (an unstayed spar bends further)
-      for (let i = 0; i < this.nm; i++) if (!(Math.abs(this.u[5 * i]) < lim && Math.abs(this.u[5 * i + 2]) < lim)) return true;
+      // (the bow against the spar's chord from its step to its head: a stayed mast leaning to leeward on its shrouds'
+      // stretch is not bent. Counted from the vertical, a Melges 24's mast leaning 0.6 m on its 3.7 mm caps in 20 kn
+      // (3.3 deg: wire at 0.8 of its break stretches ~0.6%) passed the 6% mark, the rig was declared failed, and the
+      // loads extrapolated from the fraction it 'stood' parted its caps at once; a lean past a quarter of the length
+      // is a solve gone astray)
+      // (an unstayed spar is a cantilever from its deck: its deflection from the vertical is its bend. Its stress is what
+      // breaks it (the damage model reads it), and its converged solve is the answer; past 60% of its length it is astray)
+      const st = this.spec.wires.length > 0, Lm = this.zTop - this.zStep, lim = (st ? 0.06 : 0.6) * Lm, u = this.u, nt = 5 * (this.nm - 1);
+      for (let i = 0; i < this.nm; i++) {
+        const f = st ? (this.z[i] - this.zStep) / Lm : 0, bx = u[5 * i] - f * u[nt], by = u[5 * i + 2] - f * u[nt + 2];
+        if (!(Math.abs(bx) < lim && Math.abs(by) < lim && Math.abs(u[5 * i]) < (st ? 0.25 : 0.6) * Lm && Math.abs(u[5 * i + 2]) < (st ? 0.25 : 0.6) * Lm)) return true;
+      }
       for (const w of this.wires) if (!(w.T < 2 * w.brk)) return true;
       return false;
     };
-    this.solve(this.ready ? 5 : 10);
+    this.solve(this.ready ? (this.spec.wires.length ? 5 : 12) : 10);
     if (RigStructure.debug) RigStructure.debug(this, b);
     // a column past its critical load, or loads beyond anything the rig could stand (a stayed spar bent past 6% of its length (an unstayed one 12%),
     // a wire at twice its breaking load): the rig has failed at this load. Report it (the damage model decides what
@@ -1158,14 +1307,18 @@ export class RigStructure {
     if (bad) {
       this.overload = true;
       const F0 = Float64Array.from(this.F);
+      // (the loads at the whole of it are extrapolated from the first fraction solved, 0.6: the lines' pulls (a leech, a
+      // vang, a halyard) are not in F and do not scale, so a rig 'bad' at 0.6 is no better at 0.13, and dividing that
+      // solution's loads by 0.13 made a Laser's top section, running in 20 kn at a third of its yield, part)
+      let ov = null;
       for (let k = 0; k < 4 && bad; k++) {
         frac *= 0.6; this.u.set(uGood);
         for (const e of this.el) { e.N = e.EA / e.L * (this.u[5 * e.j + 4] - this.u[5 * e.i + 4]); e.Ng = e.N; }
         for (let i = 0; i < F0.length; i++) this.F[i] = F0[i] * frac;
         this.solve(8); bad = isBad();
+        if (k === 0) { const sr = this._stress(); ov = { T: this.wires.map((w) => (w.pre || 0) + Math.max(0, w.T - (w.pre || 0)) / frac), U: sr.spU.map((x) => x / frac) }; }
       }
-      const sr = this._stress();
-      this._ov = { T: this.wires.map((w) => (w.pre || 0) + Math.max(0, w.T - (w.pre || 0)) / frac), U: sr.spU.map((x) => x / frac) };
+      this._ov = ov;
       if (bad) {
         // nothing stands: back toward the rig at rest
         this.u.set(this.u0dock || uGood);

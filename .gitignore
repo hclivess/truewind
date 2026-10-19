@@ -4,3 +4,4 @@ node_modules/
 verify/tiles/
 verify/*.ppm
 verify/*-tiles.json
+test/out/
