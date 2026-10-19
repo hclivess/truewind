@@ -1122,6 +1122,12 @@ export class RigStructure {
         const k = Math.min(2, Math.floor(3 * j / nv));
         rows.push([x[n0 + 2], Fx, Fy, Math.atan2(x[n1 + 1] - x[n0 + 1], -(x[n1] - x[n0])), (sh && sh[k] ? sh[k].d : 0.12)]);
       }
+      // (no more than the air can put on a sail: a normal-force coefficient of ~1.8 on its area at the apparent wind's
+      // pressure, a flat plate's most. A flogging cloth's nodes, whipping through the air, summed to 18-63 times their mean
+      // load for a second at a time in the Laser's sea trials, and her mast took it)
+      const q = b.diag.qMid || 0, cap = 1.8 * q * s.area * (st && st.areaF !== undefined ? st.areaF : 1);
+      let tot = 0; for (const r of rows) tot += Math.hypot(r[1], r[2]);
+      if (q > 0 && tot > cap) { const k = cap / tot; for (const r of rows) { r[1] *= k; r[2] *= k; } }
     } else for (let i = 0; i < 3; i++) {
       const o = st[i]; if (!Number.isFinite(o.Fn)) continue;
       rows.push([o.zs, o.Fx || 0, o.Fn, sh[i].ang || 0, sh[i].d || 0.12]);
@@ -1157,7 +1163,12 @@ export class RigStructure {
     // the leech tension: the sheet's load (a cloth sail's, as the cloth's sheet reports it), no more than the purchase
     const lead = Math.min(this.sheetMax, b.diag.rig[s.key + 'Load'] || (s.kind !== 'boom' ? b.diag.rig.jibLoad : 0) || 0);
     // (never less than the membrane's own: a leech carrying a quarter of the sail's normal load along its sag, ~0.5 of it)
-    let Th = Math.max(0.9 * lead, 0.5 * An0);
+    // (and no more than the leech can carry of the sail's own load: a leech holding its half of the normal load W on a sag
+    // of ~5% of its length is at ~1.25 W, the sheet's pull beyond that stretching the cloth, not the leech. The cloth's
+    // sheet, a penalty line, reported 0.95-1 kN on a Laser beating in 12 kn, three times her sail's ~0.35 kN; taken as
+    // her leech's tension it parted her bottom section within seconds of every sea trial)
+    const leadB = Math.min(lead, 1.25 * An0);
+    let Th = Math.max(0.9 * leadB, 0.5 * An0);
     if (s.key === 'main') {
       // the vang: the boom's compression pushes the gooseneck forward, the vang pulls its foot on the mast aft; the
       // sheet pulls the boom (and so the gooseneck) down
@@ -1165,7 +1176,7 @@ export class RigStructure {
       const V = this.lineMax * clamp(b.ctrl.vang, 0, 1) ** 2;
       const zv = this.zVang, hz = C.boomZ - zv, bl = 0.22 * s.foot, l = Math.hypot(hz, bl);
       // the leech carries the sheet's pull and the vang's, levered down the boom (the vang is on at a fifth of it)
-      Th = Math.max(0.9 * lead, 0.5 * An0) + 0.22 * V * hz / l;
+      Th = Math.max(0.9 * leadB, 0.5 * An0) + 0.22 * V * hz / l;
       const zH = Math.min(this.zTop, C.boomZ + s.luff * (b.reefPos ? 1 - 0.16 * b.reefPos : 1));
       // the head pulled toward the clew (where the boom has it), and the halyard's hauling part down the mast (a sleeved
       // luff has no halyard)
@@ -1200,9 +1211,9 @@ export class RigStructure {
       this.loadMast(C.boomZ, 0.14 * Lhx, 0.14 * Lhy, 0, -this.track, 0);
       // (along the boom, wherever it is swung: squared off, the boom pushes the mast sideways)
       const cb = Math.cos(ba), sb = Math.sin(ba);
-      this.loadMast(C.boomZ, V * bl / l * cb, -V * bl / l * sb, -V * hz / l - lead);
+      this.loadMast(C.boomZ, V * bl / l * cb, -V * bl / l * sb, -V * hz / l - leadB);
       this.loadMast(zv, -V * bl / l * cb, V * bl / l * sb, V * hz / l);
-      this.loads.vang = V; this.loads.gooseneck = Math.hypot(V * bl / l, V * hz / l + lead);
+      this.loads.vang = V; this.loads.gooseneck = Math.hypot(V * bl / l, V * hz / l + leadB);
     } else if (stay) {
       // the leech toward the clew (the sheet's side), the halyard down the mast
       const cl = (s.kind === 'loose' ? Math.sign(b.side.jib || 1) : 1) * (s.min || 0.2);
