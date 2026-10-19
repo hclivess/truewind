@@ -1704,6 +1704,9 @@ function trimSails(boat, dt, aoaBias = 0, full = true) {
     c.flap = lerp(c.flap ?? 0.5, clamp(raw, 0, 1), clamp(dt * 3, 0, 1));
   }
   const C = boat.cls, d = boat.diag, c = boat.ctrl;
+  // (the dinghy sailor's play on the sheet, below, is taken off before the trim reads the sail and put back after it:
+  // the telltale trim would otherwise haul it back in within a few seconds)
+  { const t0 = boat._tt; if (t0 && t0.mpa) { c.main = clamp(c.main - t0.mpa, 0, 1); t0.mpa = 0; } }
   const awa = Math.abs(d.awaMid ?? Math.PI);
   const tws = (d.tws ?? 5) / KT;
   // (a crew that reefs as the wind rises: C.autoReef)
@@ -2051,6 +2054,19 @@ function trimSails(boat, dt, aoaBias = 0, full = true) {
     // stops, rolls and the spar whips (a Laser eased that far in 30 kn broke her mast lying stopped))
     c.vang = Math.min(c.vang, 1 - tb.vE);
     c.main = clamp(c.main - (tb.mEa ?? 0) + tb.mE, 0, 1); tb.mEa = tb.mE;
+  }
+  // A dinghy sailor plays the mainsheet all the time: as a gust heels her past her target (and as she starts to roll
+  // towards it: the roll rate) the sheet goes out within ~0.3 s, the boom lifting and the leech opening, while she hikes,
+  // and it comes back in over a second or so as she comes upright. (Without it the depower above, the heel smoothed and
+  // traded against the telltales, left a Laser or a Sunfish sheeted hard in through the gusts in 18 kn: heeled 28-45 deg
+  // with the boom at 10 deg, the sail's heeling moment 1.4-1.6 kN m against ~1 kN m of righting, the spar overloaded and
+  // the Sunfish over in 25 kn)
+  if (C.canCapsize && !boat.hfoils && boat.sailBy.main && !boat.capsized) {
+    const ls = -Math.sign(d.awaMid ?? 0) || 1, h = boat.phi * ls, rate = (boat.p || 0) * ls;
+    const on = 1 - sstep(110 * DEG, 150 * DEG, awa);
+    const want = clamp((h - C.targetHeel - 2 * DEG) / (10 * DEG) + rate * 0.35 / (10 * DEG), 0, 1) * 0.55 * on;
+    tb.mp = lerp(tb.mp ?? 0, want, clamp(dt / (want > (tb.mp ?? 0) ? 0.3 : 1.0), 0, 1));
+    const m0 = c.main; c.main = clamp(c.main + tb.mp, 0, 1); tb.mpa = c.main - m0;
   }
 }
 

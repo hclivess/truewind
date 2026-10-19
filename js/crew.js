@@ -138,6 +138,9 @@ export class Crew {
     if (k === 'board') return 0.4 / Math.max(0.4, C.keel && C.keel.span ? C.keel.span : C.draft || 1);
     const hr = handRate(b, k, trimming);
     if (hr !== null && handlerOf(b, k).powered) return hr;               // a push-button winch or ram: its own speed
+    // (a hand-held sheet eased in a gust is let run through the hand, its load pulling it out, not paid out hand over
+    // hand: a dinghy sailor dumps a metre of mainsheet in well under a second)
+    if (hr !== null && !trimming && SHEET.has(k) && (handlerOf(b, k).hand || C.canCapsize)) return Math.max(hr * 2.5, 0.05);
     if (hr !== null) return Math.max(hr, SHEET.has(k) ? 0.05 : 0);
     const tk = tackleOf(b.cls, k === 'lazy' ? 'lazy' : b.genDeploy > 0.5 ? 'gen' : 'jib'), L = Math.max(0.3, tk.travel);
     if (!trimming) return 0.5 / L;                                        // surged out round the drum
