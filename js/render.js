@@ -623,7 +623,8 @@ export class Renderer {
           // ---- whitecaps and foam, Beaufort coverage from the wind (env.js WC: Monahan's W = 3.84e-6 U^3.41,
           // saturating past storm force, where the streaks take over), placed on the steepest crests: a z-score
           // of crest compression (1 - Jacobian) against its local spread
-          float Wc = wcCover(lw);
+          // (Monahan's cover is the open sea's: a sea too small to break white, a sheltered harbour's chop, carries none)
+          float Wc = wcCover(lw) * smoothstep(0.1, 0.35, uHs);
           // long waves say where (their crests), the short waves riding them say exactly which bits break
           vec2 zv = crestScore(1.0 - J, Cs + 0.4 * Cd, vec3(sJ2, sS2 + 0.16 * sdR, sC), vec3(sJ2T, sS2T + 0.16 * sdT, sCT), e1, eH, uHs, sCE);
           float zc = zv.x;
@@ -856,16 +857,21 @@ export class Renderer {
           // a breaking crest (WaveField._lean's B) leaves a sheet of foam on the water it has run over
           float Ea = sqrt(e1 * e1 + eH * eH), ph = atan(e1, -eH);
           float brk = smoothstep(uBrk.y, uBrk.z, uBrk.x * Ea); brk *= brk * smoothstep(0.6, 1.0, ph) * (1.0 - smoothstep(1.7, 2.1, ph));
+          // (whitecaps need waves big enough to trap air: a ripple a few centimetres high micro-breaks clear, without
+          // white water (Beaufort 2, Hs ~0.2 m: glassy crests that do not break; 3, ~0.6 m: scattered white horses).
+          // Steep for its length, a 5 cm chop in a sheltered harbour read as breaking over 10% of the water)
+          float bigW = smoothstep(0.03, 0.10, Ea) * smoothstep(0.1, 0.35, uHs);
+          brk *= bigW;
           float lw = uWind * texture2D(uGust, (p - uGustO) / uGustS + 0.5).r * 2.0;
           // the foam the whitecaps leave: its source the active crests, on a share of the sea that makes the
           // decaying foam the rest of the cover (env.js WC; WC_PB, WC_PE measured)
-          float Wc = wcCover(lw), pB = min(0.5, ${WC_PB} * Wc * pow(Wc / 0.043, ${WC_PE}));
+          float Wc = wcCover(lw) * smoothstep(0.1, 0.35, uHs), pB = min(0.5, ${WC_PB} * Wc * pow(Wc / 0.043, ${WC_PE}));
           vec2 xd = p - uFoamOff, pr = vec2(-uFlow.y, uFlow.x);
           vec2 sw = vec2(dot(xd, uFlow), dot(xd, pr));
           float f1 = sfbmA(vec2(sw.x * 0.28, sw.y * 0.6) / uFoamK, cell.x * 0.28 / uFoamK);
           float act = Wc > 2e-4 ? smoothstep(invTail(pB) - 0.15, invTail(pB) + 0.4, crestScore(1.0 - J, Cs, vec3(sJ2, sS2, sC), vec3(sJ2, sS2, sC), e1, eH, uHs, sCE).x + (f1 - 0.5) * 1.1) : 0.0;
           // spilling breakers in the surf zone leave their foam behind them
-          act = max(act, uHasMap * smoothstep(0.85, 1.1, Lm.z) * (0.6 + 0.4 * f1));
+          act = max(act, uHasMap * smoothstep(0.85, 1.1, Lm.z) * (0.6 + 0.4 * f1) * bigW);
           // Langmuir windrows: cross-wind convergence onto the water shader's streak lines (same rows)
           float ya = sw.y + 14.0 * (qn(sw * vec2(0.005, 0.012)) - 0.5) + 4.0 * (qn(sw * vec2(0.025, 0.05) + 5.0) - 0.5);
           float row = floor(ya / 9.0), fy = ya - 9.0 * (row + 0.3 + 0.4 * hash(vec2(row, 3.7)));
