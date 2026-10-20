@@ -115,9 +115,19 @@ export const MIST_U = { uMist: { value: { x: 0, y: 30, z: 0, w: 0 } }, uMistCol:
   const C = THREE.ShaderChunk, sub = (k, a, b) => { if (C[k].includes(a)) C[k] = C[k].replace(a, b); else console.warn('mist: fog chunk changed', k); };
   sub('fog_pars_vertex', 'varying float vFogDepth;', 'varying float vFogDepth; varying vec3 vFogWorld;');
   sub('fog_vertex', 'vFogDepth = - mvPosition.z;', 'vFogDepth = - mvPosition.z;\n\tvFogWorld = cameraPosition + transpose( mat3( viewMatrix ) ) * mvPosition.xyz;');
-  sub('fog_pars_fragment', 'varying float vFogDepth;', 'varying float vFogDepth; varying vec3 vFogWorld;\n' + MIST_GLSL);
+  // (three applies fog after the tone mapping and the output colour space, so the mist's colour, which the sky and
+  // the water mix in before theirs, goes through the same here: else a bank's far side drew land and town as flat
+  // silhouettes, lighter or darker than the fog around them, through a few hundred metres of it)
+  sub('fog_pars_fragment', 'varying float vFogDepth;', 'varying float vFogDepth; varying vec3 vFogWorld;\n' + MIST_GLSL + `
+vec3 mistColOut() {
+  vec3 c = uMistCol;
+#ifdef TONE_MAPPING
+  c = toneMapping( c );
+#endif
+  return linearToOutputTexel( vec4( c, 1.0 ) ).rgb;
+}`);
   sub('fog_fragment', 'gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );',
-    'gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );\n\tgl_FragColor.rgb = mix( uMistCol, gl_FragColor.rgb, exp( - mistTau( cameraPosition, vFogWorld ) ) );');
+    'gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );\n\tgl_FragColor.rgb = mix( mistColOut(), gl_FragColor.rgb, exp( - mistTau( cameraPosition, vFogWorld ) ) );');
   for (const k in THREE.ShaderLib) { const u = THREE.ShaderLib[k].uniforms; if (k !== 'sprite' && u && u.fogDensity) Object.assign(u, MIST_U); }
 })();
 export const SKY_LUT_GLSL = /* glsl */`

@@ -146,7 +146,11 @@ export function convection(mode, heat, kts) {
 //    humid spells (deep: 60-150 m, visibility down to a few hundred metres); most likely in settled
 //    weather at mid latitudes (San Francisco, the Solent, Kiel), rare in the tropics.
 // A rain-cooled outflow adds some scud. hour: local solar hour; kts: mean wind; cold: 0..1 outflow.
-export function mist(mode, seed, t, sunEl, hour, lat, kts, cold = 0, out = {}) {
+// fc (Weather.fog, the venue's climate): where it is given the advection fog is the climate's instead of the
+// latitude's — a fog day's bank in its hours ({ on 0..1, top m }), dense (visibility ~200-300 m in its core),
+// coming and going with the humid spells, and carried in by a breeze up to ~20-25 kn (the Golden Gate's summer
+// fog rides the afternoon westerly; the Namib's comes in off the Benguela at night).
+export function mist(mode, seed, t, sunEl, hour, lat, kts, cold = 0, out = {}, fc = null) {
   const r = mulberry32((seed * 977 + 31) >>> 0), p0 = r() * 6.283, p1 = r() * 6.283;
   const bias = mode === 'steady' ? 0.2 : mode === 'changing' ? 0 : -0.15;
   const hum = 0.5 + 0.28 * Math.sin(2 * Math.PI * t / 5400 + p0) + 0.17 * Math.sin(2 * Math.PI * t / 2300 + p1) + bias;
@@ -154,11 +158,13 @@ export function mist(mode, seed, t, sunEl, hour, lat, kts, cold = 0, out = {}) {
   const night = smooth(20.5, 28.5, hh);                           // cools from the evening to before dawn
   const rad = night * (1 - smooth(4 * DEG, 30 * DEG, sunEl)) * smooth(11, 3.5, kts) * clamp01((hum - 0.2) / 0.45);
   const cool = smooth(24, 38, Math.abs(lat));
-  const adv = cool * smooth(0.84, 1.04, hum) * smooth(17, 8, kts) * (1 - 0.35 * clamp01(Math.sin(Math.max(0, sunEl))));
+  const adv = fc ? fc.on * smooth(0.3, 0.62, hum) * smooth(32, 20, kts) * (1 - 0.25 * clamp01(Math.sin(Math.max(0, sunEl))))
+                 : cool * smooth(0.84, 1.04, hum) * smooth(17, 8, kts) * (1 - 0.35 * clamp01(Math.sin(Math.max(0, sunEl))));
   const scud = 0.4 * cold * smooth(16, 5, kts);
-  const sR = 0.0035 * rad, sA = 0.013 * adv, sS = 0.0025 * scud;
+  const sR = 0.0035 * rad, sA = (fc ? 0.016 : 0.013) * adv, sS = 0.0025 * scud;
   const sig = sR + sA + sS;
-  const top = sig > 0 ? (sR * (12 + 28 * rad) + sA * (60 + 90 * clamp01(hum - 0.6) * 2.5) + sS * 150) / sig : 30;
+  const advTop = fc ? fc.top * (0.6 + 0.4 * clamp01((hum - 0.4) * 2.5)) : 60 + 90 * clamp01(hum - 0.6) * 2.5;
+  const top = sig > 0 ? (sR * (12 + 28 * rad) + sA * advTop + sS * 150) / sig : 30;
   out.sigma = sig; out.H = top / 2.5; out.top = top; out.hum = hum; out.rad = rad; out.adv = adv;
   out.vis = sig > 0 ? 3.9 / sig : Infinity;                        // metres, at the surface
   return out;

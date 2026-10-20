@@ -22,7 +22,7 @@
 // down): the game's psi, pitch and phi. The class gives its geometry in the game's convention (x forward, y starboard,
 // z UP) about its origin, a point on the design waterline under the centre of gravity; the origin is what the game
 // knows as the boat's position (x, z) and heave.
-import { G, DEG, KT } from './env.js';
+import { G, DEG, KT, airDensity } from './env.js';
 import { defaultControls, clamp, lerp, sstep, wrap, RHO_A, craftHooks, POLAR_TWAS, makeSteadyEnv } from './physics.js';
 import { Surface, planeCoef, coef, RHO_W, v3 } from './hydrofoil.js';
 
@@ -194,7 +194,7 @@ export class SpeedCraft {
     const w = env.wind.sample(this.x, this.z, t, this._w), wsp = w.speed * this.shadow;
     const wE = -Math.sin(w.dir) * wsp, wN = -Math.cos(w.dir) * wsp;   // (world x = E; world z = -N)
     d.tws = w.speed; d.twd = w.dir; d.puff = w.puff;
-    const rhoA = RHO_A * 288 / (288 - 9 * clamp(w.cold || 0, 0, 1));
+    const rhoA = airDensity(w.temp ?? 15, w.cold || 0);   // (env.js: ideal gas at the air's temperature, a squall's cold outflow)
     // the air's velocity in the body frame (before the boundary layer's height factor)
     const aB = this._aB || (this._aB = [0, 0, 0]);
     aB[0] = R[0][0] * wN + R[1][0] * wE; aB[1] = R[0][1] * wN + R[1][1] * wE; aB[2] = R[0][2] * wN + R[1][2] * wE;

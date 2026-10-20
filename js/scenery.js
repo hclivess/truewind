@@ -276,7 +276,8 @@ function withEdge(m) {
     sh.uniforms.uEdge = EDGE;
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uEdge;').replace('#include <fog_fragment>', `#include <fog_fragment>
 #ifdef USE_FOG
-  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(uEdge - 1500.0, uEdge - 40.0, max(abs(vFogWorld.x), abs(vFogWorld.z))));
+  // (into the haze as it is seen from here: through any sea fog between, not painted over it)
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, mix(mistColOut(), fogColor, exp(-mistTau(cameraPosition, vFogWorld))), smoothstep(uEdge - 1500.0, uEdge - 40.0, max(abs(vFogWorld.x), abs(vFogWorld.z))));
 #endif`);
   };
   m.customProgramCacheKey = () => 'edge' + (prevKey ? prevKey.call(m) : '');

@@ -6,6 +6,19 @@
 export const G = 9.81;
 export const KT = 0.514444; // m/s per knot
 export const DEG = Math.PI / 180;
+import { climateFor, seasonAt, diurnal, snowShare } from './climate.js';
+
+// ---------- the air's density ----------
+// Ideal gas at sea-level pressure, rho = p / (R T) (p = 101325 Pa, R = 287.05 J/kg K): the ISA's 1.225 kg/m3 at
+// 15 °C (exactly: rho scaled from it by 288.15 K / T), ~1.32 at -5 °C, ~1.16 at +30 °C. cold (0..1): inside a
+// squall's rain-cooled outflow, colder than the air around it by coldDrop(T) (~9 K on a warm day, a few K in
+// winter, when there is less to evaporate into the air).
+export const RHO_ISA = 1.225;
+export const coldDrop = (T) => Math.max(2, Math.min(9, 3 + 0.4 * T));
+export function airDensity(T = 15, cold = 0) {
+  const c = cold > 0 ? Math.min(1, cold) : 0;
+  return RHO_ISA * 288.15 / (T + 273.15 - coldDrop(T) * c);
+}
 
 // ---------- deterministic value noise (mirrored nowhere else: gust texture is baked on CPU) ----------
 function hash2(ix, iy, seed) {
@@ -147,7 +160,7 @@ export class WindField {
     const dir = dir0 + sq.d + shift * (0.75 * osc + 0.5 * spatial)
               + this.hemi * p * g * 7 * DEG - Math.atan(FAN * g * this.L1 * dp);
     out.speed = speed; out.dir = dir; out.puff = p; out.rain = sq.rain;
-    out.cold = sq.cold;
+    out.cold = sq.cold; out.temp = W && W.clim ? W.airTemp(t) : 15;   // (the air's temperature: its density)
     return out;
   }
 }
@@ -175,6 +188,103 @@ export class Weather {
     this._cells = new Map();
     this._tt = NaN; this._tf = 1; this._td = 0;
     this.thermal = null; this._ct = NaN;
+    // the venue's climate (js/climate.js): opts.climate = { id, lat, lon, clock0 (UTC ms at t = 0) }. Without it
+    // (tests, tools) the weather is the climate-free model it always was: 15 °C, rain only in squalls, no snow.
+    const cl = opts.climate;
+    this.clim = null;
+    if (cl) {
+      this.clim = climateFor(cl.id, cl.lat); this.lat = cl.lat ?? 32; this.lon = cl.lon ?? 0; this.clock0 = cl.clock0 ?? 0;
+      // changing weather brings the season's own showers: rain bands on the wet days, and on a wet day in a
+      // convective season the afternoon's cumulonimbus (the squall cells, born only then)
+      if (this.mode === 'changing') this.squallsOn = true;
+      this._days = new Map(); this._sea = {}; this._seaH = NaN; this._at = NaN; this._p0 = r() * 6.28;
+    }
+  }
+  // ---------------------------------------------------------------- the climate's weather (js/climate.js)
+  // Each local day draws its own weather from the seed and the day's number (the same for everyone in a room
+  // whose clocks agree): a temperature anomaly, whether it is a wet day (with the chance the normals give for
+  // the date: days with >= 1 mm of rain / days in the month), how heavy its rain is, whether it is a fog day.
+  // Steady weather is fair weather: never wet (fog still forms in it, more readily: settled air).
+  setClock(clock0) { if (!this.clim) return; this.clock0 = clock0; this._cells.clear(); this._at = NaN; this._seaH = NaN; }
+  _hl(t) { return (this.clock0 + t * 1000) / 3.6e6 + this.lon / 15; }      // local solar hours since the epoch
+  season(t) {
+    const hq = Math.floor(this._hl(t));                                      // (cached by the hour)
+    if (hq !== this._seaH) { seasonAt(this.clim, (hq - this.lon / 15) * 3.6e6, this.lon, this._sea); this._seaH = hq; }
+    return this._sea;
+  }
+  _day(n) {
+    let D = this._days.get(n);
+    if (D) return D;
+    const r = mulberry32((Math.imul(this.seed, 2246822519) ^ Math.imul(n + 7919, 3266489917)) >>> 0);
+    const S = seasonAt(this.clim, ((n + 0.5) * 24 - this.lon / 15) * 3.6e6, this.lon, {});
+    const pw = this.mode === 'steady' ? 0 : S.pWet, pf = Math.min(0.95, S.pFog * (this.mode === 'steady' ? 1.25 : this.mode === 'squally' ? 0.5 : 1));
+    D = { anom: (r() + r() + r() - 1.5) * 2, wet: r() < pw ? 1 : 0, amp: 0.4 + 0.45 * r(), fog: r() < pf ? 1 : 0 };
+    if (this._days.size > 64) this._days.clear();
+    this._days.set(n, D);
+    return D;
+  }
+  // a day's value at t, eased over the three hours around local midnight (k: 'wet' | 'amp'), or (whole) through
+  // the whole day from one noon to the next ('anom')
+  _dayVal(t, k, whole = false) {
+    const x = this._hl(t) / 24 - 0.5, n = Math.floor(x), f = x - n;
+    const s = whole ? f * f * (3 - 2 * f) : sstep(0.4375, 0.5625, f);
+    return this._day(n)[k] * (1 - s) + this._day(n + 1)[k] * s;
+  }
+  wetness(t) { return this.clim ? this._dayVal(t, 'wet') : 0; }
+  // air temperature at the water (°C): the normals' daily cycle for the date and hour (a wet, grey day's swing is
+  // smaller), the day's anomaly and a slow wander within it. A squall's outflow is colder still (sky(): temp).
+  airTemp(t) {
+    if (!this.clim) return 15;
+    if (t === this._at) return this._aT;
+    const S = this.season(t), wet = this.wetness(t), hl = this._hl(t);
+    const mid = (S.hi + S.lo) / 2, rng = (S.hi - S.lo) * (1 - 0.45 * wet);
+    this._aT = mid + rng * (diurnal(hl) - 0.5) + S.tsd * this._dayVal(t, 'anom', true) + 0.5 * Math.sin(2 * Math.PI * t / 4100 + this._p0);
+    this._at = t;
+    return this._aT;
+  }
+  seaTemp(t) { return this.clim ? this.season(t).sst + 0.15 * this._dayVal(t, 'anom', true) : 15; }
+  // the rain bands of a wet day (the non-convective share of its rain: fronts, troughs, drizzle), carried along
+  // with the wind aloft: light to moderate rain at (x, z), 0..1. Leaves the cloud they come under in this._bc.
+  _band(x, z, t) {
+    this._bc = 0;
+    if (!this.clim || this.mode !== 'changing') return 0;
+    const S = this.season(t), W = this.wetness(t), th = 0.4 * S.conv;   // (a convective season's bands are few)
+    if (W < 0.01) return 0;
+    const tr = this.synoptic(t), dir = this.twd0 + tr.d, U = Math.max(2, this.tws0 * tr.f), c = 3 + 0.9 * U;
+    const fx = -Math.sin(dir), fz = Math.cos(dir), a = x * fx + z * fz - c * t, cr = -x * fz + z * fx;
+    const n = 0.7 * noise3d(a / 7000, cr / 11000, t / 5400, this.seed + 41) + 0.3 * noise3d(a / 2000, cr / 2600, t / 1500, this.seed + 43);
+    this._bc = W * sstep(th - 0.3, th + 0.05, n);
+    return W * this._dayVal(t, 'amp') * sstep(th, th + 0.3, n);
+  }
+  // whether the convective cell born at time T (s) exists: always in squally weather; in changing weather only
+  // on a wet day, in the season's convective share, and (where the climate's showers are diurnal) mostly in
+  // the afternoon. u: the cell's own uniform draw.
+  _cellOn(T, u) {
+    if (this.mode === 'squally' || !this.clim) return true;
+    if (this.mode !== 'changing') return false;
+    const hl = this._hl(T), n = Math.floor(hl / 24), h = hl - 24 * n;
+    if (!this._day(n).wet) return false;
+    const S = seasonAt(this.clim, (hl - this.lon / 15) * 3.6e6, this.lon, this._cs || (this._cs = {}));
+    const bump = sstep(11, 14, h) * (1 - sstep(18.5, 21.5, h));
+    return u < 0.8 * S.conv * (1 - S.convDiurnal * (1 - bump));
+  }
+  // climatological fog now: on (0..1, a fog day's bank in its hours) and the bank's depth top (m), or null without a
+  // climate. A fog day runs from the end of one window to the end of the next, so a bank that comes in in the
+  // afternoon (the Golden Gate's) stays through the night it belongs to.
+  fog(t, out = {}) {
+    if (!this.clim) return null;
+    const S = this.season(t), [a, b] = S.fogH, hl = this._hl(t);
+    const x = (hl - b) / 24, n = Math.floor(x), f = x - n, s = sstep(0.9375, 1, f);
+    const day = this._day(n).fog * (1 - s) + this._day(n + 1).fog * s;
+    let win = 1;
+    if (b - a < 24) {
+      const h = ((hl % 24) + 24) % 24, span = ((b - a) % 24 + 24) % 24;
+      let into = ((h - a) % 24 + 24) % 24;                    // hours since the window opened
+      if (into > 23) into -= 24;                              // (the hour before it opens)
+      win = sstep(-0.5, 1.5, into) * sstep(span + 0.5, span - 1.5, into);
+    }
+    out.on = day * win; out.top = S.fogTop;
+    return out;
   }
   // share of the sky's cloud from the weather type alone (fair-weather cumulus up to an unsettled sky)
   cloudBase() { return this.mode === 'squally' ? 0.35 : this.mode === 'changing' ? 0.15 : 0.05; }
@@ -217,6 +327,7 @@ export class Weather {
     // cells ride the wind a few km up, which outruns a light surface breeze
     const speed = 3 + 0.8 * this.tws0 * tr.f;
     c = { k, T, R, lateral, strength, ux: -Math.sin(dir), uz: Math.cos(dir), speed };
+    c.on = this._cellOn(T, r());                                   // (drawn last: the cells' tracks are unchanged)
     if (this._cells.size > 64) this._cells.clear();
     this._cells.set(k, c);
     return c;
@@ -227,7 +338,7 @@ export class Weather {
     const k1 = Math.floor((t - 240 + CELL_LIFE + 150) / CELL_EVERY) + 1;
     for (let k = k0; k <= k1; k++) {
       const c = this.cell(k), age = t - c.T;
-      if (age <= -CELL_LIFE || age >= CELL_LIFE) continue;
+      if (!c.on || age <= -CELL_LIFE || age >= CELL_LIFE) continue;
       const q = 1 - (age / CELL_LIFE) ** 2;
       fn(c, age, q * q);
     }
@@ -244,7 +355,7 @@ export class Weather {
     const k1 = Math.floor((t - 240 + CELL_LIFE + 150) / CELL_EVERY) + 1;
     for (let k = k0; k <= k1; k++) {
       const c = this.cell(k), age = t - c.T;
-      if (age <= -CELL_LIFE || age >= CELL_LIFE) continue;
+      if (!c.on || age <= -CELL_LIFE || age >= CELL_LIFE) continue;
       const q = 1 - (age / CELL_LIFE) ** 2, w = q * q;          // born, matures, dies
       const R = c.R;
       const px = x * c.ux + z * c.uz - c.speed * age;            // along track from the core (+ = ahead)
@@ -285,11 +396,24 @@ export class Weather {
   }
   // conditions for the sky: overall cloudiness near a point. Fresh breezes bring more cloud (a gale is
   // a grey stratocumulus sky), squally weather an unsettled, broken sky between the cells.
+  // With a climate the sky is the season's: the normals' cloud cover (greyer on a wet day), the rain bands and
+  // the precipitation's kind — temp (°C) at the surface here (a squall's outflow and the rain itself cool it) and
+  // snow, the share of it falling as snow (sleet in between), never where the climate has no snow.
   sky(x, z, t, out = {}) {
     this.squall(x, z, t, out);
     const kt = this.tws0 * this.synoptic(t).f / KT;
-    const base = this.cloudBase()
+    let base = this.cloudBase()
                + 0.6 * Math.min(1, Math.max(0, (kt - 16) / 22));
+    out.snow = 0; out.temp = 15;
+    if (this.clim) {
+      const S = this.season(t);
+      if (this.mode !== 'steady') base = Math.max(base, S.cloud * (0.6 + 0.35 * this.wetness(t)));
+      const band = this._band(x, z, t);
+      out.rain = Math.max(out.rain, band); out.cloud = Math.max(out.cloud, this._bc);
+      const T0 = this.airTemp(t);
+      const T = out.temp = T0 - coldDrop(T0) * out.cold - 1.2 * out.rain;
+      out.snow = out.rain > 0 ? snowShare(T, S.snowOK) : 0;
+    }
     out.overcast = Math.max(Math.min(0.85, base), out.cloud);
     return out;
   }
@@ -1177,7 +1301,8 @@ export class TideCurrent {
 export class Environment {
   constructor(opts = {}) {
     this.opts = opts;
-    this.weather = new Weather({ mode: opts.weather ?? 'changing', seed: (opts.seed ?? 7) * 3 + 1, tws: opts.tws ?? 6, twd: (opts.twd ?? 0) * DEG, hemi: opts.hemi });
+    // opts.climate = { id, lat, lon, clock0 }: the venue's climate for the date (js/climate.js)
+    this.weather = new Weather({ mode: opts.weather ?? 'changing', seed: (opts.seed ?? 7) * 3 + 1, tws: opts.tws ?? 6, twd: (opts.twd ?? 0) * DEG, hemi: opts.hemi, climate: opts.climate });
     // thermal breezes where there is land: opts.thermal = { lat, lon, clock0 (UTC ms at t = 0), land (World) }
     if (opts.thermal) this.weather.thermal = new Thermal({ ...opts.thermal, cloud: this.weather.cloudBase() });
     this.wind = new WindField({ ...opts, weather: this.weather });
@@ -1196,6 +1321,7 @@ export class Environment {
   // the thermal's clock moved (the menu's time of day): drop everything cached by t, raise the sea anew
   setClock(clock0, t = 0) {
     if (this.tide) { this.tide.setClock(clock0); this.tide.setTime(t); }
+    this.weather.setClock(clock0);
     const th = this.weather.thermal; if (!th) return;
     th.setClock(clock0); this.weather._ct = NaN;
     // the day ahead now blows from elsewhere: lay the sea's components out anew (current and depth kept)

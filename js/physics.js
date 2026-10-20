@@ -27,7 +27,7 @@
 //  * Stability: GZ curve (weight + form), crew moment incl. crew height, roll damping.
 //  * Waves: Froude-Krylov slope forces (surfing), roll/yaw forcing.
 
-import { G, DEG, KT } from './env.js';
+import { G, DEG, KT, airDensity } from './env.js';
 import { HullHydro, hullForm, hullParts, calibrate } from './hull.js';
 import { mastXAt, mastXOf, boomContactAngle, goose, sheetLen, boomAngleForSheet, easeForBoomAngle, sheetDir, boomBend, boomDip, boomLen } from './boom.js';
 export { mastXAt, rigWires } from './boom.js';
@@ -1017,10 +1017,11 @@ export class Boat {
     const wx = -Math.sin(w.dir) * wsp, wz = Math.cos(w.dir) * wsp;
     const Wbx = wx * fx + wz * fz, Wby = wx * sx + wz * sz;
     d.tws = w.speed; d.twd = w.dir; d.puff = w.puff;
-    // air density: the rain-cooled outflow under a squall (w.cold 0..1) is up to ~9 K colder than the air
-    // around it, so ~3% denser (ideal gas, rho ~ 1/T at constant pressure) — a squall hits a little harder
-    // than its wind speed alone says
-    const rhoA = RHO_A * 288 / (288 - 9 * clamp(w.cold || 0, 0, 1));
+    // air density: ideal gas at the air's temperature (w.temp, °C, the venue's climate for the date and hour:
+    // ~1.32 kg/m3 at -5 °C, 1.225 at 15, 1.16 at 30), and the rain-cooled outflow under a squall (w.cold 0..1)
+    // up to ~9 K colder than the air around it, so ~3% denser — a squall hits a little harder than its wind
+    // speed alone says (env.js airDensity)
+    const rhoA = airDensity(w.temp ?? 15, w.cold || 0);
     d.rhoA = rhoA;
 
     let X = 0, Y = 0, K = 0, N = 0;

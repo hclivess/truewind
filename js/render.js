@@ -1068,6 +1068,17 @@ export class Renderer {
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     this.rain = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xc9d4dc, transparent: true, opacity: 0.0, depthWrite: false }));
     this.rain.frustumCulled = false; this.scene.add(this.rain);
+    // snow (and the snow in sleet): soft round flakes on the same lattice, drifting down at ~1 m/s, carried by the
+    // wind and fluttering as they fall; lit by the sky (grey at dusk, dark at night), never lying anywhere
+    const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    const N = 32, tex = new Uint8Array(N * N * 4);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const r = Math.hypot(i + 0.5 - N / 2, j + 0.5 - N / 2) / (N / 2), a = Math.max(0, 1 - r * r) ** 1.5;
+      tex.set([255, 255, 255, Math.round(255 * a)], (j * N + i) * 4);
+    }
+    const flake = new THREE.DataTexture(tex, N, N, THREE.RGBAFormat); flake.needsUpdate = true;
+    this.snow = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xf2f5f8, map: flake, size: 0.11, sizeAttenuation: true, transparent: true, opacity: 0, depthWrite: false }));
+    this.snow.frustumCulled = false; this.snow.visible = false; this.scene.add(this.snow);
     // the water shares the sky's cell, convection and mist uniforms (its shader includes CLOUD_GLSL and the mist)
     for (const k of ['uCellsB', 'uTower', 'uStrat', 'uMist', 'uMistCol']) this.waterU[k] = this.skySys.U[k];
     // lightning bolts: camera-facing ribbons (a few pixels wide at any distance), additive, lit by nothing
@@ -1138,17 +1149,24 @@ export class Renderer {
     // (and from a strong gale the air fills with spray, WMO Beaufort 9 "spray may affect visibility", 10-11
     // "visibility affected", 12 "very seriously affected": exp^2 fog reaches 5 % contrast at 1.73 / density,
     // so ~16 km clear, ~8 km at 45 kn, ~2 km at 60 kn, ~1.3 km in a hurricane)
-    this.scene.fog.density = 0.00011 + 0.0012 * sky.rain + 0.0012 * Math.pow(clamp((kts - 40) / 25, 0, 1), 1.5);
+    // Snow closes it in far more than rain of the same rate (moderate snow ~1 km, heavy ~400 m: WMO's visibility
+    // in snow); sky.snow is the share of the precipitation falling as snow (the weather's climate: env.js sky)
+    const snowR = sky.rain * (sky.snow || 0), rainR = sky.rain - snowR;
+    this.scene.fog.density = 0.00011 + 0.0012 * rainR + 0.0045 * snowR + 0.0012 * Math.pow(clamp((kts - 40) / 25, 0, 1), 1.5);
     this.waterU.fogDensity.value = this.scene.fog.density;
-    this._rainFog = this.rainNow = sky.rain;     // (rainNow: what the listener hears, audio.js)
-    // mist and sea fog (wx.mist): a layer at the surface, eased like the clouds
+    this._rainFog = sky.rain;
+    this.rainNow = rainR; this.snowNow = snowR;  // (what the listener hears, audio.js: rain's hiss, snow's hush)
+    this.precipNow = sky;                        // (the HUD's weather line: rate, snow share, temperature)
+    // mist and sea fog (wx.mist): a layer at the surface, eased like the clouds; with a climate the sea fog is the
+    // venue's own (Weather.fog: the Golden Gate's summer fog, the Namib's night fog)
     const hour = ((ms / 3.6e6 + lon / 15) % 24 + 24) % 24;
-    const mi = this.mistState = mist(W.mode, W.seed ?? 0, t, S.sunEl ?? 0.5, hour, lat, kts, sky.cold || 0, this.mistState || {});
+    const fc = W.fog ? W.fog(t, this._fogC || (this._fogC = {})) : null;
+    const mi = this.mistState = mist(W.mode, W.seed ?? 0, t, S.sunEl ?? 0.5, hour, lat, kts, sky.cold || 0, this.mistState || {}, fc);
     const mv = MIST_U.uMist.value, km = dtw < 0 || dtw > 30 ? 1 : 1 - Math.exp(-dtw / 5);
     mv.x += (mi.sigma - mv.x) * km; mv.y += (Math.max(4, mi.H) - mv.y) * km; mv.z = 0.55;
     // rain: drops fixed in the world, falling at ~7 m/s and blown along by the wind, drawn as short
     // motion-blur streaks along their velocity; heavier rain = more drops, not just brighter ones
-    const rain = sky.rain;
+    const rain = rainR;
     this.rain.visible = rain > 0.03;
     if (this.rain.visible) {
       const p = this.rain.geometry.attributes.position.array, sd = this.rainSeeds, n = sd.length / 3;
@@ -1166,6 +1184,30 @@ export class Renderer {
       this.rain.geometry.setDrawRange(0, m * 2);
       this.rain.geometry.attributes.position.needsUpdate = true;
       this.rain.material.opacity = Math.min(0.6, 0.25 + 0.4 * rain);
+    }
+    this.snow.visible = snowR > 0.02;
+    if (this.snow.visible) {
+      const p = this.snow.geometry.attributes.position.array, sd = this.rainSeeds, n = sd.length / 3;
+      const w = env.wind.sample(cam.x, cam.z, t, this._rw || (this._rw = {}));
+      const sp = w.speed * 0.95;                       // flakes ride the wind almost entirely
+      const wx = -Math.sin(w.dir) * sp, wz = Math.cos(w.dir) * sp, fall = 1.1;
+      const R = 18, H = 14, wrap = (v, m) => ((v % m) + m) % m;
+      const m = Math.min(n, Math.round(n * Math.min(1, 0.1 + snowR)));
+      for (let i = 0; i < m; i++) {
+        // each flake flutters on its own: a slow swing across the wind and a wobble in its fall (sd[i*3] .. as phases)
+        const ph = sd[i * 3 + 2] * 43.7, f = 0.9 + 1.3 * sd[i * 3], sw = 0.45 * Math.sin(f * t + ph), sw2 = 0.3 * Math.cos(0.7 * f * t + 1.7 * ph);
+        const x = cam.x - R + wrap(sd[i * 3] * 2 * R + wx * t + sw - cam.x + R, 2 * R);
+        const z = cam.z - R + wrap(sd[i * 3 + 1] * 2 * R + wz * t + sw2 - cam.z + R, 2 * R);
+        const y = cam.y - 6 + wrap(sd[i * 3 + 2] * H - fall * (1 + 0.35 * sd[i * 3 + 1]) * t + 0.15 * sw - cam.y + 6, H);
+        p[i * 3] = x; p[i * 3 + 1] = y; p[i * 3 + 2] = z;
+      }
+      this.snow.geometry.setDrawRange(0, m);
+      this.snow.geometry.attributes.position.needsUpdate = true;
+      // white in daylight, grey under a dark sky (the water's ambient from the last frame: 1 in full day; squared,
+      // (to the power 1.5: the eye's exposure lifts a dim scene back up and an unlit flake must not glow in the dusk)
+      const amb = clamp(this.waterU.uAmbF.value, 0, 1), lum = 0.015 + 0.94 * Math.pow(amb, 1.5);
+      this.snow.material.color.setRGB(lum, lum * 1.01, lum * 1.03);
+      this.snow.material.opacity = Math.min(0.95, 0.55 + 0.4 * snowR);
     }
     this._lightning(cells, t, cam);
   }
@@ -1512,7 +1554,7 @@ export class Renderer {
     }
     this.refl.setNight(this.sunDir.y < -0.08);
     const h = this._reflHide || (this._reflHide = []);
-    h.length = 0; h.push(this.water, this.skySys.dome, this.rain);
+    h.length = 0; h.push(this.water, this.skySys.dome, this.rain, this.snow);
     if (this.skySys.stars) h.push(this.skySys.stars);
     for (const w of this.wakes.values()) h.push(w.mesh);
     for (const vis of this.boats.values()) if (vis.splash) h.push(vis.splash.foam, vis.splash.patches);
