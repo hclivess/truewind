@@ -11,6 +11,7 @@ import { RuleEngine, RULE_SHORT } from './rules.js';
 import { Renderer } from './render.js';
 import { coastalInput, coastalTransfer, buildCoastal, CoastalField } from './coastal.js';
 import { indexFeatures } from './structures.js';
+import { landmarkObstacles } from './landmarks.js';
 import { HUD, pref } from './hud.js';
 import { Audio, CHANNELS, cleanVol } from './audio.js';
 import { Net } from './net.js';
@@ -530,6 +531,8 @@ class Game {
     if (!v.open) world.dredgeHarbours(await this.loadTraffic(v));     // (marinas afloat at low water, before anything is drawn)
     this.tide = tide;
     this.obstacles = ((geo && geo.piers) || []).filter(p => p.kind !== 'bridge' || (() => { let wet = 0; for (let i = 0; i < p.pts.length; i += 2) if (world.sdfAt(p.pts[i], p.pts[i + 1]) > 0) wet++; return wet > 0; })());
+    // (and the landmarks' footings in the water: bridge towers and piers, sea forts, rock stacks; never a deck overhead)
+    if (!v.open) try { this.obstacles.push(...landmarkObstacles(v.id, (x, z) => world.sdfAt(x, z))); } catch (e) { console.error('landmarks', e); }
     const online = S.mode === 'online' && !idle;
     const cond = {
       seed: Math.floor(Math.random() * 100000), epoch: Date.now() / 1000,
