@@ -117,7 +117,9 @@ export class SeamarkLayer {
     this.lights = []; this.buoys = []; this.beams = []; this.points = null; this.designs = [];
   }
 
-  set(world, data) {
+  // replace: [{ x, z, y, r }] where a landmark (landmarks.js) carries a light: a fixed mark within r of one is not drawn
+  // as a generic tower, its light shines from the landmark's lantern at height y
+  set(world, data, replace = null) {
     this.clear();
     this.world = world;
     if (!data || !data.marks || !world || world.open) return;
@@ -142,7 +144,8 @@ export class SeamarkLayer {
           d.list.push(b); this.buoys.push(b);
         }
       } else if (!m.far) {
-        lightY = this.fixedMark(stat, lanterns, m, ground, sdf);
+        const rep = replace && replace.find(r => Math.hypot(r.x - m.x, r.z - m.z) < (r.r || 45));
+        lightY = rep ? rep.y : this.fixedMark(stat, lanterns, m, ground, sdf);
       } else {
         const lh = m.L && m.L[0].ht; lightY = lh || (m.h ? m.h : 20);
       }

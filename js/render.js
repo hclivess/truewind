@@ -11,7 +11,8 @@ import { buildStructures, indexFeatures, structureMask } from './structures.js';
 import { HullSplash, SeaSpray, NOISE as FOAM_NOISE } from './splash.js';
 import { HullWaves, KelvinLow, HW_GLSL, KW_GLSL, HW, roosterTail } from './hullwaves.js';
 import { buildEngineModel, updateEngineModel } from './engine-model.js';
-import { loadLand, buildTerrain, buildScenery, setSceneryNight, tickScenery } from './scenery.js';
+import { loadLand, buildTerrain, buildScenery, setSceneryNight, tickScenery, groundHeight } from './scenery.js';
+import { buildLandmarks, tickLandmarks } from './landmarks.js';
 import { SkySystem, SKY_LUT_GLSL, CLOUD_GLSL, withCloudShadows, sunPosition, MIST_U } from './sky.js';
 import { strikes, flashAt, thunderDue, thunderBearing, boltSegments, convection, heatFromSun, mist, mistTau } from './wx.js';
 import { SeamarkLayer } from './seamark-render.js';
@@ -1218,7 +1219,8 @@ export class Renderer {
     const drop = (o) => { if (!o) return; this.scene.remove(o); o.traverse(m => { if (m.geometry) m.geometry.dispose(); }); };
     drop(this.land); drop(this.town); this.land = this.town = null;
     if (this.piersMesh) { this.scene.remove(this.piersMesh); }
-    const byId = indexFeatures(geo, manifest), onStructure = structureMask(geo, byId);
+    if (this.landmarks) { drop(this.landmarks); for (const m of this.landmarks.userData.landmarks?.mats || []) m.dispose(); this.landmarks = null; }
+    const byId = indexFeatures(geo, manifest), structMask = structureMask(geo, byId);
     this.world = world;
     const U = this.waterU;
     U.uHasMap.value = world.open ? 0 : 1;
@@ -1228,7 +1230,18 @@ export class Renderer {
     this.sdfTex = new THREE.DataTexture(world.sdfTextureData(S), S, S, THREE.RGBAFormat);
     this.sdfTex.magFilter = THREE.LinearFilter; this.sdfTex.minFilter = THREE.LinearFilter; this.sdfTex.needsUpdate = true;
     U.uSdf.value = this.sdfTex;
-    (this.seamarks || (this.seamarks = new SeamarkLayer(this.scene, { low: this.low }))).set(world, geo && geo.seamarks);   // lighthouses, buoys, beacons, lights
+    // the venue's sightseeing landmarks (landmarks.js): bridges, towers, forts, lighthouses, on the same ground as the
+    // terrain; the town keeps its houses and trees off them, and the seamark lights they carry shine from their lanterns
+    let LM = null;
+    if (!world.open) {
+      try {
+        LM = buildLandmarks(THREE, world.venue.id, { ground: (x, z) => groundHeight(world, x, z), sdf: (x, z) => world.sdfAt(x, z) });
+        for (const m of LM.group.userData.landmarks.mats) withCloudShadows(m, this.skySys, { ground: false });
+        this.landmarks = LM.group; this.scene.add(LM.group);
+      } catch (e) { console.error('landmarks', e); LM = null; }
+    }
+    const onStructure = LM ? (x, z, r) => structMask(x, z, r) || LM.mask(x, z) : structMask;
+    (this.seamarks || (this.seamarks = new SeamarkLayer(this.scene, { low: this.low }))).set(world, geo && geo.seamarks, LM ? LM.replace : null);   // lighthouses, buoys, beacons, lights
     this.skySys.setGlowSources(null);                         // (the towns' glow on the night sky: set once the land is in)
     if (world.open) return;
     // terrain, buildings, streets and trees from the venue's OSM land data (built once it has loaded;
@@ -1270,7 +1283,7 @@ export class Renderer {
   // the banks it uncovers are where the physics' depth has them; the shader's depths follow
   setTide(eta) {
     this.waterU.uTide.value = eta;
-    for (const o of [this.land, this.town, this.piersMesh]) if (o && o.position.y !== -eta) { o.position.y = -eta; o.updateMatrix(); }
+    for (const o of [this.land, this.town, this.piersMesh, this.landmarks]) if (o && o.position.y !== -eta) { o.position.y = -eta; o.updateMatrix(); }
     if (this.seamarks) this.seamarks.setLevel(eta);
   }
 
@@ -1430,6 +1443,8 @@ export class Renderer {
     }
     const Ld = this.skySys.lightDir || this.sunDir;
     tickNavLights(clamp((-this.sunDir.y + 0.02) / 0.12, 0, 1), this.r.domElement.height || 800, this.camera.fov, this.r.getPixelRatio());
+    // (the landmarks floodlit and their lights on by the same factor as the town's windows)
+    if (this.landmarks) tickLandmarks(this.landmarks, clamp((-this.sunDir.y + 0.02) / 0.12, 0, 1), t, this.r.domElement.height || 800, this.camera.fov, this.r.getPixelRatio());
     if (this.town) {
       setSceneryNight(this.town, clamp((-this.sunDir.y + 0.02) / 0.12, 0, 1));
       const mw = env.wind.mean(t); tickScenery(this.town, t, mw.speed, this.camera);   // (and the land streams in round the camera)
