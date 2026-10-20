@@ -521,7 +521,13 @@ export class Renderer {
           // roughness: slopes too small to draw — the filtered-out waves plus the capillary rest of the
           // Cox-Munk mean square slope (0.003 + 0.00512 U) — blur the reflection and widen the sun's path
           float mssSub = max(0.0015, 0.003 + 0.00512 * lw - uJSig * uJSig - sd2) * 0.7 * hwMod * hwMod;
-          float a2 = clamp(lost + mssSub, 2e-4, 0.5);
+          // (and what the pixel spans of the drawn normal itself: where the normal turns faster than the pixels sample it, a
+          // far sea or the fine octaves under a low sun or moon, the glint landed on some pixels and missed their
+          // neighbours, a sparkle of single pixels; its variance across the footprint widens the lobe instead.
+          // Kaplanyan & Hoffman 2016, specular anti-aliasing: sigma^2 = (|dn/dx|^2 + |dn/dy|^2) / 4, a^2 += 2 sigma^2)
+          vec3 dnx = dFdx(n), dny = dFdy(n);
+          float saa = min(0.5 * (dot(dnx, dnx) + dot(dny, dny)), 0.18);
+          float a2 = clamp(lost + mssSub + saa, 2e-4, 0.5);
           // ---- hull waves: the reflectance their roughness change makes. A rough patch shows the eye facets
           // tilted both ways, and Fresnel is convex, so on average it reflects more sky at a low angle than a
           // smooth one: the wake's crest lines and its slick read as bright and dark bands (the difference
@@ -542,7 +548,9 @@ export class Renderer {
           vec4 rc = uSkyVP * vec4(R, 0.0);
           if (rc.w > 0.0) {
             vec2 ruv = rc.xy / rc.w * 0.5 + 0.5, re = min(ruv, 1.0 - ruv);
-            float rw = smoothstep(0.0, 0.1, min(re.x, re.y)) * (1.0 - smoothstep(1.5, 3.5, gloss));
+            // (not where the normal turns faster than the pixels sample it: there the sharp sky's moon or sun, caught
+            // by one pixel and missed by the next, sparkled as single-pixel grain; the cube's blurred level holds it)
+            float rw = smoothstep(0.0, 0.1, min(re.x, re.y)) * (1.0 - smoothstep(1.5, 3.5, gloss)) * (1.0 - smoothstep(0.003, 0.03, saa));
             if (rw > 0.0) refl = mix(refl, texture2D(uSkyRT, ruv).rgb, rw);
           }
           // and over the sky, the scene's reflection: boats, sails, land, buildings, lights (reflect.js)

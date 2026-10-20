@@ -194,10 +194,15 @@ vec3 reflScene(vec3 refl, vec3 P, vec3 R, float sig, float dist, float ey) {
   aH *= min(sqrt(1.0 + fp2 / max(dot(aH, aH), 1e-12)), 0.08 / max(length(aH), 1e-6));
   // N taps over 2 sigma with Gaussian weights, each filtered over its share of the ellipse (at most 24 texels
   // along an axis: no coarse level magnified)
-  float N = uReflP.y, k = 3.0 / sqrt(N);
+  // (each tap filtered over a little more than its share: with a stretched ellipse, a moon's path, the taps' gaps
+  // let bright texels through to one pixel and not its neighbour)
+  float N = uReflP.y, k = 4.2 / sqrt(N);
   vec2 gV = aV * k, gH = aH * k, mx = 24.0 / sz;
   gV *= min(1.0, mx.y / max(length(gV), 1e-6)); gH *= min(1.0, mx.y / max(length(gH), 1e-6));
-  float rot = 6.2832 * fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+  // the taps' rotation per pixel: interleaved gradient noise (Jimenez 2014), evenly spread from pixel to pixel. A white
+  // hash put neighbouring pixels on unrelated patterns, and on a black sea under the moon the bright texels between the
+  // taps came through as salt-and-pepper grain; no rotation at all leaves moire rings
+  float rot = 6.2832 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
   vec4 s = vec4(0.0); float ws = 0.0;
   for (int i = 0; i < 16; i++) {
     if (float(i) >= N) break;
