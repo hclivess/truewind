@@ -63,7 +63,8 @@ export class MOB {
     const wx = -Math.sin(w.dir) * w.speed, wz = Math.cos(w.dir) * w.speed;
     for (const P of this.people) {
       const cur = env ? env.current.at(P.x, P.z, this._c || (this._c = {})) : { x: 0, z: 0 };
-      P.x += (cur.x + PIW_LEEWAY * wx) * dt; P.z += (cur.z + PIW_LEEWAY * wz) * dt;
+      const pvx = cur.x + PIW_LEEWAY * wx, pvz = cur.z + PIW_LEEWAY * wz;
+      P.x += pvx * dt; P.z += pvz * dt;
       P.t += dt;
       const dx = b.x - P.x, dz = b.z - P.z, d = Math.hypot(dx, dz);
       const half = C.multihull ? C.hullSpacing / 2 + 0.5 : C.beam / 2;
@@ -72,8 +73,10 @@ export class MOB {
         if (d > 0.5) { P.x += dx / d * SWIM * dt; P.z += dz / d * SWIM * dt; }
       }
       P.mx = P.x; P.mz = P.z;
-      const sog = Math.hypot(b.vgx || 0, b.vgz || 0);
-      if (d < half + 2 && sog < 0.8) P.since += dt; else P.since = Math.max(0, P.since - dt * 2);
+      // (her speed past them, not over the ground: they drift in the same stream, and in a 2 kn tide a boat stopped
+      // beside them still makes 1 m/s over the ground)
+      const rel = Math.hypot((b.vgx || 0) - pvx, (b.vgz || 0) - pvz);
+      if (d < half + 2 && rel < 0.8) P.since += dt; else P.since = Math.max(0, P.since - dt * 2);
       if (P.since > (this.single ? 1.5 : 4)) this.recover(P);
     }
   }

@@ -99,6 +99,9 @@ export class Autopilot {
       if (w.depthAt(this.T.x, this.T.z) < keel) { this.tgtKey = null; return this.toPoint(dt, t, sim, T0); }
     }
     const T = this.T, dist = Math.hypot(T.x - b.x, T.z - b.z), twd = waterTwd(b);
+    // a man overboard: the person in the water, not the mark where they went in, and alongside, not two lengths off
+    if (T0.kind === 'mob' && b.mob && b.mob.people.length) { this.pickUp(dt, t, sim, twd); return; }
+    this.mobPhase = null;
     // there: heave to (luffing, sheets eased) until she drifts off it, then sail back
     const rArr = Math.max(2 * L, 8);
     if (!this.arrived && dist < rArr) {
@@ -182,6 +185,65 @@ export class Autopilot {
     return r.length ? r : null;
   }
   // heave to: luff to ~50° off the wind, every sheet eased, and let her lie there
+  // ---------------------------------------------------------------- picking up a man overboard
+  // As it is taught (RYA, the reach-and-return): run off below the person, then come back up to them on a close reach,
+  // sheets eased to slow her, and luff head to wind the last length so she stops with them alongside the weather shrouds.
+  // A waypoint's heave-to two lengths off (where she then drifts away to leeward, faster than the person, and sails
+  // back, over and over) never brings them aboard: js/mob.js recovers a person within a metre or two of the hull with
+  // her nearly stopped.
+  pickUp(dt, t, sim, twd) {
+    const b = this.b, c = b.ctrl, h = this.helm, L = b.cls.loa;
+    let P = null, best = Infinity;
+    for (const q of b.mob.people) { const d = Math.hypot(q.mx - b.x, q.mz - b.z); if (d < best) { best = d; P = q; } }
+    const dx = P.mx - b.x, dz = P.mz - b.z, dist = best;
+    const brg = Math.atan2(dx, -dz), rel = wrap(brg - twd), off = Math.abs(rel);
+    // still alongside (just gone over, or come up to): stop her where she is, hove to, as long as she stays close
+    if ((this.mobPhase == null || this.mobPhase === 'stop') && dist < (this.mobPhase === 'stop' ? 2.5 : 1.5) * L) {
+      this.mobPhase = 'stop'; this.heaveTo(dt, twd); this.mode = 'mob'; return;
+    }
+    if (this.mobPhase === 'stop') this.mobPhase = null;
+    // the final approach: the person 45-80 deg off the wind from her (a close reach, which she can slow on by easing
+    // and stop on by luffing), within a few lengths
+    // (luffed head to wind she coasts a few metres a metre a second of way she carries)
+    const stopIn = 0.5 * L + 3 * Math.max(0, b.u);
+    const ahead = Math.abs(wrap(brg - b.psi)) < 50 * DEG;
+    if (this.mobPhase !== 'final' && off > 45 * DEG && off < 80 * DEG && dist < 6 * L + 10 && ahead) {
+      this.mobPhase = 'final';
+      this.say('mobFinal', `Final approach to the person in the water: ${Math.round(dist)} m, ${dg(off)}° off the wind, sheets eased to slow her; luffing alongside.`, t);
+    }
+    // (abandoned for another go: past them, or them too high to fetch, or stopped short of them, drifting off)
+    if (this.mobPhase === 'final' && (off > 100 * DEG || dist > 9 * L + 15 || (off < 35 * DEG && dist > stopIn) || (b.u < 0.3 && dist > 1.5 * L))) this.mobPhase = null;
+    if (this.mobPhase !== 'final') {
+      // the turning point: a few lengths below the person, on the side she is on, from where they bear 60 deg off the wind
+      if (this.mobPhase !== 'run') this.mobSide = Math.sign(wrap(Math.atan2(-dx, dz) - twd)) || 1;
+      if (this.mobPhase !== 'run') this.say('mobRun', `Man overboard ${Math.round(dist)} m off: running down below them to come back up on a close reach.`, t);
+      this.mobPhase = 'run';
+      // (the side kept from the start of the run: taken afresh each step it swung across as she ran down, and she circled)
+      const side = this.mobSide, th = twd - side * 60 * DEG, R = 3 * L + 10;
+      const S = { x: P.mx - R * Math.sin(th), z: P.mz + R * Math.cos(th) };
+      // (there, or with the person already on the close reach: turning up to them)
+      if (!(Math.hypot(S.x - b.x, S.z - b.z) < 2 * L + 5 || (off > 45 * DEG && off < 80 * DEG && dist < 6 * L + 10))) {
+        h.goal = S; h.goalEnd = S;
+        h.update(dt, t, sim, null, null, this.targets);
+        this.mode = 'mob';
+        return;
+      }
+    }
+    c.gen = false; this.helm.genNoted = false;
+    // the last length: luff head to wind with everything free, coasting to a stop with the person alongside
+    if (dist < stopIn) {
+      c.main = 1; if (b.sailBy.jib) c.jib = 1; if (b.sailBy.stay) c.stay = 1; if ('mizzen' in c) c.mizzen = 1; if ('fore' in c) c.fore = 1;
+      h.steer(dt, twd, true); this.mode = 'mob'; return;
+    }
+    // the approach: straight at them, the sheets eased the nearer she gets, for ~1 m/s at the luff
+    if (!h.noTrim) autoTrim(b, dt, 0);
+    const vT = 0.8 + 0.3 * (dist - stopIn) / L, ease = clamp((b.u - vT) / 1.2, 0, 1);
+    if (ease > 0) { c.main = Math.max(c.main, 0.4 + 0.6 * ease); if (b.sailBy.jib) c.jib = Math.max(c.jib, 0.3 + 0.7 * ease); }
+    // (aimed a metre to windward of them: the luff carries her bow up past them, and they come alongside to leeward)
+    const aimX = P.mx + Math.sin(twd), aimZ = P.mz - Math.cos(twd);
+    h.steer(dt, Math.atan2(aimX - b.x, -(aimZ - b.z)), true); this.mode = 'mob';
+  }
+
   heaveTo(dt, twd) {
     const b = this.b, c = b.ctrl, tack = Math.sign(wrap(twd - b.psi)) || 1;
     c.main = 1; if (b.sailBy.jib) c.jib = 1; if (b.sailBy.stay) c.stay = 1; if ('mizzen' in c) c.mizzen = 1; if ('fore' in c) c.fore = 1;
@@ -353,7 +415,7 @@ export class Autopilot {
     // (as the coach has it: a reach held close-hauled is the beat, one at the run's angle the run)
     const m = this.mode === 'reach' ? (twa < up + 10 * DEG ? 'beat' : twa > dn - 8 * DEG ? 'run' : 'reach') : this.mode;
     const info = { mode: m, twa, desired, next: '', track: null, lay: null };
-    info.label = { beat: 'Beat', reach: 'Reach', run: 'Run', prestart: 'Pre-start', penalty: 'Penalty', 'hove-to': 'Hove to', shoot: 'Shooting up', vane: 'Wind vane', capsized: 'Capsized' }[m] || m || '';
+    info.label = { mob: 'Man overboard', beat: 'Beat', reach: 'Reach', run: 'Run', prestart: 'Pre-start', penalty: 'Penalty', 'hove-to': 'Hove to', shoot: 'Shooting up', vane: 'Wind vane', capsized: 'Capsized' }[m] || m || '';
     if (m === 'vane') { info.twa = Math.abs(this.vaneTwa ?? twa); info.next = `holding ${dg(info.twa)}° ${this.vaneTwa > 0 ? 'stbd' : 'port'}`; info.track = [[b.x, b.z], [b.x + Math.sin(desired) * 600, b.z - Math.cos(desired) * 600]]; return info; }
     const D = m === 'hove-to' || m === 'shoot' ? this.T : h.dest || this.T;
     if (!D) return info;
