@@ -308,14 +308,16 @@ export const HW_GLSL = /* glsl */`
 uniform sampler2D uHW; uniform vec4 uHWC; uniform float uHWK;   // uHWK: the player's transverse wavenumber g / U^2
 vec4 hwAt(vec2 x, float lod) {
   vec2 uv = (x - uHWC.xy) / uHWC.z + 0.5;
-  float w = uHWC.w * (1.0 - smoothstep(0.38, 0.47, max(abs(uv.x - 0.5), abs(uv.y - 0.5))));
+  float w = uHWC.w * (1.0 - smoothstep(0.30, 0.47, length(uv - 0.5)));   // (round, not square: faded on the square's
+  // own edges, a stationary boat's rings ended in a square around her)
   return w > 0.0 ? textureLod(uHW, uv, lod) * w : vec4(0.0);
 }
 // (fragment shaders) the same with the hardware's own footprint: anisotropic, so a crest line seen at a
 // grazing angle keeps its full slope across the line of sight instead of being blurred by the long axis
 vec4 hwAtA(vec2 x) {
   vec2 uv = (x - uHWC.xy) / uHWC.z + 0.5;
-  float w = uHWC.w * (1.0 - smoothstep(0.38, 0.47, max(abs(uv.x - 0.5), abs(uv.y - 0.5))));
+  float w = uHWC.w * (1.0 - smoothstep(0.30, 0.47, length(uv - 0.5)));   // (round, not square: faded on the square's
+  // own edges, a stationary boat's rings ended in a square around her)
   return texture(uHW, uv) * w;
 }`;
 
