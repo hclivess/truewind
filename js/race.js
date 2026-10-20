@@ -179,6 +179,8 @@ export const aiRandom = (seed, i) => mulberry32(Math.imul((seed | 0) + 0x9e3779b
 // the wind as a boat sails in it: over the water, not over the ground. The polar's angles are to it; steered by the
 // ground wind in a cross-tide one tack pinched and the other footed by the tide's angle (~4 deg for 1.2 kn in 13 kn:
 // the Solent fleet's starboard tack sailed at 4 kn to port's 6, its laylines and beats minutes out)
+// an asymmetric gennaker (tacked on the bow or a sprit), not a symmetric spinnaker set on a pole
+export const asymKite = (b) => !!(b.sailBy.gennaker && !b.sailBy.gennaker.pole);
 export function waterTwd(b) {
   const d = b.diag, tw = d.twd ?? 0, s = d.tws ?? 0;
   if (b.vgx === undefined || !s) return tw;
@@ -231,8 +233,10 @@ export class AIHelm {
     this.penD = 0; this.penBuild = 0; this.penHold = 0; this.penGo = false;
     this.twdMean = this.twdMean === null ? twd : this.twdMean + wrap(twd - this.twdMean) * dt / 90;
     // (an asymmetric kite's polar is flat from 150 deg to dead downwind, and the VMG table's pick of 165 in a sea had
-    // the J/70 steering at the finish down there, by the lee half the time, at 3 kn: she runs at 150 and gybes)
-    const up = (targets?.up ?? 42) * DEG, dn = Math.min((targets?.dn ?? 145) * DEG, b.sailBy.gennaker ? 150 * DEG : Math.PI);
+    // the J/70 steering at the finish down there, by the lee half the time, at 3 kn: she runs at 150 and gybes. Not a
+    // symmetric spinnaker on its pole, squared back for a run: held to 150 the Dragon and the Etchells reached to and fro
+    // down every run, 7-8% below the VMG of the 165-180 deg they run at, ORC's run for the Etchells in 14 kn dead downwind)
+    const up = (targets?.up ?? 42) * DEG, dn = Math.min((targets?.dn ?? 145) * DEG, asymKite(b) ? 150 * DEG : Math.PI);
     this.upAngle = up;
     let desired = null, mode = 'reach';
     let dest = null;
@@ -322,7 +326,12 @@ export class AIHelm {
       // (the autopilot: off the laylines until near the mark, as a coach teaches — back toward the middle once she is
       // `cone` of the way out to one, far from the mark; a wind shift then costs little either way)
       if (this.cone && !starting && want === tack && rel * tack > 0 && t - this.lastTack > 30 && dist * Math.cos(rel) > Math.max(150, 20 * b.cls.loa)
-        && Math.abs(Math.tan(rel)) > this.cone * Math.abs(Math.tan(this.trackRel(-tack, up)))) { want = -tack; why = 'cone'; }
+        && Math.abs(Math.tan(rel)) > this.cone * Math.abs(Math.tan(this.trackRel(-tack, up)))
+        // (and only where the stream is slack: in a tideway the stream decides the side, and the middle is no safer.
+        // On the Saturday's beat, up the Solent's channel in 2.5 kn of fair stream, the two took turns every 30-40 s,
+        // the cone sending her back toward the rhumb line by the shore and the tide back out to the channel: an
+        // Etchells tacked 140 times)
+        && !(sim.world && Math.hypot(this.curAt(sim, b.x, b.z).x, this.curAt(sim, b.x, b.z).z) > 0.25)) { want = -tack; why = 'cone'; }
       // the tide across the course: where the next couple of hundred metres on the other tack carry the
       // boat into water flowing more toward the mark (less against it), that tack pays
       if (!starting && want === tack && Math.abs(rel) < up - 10 * DEG && t - this.lastTack > 40 && this.tideGain(sim, -tack, up, dest) - this.tideGain(sim, tack, up, dest) > 0.12) { want = -tack; why = 'tide'; }
@@ -335,7 +344,9 @@ export class AIHelm {
       // (and none of her own choosing onto a track that soon runs into the shallows: she would only tack straight
       // back out, and along a shore, tack after tack. Onto the layline she needs the water to the mark; for the
       // tide, a header or the middle of the course, three minutes of it, or the gain is gone in the next tack)
-      if (want !== tack && sim.world && !sim.world.open) { const need = why === 'layline' || why === 'start' ? 42 : 180; if (this.room(sim, twd - want * up, need) < need) want = tack; }
+      // (but not onto the tack she is on when that runs into them sooner: blocked both ways she takes the one with
+      // more water, as on a run below)
+      if (want !== tack && sim.world && !sim.world.open) { const need = why === 'layline' || why === 'start' ? 42 : 180, ro = this.room(sim, twd - want * up, need); if (ro < need && ro <= this.room(sim, twd - tack * up, need)) want = tack; }
       if (R && R.on !== false) {
         if (want !== tack && !R.canTurn(b, twd - want * up)) want = tack;
         if (R.hailTo(b) || (R.hailOf(b) && R.hailOf(b).answered && R.S(b).tackT < R.hailOf(b).answered)) { want = -tack; this.lastTack = -100; why = 'hail'; }
@@ -360,7 +371,10 @@ export class AIHelm {
       if (want !== tack && R && !R.canTurn(b, twd - want * dn, 8)) want = tack;       // gybe only where it is clear
       // (and not onto a gybe that runs into the shallows: the shore along a run turned her off it, past dead
       // downwind, and the layline's gybe straight back put her onto it again, gybe after gybe)
-      if (want !== tack && sim.world && !sim.world.open && this.room(sim, twd - want * dn, 42) < 42) want = tack;
+      // (but when the gybe she is on runs into them as soon, she gybes for the one with more water: vetoed because the
+      // other gybe headed for the shallows too, a J/70 rounding CHS for Darling Buoy held on along the Cowes Green shore
+      // at 7-8 kn and ran aground)
+      if (want !== tack && sim.world && !sim.world.open) { const ro = this.room(sim, twd - want * dn, 42); if (ro < 42 && ro <= this.room(sim, twd - tack * dn, 42)) want = tack; }
       if (want !== tack && t - this.lastTack > 15) { this.lastTack = t; this.tackTo = want; this.note('gybe', { why: 'layline', to: want, rel }); }
       else if (this.tackTo === -tack && t - this.lastTack < 10) want = this.tackTo;      // (the gybe carried through)
       else want = tack;
@@ -787,7 +801,13 @@ export class AIHelm {
     // error of the heavy-helmed boats, but in a seaway it held the helm through the waves' yaw and a J/24 reaching in a
     // 20 kn chop broached three times as often; with the big yachts' hydraulic steering, js/helm.js, the error that
     // is left is 2-4 degrees, steady, not a zig-zag)
-    let cmd = clamp(kp * err - kd * b.r, -0.8, 0.8);
+    // Upwind, though, a steady course does take the integral: there the standing weather helm is the whole error (the
+    // Dragon, heeled 22 deg close-hauled, carries 9-10 deg of helm, and without it sailed 7 deg above the angle she was
+    // set: 9% of her speed upwind), and a beat does not broach. Only on a steady course (within 8 deg of it, with way
+    // on, not building speed for a tack); it bleeds away in 3 s off it, and the waves' yaw averages out of it.
+    const steady = this.mode === 'beat' && !wantsOther && !this.building && !free && Math.abs(err) < 8 * DEG && b.u > 0.6 * vT;
+    this.hI = steady ? clamp((this.hI ?? 0) + 0.3 * err * dt, -0.35, 0.35) : (this.hI ?? 0) * Math.exp(-dt / 3);
+    let cmd = clamp(kp * err - kd * b.r + this.hI, -0.8, 0.8);
     // A helmsman feels the helm go light as the blade stalls and eases it until it bites again: more helm on a stalled
     // rudder only brakes her while she rounds up anyway (autopilots carry a rudder limit for the same reason). In a
     // seaway the leeway, the yaw rate and the helm add at the blade: a Catalina 30 beating in 20 kn stalled hers at

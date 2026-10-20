@@ -5,7 +5,7 @@
 // (the tactician's notes: tacks on the layline, gybes, the kite, reefs, shallows, giving way), never on a timer.
 import { DEG, KT } from './env.js';
 import { autoTrim, wrap, clamp, lerp } from './physics.js';
-import { AIHelm, waterTwd } from './race.js';
+import { AIHelm, waterTwd, asymKite } from './race.js';
 import { Lookout } from './colregs.js';
 import { NavGrid } from './traffic.js';
 import { RULE_SHORT } from './rules.js';
@@ -60,7 +60,7 @@ export class Autopilot {
     // the helm moved by anyone else (a key, the tiller, the touch pad): like a real autopilot, it lets go at once
     if (this.helmOut !== null && Math.abs(b.ctrl.helm - this.helmOut) > 0.02) { this.disengage(); this.say('override', 'Autopilot off: manual helm — she is yours.', t); return; }
     this.targets = o.targets || this.targets;
-    this.up = (this.targets?.up ?? 42) * DEG; this.dn = Math.min((this.targets?.dn ?? 145) * DEG, b.sailBy.gennaker ? 150 * DEG : Math.PI);
+    this.up = (this.targets?.up ?? 42) * DEG; this.dn = Math.min((this.targets?.dn ?? 145) * DEG, asymKite(b) ? 150 * DEG : Math.PI);
     this.o = o; this.sim = sim;
     if (o.racer) { this.helm.goal = null; this.helm.update(dt, t, sim, o.racer, o.course, o.targets); this.mode = this.helm.mode; this.T = this.helm.dest; }
     else if (o.target) this.toPoint(dt, t, sim, o.target);
