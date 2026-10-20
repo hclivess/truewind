@@ -1,5 +1,7 @@
 # True Wind
 
+[![TRUE WIND — a sailing simulator that computes everything it can: sails as cloth shaped by the wind and your strings, the air over them, keel and rudder lift, hull resistance, heel, waves and tide — on real coastlines](docs/img/banner.png)](https://hclivess.github.io/truewind/)
+
 [![The Blackwatch 19/24 under tanbark sails, heeled on a close reach off Cowes in the Solent at golden hour: her turquoise wake, whitecaps, the sun's glitter, a green buoy and the Cowes waterfront behind](docs/preview.jpg)](https://hclivess.github.io/truewind/)
 
 A browser sailing simulator where the boat is not animated — it is computed. Every frame, the sails are simulated as cloth, shaped by the wind and by the strings you pull, and the air over their live shape is solved as one vortex lattice; that, the lift of the keel and rudder, the resistance of the hull, the heel, the waves and the tide are solved as forces and moments on a rigid body, 120 times a second.
