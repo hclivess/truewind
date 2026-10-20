@@ -20,6 +20,8 @@ It runs in any modern browser with WebGL, with no install and no build step.
 | Sydney Harbour: the Opera House and the Harbour Bridge (`sydney`) | San Francisco Bay: the Golden Gate at golden hour (`sfbay`) |
 | [![Sydney Harbour at night: the floodlit Opera House, the bridge's lights, the city's windows and their reflections, a Blackwatch with her navigation lights](docs/img/sydney-night.jpg)](https://hclivess.github.io/truewind/) | [![A Folkboat sailing in falling snow on a grey January day in Kiel Fjord](docs/img/kiel-snow.jpg)](https://hclivess.github.io/truewind/) |
 | The real night sky over Sydney: catalogue stars, the moon, the city's lights | Kiel in January: snow where and when the climate has it |
+| [![The Statue of Liberty on her star fort, a yacht reaching past Liberty Island in New York Harbor at golden hour](docs/img/liberty.jpg)](https://hclivess.github.io/truewind/) | [![The Statue of Liberty floodlit at night, her torch lit, the harbour's lights on the water](docs/img/liberty-night.jpg)](https://hclivess.github.io/truewind/) |
+| New York Harbor: the Statue of Liberty (`newyork`) | Liberty at night: the torch and the floodlights |
 | [![The wind flow overlay: streamlines of the apparent wind bending through the Blackwatch's rig, coloured by speed](docs/img/wind-flow.jpg)](https://hclivess.github.io/truewind/) | |
 | Shift+F: the air over the sails, as the vortex lattice solves it | |
 
