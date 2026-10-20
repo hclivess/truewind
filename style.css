@@ -490,3 +490,16 @@ body.hud-edit #nextmark, body.hud-edit #work, body.hud-edit #grab-tip { visibili
 /* cinematic mode (F2 / Shift+C): nothing over the picture */
 body.cine .panel, body.cine #compass-tape, body.cine #coach, body.cine #toast, body.cine #nextmark, body.cine #touch,
 body.cine #paused-badge, body.cine .grab-label, body.cine .ag-label, body.cine #rules-tag { display: none !important; }
+
+/* the browser demo (js/edition.js): locked boats and venues, the way to the full game */
+.card.locked, .seg-b.locked { opacity: 0.5; }
+.card.locked:hover, .seg-b.locked:hover { opacity: 0.75; }
+.demo-cta { margin-top: 0.6rem; font-size: 0.95rem; color: #cfd8e3; }
+.itch-link { color: #ff8a1f; font-weight: 600; text-decoration: none; }
+.itch-link:hover { text-decoration: underline; }
+a.btn.itch-link { color: #111; display: inline-flex; align-items: center; justify-content: center; }
+.demo-lock, .demo-nudge { position: fixed; left: 50%; transform: translateX(-50%); z-index: 9999; background: rgba(12, 22, 34, 0.96);
+  color: #e8eef5; border: 1px solid #ff8a1f; border-radius: 6px; padding: 0.6rem 2.2rem 0.6rem 1rem; font-size: 0.95rem; max-width: min(92vw, 720px); }
+.demo-lock { bottom: 6rem; }
+.demo-nudge { top: 1rem; }
+.demo-x { position: absolute; right: 0.4rem; top: 0.3rem; background: none; border: 0; color: #e8eef5; font-size: 1.2rem; cursor: pointer; }

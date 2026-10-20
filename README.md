@@ -6,7 +6,7 @@
 
 A browser sailing simulator where the boat is not animated — it is computed. Every frame, the sails are simulated as cloth, shaped by the wind and by the strings you pull, and the air over their live shape is solved as one vortex lattice; that, the lift of the keel and rudder, the resistance of the hull, the heel, the waves and the tide are solved as forces and moments on a rigid body, 120 times a second.
 
-**Play:** https://hclivess.github.io/truewind/
+**Play the browser demo:** https://hclivess.github.io/truewind/ (3 boats, 3 venues, free sail and AI races) · **Full game:** https://hclivess.itch.io/true-wind (every boat and venue, online racing, anywhere on Earth)
 
 [![The Swan 131 Aristarchos beating off Puerto Progreso on the autopilot in 30 kn, the rig panel, the coach and the instruments around her](docs/img/swan131-progreso.jpg)](https://hclivess.github.io/truewind/)
 

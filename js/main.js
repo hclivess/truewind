@@ -35,7 +35,8 @@ import { fleetLevels, clothBudget } from './fleet.js';
 import { Gear } from './gear.js';            // damage, anchor, mooring lines, man overboard, crew fatigue
 import { GearVis } from './gear-render.js';
 import { WildlifeView } from './wildlife-render.js';   // birds, dolphins, whales, turtles and sharks (visual only)
-import { Autopilot } from './autopilot.js';       // the smart autopilot and its coach (a learning aid)
+import { Autopilot } from './autopilot.js';
+import { DEMO, ITCH, boatOpen, venueOpen, modeOpen, NUDGE_MIN, fullLink, DEMO_BOATS, DEMO_VENUES } from './edition.js';   // the browser demo's limits       // the smart autopilot and its coach (a learning aid)
 
 // every boat's sail model: cloth (cloth shaped by the wind and the rig, forces from a vortex lattice over it; the
 // default), ?sails=strip (three strips per sail: the light fallback) or ?sails=vlm (vortex lattice on the rig-set
@@ -122,6 +123,9 @@ class Game {
         for (const k in this.settings) if (k in saved && typeof saved[k] === typeof this.settings[k]) this.settings[k] = saved[k];
         if (!CLASSES[this.settings.cls]) this.settings.cls = 'blackwatch';
         if (!VENUES.some(v => v.id === this.settings.venue)) this.settings.venue = 'progreso';
+        if (!boatOpen(this.settings.cls)) this.settings.cls = 'blackwatch';
+        if (!venueOpen(this.settings.venue)) this.settings.venue = 'progreso';
+        if (!modeOpen(this.settings.mode)) this.settings.mode = 'free';
         this.venueTouched = true; this.restored = true;
       }
     } catch (e) { /* corrupt or blocked storage: defaults */ }
@@ -156,10 +160,11 @@ class Game {
     const gName = (g) => (CLASS_GROUPS.find(x => x[0] === g) || [0, ''])[1];
     // (in group order; a class of a group this menu does not know goes at the end, under 'All')
     const grouped = groups.flatMap(([g]) => CLASS_ORDER.filter(id => (CLASSES[id].group || 'keelboat') === g));
-    const listed = [...grouped, ...CLASS_ORDER.filter(id => !grouped.includes(id))];
+    let listed = [...grouped, ...CLASS_ORDER.filter(id => !grouped.includes(id))];
+    if (DEMO) listed = [...listed.filter(boatOpen), ...listed.filter(id => !boatOpen(id))];   // (the demo's boats first)
     bl.innerHTML = `<div class="cls-tools"><div class="cls-tabs" role="tablist">${[['all', 'All'], ...groups].map(([g, label]) => `<button class="cls-tab${g === 'all' ? ' on' : ''}" role="tab" data-g="${g}" aria-selected="${g === 'all'}">${label}</button>`).join('')}</div>`
       + `<input id="cls-search" class="cls-search" type="search" placeholder="Search boats" aria-label="Search boats" autocomplete="off"></div>`
-      + `<div class="cls-list" aria-label="Boats">${listed.map(id => { const C = CLASSES[id], g = C.group || 'keelboat'; return `<button class="card cls-row" data-cls="${id}" data-g="${g}"><span class="n">${C.name}</span><span class="g">${gName(g)}</span></button>`; }).join('')}</div>`
+      + `<div class="cls-list" aria-label="Boats">${listed.map(id => { const C = CLASSES[id], g = C.group || 'keelboat'; return `<button class="card cls-row${boatOpen(id) ? '' : ' locked'}" data-cls="${id}" data-g="${g}"><span class="n">${boatOpen(id) ? '' : '🔒 '}${C.name}</span><span class="g">${gName(g)}</span></button>`; }).join('')}</div>`
       + `<div id="cls-detail" class="cls-detail" aria-live="polite"></div>`;
     const filter = () => {
       const tab = bl.querySelector('.cls-tab.on'), g = tab ? tab.dataset.g : 'all', q = ($('#cls-search').value || '').trim().toLowerCase();
@@ -168,15 +173,16 @@ class Game {
     bl.querySelectorAll('.cls-tab').forEach(t => t.addEventListener('click', () => { bl.querySelectorAll('.cls-tab').forEach(x => { x.classList.toggle('on', x === t); x.setAttribute('aria-selected', String(x === t)); }); filter(); }));
     $('#cls-search').addEventListener('input', filter);
     bl.querySelectorAll('.card[data-cls]').forEach(c => c.addEventListener('click', () => {
+      if (!boatOpen(c.dataset.cls)) { this.demoLocked(`${CLASSES[c.dataset.cls].name} is in the full game.`); return; }
       this.settings.cls = c.dataset.cls;
       // the Blackwatch lives in Progreso unless another venue was picked
       if (c.dataset.cls === 'blackwatch' && !this.venueTouched) this.pickVenue('progreso', false);
       this.refreshMenu();
     }));
     const vl = $('#venue-list');
-    vl.innerHTML = VENUES.map(v => `<button class="card" data-v="${v.id}"><span class="t">${v.name}</span><span class="s">${v.place}</span><span class="d">${v.note}</span></button>`).join('');
-    vl.querySelectorAll('.card').forEach(c => c.addEventListener('click', () => { this.venueTouched = true; this.pickVenue(c.dataset.v, true); }));
-    document.querySelectorAll('.seg-b[data-mode]').forEach(b => b.addEventListener('click', () => { this.settings.mode = b.dataset.mode; this.refreshMenu(); }));
+    vl.innerHTML = VENUES.map(v => `<button class="card${venueOpen(v.id) ? '' : ' locked'}" data-v="${v.id}"><span class="t">${venueOpen(v.id) ? '' : '🔒 '}${v.name}</span><span class="s">${v.place}</span><span class="d">${v.note}</span></button>`).join('');
+    vl.querySelectorAll('.card').forEach(c => c.addEventListener('click', () => { if (!venueOpen(c.dataset.v)) { this.demoLocked(`${(VENUES.find(v => v.id === c.dataset.v) || {}).name} is in the full game.`); return; } this.venueTouched = true; this.pickVenue(c.dataset.v, true); }));
+    document.querySelectorAll('.seg-b[data-mode]').forEach(b => { if (!modeOpen(b.dataset.mode)) { b.classList.add('locked'); b.textContent = '🔒 ' + b.textContent; } b.addEventListener('click', () => { if (!modeOpen(b.dataset.mode)) { this.demoLocked('Online racing is in the full game.'); return; } this.settings.mode = b.dataset.mode; this.refreshMenu(); }); });
     document.querySelectorAll('.seg-b[data-weather]').forEach(b => b.addEventListener('click', () => { this.settings.weather = b.dataset.weather; this.refreshMenu(); }));
     document.querySelectorAll('.seg-b[data-tod]').forEach(b => b.addEventListener('click', () => { this.settings.tod = b.dataset.tod; this.refreshMenu(); this.retime(); }));
     document.querySelectorAll('.seg-b[data-traffic]').forEach(b => b.addEventListener('click', () => { this.settings.traffic = b.dataset.traffic; this.refreshMenu(); }));
@@ -204,12 +210,38 @@ class Game {
     $('#res-menu').addEventListener('click', () => this.openMenu());
     $('#res-again').addEventListener('click', () => this.castOff());
     $('#live-wind').addEventListener('click', () => this.liveWind());
-    $('#custom-go').addEventListener('click', () => this.customVenue());
-    $('#custom-latlon').addEventListener('keydown', (e) => { if (e.key === 'Enter') this.customVenue(); });
+    $('#custom-go').addEventListener('click', () => { if (DEMO) { this.demoLocked('Sailing anywhere on Earth is in the full game.'); return; } this.customVenue(); });
+    $('#custom-latlon').addEventListener('keydown', (e) => { if (e.key === 'Enter') { if (DEMO) { this.demoLocked('Sailing anywhere on Earth is in the full game.'); return; } this.customVenue(); } });
+    if (DEMO) this.setupDemo();
     this.bindBoatId();
     try { $('#net-name').value = localStorage.getItem('tw-name') || ''; $('#net-room').value = localStorage.getItem('tw-room') || ''; } catch (e) {}
     this.pickVenue(this.settings.venue, false, this.restored);
     this.refreshMenu();
+  }
+  // ---- the browser demo (js/edition.js): what is locked says so, with the way to the full game
+  setupDemo() {
+    document.body.classList.add('demo');
+    const head = document.querySelector('.menu-head');
+    if (head && !$('#demo-cta')) head.insertAdjacentHTML('beforeend', `<p id="demo-cta" class="demo-cta">Browser demo: ${DEMO_BOATS.length} boats, ${DEMO_VENUES.length} venues, free sail and AI races. ${fullLink('Get the full game')}: every boat and venue, online racing, anywhere on Earth.</p>`);
+    const row = document.querySelector('#results .row');
+    if (row && !$('#res-full')) row.insertAdjacentHTML('beforeend', `<a id="res-full" class="btn primary itch-link" href="${ITCH}" target="_blank" rel="noopener">Get the full game</a>`);
+  }
+  demoLocked(msg) {
+    let el = $('#demo-lock');
+    if (!el) { document.body.insertAdjacentHTML('beforeend', '<div id="demo-lock" class="demo-lock" role="status"></div>'); el = $('#demo-lock'); }
+    el.innerHTML = `${msg} ${fullLink('Get it on itch.io')} <button class="demo-x" aria-label="Close">×</button>`;
+    el.hidden = false;
+    el.querySelector('.demo-x').addEventListener('click', () => { el.hidden = true; });
+    clearTimeout(this._lockT); this._lockT = setTimeout(() => { el.hidden = true; }, 6000);
+  }
+  // once a session, after NUDGE_MIN minutes on the water: a banner she can close (never a stop)
+  demoNudge(dt) {
+    if (!DEMO || this._nudged) return;
+    this._sailed = (this._sailed || 0) + dt;
+    if (this._sailed < NUDGE_MIN * 60) return;
+    this._nudged = true;
+    document.body.insertAdjacentHTML('beforeend', `<div id="demo-nudge" class="demo-nudge" role="status">Enjoying True Wind? The full game has every boat and venue, online racing and anywhere on Earth. ${fullLink('Get it on itch.io')} <button class="demo-x" aria-label="Close">×</button></div>`);
+    $('#demo-nudge .demo-x').addEventListener('click', () => $('#demo-nudge').remove());
   }
   pickVenue(id, fromUser, keepWind = false) {
     this.settings.venue = id;
@@ -1497,6 +1529,7 @@ class Game {
     let dt = Number.isFinite(frameMs) && frameMs > 0 ? Math.min(0.1, frameMs / 1000) : 1 / 60;   // (the first frame's stamp can precede the start: never 0, which divides)
     this.last = now;
     if (!this.env) return;
+    if (DEMO && this.running && !this.idle && !this.paused) this.demoNudge(dt);   // (real time on the water, not the menu's)
     if (this.netEpoch !== null) {
       // shared clock: everyone evaluates the same wind and waves at the same instant
       this.timeWarp = 1; this.paused = false;
