@@ -72,6 +72,14 @@ export const CLIMATE = {
     cloud: M([0.6, 0.6, 0.6, 0.6, 0.6, 0.55, 0.5, 0.5, 0.5, 0.5, 0.6, 0.62]),
     conv: M([0.1, 0.1, 0.1, 0.15, 0.25, 0.35, 0.4, 0.4, 0.3, 0.15, 0.1, 0.1]), tsd: 3.5,
     fogH: (m) => m >= 3 && m <= 7 ? [0, 24] : [1, 10], fogTop: 100 },
+  // NOAA NCEI 1991-2020 normals, New York Central Park (minima raised ~0.5 K toward the harbour); sea: NOAA The Battery
+  // water temperature. Snow most winters (Dec-Mar), spring and early-summer sea fog over the harbour, summer thunderstorms
+  newyork: { hi: M([3.9, 5.6, 9.8, 16.3, 21.8, 26.4, 29.4, 28.6, 24.8, 18.6, 12.6, 7.1]), lo: M([-2.2, -1.2, 2.3, 7.6, 13.1, 18.4, 21.6, 21.1, 17.3, 11.3, 5.9, 1.4]),
+    sst: M([4, 3, 5, 9, 14, 19, 23, 24, 22, 17, 12, 7]), wet: M([11, 10, 11, 11, 11, 10, 10, 10, 9, 9, 9, 11]),
+    snow: M([4, 3, 2, 0.2, 0, 0, 0, 0, 0, 0, 0.3, 2]), fog: M([2, 2, 3, 4, 5, 4, 3, 2, 2, 2, 2, 2]),
+    cloud: M([0.6, 0.58, 0.58, 0.58, 0.58, 0.52, 0.5, 0.5, 0.5, 0.52, 0.58, 0.6]),
+    conv: M([0.05, 0.05, 0.1, 0.15, 0.25, 0.4, 0.45, 0.4, 0.3, 0.15, 0.1, 0.05]), tsd: 3.5,
+    fogH: (m) => m >= 3 && m <= 6 ? [0, 24] : [1, 10], fogTop: 100 },
   // NIWA climate normals 1991-2020, Auckland (Mangere / Whenuapai); sea: NIWA Hauraki Gulf. Never snows at sea level
   auckland: { hi: M([23.7, 24.2, 22.9, 20.6, 18, 15.7, 14.9, 15.4, 16.8, 18.3, 20.1, 22.1]), lo: M([15.8, 16.3, 15, 12.6, 10.4, 8.3, 7.4, 7.9, 9.5, 11.1, 12.6, 14.6]),
     sst: M([21, 21, 21, 19, 17, 16, 15, 14, 15, 16, 17, 19]), wet: M([8, 7, 8, 10, 12, 15, 16, 15, 13, 12, 10, 9]),
