@@ -46,7 +46,7 @@ const COURSES = {
 // passage times for Cowes-Yarmouth are given without wind, tide or class; the Round the Island Race's results are for
 // a 50 nm course and a fleet's wind of the day: e.g. the 2026 race's first finisher, Pace, 6h32m39s elapsed
 // (onthewight.com, "Round the Island Race hailed as one of the best in years"); class-level times are on rtir.me/results,
-// not checked here). Left empty rather than invented.
+// not checked here). Left empty rather than invented. (Real races with real fleets' times: test/realraces.mjs.)
 const REAL = {};
 const SEVEN = ['dinghy', 'j24', 'catalina30', 'oceanis381', 'tp52', 'swan131', 'velsheda'];
 let jobs = [];

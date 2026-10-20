@@ -1,0 +1,181 @@
+{
+ "id": "cw26-d3-contessa32",
+ "event": "North Sails Cowes Week 2026",
+ "race": "Contessa 32, Mon 3 August 2026",
+ "class": "Contessa 32",
+ "sim": "contessa32",
+ "venue": "solent",
+ "date": "2026-08-03",
+ "gunUtc": "2026-08-03T11:00:00.000Z",
+ "start": {
+  "kind": "line",
+  "name": "RYS Start Line",
+  "a": [50.766733, -1.300917],
+  "b": [50.7715, -1.302167],
+  "note": "SI 12.3a: the RYS flagstaff (80) in line with the RYS roof diamond, out to Alpha (8A)"
+ },
+ "course": [
+  {
+   "name": "Quarr",
+   "id": "5A",
+   "lat": 50.7505,
+   "lon": -1.198167,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "North East Ryde Middle",
+   "id": "46",
+   "lat": 50.770167,
+   "lon": -1.198,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "250th Anniversary",
+   "id": "49",
+   "lat": 50.773333,
+   "lon": -1.226333,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "South East Ryde Middle",
+   "id": "45",
+   "lat": 50.7655,
+   "lon": -1.201667,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "250th Anniversary",
+   "id": "49",
+   "lat": 50.773333,
+   "lon": -1.226333,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "South East Ryde Middle",
+   "id": "45",
+   "lat": 50.7655,
+   "lon": -1.201667,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "250th Anniversary",
+   "id": "49",
+   "lat": 50.773333,
+   "lon": -1.226333,
+   "side": "PP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "Gamma",
+   "id": "8G",
+   "lat": 50.7715,
+   "lon": -1.288333,
+   "side": "PP",
+   "src": "SI Table 4",
+   "laid": false
+  }
+ ],
+ "finish": {
+  "kind": "line",
+  "name": "RYS Finish Line",
+  "a": [50.766733, -1.300917],
+  "b": [50.7715, -1.302167],
+  "note": "SI 14.2a: between the RYS flagstaff (80) and Alpha (8A)"
+ },
+ "courseNm": {
+  "published": 13.4,
+  "throughMarks": 13.43
+ },
+ "results": {
+  "placed": 17,
+  "notPlaced": [
+   "CO925 RET",
+   "CO370 DSQ"
+  ],
+  "best": 10488,
+  "median": 11182,
+  "worst": 12886,
+  "elapsed": [10488, 10524, 10614, 10712, 10843, 10994, 11142, 11145, 11182, 11296, 11358, 11380, 11627, 11820, 11848, 12586, 12886]
+ },
+ "wind": {
+  "station": "Bramblemet (Bramble pile, mid-Solent)",
+  "lat": 50.79017,
+  "lon": -1.28583,
+  "measured": "5 min mean speed (kn), vector-mean direction (deg true), max 3 s gust (kn); archive clock BST",
+  "cols": [
+   "t s from the gun",
+   "kn",
+   "deg",
+   "gust kn"
+  ],
+  "series": [
+   [-600, 12.6, 129, 13.5],
+   [-300, 12.9, 129, 14.6],
+   [0, 13.4, 129, 14.8],
+   [300, 12.5, 129, 16.1],
+   [600, 11.5, 130, 13.1],
+   [1200, 10.7, 128, 12.2],
+   [1500, 11.6, 123, 13.5],
+   [1800, 10.5, 123, 12.2],
+   [2100, 11, 121, 12.3],
+   [2400, 11, 124, 12.4],
+   [2700, 11, 122, 11.3],
+   [3000, 10, 124, 11.2],
+   [3300, 10.2, 125, 11.3],
+   [3600, 9.5, 125, 10.2],
+   [3900, 9.6, 125, 10.7],
+   [4200, 9.2, 120, 10.2],
+   [4800, 10.1, 118, 10.8],
+   [5100, 10.2, 118, 10.8],
+   [5400, 9.5, 120, 10.2],
+   [5700, 9.5, 121, 9.9],
+   [6000, 9.2, 118, 10],
+   [6900, 9.9, 123, 10.7],
+   [7200, 9.3, 121, 9.9],
+   [7500, 8.9, 121, 9.2],
+   [7800, 9.1, 124, 9.9],
+   [8100, 7.9, 124, 8.8],
+   [8400, 7.6, 124, 8.6],
+   [8700, 6.9, 124, 7.7],
+   [9000, 7.4, 122, 8.8],
+   [9300, 7.8, 125, 8.5],
+   [9600, 8.2, 127, 8.7],
+   [9900, 8.7, 126, 9.4],
+   [10200, 9.8, 126, 10.4],
+   [10500, 10.4, 125, 10.7],
+   [11100, 10.6, 125, 11.7],
+   [11400, 11, 122, 12.3],
+   [11700, 12, 123, 13.2],
+   [12000, 12.7, 122, 13.5],
+   [12600, 11.6, 123, 12.1],
+   [12900, 11, 123, 11.8],
+   [13200, 11.4, 125, 11.8],
+   [13500, 11, 124, 11.6]
+  ]
+ },
+ "sources": {
+  "course": "https://www.cowesweek.co.uk/web/code/php/main_c.php?map=cw-res&ui=cw-res&style=std&override=&section=racing&page=racestatus2026&setday=3",
+  "results": "https://www.cowesweek.co.uk/web/code/php/main_c.php?map=cw-res&ui=cw-res&style=std&override=&section=takingpart&page=results2026&showentrants=0&dayrequest=3&classrequest=44/3130&submit=",
+  "marks": "https://www.cowesweek.co.uk/web/download/2026/CW26-SailingInstructions.pdf",
+  "marksAmendments": [
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-1.pdf",
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-2.pdf",
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-3.pdf",
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-4a.pdf"
+  ],
+  "wind": "https://www.bramblemet.co.uk/archive/2026/August/CSV/Bra03Aug2026.csv"
+ }
+}

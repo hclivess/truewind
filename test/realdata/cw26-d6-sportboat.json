@@ -1,0 +1,186 @@
+{
+ "id": "cw26-d6-sportboat",
+ "event": "North Sails Cowes Week 2026",
+ "race": "J/70, Thu 6 August 2026",
+ "class": "J/70",
+ "sim": "sportboat",
+ "venue": "solent",
+ "date": "2026-08-06",
+ "gunUtc": "2026-08-06T10:15:00.000Z",
+ "start": {
+  "kind": "line",
+  "name": "RYS Start Line",
+  "a": [50.766733, -1.300917],
+  "b": [50.7715, -1.302167],
+  "note": "SI 12.3a: the RYS flagstaff (80) in line with the RYS roof diamond, out to Alpha (8A)"
+ },
+ "course": [
+  {
+   "name": "Polly's Challenge",
+   "id": "3Q",
+   "lat": 50.766167,
+   "lon": -1.324167,
+   "side": "RS",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "North East Gurnard",
+   "id": "3R",
+   "lat": 50.784333,
+   "lon": -1.323667,
+   "side": "RS",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "West Ryde Middle",
+   "id": "4P",
+   "lat": 50.774667,
+   "lon": -1.263167,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "Fumesy",
+   "id": "4C",
+   "lat": 50.820167,
+   "lon": -1.291,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "John Fisher",
+   "id": "4Q",
+   "lat": 50.807667,
+   "lon": -1.262,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "Coronation",
+   "id": "4B",
+   "lat": 50.825833,
+   "lon": -1.293667,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "Williams Shipping",
+   "id": "3W",
+   "lat": 50.786667,
+   "lon": -1.309167,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "Royal London YC",
+   "id": "4K",
+   "lat": 50.769167,
+   "lon": -1.2775,
+   "side": "RS",
+   "src": "SI Table 4",
+   "laid": false
+  }
+ ],
+ "finish": {
+  "kind": "line",
+  "name": "Breakwater Finish Line",
+  "a": [50.7715, -1.288333],
+  "b": [50.7688, -1.288333],
+  "note": "SI 14.2c: between Gamma (8G) and a committee vessel moored south of it (est. 300 m south)"
+ },
+ "courseNm": {
+  "published": 14.6,
+  "throughMarks": 14.66
+ },
+ "results": {
+  "placed": 19,
+  "notPlaced": [
+   "GBR108 NOD",
+   "GBR740 RET"
+  ],
+  "best": 11149,
+  "median": 12158,
+  "worst": 13041,
+  "elapsed": [11149, 11332, 11630, 11654, 11767, 11874, 11877, 12036, 12146, 12158, 12198, 12398, 12481, 12587, 12589, 12622, 12706, 12864, 13041]
+ },
+ "wind": {
+  "station": "Bramblemet (Bramble pile, mid-Solent)",
+  "lat": 50.79017,
+  "lon": -1.28583,
+  "measured": "5 min mean speed (kn), vector-mean direction (deg true), max 3 s gust (kn); archive clock BST",
+  "cols": [
+   "t s from the gun",
+   "kn",
+   "deg",
+   "gust kn"
+  ],
+  "series": [
+   [-600, 11, 320, 13.1],
+   [-300, 11.9, 316, 13],
+   [0, 7.2, 330, 9.4],
+   [300, 7.4, 324, 10.9],
+   [600, 9.7, 350, 10.5],
+   [900, 9.4, 324, 12.1],
+   [1200, 7.6, 317, 10.6],
+   [1500, 11.8, 332, 14.5],
+   [1800, 8.6, 320, 10.4],
+   [2100, 12.1, 304, 16],
+   [2400, 10.9, 314, 12.9],
+   [2700, 7.5, 292, 8.8],
+   [3000, 5.2, 269, 6.4],
+   [3300, 7.8, 325, 9.6],
+   [3900, 11.8, 305, 13.5],
+   [4200, 10.6, 313, 12.2],
+   [4500, 9.7, 312, 13.7],
+   [4800, 12.3, 312, 14.4],
+   [5100, 10.1, 324, 11.7],
+   [5400, 11.4, 346, 12.7],
+   [5700, 12.8, 332, 14.6],
+   [6000, 12.3, 339, 14.5],
+   [6300, 7.3, 349, 11.1],
+   [6600, 9.6, 303, 11.3],
+   [6900, 7.3, 341, 9.5],
+   [7200, 7, 318, 9.1],
+   [7500, 8.2, 332, 9.8],
+   [7800, 12.1, 335, 13.6],
+   [8100, 10.7, 305, 12],
+   [8400, 8.6, 300, 10.1],
+   [8700, 10.5, 332, 12],
+   [9000, 5.8, 359, 7.5],
+   [9300, 8.9, 294, 10.7],
+   [9600, 10.5, 335, 12.2],
+   [9900, 10.1, 340, 10.7],
+   [10200, 7.1, 328, 8],
+   [10500, 8.4, 336, 8.9],
+   [10800, 7.6, 13, 8],
+   [11100, 6.3, 357, 7.9],
+   [11400, 11.6, 344, 12.3],
+   [11700, 13.1, 352, 14.5],
+   [12000, 11.5, 353, 12.5],
+   [12300, 8.9, 354, 11.6],
+   [12600, 9.5, 339, 10.4],
+   [12900, 5.8, 292, 6.6],
+   [13500, 9.6, 346, 11.2],
+   [13800, 11, 332, 14.9]
+  ]
+ },
+ "sources": {
+  "course": "https://www.cowesweek.co.uk/web/code/php/main_c.php?map=cw-res&ui=cw-res&style=std&override=&section=racing&page=racestatus2026&setday=6",
+  "results": "https://www.cowesweek.co.uk/web/code/php/main_c.php?map=cw-res&ui=cw-res&style=std&override=&section=takingpart&page=results2026&showentrants=0&dayrequest=6&classrequest=80/14265&submit=",
+  "marks": "https://www.cowesweek.co.uk/web/download/2026/CW26-SailingInstructions.pdf",
+  "marksAmendments": [
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-1.pdf",
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-2.pdf",
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-3.pdf",
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-4a.pdf"
+  ],
+  "wind": "https://www.bramblemet.co.uk/archive/2026/August/CSV/Bra06Aug2026.csv"
+ }
+}

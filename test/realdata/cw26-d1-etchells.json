@@ -1,0 +1,134 @@
+{
+ "id": "cw26-d1-etchells",
+ "event": "North Sails Cowes Week 2026",
+ "race": "Etchells, Sat 1 August 2026",
+ "class": "Etchells",
+ "sim": "etchells",
+ "venue": "solent",
+ "date": "2026-08-01",
+ "gunUtc": "2026-08-01T13:25:00.000Z",
+ "start": {
+  "kind": "line",
+  "name": "RYS Start Line",
+  "a": [50.766733, -1.300917],
+  "b": [50.7715, -1.302167],
+  "note": "SI 12.3a: the RYS flagstaff (80) in line with the RYS roof diamond, out to Alpha (8A)"
+ },
+ "course": [
+  {
+   "name": "Salt Mead",
+   "id": "3D",
+   "lat": 50.741833,
+   "lon": -1.384,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "Laid mark 8K",
+   "id": "8K",
+   "lat": 50.749833,
+   "lon": -1.352667,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": true
+  },
+  {
+   "name": "Markby",
+   "id": "3F",
+   "lat": 50.745333,
+   "lon": -1.365833,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "Gurnard",
+   "id": "3U",
+   "lat": 50.770333,
+   "lon": -1.314,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "Gurnard Ledge",
+   "id": "3L",
+   "lat": 50.7585,
+   "lon": -1.343167,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  }
+ ],
+ "finish": {
+  "kind": "line",
+  "name": "RYS Finish Line",
+  "a": [50.766733, -1.300917],
+  "b": [50.7715, -1.302167],
+  "note": "SI 14.2a: between the RYS flagstaff (80) and Alpha (8A)"
+ },
+ "courseNm": {
+  "published": 10.9,
+  "throughMarks": 10.88
+ },
+ "results": {
+  "placed": 13,
+  "notPlaced": [],
+  "best": 6303,
+  "median": 6485,
+  "worst": 6794,
+  "elapsed": [6303, 6386, 6456, 6476, 6479, 6480, 6485, 6509, 6539, 6575, 6749, 6794, 6794]
+ },
+ "wind": {
+  "station": "Bramblemet (Bramble pile, mid-Solent)",
+  "lat": 50.79017,
+  "lon": -1.28583,
+  "measured": "5 min mean speed (kn), vector-mean direction (deg true), max 3 s gust (kn); archive clock BST",
+  "cols": [
+   "t s from the gun",
+   "kn",
+   "deg",
+   "gust kn"
+  ],
+  "series": [
+   [-600, 13, 261, 14],
+   [-300, 12.7, 262, 14],
+   [0, 12.3, 260, 14],
+   [300, 12.6, 264, 14.1],
+   [600, 11.4, 259, 12.4],
+   [900, 11.1, 260, 12.1],
+   [1200, 12.5, 249, 14.9],
+   [1500, 11.7, 251, 12.9],
+   [1800, 13.9, 253, 15.1],
+   [2100, 13.2, 254, 14.8],
+   [2400, 13.6, 248, 15.1],
+   [2700, 13.4, 251, 15.3],
+   [3000, 14.3, 254, 15.6],
+   [3300, 15.1, 260, 17.7],
+   [3600, 14.8, 250, 15.5],
+   [4500, 14.8, 241, 16.7],
+   [4800, 14.8, 251, 16.3],
+   [5100, 14.2, 254, 15.6],
+   [5400, 15.4, 250, 16.2],
+   [5700, 14.3, 245, 15.6],
+   [6300, 16.3, 263, 19.1],
+   [6600, 17.1, 260, 18.7],
+   [6900, 16.9, 263, 19.2],
+   [7200, 16.5, 259, 17.6],
+   [7500, 17.2, 258, 18.6]
+  ]
+ },
+ "sources": {
+  "course": "https://www.cowesweek.co.uk/web/code/php/main_c.php?map=cw-res&ui=cw-res&style=std&override=&section=racing&page=racestatus2026&setday=1",
+  "results": "https://www.cowesweek.co.uk/web/code/php/main_c.php?map=cw-res&ui=cw-res&style=std&override=&section=takingpart&page=results2026&showentrants=0&dayrequest=1&classrequest=65/1160&submit=",
+  "marks": "https://www.cowesweek.co.uk/web/download/2026/CW26-SailingInstructions.pdf",
+  "marksAmendments": [
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-1.pdf",
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-2.pdf",
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-3.pdf",
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-4a.pdf"
+  ],
+  "wind": "https://www.bramblemet.co.uk/archive/2026/August/CSV/Bra01Aug2026.csv"
+ }
+}

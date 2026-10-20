@@ -1,0 +1,31 @@
+{
+ "races": [
+  "cw26-d1-dragon",
+  "cw26-d1-etchells",
+  "cw26-d3-dragon",
+  "cw26-d3-folkboat",
+  "cw26-d3-contessa32",
+  "cw26-d4-dragon",
+  "cw26-d4-etchells",
+  "cw26-d4-sportboat",
+  "cw26-d6-sportboat",
+  "cw26-d7-dragon",
+  "cw26-d7-etchells",
+  "cw26-d7-sportboat"
+ ],
+ "skipped": [
+  {
+   "race": "Etchells, day 2",
+   "why": "Bramblemet: 0 of 32 wind readings with a direction through the race (no WD column that day: the vane was out)"
+  },
+  {
+   "race": "Dragon, day 2",
+   "why": "Bramblemet: 0 of 27 wind readings with a direction through the race (no WD column that day: the vane was out)"
+  },
+  {
+   "race": "Contessa 32, day 2",
+   "why": "Bramblemet: 0 of 41 wind readings with a direction through the race (no WD column that day: the vane was out)"
+  }
+ ],
+ "tide": "bramble-tide-2026-08"
+}

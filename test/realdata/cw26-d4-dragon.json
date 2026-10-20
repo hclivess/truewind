@@ -1,0 +1,157 @@
+{
+ "id": "cw26-d4-dragon",
+ "event": "North Sails Cowes Week 2026",
+ "race": "Dragon, Tue 4 August 2026",
+ "class": "Dragon",
+ "sim": "dragon",
+ "venue": "solent",
+ "date": "2026-08-04",
+ "gunUtc": "2026-08-04T10:15:00.000Z",
+ "start": {
+  "kind": "line",
+  "name": "RYS Start Line",
+  "a": [50.766733, -1.300917],
+  "b": [50.7715, -1.302167],
+  "note": "SI 12.3a: the RYS flagstaff (80) in line with the RYS roof diamond, out to Alpha (8A)"
+ },
+ "course": [
+  {
+   "name": "Polly's Challenge",
+   "id": "3Q",
+   "lat": 50.766167,
+   "lon": -1.324167,
+   "side": "RS",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "Jane",
+   "id": "4L",
+   "lat": 50.817167,
+   "lon": -1.274833,
+   "side": "RS",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "RORC",
+   "id": "30",
+   "lat": 50.785333,
+   "lon": -1.295333,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "Hamble Yacht Services",
+   "id": "4V",
+   "lat": 50.802167,
+   "lon": -1.244,
+   "side": "RS",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "Ben F Wood",
+   "id": "4N",
+   "lat": 50.787833,
+   "lon": -1.265,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "Haven Knox Johnston Specialist",
+   "id": "40",
+   "lat": 50.794333,
+   "lon": -1.2275,
+   "side": "RS",
+   "src": "SI Table 4",
+   "laid": false
+  }
+ ],
+ "finish": {
+  "kind": "line",
+  "name": "Breakwater Finish Line",
+  "a": [50.7715, -1.288333],
+  "b": [50.7688, -1.288333],
+  "note": "SI 14.2c: between Gamma (8G) and a committee vessel moored south of it (est. 300 m south)"
+ },
+ "courseNm": {
+  "published": 14.1,
+  "throughMarks": 14.1
+ },
+ "results": {
+  "placed": 20,
+  "notPlaced": [
+   "GB301 NOD",
+   "GBR74 NOD",
+   "GBR292 NOD",
+   "DGBR754 NOD",
+   "GBR39 RET"
+  ],
+  "best": 10024,
+  "median": 10224.5,
+  "worst": 10906,
+  "elapsed": [10024, 10028, 10040, 10045, 10063, 10064, 10084, 10111, 10176, 10206, 10243, 10248, 10269, 10336, 10339, 10407, 10512, 10582, 10766, 10906]
+ },
+ "wind": {
+  "station": "Bramblemet (Bramble pile, mid-Solent)",
+  "lat": 50.79017,
+  "lon": -1.28583,
+  "measured": "5 min mean speed (kn), vector-mean direction (deg true), max 3 s gust (kn); archive clock BST",
+  "cols": [
+   "t s from the gun",
+   "kn",
+   "deg",
+   "gust kn"
+  ],
+  "series": [
+   [-600, 20.3, 258, 23.5],
+   [-300, 19.5, 253, 21.8],
+   [0, 17, 239, 17.9],
+   [300, 15.5, 238, 17.6],
+   [600, 16, 241, 17.7],
+   [900, 14.5, 243, 15.2],
+   [1200, 13.1, 246, 14.5],
+   [1500, 16.5, 238, 17.4],
+   [2100, 17.8, 245, 18.8],
+   [2700, 16.2, 249, 17.4],
+   [3000, 15.4, 249, 16.6],
+   [3300, 15.5, 254, 17.3],
+   [3600, 16.6, 251, 20.1],
+   [3900, 18, 249, 18.9],
+   [4200, 15.4, 250, 16.7],
+   [4500, 14.6, 245, 15.4],
+   [4800, 13.6, 243, 14.7],
+   [5400, 16.5, 256, 17.8],
+   [5700, 16.8, 249, 17.9],
+   [6000, 15.8, 246, 17.9],
+   [6300, 15.7, 245, 17.1],
+   [6600, 15.4, 250, 16.9],
+   [7200, 15.6, 242, 17.2],
+   [7500, 14, 247, 14.7],
+   [8100, 13.3, 239, 14.2],
+   [8400, 13, 241, 13.6],
+   [8700, 14.2, 229, 15.9],
+   [9600, 11.7, 234, 12.8],
+   [9900, 12.9, 235, 14.7],
+   [10500, 12.9, 235, 13.8],
+   [10800, 12.4, 238, 13.2],
+   [11100, 11.8, 232, 13.2],
+   [11400, 12.1, 239, 13.6]
+  ]
+ },
+ "sources": {
+  "course": "https://www.cowesweek.co.uk/web/code/php/main_c.php?map=cw-res&ui=cw-res&style=std&override=&section=racing&page=racestatus2026&setday=4",
+  "results": "https://www.cowesweek.co.uk/web/code/php/main_c.php?map=cw-res&ui=cw-res&style=std&override=&section=takingpart&page=results2026&showentrants=0&dayrequest=4&classrequest=66/4150&submit=",
+  "marks": "https://www.cowesweek.co.uk/web/download/2026/CW26-SailingInstructions.pdf",
+  "marksAmendments": [
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-1.pdf",
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-2.pdf",
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-3.pdf",
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-4a.pdf"
+  ],
+  "wind": "https://www.bramblemet.co.uk/archive/2026/August/CSV/Bra04Aug2026.csv"
+ }
+}

@@ -1,0 +1,106 @@
+{
+ "id": "cw26-d4-sportboat",
+ "event": "North Sails Cowes Week 2026",
+ "race": "J/70 (Race 10), Tue 4 August 2026",
+ "class": "J/70",
+ "sim": "sportboat",
+ "venue": "solent",
+ "date": "2026-08-04",
+ "gunUtc": "2026-08-04T09:50:00.000Z",
+ "start": {
+  "kind": "line",
+  "name": "RYS Start Line",
+  "a": [50.766733, -1.300917],
+  "b": [50.7715, -1.302167],
+  "note": "SI 12.3a: the RYS flagstaff (80) in line with the RYS roof diamond, out to Alpha (8A)"
+ },
+ "course": [
+  {
+   "name": "CHS",
+   "id": "3T",
+   "lat": 50.768333,
+   "lon": -1.3145,
+   "side": "RS",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "Darling Buoy",
+   "id": "4R",
+   "lat": 50.819667,
+   "lon": -1.261833,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  },
+  {
+   "name": "hamblewinterseries.com",
+   "id": "4J",
+   "lat": 50.8105,
+   "lon": -1.276,
+   "side": "RP",
+   "src": "SI Table 4",
+   "laid": false
+  }
+ ],
+ "finish": {
+  "kind": "mark",
+  "name": "Royal Southern",
+  "at": [50.814333, -1.257167],
+  "note": "SI 14.3: between the mark and a committee vessel (the mark itself taken)"
+ },
+ "courseNm": {
+  "published": 5.7,
+  "throughMarks": 5.69
+ },
+ "results": {
+  "placed": 37,
+  "notPlaced": [
+   "GBR738 RET"
+  ],
+  "best": 2657,
+  "median": 3011,
+  "worst": 3536,
+  "elapsed": [2657, 2713, 2735, 2743, 2751, 2779, 2796, 2805, 2816, 2824, 2829, 2889, 2893, 2933, 2966, 2968, 2970, 2976, 3011, 3043, 3054, 3059, 3075, 3088, 3115, 3119, 3131, 3144, 3190, 3240, 3267, 3290, 3342, 3349, 3369, 3472, 3536]
+ },
+ "wind": {
+  "station": "Bramblemet (Bramble pile, mid-Solent)",
+  "lat": 50.79017,
+  "lon": -1.28583,
+  "measured": "5 min mean speed (kn), vector-mean direction (deg true), max 3 s gust (kn); archive clock BST",
+  "cols": [
+   "t s from the gun",
+   "kn",
+   "deg",
+   "gust kn"
+  ],
+  "series": [
+   [-600, 13.2, 258, 14.9],
+   [0, 17.6, 257, 19.1],
+   [300, 19.9, 260, 21],
+   [600, 19.9, 257, 21.8],
+   [900, 20.3, 258, 23.5],
+   [1200, 19.5, 253, 21.8],
+   [1500, 17, 239, 17.9],
+   [1800, 15.5, 238, 17.6],
+   [2100, 16, 241, 17.7],
+   [2400, 14.5, 243, 15.2],
+   [2700, 13.1, 246, 14.5],
+   [3000, 16.5, 238, 17.4],
+   [3600, 17.8, 245, 18.8],
+   [4200, 16.2, 249, 17.4]
+  ]
+ },
+ "sources": {
+  "course": "https://www.cowesweek.co.uk/web/code/php/main_c.php?map=cw-res&ui=cw-res&style=std&override=&section=racing&page=racestatus2026&setday=4",
+  "results": "https://www.cowesweek.co.uk/web/code/php/main_c.php?map=cw-res&ui=cw-res&style=std&override=&section=takingpart&page=results2026&showentrants=0&dayrequest=4&classrequest=80/10265&submit=",
+  "marks": "https://www.cowesweek.co.uk/web/download/2026/CW26-SailingInstructions.pdf",
+  "marksAmendments": [
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-1.pdf",
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-2.pdf",
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-3.pdf",
+   "https://www.cowesweek.co.uk/web/download/2026/CW26-SI-Amendment-4a.pdf"
+  ],
+  "wind": "https://www.bramblemet.co.uk/archive/2026/August/CSV/Bra04Aug2026.csv"
+ }
+}

@@ -403,7 +403,31 @@ The simulation is checked against published data, not only against itself. Every
 
 - **Sea trials** (`test/seatrial.mjs`): every class sails a scripted short passage (out on a close reach, a beat with tacks, a beam reach held, a broad reach under the kite, a gybe, heave to) in 6–32 kn, flat and in the game's seaway, steady and gusty, in open water and the Solent's tide, three ways: on the autopilot, with a scripted competent helmsman, and with the helm fixed. Speed against the polar and ORC certificates, heel, course-keeping, directional stability, weather helm, tack times, motions, rig and sail safety factors, damage, load spikes. `QUICK=1` runs a few classes in minutes; `REJUDGE=1` re-scores the last run.
 - **Passages** (`test/passages.mjs`): sail from A to B (Cowes–Yarmouth, harbour crossings, 20 nm open-water legs) against a VMG router's time on the same polar and tide.
+- **Real races** (`test/realraces.mjs`; `QUICK=1` for three): Cowes Week 2026 races sailed on their real courses, at their real date and time, in the wind measured on the Bramble pile, against the real fleets' elapsed times (below).
 - **Physics laws**: waves (`micro-waves.mjs`: Airy dispersion, group speed, orbital motion, JONSWAP/PM growth, Rayleigh statistics, breaking steepness, Stokes drift), ropes (`micro-rope.mjs`: catenary sag, stretch, wave speed, swing period, capstan), and `laws.mjs`, `navcalc.mjs`, `robust.mjs` (fuzzing, NaN recovery, determinism, 2 h stability), `aground.mjs`, `manoeuvres.mjs`, `dismast.mjs`, `netstate.mjs`, `budget.mjs`, plus the older per-subsystem tests.
+
+### Real races
+
+Twelve races of North Sails Cowes Week 2026 (1-7 August) in the one-design classes the game has: Dragon, Etchells, Contessa 32, Nordic Folkboat and the J/70 (as the sportboat). Each is in `test/realdata/<id>.json` with its sources, built by `node tools/fetch-realraces.mjs`: the course as the race committee set it (cowesweek.co.uk "Races & courses": marks, rounding sides, the published length), the marks' positions from the Sailing Instructions' Table 4, the gun and every placed boat's elapsed time (the daily results), and the Bramblemet 5-minute wind (mean, vector-mean direction, gust) from the gun to the last finisher. The course through the marks comes to the published length within 0.6% in every race. Three races of 2 August are left out (Bramble's vane reported no direction that day); the races started on committee-vessel lines are too (their positions are not published).
+
+`node test/realraces.mjs` sails each one with the autopilot (strip sails, 120 Hz, the game's puffs over the measured mean, the harmonic tide for the moment, the seaway) and with a VMG router on the class polar through the same marks, wind and tide (no tacking or rounding losses):
+
+| Race | Wind (Bramble) | Real best / median | Autopilot | Polar router |
+|---|---|---|---|---|
+| Dragon, Sat 1 | 14.7 kn WSW | 1:46:27 / 1:48:30 | 2:59:58 (+66%) | 2:21:02 (+32%) |
+| Etchells, Sat 1 | 14.1 kn WSW | 1:45:03 / 1:48:05 | 3:05:07 (+71%) | 2:14:24 (+28%) |
+| Dragon, Mon 3 | 10.2 kn SE | 2:20:33 / 2:28:21 | 3:28:00 (+40%) | 2:55:12 (+25%) |
+| Folkboat, Mon 3 | 10.3 kn SE | 2:58:34 / 3:07:39 | 4:04:01 (+30%) | 3:32:27 (+19%) |
+| Contessa 32, Mon 3 | 10.2 kn SE | 2:54:48 / 3:06:22 | 3:42:16 (+19%) | 3:05:52 (+6%) |
+| Dragon, Tue 4 | 15.1 kn WSW | 2:47:04 / 2:50:25 | 3:20:22 (+18%) | 2:55:15 (+5%) |
+| Etchells, Tue 4 | 15.5 kn WSW | 2:48:24 / 2:52:47 | 4:21:42 (+52%) | 2:40:16 (−5%) |
+| J/70 race 10, Tue 4 | 16.9 kn WSW | 0:44:17 / 0:50:11 | aground off Cowes Green | 0:34:18 (−23%) |
+| J/70, Thu 6 | 9.5 kn NW | 3:05:49 / 3:22:38 | 3:15:20 (−4%) | 2:46:52 (−10%) |
+| Dragon, Fri 7 | 14.8 kn W | 1:27:18 / 1:31:39 | 2:42:28 (+77%) | 1:30:50 (+4%) |
+| Etchells, Fri 7 | 14.5 kn W | 1:36:19 / 1:40:28 | 2:23:16 (+43%) | 1:32:42 (−4%) |
+| J/70, Fri 7 | 14.2 kn W | 1:43:09 / 1:46:54 | 1:59:58 (+12%) | 1:32:14 (−11%) |
+
+The checks: the autopilot within 15% of the class median (2 of 12 pass), the router within 15% of the class winner (7 of 12), never aground, and the course lengths. The game's tide at the pile against its gauge over the week: 0.20 m rms (de-meaned; 0.12-0.17 m on most days, 0.39 m on 3 August), no lag (5 min best fit): a fail at the 0.15 m tolerance. What the races show is under Known failures.
 
 ### Known failures (the current baseline)
 
@@ -420,6 +444,10 @@ The suite is honest about what does not yet match real boats; these are open:
 - **Heavy weather** (`node test/conditions.mjs`): in 20–25 kn and an ocean sea the autopilot broaches or wanders ±20–27° running on most classes, the Dragon, the sportboat and the TP52 are knocked down past 50° close-hauled in 20 kn, and the dinghy capsizes close-hauled in 20 kn. Up to 14 kn (wind sea, swell, stream, puffs, squalls) every class holds her course without a broach or capsize.
 - **Waves upwind**: a 0.5 m chop costs a J/24 about 20% of her upwind speed (the waves' mean surge force, −140 N, on top of the added-resistance term, 100 N, which may count part of it twice); real boats lose nearer 10%. Leeway rises with it, as it should (about as 1/speed²).
 - **New York's tidal streams** run at 0.5–0.8 × NOAA's predicted near-surface currents (the Narrows 1.2–1.7 kn at springs against 2.1, the Hudson's entrance 1.2 against 2.3, the East River at the Brooklyn Bridge 2.5 against 3.6), though the times of the maxima and slacks and the levels everywhere agree: the model has no river flow (the Hudson's outflow strengthens the surface ebb and delays the Narrows' slack before the flood by about 100 min) and its Hudson ends at Spuyten Duyvil, forced by the level there, so the tidal prism of the 240 km of river above it is not all carried.
+- **Real races** (`node test/realraces.mjs`, above): the autopilot is 18-77% slower than the real fleets' medians in 9 of the 12 Cowes Week races and runs aground in one; it is within 15% only in the two J/70 races of Thursday and Friday. Three causes, measured:
+  - **Upwind in the Solent's chop the keelboats stall.** Where the game raises a 0.6 m sea (Tp 3.5 s, 25 km of fetch: Saturday 1 and Friday 7, 14-15 kn W-WSW) the Dragon and the Etchells beat at 1.2-2.4 kn on average and hang in irons half the time (Etchells, Saturday: 292 tacks, 61% of the beat under 1.5 kn); on the same course without the sea the Etchells beats at 5.2 kn. Where the sea is flat (fetch under 1.5 km: Monday 3, Tuesday 4) they beat at 3.7-4.8 kn and the miss falls to 18-40%. The *Waves upwind* item above, much worse than a 20% loss on a J/24.
+  - **The autopilot gybes onto the wrong side** when the mark lies just past the run/reach boundary on the other gybe (`AIHelm.update`'s run branch: for `tack > 0` it gybes when `rel < -(dn - 2°)`, the mirror of the beat's layline test): rounding CHS for Darling Buoy (J/70, Tuesday) she held starboard at 64° off the mark into the Cowes Green shallows and ran aground; `avoidShoals` did not turn her off at 7-8 kn.
+  - **The J/70 polar is fast**: the router beats the J/70 winners by 10-23% (perfect sailing explains a few percent), as the ORC comparison above has the sportboat 22-25% fast reaching under the gennaker in 20 kn. The Dragon, Etchells and Folkboat polars are within ±5% of the winners on Tuesday and Friday, but 19-32% slow on Saturday 1 and Monday 3: both days with strong streams across the course and a wind that may differ from Bramble's, so not yet a verdict on the polar.
 - **Shallow water**: a boat with a metre under her keel sails exactly as in deep water (no squat or shallow-water resistance).
 - **Main backwinded by the gennaker**: reaching under the kite (a J/24 at 140° true, 86° apparent) the main's foot can read the flow from the wrong side and the boom swings in at up to ~150°/s, sometimes across to windward, with the sheet slack. The main's sections then meet the wind at ±100° with section lift coefficients of 2-8: the cloth's own velocity and the boom's swing both enter the relative wind (once each through `rig.velocityAt` and `airAt`'s boom term), and the kite's lattice passes close to the main's. A larger vortex core between sails did not cure it.
 - **Others**: wind turbulence about twice its design value, the venue projection 0.7 % short north–south, the autopilot reefing on and off in gusts, AI starts 24–30 s late on average, l'Hydroptère at 32–37 kn on cloth sails against her 51 kn record.
