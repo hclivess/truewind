@@ -518,7 +518,12 @@ export class Renderer {
           vec3 V = V0;
           float NdV = max(dot(n, V), 1e-3);
           float F = 0.02 + 0.98 * pow(1.0 - NdV, 5.0);
-          vec3 R = reflect(-V, n); R.y = abs(R.y);
+          vec3 R = reflect(-V, n);
+          // (a ray reflected downward, off the back of a steep crest, meets the next wave's face, not the sky: mirrored
+          // up to the sky it caught the bright haze just over the horizon, and in a rough sea the crests' backs drew
+          // as dotted white lines all the way out)
+          float Rdn = smoothstep(-0.01, 0.06, -R.y);
+          R.y = abs(R.y);
           // roughness: slopes too small to draw — the filtered-out waves plus the capillary rest of the
           // Cox-Munk mean square slope (0.003 + 0.00512 U) — blur the reflection and widen the sun's path
           float mssSub = max(0.0015, 0.003 + 0.00512 * lw - uJSig * uJSig - sd2) * 0.7 * hwMod * hwMod;
@@ -556,6 +561,7 @@ export class Renderer {
           }
           // and over the sky, the scene's reflection: boats, sails, land, buildings, lights (reflect.js)
           refl = reflScene(refl, vPos, R, sig, dist, abs(V0.y));
+          refl *= 1.0 - 0.65 * Rdn;
           float shadow = cloudShadow(vec3(x0.x, 0.0, x0.y), uLightDir);
           // sun: GGX microfacet reflection with the roughness above (a sharp glint on a calm sea, a long
           // broken path of glitter on a rough one)
