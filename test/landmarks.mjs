@@ -63,16 +63,18 @@ for (const [id, list] of Object.entries(LANDMARKS)) for (const lm of list) {
   const B = bbox(obj);
   S.check(`${id}: ${lm.name} builds finite`, B.bad === 0 && B.tris > 0 && B.size.every(Number.isFinite), `${B.tris} tris, ${B.draws} draws, ${B.bad} bad`);
   const horiz = Math.max(B.size[0], B.size[2]), top = B.max[1];
-  S.check(`${id}: ${lm.name} plausible size`, horiz > 4 && horiz < 4000 && top > 5 && top < 400, `${B.size.map(v => v.toFixed(0)).join(' x ')} m, top ${top.toFixed(0)} m`);
+  S.check(`${id}: ${lm.name} plausible size`, horiz > 4 && horiz < 4000 && top > 5 && top < 560, `${B.size.map(v => v.toFixed(0)).join(' x ')} m, top ${top.toFixed(0)} m`);
   if (lm.a) {
     const span = B.size[2], L = lm.L;
     S.check(`${id}: ${lm.name} spans its ends`, Math.abs(span - L) / L < 0.1, `model ${span.toFixed(0)} m, ends ${L.toFixed(0)} m apart`);
   }
 }
 // real heights of a few: the Golden Gate's towers 227 m, the Harbour Bridge's arch 134 m (and its flagpoles), Sydney
-// Tower 309 m, the Sky Tower 328 m, the Spinnaker Tower 170 m, the Transamerica Pyramid 260 m
+// Tower 309 m, the Sky Tower 328 m, the Spinnaker Tower 170 m, the Transamerica Pyramid 260 m; the Statue of Liberty
+// 93 m from the ground to the torch, One World Trade Center 541.3 m, the Verrazzano's towers 211 m, the Brooklyn Bridge's 84.3 m
 const top = (id, name, g = 0) => { const lm = landmarksOf(id).find(l => l.name.startsWith(name)); return bbox(lm.build(THREE, null, { ground: () => g })).max[1] - Math.max(g, 0.4); };
-for (const [id, name, h, tol, g] of [['sfbay', 'Golden Gate', 227, 5, -6], ['sydney', 'Sydney Harbour', 147, 3, -6], ['sydney', 'Sydney Tower', 309, 3, 0], ['auckland', 'Sky Tower', 328, 3, 0], ['solent', 'Spinnaker', 170, 4, 0], ['sfbay', 'Transamerica', 260, 3, 0]]) {
+for (const [id, name, h, tol, g] of [['sfbay', 'Golden Gate', 227, 5, -6], ['sydney', 'Sydney Harbour', 147, 3, -6], ['sydney', 'Sydney Tower', 309, 3, 0], ['auckland', 'Sky Tower', 328, 3, 0], ['solent', 'Spinnaker', 170, 4, 0], ['sfbay', 'Transamerica', 260, 3, 0],
+  ['newyork', 'Statue of Liberty', 93, 1, 0], ['newyork', 'One World Trade', 541.3, 2, 0], ['newyork', 'Verrazzano', 211, 3, -6], ['newyork', 'Brooklyn Bridge', 84.3, 2, -6]]) {
   const t = top(id, name, g); S.check(`${name}: ${h} m high`, Math.abs(t - h) <= tol, `${t.toFixed(1)} m`);
 }
 
@@ -92,7 +94,7 @@ function world(id) {
   return new World(v, JSON.parse(readFileSync(`data/venues/${id}.json`)));
 }
 const segD = (x, z, p) => { const [ax, az, bx, bz] = p.pts, dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1, t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / L2)); return Math.hypot(ax + dx * t - x, az + dz * t - z) - p.w / 2; };
-for (const [id, name, minObs] of [['sfbay', 'Golden Gate', 2], ['sfbay', 'San Francisco–Oakland', 4], ['sydney', 'Sydney Harbour', 0], ['newport', 'Claiborne Pell', 4]]) {
+for (const [id, name, minObs] of [['sfbay', 'Golden Gate', 2], ['sfbay', 'San Francisco–Oakland', 4], ['sydney', 'Sydney Harbour', 0], ['newport', 'Claiborne Pell', 4], ['newyork', 'Verrazzano', 2], ['newyork', 'Brooklyn Bridge', 1], ['newyork', 'Manhattan Bridge', 1]]) {
   if (!existsSync(`data/venues/${id}.json`)) continue;
   const w = world(id), v = w.venue, sdf = (x, z) => w.sdfAt(x, z);
   const lm = landmarksOf(id).find(l => l.name.startsWith(name)), pl = placeLandmark(lm, v);

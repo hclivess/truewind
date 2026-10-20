@@ -163,6 +163,18 @@ export class Kit {
     if (cap) { const top = rings[rings.length - 1], c = P.length / 3; let cx = 0, cz = 0; for (const [x, z] of top.pts) { cx += x / n; cz += z / n; } P.push(cx, top.y, cz); for (let i = 0; i < n; i++) IX.push(c, (rings.length - 1) * n + (i + 1) % n, (rings.length - 1) * n + i); }
     this._add(k, P, smoothNormals(P, IX), IX);
   }
+  // flat triangles [[p0, p1, p2], ...], each turned to face away from the vertical axis through (cx, cz)
+  facets(k, tris, cx = 0, cz = 0) {
+    const P = [], N = [], IX = [];
+    for (const [a, b, c] of tris) {
+      const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+      let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+      const mx = (a[0] + b[0] + c[0]) / 3 - cx, mz = (a[2] + b[2] + c[2]) / 3 - cz, flip = n[0] * mx + n[2] * mz < 0;
+      if (flip) n = n.map(q => -q);
+      const o = P.length / 3; for (const q of flip ? [a, c, b] : [a, b, c]) { P.push(...q); N.push(...n); } IX.push(o, o + 1, o + 2);
+    }
+    this._add(k, P, N, IX);
+  }
   // a gable roof over sx x sz, ridge along z, h high, from y
   roof(k, x, y, z, sx, sz, h, yaw = 0) {
     const a = sx / 2, b = sz / 2;
@@ -244,6 +256,14 @@ const PAL = {
   crane: [0x2f62a8, 0.6, 0.3],
   cont: [0xb8412c, 0.7], cont2: [0x1d4e89, 0.7], cont3: [0x2e7d4f, 0.7],
   rust: [0xb9a58a, 0.85],
+  verdigris: [0x6fa996, 0.62, 0.25, 0xa8e8cc, 0.2],    // the Statue of Liberty's copper patina, floodlit
+  pgranite: [0xb9a398, 0.9, 0, 0xffe0c0, 0.13],       // her pedestal's pink Stony Creek granite, floodlit
+  fort: [0xa59c8a, 0.94, 0, 0xffdcae, 0.04],          // Fort Wood's granite walls
+  wtc: [0x8ea2ae, 0.1, 0.85, 0xdde8ff, 0.42],         // One World Trade Center's glass
+  bbtan: [0xc4ad86, 0.7, 0.2, 0xffe2b8, 0.1],         // the Brooklyn Bridge's tan steel and cables
+  vnb: [0x8d969b, 0.5, 0.45, 0xe8eeff, 0.05],         // the Verrazzano's grey steel
+  redstone: [0x93533f, 0.92, 0, 0xffc890, 0.15],      // Castle Williams' red sandstone
+  brown: [0x6a4a35, 0.7, 0.2],                        // Robbins Reef's brown lower tower
 };
 export const MATERIAL_KEYS = Object.keys(PAL);
 export function makeMaterial(THREE, k) {
@@ -882,6 +902,166 @@ function walvisCranes(K) {      // ship-to-shore gantry cranes on the commercial
   for (let i = 0; i < 24; i++) { const x = -110 + (i % 8) * 30, z = 80 + Math.floor(i / 8) * 16, g = K.base(x, z, 6), n = 1 + (i * 7 % 3); for (let s = 0; s < n; s++) K.slab(['cont', 'cont2', 'cont3'][(i + s) % 3], x, g + s * 2.6, g + (s + 1) * 2.6, z, 12, 2.5); }
 }
 
+// ------------------------------------------------------------------ New York
+// an n-pointed star (counter-clockwise as cyl's: from +x toward +z), points at radius r1, notches at r0, a point at rot
+function starPts(n, r1, r0, rot = 0) { const p = []; for (let i = 0; i < 2 * n; i++) { const a = rot + i * Math.PI / n, r = i % 2 ? r0 : r1; p.push([r * Math.cos(a), r * Math.sin(a)]); } return p; }
+// an elliptic ring of n points at y (rx across, rz fore and aft, centred dz; folds: the robe's ripple)
+const ell = (y, rx, rz, dz = 0, n = 16, folds = 0) => ({ y, pts: Array.from({ length: n }, (_, i) => { const a = i * Math.PI * 2 / n, f = 1 + folds * Math.sin(5 * a + 0.7); return [rx * f * Math.cos(a), dz + rz * f * Math.sin(a)]; }) });
+// The Statue of Liberty (Bartholdi and Eiffel, 1886) on Liberty Island, facing south-east down the harbour toward the
+// Narrows (heading 130°: the axis of Fort Wood's eleven-pointed star in OpenStreetMap, a point behind her, a notch
+// before her): the star fort's walls, Stone's concrete foundation (19.8 m) and Hunt's granite pedestal (27.1 m) to
+// 46.9 m above the ground, the copper statue 46.05 m from her base to the torch's flame (heel to head 33.9 m, the
+// right arm 12.8 m, the tablet 7.2 x 4.1 m), the gold-leaf flame lit and the statue floodlit at night (NPS, Statue
+// Statistics). Local -z: her front, +x: her right (the torch arm).
+function statueOfLiberty(K) {
+  const b = K.base(0, 0, 45), back = Math.PI / 2;
+  // Fort Wood (1811): the star's granite walls, points 48 m from the centre, the notches 31 m
+  K.loft('fort', [{ y: b - 3, pts: starPts(11, 49, 32, back) }, { y: b + 7, pts: starPts(11, 48, 31, back) }]);
+  K.cyl('grass', 0, b + 7, 0, 0.3, 27, 27, { n: 22 });
+  // the foundation, a truncated pyramid 27.7 m square at the foot, 20.3 m at the top
+  K.cyl('conc2', 0, b + 5, 0, 14.8, 19.6, 14.35, { n: 4, flat: true, yaw: 45 });
+  // the pedestal: plinth, die, the loggias (dark recesses), cornice, attic, the balcony's parapet
+  const sq = (k, y0, y1, w0, w1 = w0) => K.cyl(k, 0, y0, 0, y1 - y0, w0 / Math.SQRT2, w1 / Math.SQRT2, { n: 4, flat: true, yaw: 45 });
+  sq('pgranite', b + 19.8, b + 23, 19.8, 19.4); sq('pgranite', b + 23, b + 33.5, 18, 16.8); sq('pgranite', b + 33.5, b + 38.5, 16.4);
+  K.slab('black', 0, b + 34.2, b + 37.8, 0, 16.6, 9); K.slab('black', 0, b + 34.2, b + 37.8, 0, 9, 16.6);
+  sq('pgranite', b + 38.5, b + 40, 18.2); sq('pgranite', b + 40, b + 45.4, 14.6); sq('pgranite', b + 45.4, b + 46.9, 15.4);
+  const P = b + 46.9;
+  // the robe, to the shoulders; neck and head (chin to cranium 5.3 m)
+  K.loft('verdigris', [ell(P - 0.4, 4.9, 4.3, 0, 16, 0.06), ell(P + 2, 4.6, 4.0, 0, 16, 0.06), ell(P + 8, 4.1, 3.4, 0, 16, 0.05), ell(P + 14, 3.8, 3.05, 0, 16, 0.04),
+    ell(P + 19, 3.7, 2.9, 0, 16, 0.03), ell(P + 23, 4.0, 2.9), ell(P + 26, 4.4, 2.7), ell(P + 27.6, 3.4, 2.2), ell(P + 28.6, 1.5, 1.4)]);
+  K.cyl('verdigris', 0, P + 28.4, -0.1, 1.2, 1.3, 1.3, { n: 10, caps: 'none' });
+  K.loft('verdigris', [0, 0.35, 0.6, 0.8, 0.93, 1].map((t) => { const a = -Math.PI / 2 + Math.PI * t; return ell(P + 31.2 + 2.66 * Math.sin(a), 2.15 * Math.cos(a) + 0.05, 2.35 * Math.cos(a) + 0.05, -0.3, 10); }));
+  // the crown: its band and the seven rays, fanned across her front
+  K.cyl('verdigris', 0, P + 31.9, -0.3, 1.1, 2.35, 2.25, { n: 12, caps: 'none' });
+  for (let i = 0; i < 7; i++) {
+    const th = (i - 3) * 27 * DEG, e = (14 + 6 * Math.abs(i - 3)) * DEG, d = [Math.sin(th) * Math.cos(e), Math.sin(e), -Math.cos(th) * Math.cos(e)], p0 = [2.1 * d[0], P + 32.6, -0.3 + 2.1 * d[2]];
+    K.tube('verdigris', p0, [p0[0] + 3 * d[0], p0[1] + 3 * d[1], p0[2] + 3 * d[2]], 0.38, 4, 0.04);
+  }
+  // the right arm raised with the torch (the flame's tip 46.05 m above her base)
+  const sh = [3.5, P + 26.8, 0.2], el = [3.9, P + 33.4, 0.1], ha = [4.25, P + 39.6, -0.4];
+  K.tube('verdigris', sh, el, 1.25, 8, 1.0); K.tube('verdigris', el, ha, 1.0, 8, 0.8);
+  K.tube('verdigris', [ha[0], ha[1] - 0.6, ha[2]], [ha[0], P + 41.7, ha[2]], 0.65, 8, 0.85);
+  K.cyl('verdigris', ha[0], P + 41.6, ha[2], 1.4, 0.9, 1.75, { n: 12 });                 // the torch's cup and balcony
+  K.cyl('gold', ha[0], P + 43, ha[2], 3.05, 1.25, 0.05, { n: 10 });                       // the gilded flame
+  K.light(ha[0], P + 44.3, ha[2], [2.6, 1.8, 0.7], 6);
+  // the left arm, down, the tablet (JULY IV MDCCLXXVI) held against her side
+  const ls = [-3.5, P + 26.4, 0.3], le = [-4.4, P + 21.4, -0.6], lh = [-3.9, P + 18.2, -2.1];
+  K.tube('verdigris', ls, le, 1.15, 8, 0.95); K.tube('verdigris', le, lh, 0.95, 8, 0.75);
+  K.box('verdigris', -4.0, P + 19.2, -2.3, 4.14, 7.19, 0.61, -20);
+  // floodlights in the star's notches, the balcony's lamps
+  for (let i = 0; i < 11; i++) { const a = back + (2 * i + 1) * Math.PI / 11; K.light(30 * Math.cos(a), b + 7.6, 30 * Math.sin(a), WARM, 2.6); }
+  for (const [x, z] of [[-7.5, -7.5], [7.5, -7.5], [7.5, 7.5], [-7.5, 7.5]]) K.light(x, P + 0.6, z, WARM, 1.8);
+}
+// Ellis Island's Main Building (1900): French Renaissance in red brick and limestone, 103 m long, the Registry Room's
+// block between two wings, its four corner towers with copper cupolas. Local -z: the front, toward the ferry basin.
+function ellisIsland(K) {
+  const b = K.base(0, 0, 45);
+  K.slab('brick', 0, b - 2, b + 21, 0, 50, 42);
+  K.roof('slate', 0, b + 21, 0, 42, 50, 6, 90);
+  for (const x of [-38.5, 38.5]) { K.slab('brick', x, b - 2, b + 16, 1, 27, 36); K.roof('slate', x, b + 16, 1, 36, 27, 4.5, 90); K.slab('stone', x, b + 15, b + 16.3, 1, 27.4, 36.4); K.slab('glass', x, b + 4, b + 12, 1, 27.3, 30); }
+  K.slab('stone', 0, b + 19.8, b + 21.2, 0, 50.6, 42.6);
+  K.slab('glass', 0, b + 4, b + 8, 0, 50.3, 36); K.slab('glass', 0, b + 11, b + 18.5, 0, 42, 42.3);   // the Registry Room's arched windows
+  K.slab('stone', 0, b - 1, b + 9, -22.5, 16, 3);                                                 // the entrance arches
+  K.slab('glass', 0, b, b + 7, -24.1, 12, 0.4);
+  for (const x of [-22, 22]) for (const z of [-18, 18]) {
+    K.slab('brick', x, b - 2, b + 28, z, 6.5, 6.5); K.slab('stone', x, b + 27, b + 30.5, z, 7.2, 7.2);
+    K.cyl('copper', x, b + 30.5, z, 3.2, 3.2, 3.2, { n: 8 }); K.dome('copper', x, b + 33.7, z, 3.3, { n: 8, rows: 3, sy: 1.45 });
+    K.cyl('copper', x, b + 38.4, z, 3.2, 0.45, 0.05, { n: 6 });
+    K.light(x, b + 30, z + 3.8 * Math.sign(z), WARM, 2);
+  }
+  for (const x of [-45, -30, 30, 45]) K.light(x, b + 2, -17.5, WARM, 2);
+}
+// One World Trade Center (2014): a 61 m square rising from its 57 m podium through eight tall isosceles triangles to
+// a square turned by 45° at the 417 m roof, the 124 m spire to 541.3 m, its beacon lit. Local axes along the square.
+function oneWTC(K) {
+  const b = K.base(0, 0, 32), s = 30.5, y0 = b + 57, y1 = b + 417;
+  K.slab('steel', 0, b - 3, y0, 0, 60.6, 60.6); K.slab('wtc', 0, b + 6, y0 - 2, 0, 61, 61);
+  const B = [[s, s], [-s, s], [-s, -s], [s, -s]].map(([x, z]) => [x, y0, z]), Tq = [[0, s], [-s, 0], [0, -s], [s, 0]].map(([x, z]) => [x, y1, z]);
+  const tri = [];
+  for (let i = 0; i < 4; i++) { tri.push([B[i], B[(i + 1) % 4], Tq[i]]); tri.push([Tq[(i + 3) % 4], B[i], Tq[i]]); }
+  K.facets('wtc', tri);
+  K.slab('steel', 0, y1, y1 + 3.5, 0, 43.1, 43.1, 45);
+  K.cyl('steel', 0, y1 + 3.5, 0, 6, 6, 4.5, { n: 12 });
+  K.cyl('crown', 0, y1 + 9.5, 0, 114.8, 2.6, 0.5, { n: 8 });
+  for (const f of [0.15, 0.32, 0.5]) { const r = mix(2.6, 0.5, f) + 0.9; K.cyl('steel', 0, y1 + 9.5 + 114.8 * f, 0, 1.6, r, r, { n: 10, caps: 'both' }); }
+  K.light(0, b + 541.3, 0, WHITE, 6, 0); K.light(0, y1 + 70, 0, RED, 3, 1.6);
+  for (const [x, z] of [[21, 0], [-21, 0], [0, 21], [0, -21]]) K.light(x, y1 + 4, z, RED, 3, 1.6);
+}
+// The Brooklyn Bridge (Roebling, 1883): a 486 m main span between granite and limestone towers 84 m above high
+// water, each pierced by two pointed Gothic arches over the roadway; side spans to the anchorages; four main cables
+// with the diagonal stays' web; the deck 26 m wide, 41 m clear at mid-span. a: the Manhattan anchorage, b: Brooklyn's.
+function brooklynBridge(K, L) {
+  const f = L / 1120.1, t1 = 311 * f, t2 = 796.6 * f, sm = (t1 + t2) / 2, half = (t2 - t1) / 2, zs = (s) => L / 2 - s;
+  const yE = 35, yT = 40.5, yM = 45.5;
+  const deck = (s) => s < t1 ? mix(yE, yT, s / t1) : s <= t2 ? yT + (yM - yT) * (1 - ((s - sm) / half) ** 2) : mix(yT, yE, (s - t2) / (L - t2));
+  deckRun(K, { L, y: deck, w: 26, depth: 5, key: 'bbtan', lamps: 26 });
+  for (const s of [t1, t2]) {
+    const z = zs(s), g = K.gmin(0, z, 12), wet = g < 0.3, bot = wet ? Math.max(g, -20) - 2 : g - 3;
+    K.slab('granite', 0, bot, 37, z, 42.7, 18);
+    if (wet) K.foot(0, z, 42.7, 18, 90);
+    for (const [x, w] of [[-17.45, 6.8], [0, 7.4], [17.45, 6.8]]) K.slab('granite', x, 37, 64, z, w, 16.6);
+    // the pointed arches: each opening (10.3 m) narrowed in steps to its apex
+    for (const xc of [-8.85, 8.85]) for (const [y0, y1, d] of [[64, 67, 2], [67, 70, 3.5], [70, 72.5, 4.6]]) for (const sx of [-1, 1]) K.slab('granite', xc + sx * (5.15 - d / 2), y0, y1, z, d, 16.2);
+    K.slab('granite', 0, 72.5, 84.3, z, 41.6, 16.2);
+    K.slab('granite', 0, 80.5, 81.8, z, 42.6, 17.2);
+    for (const x of [-19, 19]) K.light(x, 85, z, RED, 3, 1.6);
+    // the stays, fanned from the tower top over the outer cables' planes
+    for (const x of [-13, 13]) for (const dir of [-1, 1]) for (let k = 1; k <= 8; k++) { const s2 = s + dir * k * 19; K.beam('bbtan', [x, 80, z], [x, deck(s2) + 0.5, zs(s2)], 0.25, 0.25); }
+  }
+  for (const s of [0, L]) anchorage(K, zs(s), deck(s), 36, 40, 'granite');
+  cables(K, { L, anchors: [0, L], towers: [t1, t2], yTop: 82, yLow: yM + 2, sep: 26, r: 0.5, key: 'bbtan', deck, hang: 12, neck: 14, yAnch: [yE + 3, yE + 3] });
+  cables(K, { L, anchors: [0, L], towers: [t1, t2], yTop: 82, yLow: yM + 2, sep: 7.6, r: 0.5, key: 'bbtan', deck, hang: 12, yAnch: [yE + 3, yE + 3] });
+}
+// The Manhattan Bridge (1909): steel towers 102 m, a 448 m main span, side spans of 221 m, a double-deck truss.
+// a: the Manhattan anchorage, b: Brooklyn's.
+function manhattanBridge(K, L) {
+  const f = L / 932.5, t1 = 243.5 * f, t2 = 687.6 * f, sm = (t1 + t2) / 2, half = (t2 - t1) / 2, zs = (s) => L / 2 - s;
+  const yE = 40, yT = 45, yM = 49;
+  const deck = (s) => s < t1 ? mix(yE, yT, s / t1) : s <= t2 ? yT + (yM - yT) * (1 - ((s - sm) / half) ** 2) : mix(yT, yE, (s - t2) / (L - t2));
+  deckRun(K, { L, y: deck, w: 37, depth: 8, key: 'silver', lamps: 30 });
+  for (const s of [t1, t2]) {
+    const z = zs(s), b = towerPier(K, z, 44, 22);
+    for (const x of [-14, 14]) { K.slab('silver', x, b, 102, z, 5, 8); K.light(x, 102.8, z, RED, 3, 1.6); }
+    for (const [y0, y1] of [[deck(s) - 10, deck(s) - 7], [70, 73], [92, 100]]) K.slab('silver', 0, y0, y1, z, 33, 6);
+    K.beam('silver', [-14, deck(s) + 2, z], [14, 90, z], 1.2, 1.2); K.beam('silver', [14, deck(s) + 2, z], [-14, 90, z], 1.2, 1.2);
+  }
+  for (const s of [0, L]) anchorage(K, zs(s), deck(s), 50, 56, 'granite');
+  for (const sep of [28, 12]) cables(K, { L, anchors: [0, L], towers: [t1, t2], yTop: 99, yLow: yM + 2.5, sep, r: 0.55, key: 'silver', deck, neck: sep > 20 ? 14 : 0, yAnch: [yE + 3, yE + 3] });
+}
+// The Verrazzano-Narrows Bridge (1964): a 1298 m main span (the world's longest until 1981) between steel towers
+// 211 m high, side spans of 370 m, a double-deck truss 31.4 m wide and 7.3 m deep, 69.5 m clear at mid-span, its
+// necklace lights. a: the Staten Island anchorage (Fort Wadsworth), b: Brooklyn's (Fort Hamilton).
+function verrazzano(K, L) {
+  const f = L / 2083.4, t1 = 382.7 * f, t2 = 1678.6 * f, sm = (t1 + t2) / 2, half = (t2 - t1) / 2, zs = (s) => L / 2 - s;
+  const yE = 62, yT = 70.5, yM = 76.8;
+  const deck = (s) => s < t1 ? mix(yE, yT, s / t1) : s <= t2 ? yT + (yM - yT) * (1 - ((s - sm) / half) ** 2) : mix(yT, yE, (s - t2) / (L - t2));
+  deckRun(K, { L, y: deck, w: 31.4, depth: 7.3, key: 'vnb', lamps: 40 });
+  for (const s of [t1, t2]) {
+    const z = zs(s), g = K.gmin(0, z, 25), wet = g < 0.3;
+    let b; if (wet) { K.slab('conc', 0, Math.max(g, -30) - 2, 7, z, 70, 40); K.foot(0, z, 70, 40, 90); b = 7; } else { K.slab('conc', 0, g - 3, g + 3, z, 70, 40); b = g + 3; }
+    for (const x of [-21, 21]) {
+      for (const [y0, y1, w, d] of [[b, 70, 9.5, 11.5], [70, 140, 8.5, 10.5], [140, 209, 7.5, 9.5]]) K.slab('vnb', x, y0, y1, z, w, d);
+      K.slab('vnb', x, 209, 211, z, 5, 8);                                  // the saddle housing
+      K.light(x, 212, z, RED, 3.2, 1.6);
+    }
+    for (const [y0, y1] of [[yT - 15, yT - 8], [124, 130], [166, 171], [202, 209]]) K.slab('vnb', 0, y0, y1, z, 36, 7);
+  }
+  for (const s of [0, L]) anchorage(K, zs(s), deck(s), 60, 70);
+  cables(K, { L, anchors: [0, L], towers: [t1, t2], yTop: 208, yLow: yM + 3, sep: 35, r: 0.9, key: 'vnb', deck, neck: 13, yAnch: [yE + 4, yE + 4] });
+}
+// Castle Williams (1811) on Governors Island: the round red sandstone casemated fort, 64 m across, its tiers of
+// gunports toward the harbour, the straight gorge wall toward the island. Local -z: the gorge (south-east).
+function castleWilliams(K) {
+  const b = K.base(0, 0, 32), a0 = -Math.PI / 2 + Math.PI / 3, a1 = 3 * Math.PI / 2 - Math.PI / 3, H = 12.5;
+  K.cyl('redstone', 0, b - 3, 0, H + 3, 32, 32, { n: 24, a0, a1, caps: 'none' });
+  K.cyl('redstone', 0, b - 3, 0, H + 3, 22.5, 22.5, { n: 18, a0, a1, caps: 'none' });
+  K.surf('redstone', (u, v) => { const a = mix(a0, a1, u), r = mix(22.5, 32, v); return [r * Math.cos(a), b + H, r * Math.sin(a)]; }, 18, 1);
+  const c0 = [27 * Math.cos(a0), 27 * Math.sin(a0)], c1 = [27 * Math.cos(a1), 27 * Math.sin(a1)];
+  wall(K, 'redstone', c0[0], c0[1], c1[0], c1[1], H - 2, 5);
+  for (const y of [b + 2.5, b + 7]) for (let i = 0; i < 22; i++) { const a = mix(a0, a1, (i + 0.5) / 22); K.box('black', 32 * Math.cos(a), y, 32 * Math.sin(a), 1.3, 1.6, 1.3, 90 - a / DEG); }
+  for (let i = 0; i < 5; i++) { const a = mix(a0, a1, (i + 0.5) / 5); K.light(34 * Math.cos(a), b + 1, 34 * Math.sin(a), WARM, 2.2); }
+}
+
 // ------------------------------------------------------------------ the registry
 // name, lat, lon, heading (deg true), or a / b: a bridge's two ends; clear: no buildings or trees within (m)
 export const LANDMARKS = {
@@ -917,6 +1097,17 @@ export const LANDMARKS = {
     { name: 'Rose Island Lighthouse', lat: 41.49548, lon: -71.34272, heading: 0, clear: 15, model: roseIsland },
     { name: 'Beavertail Lighthouse', lat: 41.44936, lon: -71.39944, heading: 0, clear: 25,
       model: (K) => { const b = K.base(0, 0, 5); lighthouse(K, { y0: b, h: 17, r0: 4.6, r1: 3.9, square: true, key: 'granite', lantern: 2.6 }); house(K, 0, b, 13, 14, 9, 6, 90, 'white', 'roof'); } },
+  ],
+  newyork: [
+    { name: 'Statue of Liberty', lat: 40.68930, lon: -74.04454, heading: 130, clear: 60, model: statueOfLiberty },
+    { name: 'Ellis Island Main Building', lat: 40.69912, lon: -74.03950, heading: 224, clear: 60, model: ellisIsland },
+    { name: 'One World Trade Center', lat: 40.71300, lon: -74.01319, heading: 27.4, clear: 40, model: oneWTC },
+    { name: 'Brooklyn Bridge', a: [40.70930, -74.00089], b: [40.70198, -73.99172], clear: 30, bridge: true, model: brooklynBridge },
+    { name: 'Manhattan Bridge', a: [40.71083, -73.99264], b: [40.70308, -73.98828], clear: 30, bridge: true, model: manhattanBridge },
+    { name: 'Verrazzano-Narrows Bridge', a: [40.60268, -74.05667], b: [40.61002, -74.03395], clear: 40, bridge: true, model: verrazzano },
+    { name: 'Castle Williams', lat: 40.69283, lon: -74.01935, heading: 135, clear: 40, model: castleWilliams },
+    { name: 'Robbins Reef Lighthouse', lat: 40.65737, lon: -74.06536, heading: 0,
+      model: (K) => { K.cyl('black', 0, -8, 0, 13.5, 6.6, 6.4, { n: 16 }); K.foot(0, 0, 0.2, 13, 0); lighthouse(K, { y0: 5.5, h: 10, r0: 3.4, r1: 2.5, n: 12, bands: [[0, 0.5, 'brown'], [0.5, 1, 'white']], lantern: 2.2 }); } },
   ],
   marseille: [
     { name: 'Notre-Dame de la Garde', lat: 43.28400, lon: 5.37130, heading: 270, clear: 75, model: notreDameGarde },

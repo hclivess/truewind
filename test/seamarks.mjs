@@ -84,7 +84,7 @@ const L = (s) => { const l = parseLight(s), P = lightPhases(l); show(s, P); retu
 }
 // IALA regions
 {
-  const want = { solent: 'A', sfbay: 'B', garda: 'A', sydney: 'A', kiel: 'A', newport: 'B', auckland: 'A', marseille: 'A', meredith: 'B', progreso: 'B' };
+  const want = { solent: 'A', sfbay: 'B', garda: 'A', sydney: 'A', kiel: 'A', newport: 'B', newyork: 'B',auckland: 'A', marseille: 'A', meredith: 'B', progreso: 'B' };
   for (const [id, r] of Object.entries(want)) { const v = VENUES.find(x => x.id === id); check(ialaRegion(v.lat, v.lon) === r, `IALA region ${r}: ${v.name}`); }
   check(ialaRegion(35.6, 139.8) === 'B' && ialaRegion(14.6, 121) === 'B' && ialaRegion(37.5, 126.6) === 'B' && ialaRegion(1.3, 103.8) === 'A', 'IALA B: Tokyo, Manila, Incheon; A: Singapore');
   const pA = resolveMark({ t: 'buoy_lateral', cat: 'port' }, 'A'), pB = resolveMark({ t: 'buoy_lateral', cat: 'port' }, 'B');

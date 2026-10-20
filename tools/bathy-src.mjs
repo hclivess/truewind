@@ -21,6 +21,7 @@ export const SOURCES = {
   marseille: { src: 'emodnet', datum: 'LAT', res: 115, note: 'EMODnet Bathymetry DTM 2024 (SHOM surveys); LAT ≈ MSL − 0.2 m' },
   sfbay: { src: 'ncei', datum: 'NAVD88', res: 10, note: 'NOAA NCEI CUDEM 1/9" (ncei19_n38x00_w122x50_2022v1), NAVD88 → MSL by NOAA 9414290 datums' },
   newport: { src: 'ncei', datum: 'NAVD88', res: 10, note: 'NOAA NCEI CUDEM 1/9" (ncei19_n41x50_w071x50_2018v1) and CRM vol. 1, NAVD88 → MSL by NOAA 8452660 datums' },
+  newyork: { src: 'ncei', datum: 'NAVD88', res: 10, note: 'NOAA NCEI CUDEM 1/9" (the New York Harbor tiles, ncei19_n40x75_w074x00/x25 and neighbours), NAVD88 → MSL by NOAA 8518750 datums' },
   sydney: { src: 'gmrt', datum: 'MSL', res: 61, note: 'GMRT 4.5 (AusSeabed multibeam of Port Jackson over GEBCO 2025), ≈ MSL' },
   auckland: { src: 'gmrt', base: 'ncei', datum: 'MSL', res: 450, note: 'GMRT 4.5 multibeam where surveyed, ETOPO 2022 15" (NOAA NCEI; GEBCO / NIWA inputs) elsewhere, ≈ MSL' },
   progreso: { src: 'gmrt', datum: 'MSL', res: 450, note: 'GMRT 4.5 (GEBCO 2025 15"), ≈ MSL' },

@@ -18,7 +18,7 @@ const CLS = { bird: 0, cet: 1, shark: 2, turtle: 3 };
 // how far each is drawn (m)
 const DRAW = { bird: 1300, cet: 2200, shark: 700, turtle: 350 };
 // the water's clarity: an attenuation per metre of sight line (murky estuaries to the clear open ocean)
-const KWATER = { solent: 0.45, kiel: 0.4, sfbay: 0.7, newport: 0.35, sydney: 0.2, auckland: 0.22, progreso: 0.28, marseille: 0.11, garda: 0.18, meredith: 0.35, southern: 0.1, open: 0.07 };
+const KWATER = { solent: 0.45, kiel: 0.4, sfbay: 0.7, newport: 0.35, newyork: 0.6, sydney: 0.2, auckland: 0.22, progreso: 0.28, marseille: 0.11, garda: 0.18, meredith: 0.35, southern: 0.1, open: 0.07 };
 
 export const WL_GLSL = /* glsl */`
 attribute vec4 aPart; attribute vec4 aP2; attribute vec4 aAnim; attribute float aSurf;

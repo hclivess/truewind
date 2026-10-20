@@ -9,6 +9,7 @@ import { Tide } from '../js/tide.js';
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 export function loadVenue(id) {
   const v = VENUES.find(x => x.id === id), geo = JSON.parse(readFileSync(`data/venues/${id}.json`, 'utf8'));
@@ -59,7 +60,7 @@ export function report(id, { bands, bad }) {
   for (const q of bad.slice(0, 6)) console.log(`   too shallow: ${q.lat.toFixed(5)}, ${q.lon.toFixed(5)} chart ${q.z.toFixed(1)} m, game ${q.d.toFixed(1)} m (${q.s.toFixed(0)} m from shore)`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {          // (a file URL on Windows too)
   const id = process.argv[2], svc = process.argv[3] || 'harbour';
   const V = loadVenue(id);
   const pts = await encSoundings(V.v, V.R, svc);

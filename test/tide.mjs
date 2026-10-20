@@ -16,14 +16,16 @@ const utc = (s) => Date.parse(s.replace(' ', 'T') + 'Z');
 const tideFile = (id) => JSON.parse(readFileSync(new URL(`../data/venues/${id}.tide.json`, import.meta.url), 'utf8'));
 
 // ---------------------------------------------------------------- 1. harmonic prediction vs official predictions
-// NOAA CO-OPS high / low waters (m above MSL, GMT) for San Francisco 9414290 and Newport 8452660
+// NOAA CO-OPS high / low waters (m above MSL, GMT) for San Francisco 9414290, Newport 8452660 and The Battery 8518750
 const NOAA = {
   sfbay: [['2026-09-26 00:17', -0.574], ['2026-09-26 06:34', 0.716], ['2026-09-26 12:26', -0.719], ['2026-09-26 19:00', 0.785], ['2026-09-27 00:54', -0.722], ['2026-09-27 07:22', 0.68],
     ['2027-03-15 01:35', 0.198], ['2027-03-15 05:12', 0.016], ['2027-03-15 11:42', 0.79], ['2027-03-15 19:08', -0.966]],
   newport: [['2026-09-26 05:19', -0.546], ['2026-09-26 11:58', 0.733], ['2026-09-26 17:50', -0.534], ['2026-09-27 00:17', 0.672], ['2026-09-27 05:53', -0.585], ['2026-09-27 12:38', 0.796],
     ['2027-03-15 05:27', 0.517], ['2027-03-15 11:10', -0.395], ['2027-03-15 18:04', 0.343], ['2027-03-15 23:05', -0.476]],
+  newyork: [['2026-09-26 00:03', 0.852], ['2026-09-26 06:29', -0.746], ['2026-09-26 12:23', 0.87], ['2026-09-26 18:54', -0.697], ['2026-09-27 00:39', 0.858], ['2026-09-27 07:07', -0.777],
+    ['2027-03-15 05:35', 0.649], ['2027-03-15 12:46', -0.633], ['2027-03-15 18:26', 0.362]],
 };
-for (const id of ['sfbay', 'newport']) {
+for (const id of ['sfbay', 'newport', 'newyork']) {
   const g = tideFile(id).gauges[0], st = new TideStation({ cons: g.cons });
   let dtMax = 0, dhMax = 0;
   for (const [t, h] of NOAA[id]) {
@@ -111,6 +113,45 @@ const maxOver = (tide, lat, lon, v, t0, t1, dir) => {
     // neaps are gentler than springs
     const [hN] = maxOver(tide, 50.7055, -1.5465, V, utc('2026-10-04 00:00'), utc('2026-10-06 00:00'));
     check(hN < 0.75 * hurst, `Hurst Narrows at neaps ${hN.toFixed(1)} kn, springs ${hurst.toFixed(1)} kn`);
+  }
+}
+
+{
+  const V = VENUES.find(v => v.id === 'newyork'), tide = streamsOf('newyork');
+  if (!tide) check(false, 'New York: no baked stream maps (node tools/bake-tide.mjs newyork)');
+  else {
+    // NOAA current predictions, 29–30 September 2026 (maxima in kn along the flood direction, slacks): the Narrows
+    // (n03020, 13 ft down), the East River at the Brooklyn Bridge (NYH1920, 14 ft), the Hudson's entrance (NYH1927, 23 ft).
+    // Known short: the model's streams run at 0.5–0.8 × these near-surface predictions. It has no river flow (the
+    // Hudson's outflow lengthens and strengthens the surface ebb, and in the Narrows makes the slack before the flood
+    // come about 100 min later than a pure tide's) and its Hudson ends at Spuyten Duyvil, forced by the level there,
+    // so the tidal prism of the river above passes only as the level's gradient there drives it. (A lower Manning n,
+    // 0.016, gained 10 %; no sponge, 5 %.) What is checked is what it does get: the timing of the maxima everywhere and of
+    // the slacks in the East River and the Hudson, and speeds no lower than half NOAA's.
+    const ST = [
+      ['the Narrows (n03020)', 40.6064, -74.0380, 325, [['2026-09-29 13:10', 1.94], ['2026-09-29 18:43', -2.11], ['2026-09-30 01:50', 1.33], ['2026-09-30 07:16', -2.12], ['2026-09-30 13:56', 1.94]],
+        ['2026-09-29 16:11', '2026-09-29 23:27', '2026-09-30 04:35', '2026-09-30 11:23']],
+      ['the East River at the Brooklyn Bridge (NYH1920)', 40.7060, -73.9977, 45, [['2026-09-29 12:43', 3.55], ['2026-09-29 18:57', -3.65], ['2026-09-30 01:09', 3.26], ['2026-09-30 07:18', -3.57], ['2026-09-30 13:28', 3.4]],
+        ['2026-09-29 16:10', '2026-09-29 22:32', '2026-09-30 04:34', '2026-09-30 10:47']],
+      ['the Hudson River entrance (NYH1927)', 40.7076, -74.0253, 6, [['2026-09-29 14:05', 2.27], ['2026-09-29 20:45', -1.9], ['2026-09-30 02:42', 1.59], ['2026-09-30 08:48', -1.6], ['2026-09-30 14:48', 2.27]],
+        ['2026-09-29 17:45', '2026-09-29 23:49', '2026-09-30 05:53', '2026-09-30 11:25']],
+    ];
+    const P = makeProjection(V.lat, V.lon), o = {};
+    for (const [name, lat, lon, fdir, NO, SL] of ST) {
+      const [x, z] = P.fwd(lat, lon), fd = fdir * Math.PI / 180;
+      const major = (t) => { tide.streams.atTime(x, z, t, o); return (o.x * Math.sin(fd) - o.z * Math.cos(fd)) / KT; };
+      const dts = [], ratio = [], sdt = [];
+      for (const [t, sp] of NO) {
+        const T = utc(t); let bt = T, bv = 0;
+        for (let d = -150; d <= 150; d += 5) { const v = major(T + d * 60e3); if (sp < 0 ? v < bv : v > bv) { bv = v; bt = T + d * 60e3; } }
+        dts.push((bt - T) / 60e3); ratio.push(bv / sp);
+      }
+      for (const t of SL) { const T = utc(t); let bt = T, bv = 9; for (let d = -150; d <= 150; d += 5) { const v = Math.abs(major(T + d * 60e3)); if (v < bv) { bv = v; bt = T + d * 60e3; } } sdt.push((bt - T) / 60e3); }
+      const dtAbs = Math.max(...dts.map(Math.abs)), sAbs = Math.max(...sdt.map(Math.abs));
+      console.log(`     ${name}: maxima, model − NOAA (min) ${dts.map(d => d.toFixed(0)).join(' ')}, speed ratios ${ratio.map(r => r.toFixed(2)).join(' ')}; slacks ${sdt.map(d => d.toFixed(0)).join(' ')} min`);
+      const narrows = name.includes('n03020'), sOk = narrows ? Math.max(Math.abs(sdt[0]), Math.abs(sdt[2])) <= 30 : sAbs <= 30;
+      check(dtAbs <= 60 && sOk && Math.min(...ratio) > 0.45 && Math.max(...ratio) < 1.6, `New York, ${name}: maxima within ${dtAbs.toFixed(0)} min, ${narrows ? 'the slacks before the ebb' : 'slacks'} within ${(narrows ? Math.max(Math.abs(sdt[0]), Math.abs(sdt[2])) : sAbs).toFixed(0)} min of NOAA's, speeds ${Math.min(...ratio).toFixed(2)}–${Math.max(...ratio).toFixed(2)} × NOAA's (known short: no river, see above)`);
+    }
   }
 }
 
