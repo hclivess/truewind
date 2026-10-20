@@ -2166,6 +2166,18 @@ function trimSails(boat, dt, aoaBias = 0, full = true) {
     // (nothing touched while there is no play: the trim's own value, clamped or not, stays as it was)
     if (tb.mp > 1e-4) { const m0 = c.main; c.main = clamp(c.main + tb.mp, 0, 1); tb.mpa = c.main - m0; } else tb.mpa = 0;
   }
+  // bearing away (the helm put hard up to turn her off the wind, close to it): the main goes out, as a crew eases it for
+  // the helmsman: sheeted hard in its pull aft turns her up faster than a rudder with no
+  // flow can turn her off. (The AI's helm does this itself, js/race.js steer; with the player's helm and automatic trim
+  // the main stayed in: a Blackwatch double-reefed in 27 kn, put head to wind, drifted astern with the helm hard over
+  // and was back at 28 deg off the wind after 90 s, onto a pier)
+  if (full && boat.sailBy.main && !boat.speedCraft) {
+    const tk = Math.sign(wrap((d.twd ?? 0) - boat.psi)) || 1, twaB = Math.abs(wrap((d.twd ?? 0) - boat.psi));
+    // (as hard as the helm is put up: a helm held hard to bear away, at any speed, means the main is out-turning the
+    // rudder; the steady weather helm upwind, ~0.15 of full, is no call to ease)
+    const hu = (boat.ctrl.helm ?? 0) * tk, need = clamp((hu - 0.4) / 0.4, 0, 1) * (1 - sstep(80 * DEG, 110 * DEG, twaB));
+    if (need > 0) c.main = Math.max(c.main, need * (0.5 + 0.35 * clamp(1 - boat.u / 3, 0, 1)));
+  }
   // running, the boom is never let out past square: a main eased forward of abeam drives the rig to windward, the start
   // of the death roll (a Laser at 160 deg in a 16 kn puff, the telltales asking for more ease, had her boom at 100 deg
   // and rolled in over her windward side in two seconds). The crew stops the sheet where the boom came to 85 deg and
