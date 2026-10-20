@@ -26,6 +26,13 @@ export const VENUES = [
   { id: 'sydney', name: 'Sydney Harbour', place: 'New South Wales, Australia', lat: -33.845, lon: 151.255, wind: 45, windKt: 14, depth: 18, note: 'Summer nor-easter sea breeze, ferries, headlands and bays.' },
   { id: 'kiel', name: 'Kiel Fjord', place: 'Kiel, Germany', lat: 54.41, lon: 10.2, wind: 250, windKt: 12, depth: 16, note: 'Kieler Woche waters, the outer fjord toward the Baltic.' },
   { id: 'newport', name: 'Narragansett Bay', place: 'Newport, Rhode Island, USA', lat: 41.47, lon: -71.36, wind: 215, windKt: 14, depth: 20, current: { kt: 0.6, dir: 20 }, note: 'Classic America\'s Cup ground, reliable afternoon southwesterly.' },
+  // (the Upper Bay from the Verrazzano-Narrows Bridge to the Battery, the Statue of Liberty, Governors Island and the
+  // Brooklyn waterfront: a 16 km square. The tide is semidiurnal, 1.4 m mean range at the Battery (NOAA 8518750);
+  // the ebb and flood run 1.5-2.5 kn through the Narrows and up the Hudson's mouth, harder in the East River; the
+  // summer afternoon sea breeze comes in off the Lower Bay from the south-southwest at 12-14 kn)
+  { id: 'newyork', name: 'New York Harbor', place: 'Upper New York Bay, New York, USA', lat: 40.655, lon: -74.04, R: 8000, wind: 200, windKt: 13, depth: 12,
+    current: { kt: 1.5, dir: 15 }, spawn: { lat: 40.668, lon: -74.052, heading: 0 },
+    note: 'The Upper Bay under the Statue of Liberty: the sea breeze in through the Narrows, the tide up the Hudson and through the East River, the Staten Island Ferry and the ships.' },
   { id: 'auckland', name: 'Hauraki Gulf', place: 'Auckland, New Zealand', lat: -36.83, lon: 174.82, wind: 230, windKt: 15, depth: 18, note: 'Waitematā Harbour entrance, Rangitoto to the north.' },
   { id: 'marseille', name: 'Rade de Marseille', place: 'Marseille, France', lat: 43.27, lon: 5.33, wind: 315, windKt: 20, depth: 40, note: 'Mistral country. Frioul islands offshore.' },
   { id: 'meredith', lake: true, name: 'Lake Meredith', place: 'near Amarillo, Texas, USA', lat: 35.69, lon: -101.565, wind: 200, windKt: 14, depth: 25, note: 'Panhandle lake near Amarillo, where Blue Water Boatworks built the Blackwatch 19/24.' },

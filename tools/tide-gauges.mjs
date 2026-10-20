@@ -11,6 +11,7 @@ import { readFileSync, writeFileSync, existsSync, createReadStream } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { pathToFileURL } from 'node:url';
 
 // role: 'level' = drives the water level (inverse-distance blend at the boat); 'bc' = open-boundary forcing only;
 // 'check' = validation of the tide model. The first 'level' gauge is the venue's reference (the tide curve).
@@ -42,6 +43,18 @@ export const GAUGES = {
     { noaa: '8447386', name: 'Fall River', role: 'check' },
     { noaa: '8455083', name: 'Point Judith', role: 'bc' },
     { noaa: '8450768', name: 'Sakonnet', role: 'bc' },
+  ],
+  newyork: [
+    { noaa: '8518750', name: 'The Battery', role: 'level' },
+    { noaa: '8519050', name: 'USCG Station New York (the Narrows)', role: 'level' },
+    { noaa: '8519483', name: 'Bergen Point West Reach', role: 'level' },
+    { noaa: '8517847', name: 'Brooklyn Bridge', role: 'level' },
+    { noaa: '8531680', name: 'Sandy Hook', role: 'bc' },
+    { noaa: '8516990', name: 'Willets Point', role: 'bc' },
+    { noaa: '8518902', name: 'Dyckman Street', role: 'bc' },
+    { noaa: '8518668', name: 'Horns Hook', role: 'check' },
+    { noaa: '8530882', name: 'Port Elizabeth', role: 'check' },
+    { noaa: '8517756', name: 'Kingsborough CC', role: 'check' },
   ],
   kiel: [{ ticon: 'kielholtenau-9610066-deu-wsv', name: 'Kiel-Holtenau', role: 'level' }, { ticon: 'ltkiel-9610050-deu-wsv', name: 'Kiel Lighthouse', role: 'level' }],
   sydney: [{ ticon: 'sydney_fort_denison-60370-aus-bom', name: 'Fort Denison', role: 'level' }, { ticon: 'sydney_port_jackson-213470-aus-bom', name: 'Port Jackson (Heads)', role: 'level' }],
@@ -97,7 +110,7 @@ export function datums(cons) {
   return { lat: -lo + 0.02, mhw: hw.reduce((s, e) => s + e.h, 0) / Math.max(1, hw.length) };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {          // (a file URL on Windows too)
   const want = process.argv.slice(2);
   for (const v of VENUES) {
     if (!GAUGES[v.id] || (want.length && !want.includes(v.id))) continue;

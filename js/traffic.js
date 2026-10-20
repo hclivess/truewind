@@ -345,11 +345,18 @@ const FERRY_FLEETS = [
   [/water emergency|weta|sf bay ferry|san francisco bay ferry/i, ['Hydrus', 'Cetus', 'Carina', 'Argo', 'Pisces', 'Scorpio', 'Gemini', 'Taurus', 'Intintoli', 'Mare Island', 'Bay Breeze', 'Peralta'], []],
   [/alcatraz/i, ['Alcatraz Flyer', 'Alcatraz Clipper', 'Alcatraz Voyager'], []],
   [/fullers|waiheke|devonport|birkenhead|half moon|pine harbour|hobsonville|bayswater|rotoroa/i, ['Kea', 'Te Kotuku', 'Kawau Kat', 'Superflyte', 'Harbour Cat'], ['Quickcat', 'Jet Raider', 'Te Waka']],
+  // (New York: the Staten Island Ferry's orange double-enders, 94-100 m — the Barberi, Molinari and Ollis classes;
+  // NYC Ferry, run by Hornblower; NY Waterway; Seastreak's fast catamarans; the Statue of Liberty boats)
+  [/staten island ferry|nycdot/i, ['Andrew J. Barberi', 'Samuel I. Newhouse', 'Guy V. Molinari', 'Sen. John J. Marchi', 'Spirit of America', 'Michael H. Ollis', 'Sandy Ground', 'Dorothy Day'], []],
+  [/nyc ferry|hornblower/i, ['Lunch Box', 'Flying Cloud', 'Sea Wolf', 'Friendship', 'Seas the Day', 'Opportunity', 'Urban Journey', 'Rockaway Rose'], []],
+  [/ny waterway/i, ['Frank Sinatra', 'Thomas Jefferson', 'Moira Smith', 'Austin Tobin', 'Enduring Freedom', 'Robert Roe', 'Henry Hudson'], []],
+  [/seastreak/i, [], ['Seastreak New York', 'Seastreak Wall Street', 'Seastreak Highlands', 'Seastreak Commodore', 'Seastreak New Jersey']],
+  [/statue city|statue cruises/i, ['Miss Liberty', 'Miss Ellis Island', 'Miss New York', 'Miss Gateway'], []],
   [/navigazione|garda|limone|malcesine|riva/i, ['Brescia', 'Verona', 'Italia', 'Zanardelli', 'Andrea Doria', 'Tonale'], ['Freccia delle Riviere', 'Freccia del Garda']],
 ];
 const SHIP_NAMES = ['Nordic Star', 'Atlantic Trader', 'Pacific Venture', 'Baltic Carrier', 'Ocean Harmony', 'Cape Mercy', 'Northern Dawn', 'Southern Cross', 'Iron Duke', 'Silver Pearl', 'Coral Sea', 'Eastern Promise'];
 const FISHING_NAMES = ['Girl Pat', 'Our Boys', 'Provider', 'Good Intent', 'Boy Andrew', 'Harvest Reaper', 'Ocean Pride', 'Silver Dawn', 'Guiding Star', 'Fruitful Bough', 'Brothers', 'Sea Harvester', 'Morning Glory', 'Two Sisters'];
-const FERRY_NAMES = { Wightlink: 0x1b3f8b, 'Red Funnel': 0xe03a2f, 'Sydney Ferries': 0x2f6e3a, 'Fullers': 0x0e3b66 };
+const FERRY_NAMES = { Wightlink: 0x1b3f8b, 'Red Funnel': 0xe03a2f, 'Sydney Ferries': 0x2f6e3a, 'Fullers': 0x0e3b66, 'Staten Island Ferry': 0xe8742a };
 export class Traffic {
   // world: World; data: processTraffic() output (or null); opts: { density, seed, keepOut: [{x, z, r}], env }
   constructor(world, data, opts = {}) {
@@ -449,7 +456,7 @@ export class Traffic {
       const rail = new Rail(pts);
       if (rail.L < (/floating bridge|chain/i.test(f.n + f.op) ? 50 : 250)) continue;
       const nm = f.n + ' ' + f.op;
-      const type = /floating bridge|chain/i.test(nm) ? 'chain' : /fast|jet|hover|catamaran|express/i.test(nm) ? 'fastcat' : /vehic|car |wightlink|red funnel|sealink|great barrier/i.test(nm) && rail.L > 2500 ? 'carferry' : 'ferry';
+      const type = /floating bridge|chain/i.test(nm) ? 'chain' : /fast|jet|hover|catamaran|express|seastreak/i.test(nm) ? 'fastcat' : /vehic|car |wightlink|red funnel|sealink|great barrier|staten island ferry/i.test(nm) && rail.L > 2500 ? 'carferry' : 'ferry';
       this.ferryRails.push({ rail, type, name: f.n, op: f.op, endA, endB });
     }
     // one route drawn twice (a way and its relation, or both directions): keep one

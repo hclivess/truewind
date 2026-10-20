@@ -22,6 +22,7 @@ import { sample, z0Field } from './bathy-src.mjs';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const G = 9.81, D2R = Math.PI / 180;
 const SPONGE = 6, VMAX = 5;                       // sponge width (cells); a velocity no tide here reaches (a guard, m/s)
@@ -47,6 +48,15 @@ export const MODELS = {
     cal: { 'Point Judith': 'Newport', Sakonnet: 'Newport' },
     sides: { S: { a: ['Point Judith', 'Sakonnet'] }, W: { a: ['Point Judith', 'Sakonnet'], lat: [41.30, 41.38] }, E: { a: ['Point Judith', 'Sakonnet'], lat: [41.30, 41.46] } },
     check: [['East Passage (Rose I.)', 41.495, -71.345], ['Newport Harbor ent.', 41.487, -71.33], ['West Passage (Dutch I.)', 41.50, -71.40], ['Castle Hill', 41.462, -71.36]] },
+  // (New York Harbor: the Lower Bay open to the sea from Sandy Hook to Rockaway, the Hudson open above Spuyten Duyvil,
+  // the East River through Hell Gate open into Long Island Sound at Throgs Neck, which runs three hours behind and
+  // twice the range — the head that drives the East River; Newark Bay, the Kill Van Kull, the Arthur Kill and Raritan
+  // Bay inside. A side may be open along several stretches, each with its own anchors.)
+  newyork: { box: [-74.28, 40.45, -73.77, 40.88], fine: [-74.13, 40.58, -73.92, 40.79], dx: 150, grow: 1.08, dmax: 450, n: 0.025, date: '2026-06-01',
+    cal: { 'Sandy Hook': 'Sandy Hook', 'Willets Point': 'Willets Point', 'Dyckman Street': 'Dyckman Street' },
+    sides: { S: { a: ['Sandy Hook'] }, E: [{ a: ['Sandy Hook'], lat: [40.40, 40.578] }, { a: ['Willets Point'], lat: [40.74, 40.90] }], N: { a: ['Dyckman Street'], lon: [-73.96, -73.90] } },
+    check: [['The Narrows', 40.6066, -74.0460], ['Hudson River entrance', 40.7050, -74.0230], ['East River (Brooklyn Bridge)', 40.7055, -73.9960], ['Buttermilk Channel', 40.6860, -74.0100],
+      ['Kill Van Kull', 40.6470, -74.0900], ['Anchorage Channel (Liberty)', 40.6780, -74.0480], ['Hell Gate', 40.7790, -73.9370]] },
   sydney: { box: [151.00, -33.93, 151.36, -33.74], fine: [151.17, -33.875, 151.30, -33.80], dx: 80, grow: 1.08, dmax: 500, n: 0.025, date: '2026-06-01', carve: 12,
     cal: { 'Fort Denison': 'Fort Denison' },
     sides: { E: { a: ['Fort Denison'] }, N: { a: ['Fort Denison'], lon: [151.29, 152] }, S: { a: ['Fort Denison'], lon: [151.265, 152] } },
@@ -149,11 +159,14 @@ class Model {
     for (let k = 0; k < N; k++) mask[k] = h[k] > -hat - 0.3 ? 1 : 0;
     const P = this.P, sides = M.sides || {};
     const openAt = (side, i, j) => {
-      const s = sides[side]; if (!s) return null;
+      if (!sides[side]) return null;
       const [lat, lon] = P.inv(this.xc[i], this.zc[j]);
-      if (s.lon && (lon < s.lon[0] || lon > s.lon[1])) return null;
-      if (s.lat && (lat < s.lat[0] || lat > s.lat[1])) return null;
-      return s.a;
+      for (const s of [].concat(sides[side])) {                // (one stretch, or several)
+        if (s.lon && (lon < s.lon[0] || lon > s.lon[1])) continue;
+        if (s.lat && (lat < s.lat[0] || lat > s.lat[1])) continue;
+        return s.a;
+      }
+      return null;
     };
     this.bc = [];
     for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
@@ -535,7 +548,7 @@ async function bake(v) {
   console.log(`${v.id}: done in ${((Date.now() - t0) / 1000).toFixed(0)} s, ${(JSON.stringify(T).length / 1024).toFixed(0)} KB`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {          // (a file URL on Windows too)
   const want = argv.filter(a => !a.startsWith('--') && isNaN(+a));
   for (const v of VENUES) if (MODELS[v.id] && (!want.length || want.includes(v.id))) await bake(v);
 }

@@ -24,6 +24,8 @@ const SPOTS = {
     ['Golden Gate', 37.81966, -122.47516, 87.7, ENC], ['City Front', 37.80948, -122.43854, 12.4, ENC], ['Blossom Rock', 37.81820, -122.39956, 21.6, ENC],
     ['north of Alcatraz', 37.82970, -122.42013, 17.6, ENC], ['Raccoon Strait', 37.86728, -122.44493, 21.9, ENC],
   ],
+  newyork: [['the Narrows', 40.60456, -74.04830, 22.8, ENC], ['the Anchorage Channel', 40.66027, -74.05397, 15.7, ENC], ['the Hudson off the Battery', 40.70633, -74.02285, 14.4, ENC],
+    ['the East River at the Brooklyn Bridge', 40.70594, -73.99635, 17.5, ENC], ['Bay Ridge Channel', 40.65002, -74.02888, 9.6, ENC], ['the flats off Liberty Island', 40.67810, -74.04684, 7.1, ENC]],
   newport: [['East Passage off Rose Island', 41.49443, -71.34352, 17.8, ENC], ['Newport Harbor entrance', 41.48726, -71.33123, 12.9, ENC], ['West Passage', 41.49909, -71.40033, 10.4, ENC]],
   solent: [['Hurst Narrows', 50.7055, -1.5465, 35.2, EMOD], ['Cowes Roads', 50.772, -1.31, 17.9, EMOD], ['Spithead', 50.76, -1.10, 11.4, EMOD], ['Yarmouth Roads', 50.712, -1.49, 12.5, EMOD]],
   kiel: [['outer fjord', 54.43, 10.20, 13.2, EMOD], ['Kiel Bight', 54.45, 10.25, 18.1, EMOD], ['inner fjord', 54.37, 10.16, 12.2, EMOD]],

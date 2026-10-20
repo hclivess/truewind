@@ -177,6 +177,9 @@ export const VENUE_FAUNA = {
   open: [['bottlenose', 0.15], ['humpback', 0.25, months(7, 10, 0)], ['leatherback', 0.05], ['blueShark', 0.06]],
   sfbay: [['westernGull', 5], ['caspianTern', 1.2, months(4, 9)], ['brownPelican', 2, months(6, 11, 0.2)], ['harbourPorpoise', 0.35],
     ['bottlenose', 0.12], ['humpback', 0.06, months(4, 11)], ['greatWhite', 0.008, months(9, 11)]],
+  // (the Upper Bay: gulls and summer terns; porpoises and bottlenoses now and then, and since the 2010s humpbacks
+  // following the menhaden in through the Narrows, May-November)
+  newyork: [['herringGull', 4], ['gbbGull', 1.5], ['commonTern', 1.2, months(5, 9)], ['harbourPorpoise', 0.04, months(12, 5)], ['bottlenose', 0.04, months(6, 9)], ['humpback', 0.02, months(5, 11)]],
   newport: [['herringGull', 4], ['gbbGull', 1.5], ['commonTern', 2, months(5, 9)], ['northernGannet', 0.5, months(10, 5)],
     ['harbourPorpoise', 0.12, months(12, 5)], ['commonDolphin', 0.06], ['humpback', 0.03, months(4, 11)], ['blueShark', 0.02, months(6, 10)], ['leatherback', 0.01, months(7, 10)]],
   marseille: [['yellowLeggedGull', 5], ['scopolisShearwater', 1.5, months(3, 10)], ['sandwichTern', 0.8, months(10, 3)], ['northernGannet', 0.4, months(11, 3)],
