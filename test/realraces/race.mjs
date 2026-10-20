@@ -62,10 +62,14 @@ const cross = (p, q, a, b, far) => {
 
 // the polar estimate: every 20 s the boat takes the heading whose speed over the ground (the polar at the wind of
 // the moment, sheltered as the game shelters it, plus the tide's stream there and then) makes the most toward the
-// next mark (test/passages/routing.mjs, with the wind and the tide following the clock)
-export function routeRealEstimate({ world, env, tide, legs, wind, polar, shelter0, L, dt = 20, maxT = 8 * 3600 }) {
+// next mark (test/passages/routing.mjs, with the wind and the tide following the clock), among the headings that keep
+// her in water she floats in for the next minute (her draft and half a metre under the keel, at 10, 30 and 60 s along
+// the track; none clear, the best of all). (Without it the router beat from Cowes straight across the Island, at the
+// half wind the land's shelter leaves there: half an hour of the Friday's first beat over Gurnard.)
+export function routeRealEstimate({ world, env, tide, legs, wind, polar, shelter0, L, draft = 1, dt = 20, maxT = 8 * 3600 }) {
   let x = legs[0].x, z = legs[0].z, t = 0, k = 1, dist = 0;
   const c = {};
+  const clear = (x0, z0, vx, vz) => { for (const s of [10, 30, 60]) if (world.depthAt(x0 + vx * s, z0 + vz * s) < draft + 0.5) return false; return true; };
   while (t < maxT) {
     const G = legs[k]; let dx = G.x - x, dz = G.z - z; const d = Math.hypot(dx, dz);
     if (d < Math.max(2 * L + 5, 20)) { if (k === legs.length - 1) return { t, dist }; k++; continue; }
@@ -74,10 +78,10 @@ export function routeRealEstimate({ world, env, tide, legs, wind, polar, shelter
     env.current.at(x, z, c);
     const w = wind(t), twd = w.deg * DEG, U = w.kn * KT * world.shelterAt(x, z) / shelter0;
     let best = -Infinity, bvx = 0, bvz = 0;
-    for (let h = 0; h < 360; h += 2) {
+    for (let pass = 0; pass < 2 && best === -Infinity; pass++) for (let h = 0; h < 360; h += 2) {
       const ps = h * DEG, v = polar(U, Math.abs(wrap(twd - ps)) / DEG);
       const vx = v * Math.sin(ps) + c.x, vz = -v * Math.cos(ps) + c.z, m = vx * dx + vz * dz;
-      if (m > best) { best = m; bvx = vx; bvz = vz; }
+      if (m > best && (pass || clear(x, z, vx, vz))) { best = m; bvx = vx; bvz = vz; }
     }
     const step = Math.min(dt, d / Math.max(best, 0.05));
     x += bvx * step; z += bvz * step; dist += Math.hypot(bvx, bvz) * step; t += step;
@@ -100,6 +104,9 @@ export async function runRealRace(job) {
   const w0 = wind(0);
   const env = makeEnv({ venue: R.venue, tws: meanKn, sea: job.sea ?? true, gusty: false }, V, seed, { clock: gun, at: K.start.mid, twd: w0.deg * DEG });
   env.wind.gust = clamp((gf - 1) / 0.8, 0.1, 0.8); env.wind.shift = 3 * DEG;
+  if (job.gust !== undefined) env.wind.gust = job.gust;            // (diagnostics: the puffs, the shifts, the stream)
+  if (job.shift !== undefined) env.wind.shift = job.shift * DEG;
+  if (job.noTide) env.current.at = (x, z, o = {}) => { o.x = 0; o.z = 0; return o; };
   const [bx, bz] = P.fwd(R.wind.lat, R.wind.lon);
   let shelterDir = w0.deg * DEG; world.updateShelter(shelterDir);
   let shelter0 = world.shelterAt(bx, bz);
@@ -134,7 +141,7 @@ export async function runRealRace(job) {
   const farSide = (() => { const F = K.finish; if (F.kind !== 'line') return 0; const g = finGoal(); return Math.sign((F.b.x - F.a.x) * (g.z - F.a.z) - (F.b.z - F.a.z) * (g.x - F.a.x)); })();
   const goals = [...K.marks.map((m) => ({ x: m.x, z: m.z, label: m.name })), K.finish.kind === 'line' ? finGoal() : { x: K.finish.x, z: K.finish.z, label: K.finish.name }];
   // the estimate from the polar alone, through the same marks
-  const est = routeRealEstimate({ world, env, tide: V.tide, legs: [A, ...goals], wind, polar: pol.at, shelter0, L });
+  const est = routeRealEstimate({ world, env, tide: V.tide, legs: [A, ...goals], wind, polar: pol.at, shelter0, L, draft: C.draft });
   if (V.tide) V.tide.setTime(0);
   env.tick(0);
   ap.engage(0);
@@ -183,6 +190,7 @@ export async function runRealRace(job) {
     if (i % 120 === 0) { sailed += Math.hypot(b.x - px, b.z - pz); px = b.x; pz = b.z; }
     if (i % (120 * 30) === 0) { const c = env.current.at(b.x, b.z, {}); out.trace.push([Math.round(t), Math.round(b.x), Math.round(b.z), Math.round(b.psi / DEG), +(b.u / KT).toFixed(2), +((b.diag.tws || 0) / KT).toFixed(1), Math.round(wrap(twdNow - b.psi) / DEG), ap.mode, gi, +(Math.hypot(c.x, c.z) / KT).toFixed(2)]); }
     if (job.debug && i % 1200 === 0 && t >= job.debug[0] && t <= job.debug[1]) (out.debug ||= []).push({ t: Math.round(t), x: Math.round(b.x), z: Math.round(b.z), psi: Math.round(b.psi / DEG), u: +(b.u / KT).toFixed(1), mode: ap.mode, dest: ap.helm.dest && [Math.round(ap.helm.dest.x), Math.round(ap.helm.dest.z)], route: ap.route && ap.route.map(([x, z]) => [Math.round(x), Math.round(z)]), shoal: ap.helm.shoal && Math.round(ap.helm.shoal.off / DEG), depth: +world.depthAt(b.x, b.z).toFixed(2) });
+    if (job.onStep && i % 120 === 0) job.onStep({ b, t, env, ap, world, wind: wind(t), gi });   // (a probe for diagnostics)
     if (D.rig.down || b.sunk) break;
   }
   out.t = t; out.sailed = sailed;

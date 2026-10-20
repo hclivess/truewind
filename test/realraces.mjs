@@ -57,16 +57,23 @@ for (const id of ids) {
   const t0 = Date.parse(T.t0Utc), tide = Vs.tide;
   const lvl = (ms) => { tide.setClock(ms); tide.setTime(0); return tide.levelAt(x, z); };
   // (the gauge as read; less the surge figure it reports with it the fit is no better, 0.20 m: printed alongside)
-  const fit = (lagMin, surge = false) => {
-    const a = T.series.map((r) => r[1] - (surge ? r[2] ?? 0 : 0)), b = T.series.map((r) => lvl(t0 + (r[0] - lagMin) * 60e3));
+  const fit = (lagMin, surge = false, S = T.series) => {
+    const a = S.map((r) => r[1] - (surge ? r[2] ?? 0 : 0)), b = S.map((r) => lvl(t0 + (r[0] - lagMin) * 60e3));
     const ma = a.reduce((s, v) => s + v, 0) / a.length, mb = b.reduce((s, v) => s + v, 0) / b.length;
     return Math.sqrt(a.reduce((s, v, i) => s + (v - ma - (b[i] - mb)) ** 2, 0) / a.length);
   };
   let best = { lag: 0, rms: Infinity };
   for (let lag = -60; lag <= 60; lag += 5) { const r = fit(lag); if (r < best.rms) best = { lag, rms: r }; }
   const rms0 = fit(0), lessSurge = fit(0, true);
+  // (shown, not judged: the readings where the gauge stuck. A run of the same reading that ends in a jump no tide makes,
+  // 0.8 m or more in half an hour (the Solent's springs fall about 1 m an hour), is a frozen sensor: on 3 August from
+  // 03:30 to 07:30 BST the pile's 5 min record holds 4.30 m for 2 h 20 min, steps to 3.30, holds 3.20 for 1 h 30 min
+  // and steps to 1.40 (Bra03Aug2026.csv), while the tide fell 3 m. The judged figure keeps them)
+  const frozen = new Set(), S = T.series;
+  for (let i = 0; i + 1 < S.length; i++) if (Math.abs(S[i + 1][1] - S[i][1]) >= 0.8 && S[i + 1][0] - S[i][0] <= 30 && i > 0 && S[i - 1][1] === S[i][1]) for (let j = i; j >= 0 && S[j][1] === S[i][1]; j--) frozen.add(j);
+  const rmsQ = fit(0, false, S.filter((r, i) => !frozen.has(i)));
   const sec = 'Bramble pile tide gauge, 1-7 Aug 2026';
-  V.check({ section: sec, quantity: 'tide height, rms of the de-meaned difference (game - gauge)', expected: '0 m', tol: '0.15 m', source: T.sources.data, show: `${rms0.toFixed(3)} m over ${T.series.length} half-hourly readings (${lessSurge.toFixed(3)} m less the gauge's surge figure)`, ok: rms0 <= 0.15 });
+  V.check({ section: sec, quantity: 'tide height, rms of the de-meaned difference (game - gauge)', expected: '0 m', tol: '0.15 m', source: T.sources.data, show: `${rms0.toFixed(3)} m over ${T.series.length} half-hourly readings (${lessSurge.toFixed(3)} m less the gauge's surge figure; ${rmsQ.toFixed(3)} m without the ${frozen.size} readings where the gauge froze)`, ok: rms0 <= 0.15 });
   V.check({ section: sec, quantity: 'tide: best-fit time lag (game behind gauge)', expected: '0 min', tol: '15 min', source: T.sources.data, show: `${best.lag} min (rms ${best.rms.toFixed(3)} m there)`, ok: Math.abs(best.lag) <= 15 });
 }
 
