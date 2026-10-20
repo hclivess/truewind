@@ -8,41 +8,13 @@ import * as THREE from 'three';
 
 const DEG = Math.PI / 180;
 
-// ------------------------------------------------------------------ astronomy (low precision, arc-minutes)
-const jd = (ms) => ms / 86400000 + 2440587.5;
-function horizontal(ra, dec, d, lat, lon) {
-  const lst = ((280.46061837 + 360.98564736629 * d) * DEG + lon * DEG) % (2 * Math.PI);
-  const H = lst - ra, phi = lat * DEG;
-  const el = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
-  const az = Math.atan2(-Math.sin(H), Math.tan(dec) * Math.cos(phi) - Math.sin(phi) * Math.cos(H)); // from north, eastward
-  return { el, az, lst };
-}
-export function sunPosition(ms, lat, lon) {
-  const d = jd(ms) - 2451545.0;
-  const g = (357.529 + 0.98560028 * d) * DEG;
-  const L = (280.459 + 0.98564736 * d + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * DEG;
-  const e = (23.439 - 0.00000036 * d) * DEG;
-  const ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L)), dec = Math.asin(Math.sin(e) * Math.sin(L));
-  return horizontal(ra, dec, d, lat, lon);
-}
-export function moonPosition(ms, lat, lon) {
-  const d = jd(ms) - 2451545.0;
-  const L = (218.316 + 13.176396 * d) * DEG, M = (134.963 + 13.064993 * d) * DEG, F = (93.272 + 13.229350 * d) * DEG;
-  const l = L + 6.289 * DEG * Math.sin(M), b = 5.128 * DEG * Math.sin(F), e = 23.4397 * DEG;
-  const ra = Math.atan2(Math.sin(l) * Math.cos(e) - Math.tan(b) * Math.sin(e), Math.cos(l));
-  const dec = Math.asin(Math.sin(b) * Math.cos(e) + Math.cos(b) * Math.sin(e) * Math.sin(l));
-  return horizontal(ra, dec, d, lat, lon);
-}
+// ------------------------------------------------------------------ astronomy (js/astro.js: sun, moon, planets, precession)
+import { sunPosition, moonPosition, celestialMatrix, celestialMatrixJ2000, planet, PLANETS, GAL_NP, GAL_C } from './astro.js';
+export { sunPosition, moonPosition };
 // world axes: x east, y up, z south
 export const dirOf = (el, az, out = new THREE.Vector3()) => out.set(Math.cos(el) * Math.sin(az), Math.sin(el), -Math.cos(el) * Math.cos(az));
-// equatorial (ra, dec) unit vector -> local horizon: a pure rotation, built from three basis stars
-function celestialMatrix(ms, lat, lon) {
-  const d = jd(ms) - 2451545.0, m = new THREE.Matrix3(), v = new THREE.Vector3();
-  const col = (ra, dec) => { const h = horizontal(ra, dec, d, lat, lon); return dirOf(h.el, h.az, v.clone()); };
-  const a = col(0, 0), b = col(Math.PI / 2, 0), c = col(0, Math.PI / 2);
-  m.set(a.x, b.x, c.x, a.y, b.y, c.y, a.z, b.z, c.z);
-  return m;
-}
+const toM3 = (a, m) => m.set(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8]);
+const eqv = (raDeg, decDeg) => [Math.cos(decDeg * DEG) * Math.cos(raDeg * DEG), Math.cos(decDeg * DEG) * Math.sin(raDeg * DEG), Math.sin(decDeg * DEG)].map(v => v.toFixed(6)).join(', ');
 
 // ------------------------------------------------------------------ atmosphere
 const RE = 6360e3, RA = 6460e3;
@@ -440,12 +412,18 @@ void main() {
   gl_FragColor = cur;
 }`;
 
-// full-resolution composite: the half-resolution sky, then the sun disk, moon and stars (behind the clouds)
+// full-resolution composite: the half-resolution sky, then the sun disk, the moon and the Milky Way (behind the
+// clouds: everything is weighted by the sky pass's transmittance T in alpha). The stars and planets are a point
+// cloud drawn right after it (STAR_VS/STAR_FS), weighted by the same T.
 const COMP_FS = /* glsl */`
+precision highp sampler3D;
 varying vec3 vDir;
-uniform sampler2D uSkyTex; uniform vec2 uRes;
-uniform vec3 uSunDir; uniform vec3 uSunDisk; uniform vec3 uMoonDir; uniform vec3 uMoonCol; uniform float uStars; uniform mat3 uCel;
-float h13(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
+uniform sampler2D uSkyTex; uniform vec2 uRes; uniform sampler3D uNoise;
+uniform vec3 uSunDir; uniform vec3 uSunDisk; uniform vec3 uMoonDir; uniform vec3 uMoonCol; uniform float uMoonR; uniform vec3 uPole;
+uniform float uMilky; uniform mat3 uCelJ;
+const vec3 GNP = vec3(${GAL_NP.map(v => v.toFixed(6)).join(', ')});      // north galactic pole (J2000)
+const vec3 GC = vec3(${GAL_C.map(v => v.toFixed(6)).join(', ')});       // galactic centre, Sagittarius
+const vec3 LMC = vec3(${eqv(80.89, -69.76)}), SMC = vec3(${eqv(13.19, -72.83)});
 void main() {
   vec3 rd = normalize(vDir);
   // the half-resolution sky, softened with a small tent filter (hides the march's dither)
@@ -454,37 +432,90 @@ void main() {
          + texture2D(uSkyTex, uv + px * vec2(-1.5, -0.5)) + texture2D(uSkyTex, uv + px * vec2(0.5, -1.5))) * 0.15;
   vec3 col = s.rgb;
   float T = s.a * smoothstep(-0.01, 0.01, rd.y);
-  // sun: limb-darkened disk
-  float cs = dot(rd, uSunDir), r = acos(clamp(cs, -1.0, 1.0)) / 0.0048;
+  // sun: limb-darkened disk, 0.533 deg across
+  float cs = dot(rd, uSunDir), r = acos(clamp(cs, -1.0, 1.0)) / 0.00465;
   if (r < 1.0) col += uSunDisk * (0.4 + 0.6 * sqrt(1.0 - r * r)) * T;
-  // moon: a sphere lit by the sun, with maria
-  float cm = dot(rd, uMoonDir), rm = acos(clamp(cm, -1.0, 1.0)) / 0.0047;
+  // moon: a sphere lit by the sun (the terminator faces it, the lit area is the phase), with maria fixed to its face
+  // (its axis toward the celestial pole); 0.49-0.56 deg across with its distance
+  float cm = dot(rd, uMoonDir), rm = acos(clamp(cm, -1.0, 1.0)) / uMoonR;
   if (rm < 1.0 && uMoonCol.b > 0.0) {
-    vec3 up = abs(uMoonDir.y) < 0.99 ? vec3(0, 1, 0) : vec3(1, 0, 0);
-    vec3 ax = normalize(cross(up, uMoonDir)), ay = cross(uMoonDir, ax);
-    vec2 q = vec2(dot(rd - uMoonDir * cm, ax), dot(rd - uMoonDir * cm, ay)) / 0.0047;
+    vec3 ax = normalize(cross(uPole, uMoonDir)), ay = cross(uMoonDir, ax);
+    vec2 q = vec2(dot(rd - uMoonDir * cm, ax), dot(rd - uMoonDir * cm, ay)) / uMoonR;
     vec3 n = normalize(-uMoonDir * sqrt(max(0.0, 1.0 - dot(q, q))) + ax * q.x + ay * q.y);
     float lit = max(0.0, dot(n, uSunDir));
     float maria = 0.75 + 0.25 * sin(q.x * 5.0 + 1.3) * sin(q.y * 4.0 - 0.7) - 0.15 * step(0.55, fract(sin(dot(floor(q * 3.0), vec2(12.9, 78.2))) * 43758.5));
     col += uMoonCol * (lit * maria + 0.02) * T;
   }
-  // stars, fixed on the celestial sphere and turning with it
-  if (uStars > 0.0 && rd.y > 0.0) {
-    vec3 e = transpose(uCel) * rd;
-    vec3 g = e * 420.0, c = floor(g);
-    float h = h13(c);
-    if (h > 0.985) {
-      vec3 sp = c + vec3(h13(c + 1.7), h13(c + 3.1), h13(c + 5.3));
-      float d = length(g - sp);
-      float mag = pow(fract(h * 71.3), 6.0);
-      col += vec3(0.8 + 0.2 * fract(h * 13.0), 0.85, 1.0 - 0.2 * fract(h * 7.0)) * smoothstep(0.35, 0.0, d) * (0.3 + 6.0 * mag) * uStars * T;
-    }
-    col += vec3(0.02, 0.022, 0.03) * uStars * T * smoothstep(0.35, 0.0, abs(dot(e, normalize(vec3(-0.87, -0.2, -0.45))))) * 0.5; // the Milky Way's glow
+  // the Milky Way along the real galactic plane, brightest toward the centre in Sagittarius and through Cygnus, split
+  // by the Great Rift, clumped with noise; the Magellanic Clouds in the south. Only on a dark night (uMilky: twilight,
+  // moonlight, light pollution, overcast), dimmed by the air's extinction toward the horizon
+  if (uMilky > 0.0 && rd.y > 0.0) {
+    vec3 e = transpose(uCelJ) * rd;
+    float b = asin(clamp(dot(e, GNP), -1.0, 1.0)), l = atan(dot(e, cross(GNP, GC)), dot(e, GC));
+    float sig = 0.075 + 0.1 * exp(-l * l / 0.25);
+    float band = exp(-b * b / (sig * sig)) * (0.3 + 0.7 * exp(-l * l / 0.8) + 0.25 * exp(-(l - 1.4) * (l - 1.4) / 0.3));
+    float bulge = 0.9 * exp(-(l * l + 2.2 * b * b) / 0.03);
+    float rift = 1.0 - 0.65 * exp(-(b - 0.03) * (b - 0.03) / 0.0012) * smoothstep(-0.75, -0.35, l) * smoothstep(1.6, 1.2, l);
+    float clump = texture(uNoise, e * 1.7 + 0.5).r * 0.65 + texture(uNoise, e * 5.3).g * 0.35;
+    float mw = (band + bulge) * rift * (0.35 + 1.1 * clump);
+    float dl = length(e - LMC), dsm = length(e - SMC);
+    mw += 0.55 * exp(-dl * dl / 0.0022) + 0.35 * exp(-dsm * dsm / 0.0007);
+    float X = 1.0 / (rd.y + 0.025 * exp(-11.0 * rd.y));
+    col += vec3(0.85, 0.9, 1.0) * 0.02 * mw * uMilky * T * exp(-0.28 * (X - 1.0));
   }
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
+
+// the stars (Yale Bright Star Catalogue to V 6.0, J2000) and the planets: one point cloud, one draw call. Each point
+// is its catalogue direction turned by uCelJ (precession to the date, then the earth's rotation for the venue and the
+// clock), so the whole sky wheels about the pole at the sidereal rate; brightness from the magnitude after the
+// air's extinction (0.2 mag per airmass) against the limiting magnitude of the night (twilight, moonlight, light
+// pollution), scintillation growing toward the horizon (planets, disks, hardly twinkle), hidden by cloud through the
+// sky pass's transmittance T
+const STAR_VS = /* glsl */`
+attribute float aMag; attribute vec3 aCol; attribute float aTw;
+uniform mat3 uCelJ; uniform float uLimMag; uniform float uTime; uniform float uPx; uniform float uStarsK;
+varying vec3 vCol; varying float vEl;
+void main() {
+  vec3 d = uCelJ * position;
+  vEl = d.y;
+  float s = max(d.y, 0.0), X = 1.0 / (s + 0.025 * exp(-11.0 * s));       // airmass, ~40 on the horizon
+  float m = aMag + 0.2 * (X - 1.0);
+  float h = fract(sin(dot(position, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+  float tw = aTw * min(0.8, 0.07 * pow(X, 0.85));
+  m += tw * sin(uTime * (6.0 + 9.0 * h) + h * 40.0) * sin(uTime * (2.3 + 4.0 * fract(h * 7.0)) + h * 13.0);
+  float f = pow(10.0, -0.4 * (m - uLimMag));                              // flux relative to a star at the limit
+  float b = min(12.0, 0.2 * pow(f, 0.45)) * smoothstep(0.5, 1.5, f) * uStarsK;
+  vCol = aCol * b * exp(-vec3(0.025, 0.06, 0.13) * (X - 1.0));              // and reddened low down
+  gl_PointSize = b > 0.002 && d.y > -0.02 ? uPx * (2.2 + 1.2 * clamp(log(f) * 0.4343, 0.0, 3.5)) : 0.0;
+  gl_Position = projectionMatrix * viewMatrix * vec4(cameraPosition + d * 9.0, 1.0);
+  gl_Position.z = gl_Position.w * 0.99999;
+}`;
+const STAR_FS = /* glsl */`
+uniform sampler2D uSkyTex; uniform vec2 uRes;
+varying vec3 vCol; varying float vEl;
+void main() {
+  vec2 q = gl_PointCoord * 2.0 - 1.0;
+  float a = exp(-dot(q, q) * 4.0);
+  float T = texture2D(uSkyTex, gl_FragCoord.xy / uRes).a * smoothstep(-0.01, 0.01, vEl);
+  gl_FragColor = vec4(vCol * a * T, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+// a star's colour from its B-V index: the temperature (Ballesteros 2012), then a blackbody's red/green/blue against
+// a 6500 K white, softened toward white (the eye sees star colours pale)
+export function bvColor(bv, out = [0, 0, 0]) {
+  const T = 4600 * (1 / (0.92 * bv + 1.7) + 1 / (0.92 * bv + 0.62));
+  const P = (lam, t) => 1 / (lam ** 5 * (Math.exp(1.4388e-2 / (lam * t)) - 1));
+  const L = [610e-9, 550e-9, 465e-9];
+  for (let i = 0; i < 3; i++) out[i] = P(L[i], T) / P(L[i], 6500);
+  const y = 0.2126 * out[0] + 0.7152 * out[1] + 0.0722 * out[2];
+  for (let i = 0; i < 3; i++) out[i] = 0.45 + 0.55 * out[i] / y;
+  return out;
+}
+const PLANET_COL = { mercury: [1, 0.94, 0.86], venus: [1, 0.99, 0.94], mars: [1, 0.72, 0.52], jupiter: [1, 0.97, 0.9], saturn: [1, 0.93, 0.76] };
 
 // ------------------------------------------------------------------ cloud shadows (and ground detail) on standard materials
 // The scene has one sun light; its intensity already carries the cloud shade over the player's boat, so a
@@ -594,19 +625,72 @@ export class SkySystem {
     this.compU = {
       uSkyTex: { value: this.rt.texture }, uRes: { value: new THREE.Vector2(1, 1) },
       uSunDir: { value: this.sunDir }, uSunDisk: { value: new THREE.Vector3() }, uMoonDir: { value: this.moonDir }, uMoonCol: { value: new THREE.Vector3() },
-      uStars: { value: 0 }, uCel: { value: new THREE.Matrix3() },
+      uMoonR: { value: 0.0047 }, uPole: { value: new THREE.Vector3(0, 1, 0) },
+      uMilky: { value: 0 }, uCelJ: { value: new THREE.Matrix3() }, uNoise: this.U.uNoise,
     };
     this.dome = new THREE.Mesh(new THREE.SphereGeometry(10, 48, 24), new THREE.ShaderMaterial({
       uniforms: this.compU, vertexShader: DOME_VS, fragmentShader: COMP_FS, side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
     }));
     this.dome.frustumCulled = false; this.dome.renderOrder = -1000;
     scene.add(this.dome);
+    // stars and planets: one point cloud drawn right after the dome (opaque list, additive, no depth), so the scene
+    // covers it like the dome; the catalogue loads in the background
+    this.starU = { uCelJ: this.compU.uCelJ, uSkyTex: this.compU.uSkyTex, uRes: this.compU.uRes,
+      uLimMag: { value: 6.3 }, uTime: { value: 0 }, uPx: { value: 1 }, uStarsK: { value: 0 } };
+    this.stars = null; this.planetsAt = null; this.glow = null; this.lightPol = 0; this._glowAt = null;
+    if (typeof fetch === 'function') fetch('data/sky/stars.bin').then(r => { if (!r.ok) throw new Error('data/sky/stars.bin'); return r.arrayBuffer(); })
+      .then(b => this.buildStars(b)).catch(e => console.warn('sky: no star catalogue', e));
     this.playerShadeU = { value: 1 };
     this.frame = 0; this.lutKey = null; this.cubeAge = 99; this.envAge = 99;
     this.sunT = [1, 1, 1];
     this.exposure = 0.95;
   }
+  // the catalogue (tools/bake-stars.mjs) and five planets at the end of the same buffers
+  buildStars(buf) {
+    const dv = new DataView(buf), n = dv.getUint32(8, true), N = n + PLANETS.length;
+    const pos = new Float32Array(N * 3), mag = new Float32Array(N), col = new Float32Array(N * 3), tw = new Float32Array(N), c = [0, 0, 0];
+    for (let i = 0; i < n; i++) {
+      const o = 12 + i * 8, ra = dv.getUint16(o, true) / 65536 * 2 * Math.PI, dec = dv.getInt16(o + 2, true) / 32767 * Math.PI / 2;
+      pos[i * 3] = Math.cos(dec) * Math.cos(ra); pos[i * 3 + 1] = Math.cos(dec) * Math.sin(ra); pos[i * 3 + 2] = Math.sin(dec);
+      mag[i] = dv.getInt16(o + 4, true) / 1000; bvColor(dv.getInt16(o + 6, true) / 1000, c); col.set(c, i * 3); tw[i] = 1;
+    }
+    PLANETS.forEach((p, k) => { col.set(PLANET_COL[p], (n + k) * 3); tw[n + k] = 0.2; mag[n + k] = 99; pos[(n + k) * 3 + 2] = 1; });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('aMag', new THREE.BufferAttribute(mag, 1));
+    g.setAttribute('aCol', new THREE.BufferAttribute(col, 3)); g.setAttribute('aTw', new THREE.BufferAttribute(tw, 1));
+    const m = new THREE.ShaderMaterial({ uniforms: this.starU, vertexShader: STAR_VS, fragmentShader: STAR_FS,
+      blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, fog: false });
+    this.stars = new THREE.Points(g, m); this.stars.frustumCulled = false; this.stars.renderOrder = -999;
+    this.stars.userData.nStars = n; this.planetsAt = null;
+    this.scene.add(this.stars);
+    if (this.ms !== undefined) this.updatePlanets(this.ms);
+  }
+  // the planets' directions (J2000) and magnitudes: they move a degree or two a day at most, so every ten minutes of the clock
+  updatePlanets(ms) {
+    if (!this.stars || (this.planetsAt !== null && Math.abs(ms - this.planetsAt) < 600000)) return;
+    this.planetsAt = ms;
+    const g = this.stars.geometry, n = this.stars.userData.nStars, P = g.attributes.position, M = g.attributes.aMag;
+    PLANETS.forEach((name, k) => { const q = planet(name, ms); P.array.set(q.vec, (n + k) * 3); M.array[n + k] = q.mag; });
+    P.clearUpdateRanges(); P.addUpdateRange(n * 3, PLANETS.length * 3); P.needsUpdate = true;
+    M.clearUpdateRanges(); M.addUpdateRange(n, PLANETS.length); M.needsUpdate = true;
+  }
+  // light pollution: the venue's towns (scenery places: kind, x, z, population) brighten the sky by Walker's law,
+  // ~0.01 P d^-2.5 (d in km) of the natural sky's brightness toward the town, about half that overhead; the
+  // limiting magnitude falls by 2.5 log10(1 + glow)
+  setGlowSources(places) {
+    const POP = [0, 300000, 15000, 800, 100, 8000, 2000, 3000, 5];
+    this.glow = (places || []).map(p => ({ x: p.x, z: p.z, pop: p.pop > 0 ? p.pop : POP[p.t] || 0 })).filter(p => p.pop > 0);
+    this._glowAt = null;
+  }
+  lightPollutionAt(x, z) {
+    if (!this.glow || !this.glow.length) return 0;
+    // (inside a town the glow stops growing: the distance is held at the town's own size; a town of 40 000 seen
+    // from its waterfront leaves stars to ~4.3, a city of a million 10 km off to ~4.1, Bortle 6-7)
+    let L = 0; for (const p of this.glow) L += p.pop * Math.max(2, 1.5 * Math.sqrt(p.pop / 1e4), Math.hypot(x - p.x, z - p.z) / 1000) ** -2.5;
+    return Math.min(3.5, 2.5 * Math.log10(1 + 0.002 * L));
+  }
   resize(w, h, pr) {
+    this.starU.uPx.value = pr;
     const f = this.low ? 0.35 : 0.5;
     for (const t of [this.rtA, this.rtB]) t.setSize(Math.max(2, Math.round(w * pr * f)), Math.max(2, Math.round(h * pr * f)));
     this.histOK = false;
@@ -640,7 +724,13 @@ export class SkySystem {
     dirOf(s.el, s.az, this.sunDir); dirOf(m.el, m.az, this.moonDir);
     this.sunEl = s.el; this.moonEl = m.el;
     this.moonPhase = (1 - this.sunDir.dot(this.moonDir)) / 2;         // illuminated fraction
-    this.compU.uCel.value.copy(celestialMatrix(ms, lat, lon));
+    // the sky's rotation from the clock, every frame: precession to the date, then the earth's turn at the sidereal
+    // rate for the venue (the clock carries the time warp), so stars, planets and Milky Way wheel about the pole
+    const C = celestialMatrix(ms, lat, lon);
+    this.compU.uPole.value.set(C[2], C[5], C[8]);
+    toM3(celestialMatrixJ2000(ms, lat, lon), this.compU.uCelJ.value);
+    this.compU.uMoonR.value = m.radius;
+    this.updatePlanets(ms);
     // recompute the sky table when the light has moved (~0.15 degrees)
     const useMoon = s.el < -10 * DEG;
     const key = useMoon ? `m${Math.round(m.el / DEG * 6)}_${Math.round(this.moonPhase * 30)}` : `s${Math.round(s.el / DEG * 6)}`;
@@ -712,7 +802,18 @@ export class SkySystem {
     U.uAmbBot.value.copy(U.uAmbTop.value).multiplyScalar(0.55);
     this.compU.uSunDisk.value.set(sT[0], sT[1], sT[2]).multiplyScalar(E_SUN * SUN_DISK * sunUp);
     this.compU.uMoonCol.value.set(0.9, 0.9, 0.85).multiplyScalar(this.moonEl > -0.02 ? 0.05 + 1.2 * Math.max(0, -sEl) : 0);
-    this.compU.uStars.value = Math.max(0, Math.min(1, (-sEl - 6 * DEG) / (8 * DEG))) * (1 - overcast);
+    // the night's limiting magnitude: twilight, moonlight and the towns' glow each brighten the sky background
+    // (magnitudes lost, added as fluxes); the stars come out one by one at dusk, the Milky Way needs a dark sky
+    if (this.frame % 60 === 1 || this._glowAt === null) { this._glowAt = 1; this.lightPol = this.lightPollutionAt(this._px ?? 0, this._pz ?? 0); }
+    const dmTw = 5 * Math.max(0, Math.min(1, (sEl + 18 * DEG) / (12 * DEG))) ** 1.5;
+    const dmMoon = 2.0 * this.moonPhase ** 1.5 * Math.max(0, Math.min(1, (this.moonEl + 2 * DEG) / (17 * DEG)));
+    const dm = 2.5 * Math.log10(10 ** (0.4 * dmTw) + 10 ** (0.4 * dmMoon) + 10 ** (0.4 * this.lightPol) - 2);
+    this.limMag = 6.3 - dm;
+    this.starU.uLimMag.value = this.limMag;
+    this.starU.uStarsK.value = Math.max(0, Math.min(1, (-sEl - 1 * DEG) / (5 * DEG))) * (1 - overcast);
+    this.starU.uTime.value = now / 1000;
+    const dark = Math.max(0, Math.min(1, (-sEl - 6 * DEG) / (8 * DEG))) * (1 - overcast);
+    this.compU.uMilky.value = dark * Math.max(0, Math.min(1, 1 - dm / 1.3));
     // the scene's lights: the sun (or moon), dimmed by cloud over the player
     const useMoon = sunUp <= 0;
     const L = useMoon ? this.moonDir : this.sunDir;
