@@ -11,6 +11,14 @@ export function rainLevels(r, o = {}) {
   o.pat = 0.45 * Math.min(1, 3 * r) * (1 - 0.4 * hv); o.drum = 0.5 * hv * hv * (3 - 2 * hv); o.roar = 0.22 * hv * hv;
   return o;
 }
+// falling snow (s 0..1, the snow's rate at the listener): no drops at all, only a faint soft hush, and the world
+// goes quiet — flakes in the air and on deck absorb the highs, so the wind and the sea are heard through a lowpass
+// that closes from 18 kHz to ~2.5 kHz in heavy snow
+export function snowLevels(s, o = {}) {
+  s = Math.max(0, Math.min(1, s || 0));
+  o.hush = 0.05 * Math.sqrt(s); o.muffleF = 18000 * Math.pow(2500 / 18000, Math.min(1, 1.4 * s));
+  return o;
+}
 // The mixer: a master volume and a channel per kind of sound, each a slider position 0..1 (1: the level as made).
 // amb: the wind in the rig, the sea along the hull, rain and thunder; gear: flogging sails, the boom's and the hull's
 // slams, the lines' winches, blocks and cleats; eng: every engine heard (yours and the other boats'); sig: the race
@@ -88,6 +96,9 @@ export class Audio {
     // the channels (CHANNELS): every sound goes through one of these into the master
     this.bus = {};
     for (const [k] of CHANNELS) if (k !== 'master') { const g = this.bus[k] = ctx.createGain(); g.gain.value = volGain(this.vol[k]); g.connect(this.master); }
+    // snow muffles the wind and the sea (snowLevels): the ambient channel through a lowpass, wide open until it snows
+    this.muffle = ctx.createBiquadFilter(); this.muffle.type = 'lowpass'; this.muffle.frequency.value = 18000; this.muffle.Q.value = 0.5;
+    this.bus.amb.disconnect(); this.bus.amb.connect(this.muffle); this.muffle.connect(this.master);
     const chain = (buf, rate, type, f, q, bus = this.bus.amb) => {
       const flt = ctx.createBiquadFilter(); flt.type = type; flt.frequency.value = f; flt.Q.value = q;
       const g = ctx.createGain(); g.gain.value = 0;
@@ -114,6 +125,7 @@ export class Audio {
     this.rainRoar = chain(nC, 0.8, 'lowpass', 450, 0.5);
     this.rainPat = chain(this._drops(ctx, 5.3, 41, 45, false), 1, 'highpass', 300, 0.5);
     this.rainDrum = chain(this._drops(ctx, 3.7, 77, 260, true), 1, 'highpass', 70, 0.5);
+    this.snowHush = chain(nA, 0.7, 'bandpass', 700, 0.4);
   }
 
   // a channel's (or the master's) slider, 0..1: glides there in 50 ms
@@ -134,8 +146,8 @@ export class Audio {
   }
 
   // called every frame; parameters glide at 10 Hz with long time constants. rain: the rain rate at the
-  // listener, 0..1 (the squall model's, as the rain drawn around the camera)
-  update(b, dt, rain = 0) {
+  // listener, 0..1 (the squall model's, as the rain drawn around the camera); snow: the snow's rate there
+  update(b, dt, rain = 0, snow = 0) {
     if (!this.ctx || !b) return;
     this.acc += dt;
     if (this.acc < 0.1) return;
@@ -161,6 +173,8 @@ export class Audio {
     glide(this.rainHiss.g.gain, rl.hiss, 0.8); glide(this.rainHiss.flt.frequency, rl.hissF, 0.8);
     glide(this.rainWash.g.gain, rl.wash, 0.8); glide(this.rainPat.g.gain, rl.pat, 0.8);
     glide(this.rainDrum.g.gain, rl.drum, 0.8); glide(this.rainRoar.g.gain, rl.roar, 1.0);
+    const sl = snowLevels(on * snow, this._sl || (this._sl = {}));
+    glide(this.snowHush.g.gain, sl.hush, 1.5); glide(this.muffle.frequency, sl.muffleF, 2.0);
     if (b.slam > 1.2 && on) { this.thump(Math.min(1, b.slam / 3)); b.slam = 0; }
   }
 

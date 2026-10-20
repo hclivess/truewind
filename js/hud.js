@@ -7,6 +7,7 @@ import { RULE_SHORT } from './rules.js';
 import { lineStatus, ropeLook, ropeKey, lineName, HANDLERS, specOf, lineSpecs, lineLoad, handLoad, tackleOf } from './linehandlers.js';
 import { ropeCSS } from './linegear.js';
 import { HudLayout } from './hudlayout.js';
+import { precipKind } from './climate.js';
 
 // a small drawing of each kind of line handler for the panel (16 x 12, in the text colour)
 const ICONS = {
@@ -638,6 +639,21 @@ export class HUD {
       + (shape ? `<div class="wk-s">${shape}</div>` : '');
   }
 
+  // the air: temperature (the venue's climate for the date and hour, js/climate.js), the sea's, the density the
+  // sails feel (ideal gas: env.js airDensity), and what is falling and how far one sees
+  airLines(kv, d) {
+    const g = this.g, W = g.env && g.env.weather, R = g.renderer;
+    let h = '';
+    if (W && W.clim) h += kv('Air / sea temperature', `${fmt(W.airTemp(g.t), 1)} / ${fmt(W.seaTemp(g.t), 1)} °C`);
+    h += kv('Air density', `${fmt(d.rhoA ?? 1.225, 3)} kg/m³`);
+    const pr = R && R.precipNow, mi = R && R.mistState;
+    if (pr) {
+      const fogV = mi && mi.vis < 5000 ? mi.vis : Infinity, hazeV = R.scene && R.scene.fog ? 1.73 / R.scene.fog.density : Infinity, vis = Math.min(fogV, hazeV);
+      const kind = precipKind(pr.rain, pr.snow), sky = fogV < 1000 ? 'fog' : fogV < 5000 ? 'mist' : '';
+      h += kv('Weather / visibility', `${[kind === 'none' ? '' : kind, sky].filter(Boolean).join(', ') || 'dry'} / ${vis > 9999 ? '10+ km' : vis >= 1000 ? fmt(vis / 1000, 1) + ' km' : Math.round(vis / 10) * 10 + ' m'}`);
+    }
+    return h;
+  }
   updatePhysics(b) {
     const d = b.diag, C = b.cls;
     if (b.speedCraft) {
@@ -648,6 +664,7 @@ export class HUD {
       h += kv('Wing roll moment', `${fmt(d.wing?.M?.[0] || 0, 0)} Nm`) + kv('Foil roll moment', `${fmt(d.foil?.M?.[0] || 0, 0)} Nm`) + kv('Net roll moment', `${fmt(d.K || 0, 0)} Nm`);
       for (const p of d.pods || []) h += kv(`Float depth / lift / drag`, `${fmt(p.d, 2)} m / ${Math.round(p.L)} / ${Math.round(p.D)} N`);
       h += kv('Heave / pitch / heel', `${fmt(b.heave, 2)} m / ${fmt(b.pitch / DEG, 1)}° / ${fmt(b.phi / DEG, 1)}°`) + kv('Leeway', `${fmt((d.leeway || 0) / DEG, 1)}°`);
+      h += this.airLines(kv, d);
       document.getElementById('phys-body').innerHTML = h; return;
     }
     const kv = (k, v) => `<div class="kv"><span>${k}</span><span>${v}</span></div>`;
@@ -670,6 +687,7 @@ export class HUD {
     h += kv('Wind from (true)', `${pad3(deg(d.twd ?? 0))}°`);
     const cur = this.g.env.current.at(b.x, b.z, {});
     h += kv('Current', `${fmt(Math.hypot(cur.x, cur.z) / KT)} kn → ${pad3(deg(Math.atan2(cur.x, -cur.z)))}°`);
+    h += this.airLines(kv, d);
     h += kv('Mast bend / fs. sag', `${Math.round(d.rig.bendMM || 0)} / ${Math.round(d.rig.sagMM || 0)} mm`);
     const RL = b.rigLoads;
     if (RL) {

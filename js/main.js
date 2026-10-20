@@ -737,6 +737,9 @@ class Game {
       // sea/lake and land breezes by the real sun at the venue. clock0 = UTC ms at t = 0: online it is the
       // room's shared epoch (every peer's clock is epoch + t), offline the chosen time of day
       thermal: world.open || !v ? null : { lat: v.lat, lon: v.lon, land: world, regional: v.regional, clock0 },
+      // the venue's climate for the date and hour (js/climate.js: temperature, rain or snow, fog), on the same clock
+      // (open water's sky is in the subtropical North Atlantic, as skyPlace has it)
+      climate: !v || (v.open && !v.preset) ? { id: 'open', lat: 32, lon: -40, clock0 } : { id: v.id, lat: v.lat, lon: v.lon, clock0 },
     });
     // sheltering by land slows the wind near a weather shore
     const base = env.wind.sample.bind(env.wind);
@@ -1465,7 +1468,7 @@ class Game {
       if (steps >= maxSteps) this.acc = 0;
       if (this.traffic && steps) { this.traffic.update(steps * PHYS_DT, this.t, this.env, this.boats); this._tDraw = this.t; }
       if (this.env.tick(this.t)) this.renderer.setWaves(this.env.waves);
-      if (this.audio && this.audio.on) this.audio.update(this.player, dt, this.renderer.rainNow || 0);   // (the wind and water heard as they change)
+      if (this.audio && this.audio.on) this.audio.update(this.player, dt, this.renderer.rainNow || 0, this.renderer.snowNow || 0);   // (the wind and water heard as they change)
     };
   }
   frame(now) {
@@ -1567,7 +1570,7 @@ class Game {
       this.hud.update(dt);
       this.gear.update(dt);
       this.nav.update(dt);
-      this.audio.update(p, dt, this.renderer.rainNow || 0);
+      this.audio.update(p, dt, this.renderer.rainNow || 0, this.renderer.snowNow || 0);
       this.audio.engines && this.audio.engines(this.boats, this.renderer.camera, dt);
       const pv = this.renderer.boats.get(p);
       if (pv) this.audio.lines(p, pv.rigging, this.renderer.camera, dt);
