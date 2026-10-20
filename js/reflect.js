@@ -192,26 +192,10 @@ vec3 reflScene(vec3 refl, vec3 P, vec3 R, float sig, float dist, float ey) {
   vec2 aV = dV * sv, aH = dH * sh;
   aV *= min(sqrt(1.0 + fp2 / max(dot(aV, aV), 1e-12)), 0.08 / max(length(aV), 1e-6));
   aH *= min(sqrt(1.0 + fp2 / max(dot(aH, aH), 1e-12)), 0.08 / max(length(aH), 1e-6));
-  // N taps over 2 sigma with Gaussian weights, each filtered over its share of the ellipse (at most 24 texels
-  // along an axis: no coarse level magnified)
-  // (each tap filtered over a little more than its share: with a stretched ellipse, a moon's path, the taps' gaps
-  // let bright texels through to one pixel and not its neighbour)
-  float N = uReflP.y, k = 4.2 / sqrt(N);
-  vec2 gV = aV * k, gH = aH * k, mx = 24.0 / sz;
-  gV *= min(1.0, mx.y / max(length(gV), 1e-6)); gH *= min(1.0, mx.y / max(length(gH), 1e-6));
-  // the taps' rotation per pixel: interleaved gradient noise (Jimenez 2014), evenly spread from pixel to pixel. A white
-  // hash put neighbouring pixels on unrelated patterns, and on a black sea under the moon the bright texels between the
-  // taps came through as salt-and-pepper grain; no rotation at all leaves moire rings
-  float rot = 6.2832 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
-  vec4 s = vec4(0.0); float ws = 0.0;
-  for (int i = 0; i < 16; i++) {
-    if (float(i) >= N) break;
-    float r = sqrt((float(i) + 0.5) / N), th = float(i) * 2.39996 + rot;
-    vec2 o = 2.0 * r * (aV * cos(th) + aH * sin(th));
-    float w = exp(-2.0 * r * r);
-    s += w * textureGrad(uRefl, ruv + o, gH, gV); ws += w;
-  }
-  s /= ws;
+  // one anisotropic read over the whole ellipse (2 sigma each way): the GPU's anisotropic filter (16x) averages it.
+  // (Scattered taps, turned per pixel by noise to hide their gaps, showed the noise: on a black sea under the moon a
+  // white hash came through as salt-and-pepper grain and interleaved gradient noise as a regular cross-hatch)
+  vec4 s = textureGrad(uRefl, ruv, 2.0 * aH, 2.0 * aV);
   vec2 e = min(ruv, 1.0 - ruv);
   s *= smoothstep(0.0, 0.02, min(e.x, e.y));
   return refl * (1.0 - s.a) + s.rgb;

@@ -2150,10 +2150,16 @@ function trimSails(boat, dt, aoaBias = 0, full = true) {
   const bm = boat.booms && boat.booms.main;
   if (full && bm && boat.sailBy.main && boat.sailBy.main.boom !== false && awa > 110 * DEG) {
     const tbm = boat._tt, a = Math.abs(bm.a);
-    if (a > 85 * DEG) tbm.mCap = Math.min(tbm.mCap ?? c.main, c.main) - dt * 0.6 * clamp((a - 85 * DEG) / (5 * DEG), 0, 1);
+    if (a > 85 * DEG) tbm.mCap = Math.min(tbm.mCap ?? c.main, c.main) - dt * 0.3 * clamp((a - 85 * DEG) / (5 * DEG), 0, 1);
     else if (tbm.mCap !== undefined) tbm.mCap += dt * (a < 80 * DEG ? 0.03 : 0);
     if (tbm.mCap !== undefined && c.main > tbm.mCap) { const cut = c.main - Math.max(0, tbm.mCap); c.main -= cut; tbm.mpa = Math.max(0, (tbm.mpa || 0) - cut); }
-  } else if (boat._tt) boat._tt.mCap = undefined;
+  } else if (boat._tt && boat._tt.mCap !== undefined) {
+    // (given back over a couple of seconds as she comes up from the run, not at once: dropped in a step, the trim's
+    // own ease came back in one frame and the boom jumped out)
+    const tbm = boat._tt; tbm.mCap += dt * 0.4;
+    if (c.main > tbm.mCap) { const cut = c.main - Math.max(0, tbm.mCap); c.main -= cut; tbm.mpa = Math.max(0, (tbm.mpa || 0) - cut); }
+    if (tbm.mCap >= 1) tbm.mCap = undefined;
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
