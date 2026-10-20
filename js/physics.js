@@ -1090,6 +1090,12 @@ export class Boat {
         if (want !== cur && held) want = cur;
         if (this.lines.lazy < 0.45 && this.lines.lazy < this.lines.jib - 0.2) want = -cur; // hauled across
         else if (want !== cur && Math.abs(awaMid) > 160 * DEG) want = cur; // running: the clew does not cross by itself
+      } else if (genDef && genDef.pole && this.booms.main && Math.abs(this.booms.main.a) > 20 * DEG) {
+        // a symmetric spinnaker on its pole does not gybe itself as the apparent wind swings past dead astern: its
+        // pole is to windward and its sheet to leeward, the main's side, until the crew gybes the pole across with
+        // the main. Following the apparent wind's side, a Dragon's kite flew from one side to the other each time
+        // she rolled by the lee, and the roll it drove grew to +-40 deg in flat water at 165 deg in 15 kn
+        want = Math.sign(this.booms.main.a);
       } else {
         const hold = 4 * DEG;
         if (want !== cur && Math.abs(awaMid) < hold) want = cur;
