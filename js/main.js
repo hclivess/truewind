@@ -379,6 +379,11 @@ class Game {
     this.syncTeams();
   }
   async castOff() {
+    if (this._castingOff) return;            // (pressed again while it loads: once is enough)
+    this._castingOff = true;
+    try { await this._castOff(); } finally { this._castingOff = false; }
+  }
+  async _castOff() {
     this.audio.setOn(this.settings.sound);
     $('#menu').hidden = true; $('#results').hidden = true; document.body.classList.remove('menu-open');
     document.activeElement && document.activeElement.blur();   // Space / Enter must not press Cast off again
@@ -513,11 +518,18 @@ class Game {
 
   async startSession(idle) {
     const S = this.settings;
+    // (one session at a time: Cast off pressed again while a venue loads, a slow load in a browser with many tabs,
+    // started it over on top of itself, and each start added its own boat: three Jolie Brises at one spot. Each start
+    // takes a token; one that finds a newer token after an await stops there)
+    const tok = this._sessTok = (this._sessTok || 0) + 1;
     const v = this.currentVenueDef();
     if (!idle) { $('#loading').hidden = false; $('#loading-text').textContent = `Loading chart: ${v.name}`; }
     await new Promise(r => setTimeout(r, 30));
+    if (tok !== this._sessTok) return;   // (a newer start has taken over: this one stops, adding nothing)
     const geo = await this.loadGeo(v).catch(() => null);
+    if (tok !== this._sessTok) return;   // (a newer start has taken over: this one stops, adding nothing)
     const manifest = v.open || !v.features ? null : await fetch(`data/venues/${v.id}.features.json`).then(r => r.ok ? r.json() : null).catch(() => null);
+    if (tok !== this._sessTok) return;   // (a newer start has taken over: this one stops, adding nothing)
     this.venue = v; this.geo = geo; this.manifest = manifest;
     this.obstacles = null;
     const world = new World(v, geo);
@@ -529,6 +541,7 @@ class Game {
     if (tide) tide.still = !realTide;
     world.setBathy(geo && geo.bathy, tide);
     if (!v.open) world.dredgeHarbours(await this.loadTraffic(v));     // (marinas afloat at low water, before anything is drawn)
+    if (tok !== this._sessTok) return;   // (a newer start has taken over: this one stops, adding nothing)
     this.tide = tide;
     this.obstacles = ((geo && geo.piers) || []).filter(p => p.kind !== 'bridge' || (() => { let wet = 0; for (let i = 0; i < p.pts.length; i += 2) if (world.sdfAt(p.pts[i], p.pts[i + 1]) > 0) wet++; return wet > 0; })());
     // (and the landmarks' footings in the water: bridge towers and piers, sea forts, rock stacks; never a deck overhead)
@@ -556,6 +569,7 @@ class Game {
     const player = makeBoat(cls, { id: 0, name: this.settings.boatName || 'You', sailModel: SAIL_MODEL, lod: SAIL_MODEL === 'strip' ? 2 : this.sailLevelFor(cls) });
     const myTeam = classTeam(cls, this.settings.boatName);      // (the player sailing as one of the class's teams)
     if (SAIL_MODEL !== 'strip') await loadBakedPolars(cls.id);      // (the cloth sails' polar: data/sails/<class>.json)
+    if (tok !== this._sessTok) return;   // (a newer start has taken over: this one stops, adding nothing)
     // (a speed machine is let go with her pilot on the wing: W/S take it over, T gives it back)
     player.auto.trim = S.autoTrim || !!cls.speed; player.auto.hike = S.autoHike;
     // in a blow the crew ties in the reefs before leaving (shaking one out is a keypress away)
@@ -666,6 +680,7 @@ class Game {
       name: b === player ? this.settings.boatName : b.cls !== cls && b.cls.model?.hullName ? b.cls.model.hullName.text : b.name,
       hullColor: b === player || b.cls !== cls ? undefined : [0xf4f1ea, 0xd9e2ea, 0x1d4e89, 0x8b1e2d, 0x2e5e4e, 0xe8d8b0, 0x3a3f47, 0xb8c4cc, 0x6b4f3a][b.id % 9], ...look(b === player ? myTeam : b.team) });
     await this.buildTraffic(v, world, cond, player);
+    if (tok !== this._sessTok) return;   // (a newer start has taken over: this one stops, adding nothing)
     this.hud.buildRig(player);
     this.gear.setSession();
     this.gear.buildPanel(player);
@@ -1552,7 +1567,7 @@ class Game {
       // the panel is rebuilt now and then, so a 'pointerleave' can go missing: check the hovered row is still hovered
       if (this.panelHoverEl && !(this.panelHoverEl.isConnected && this.panelHoverEl.matches(':hover'))) { this.panelHover = null; this.panelHoverEl = null; }
       const hid = (this.hoverGrab && this.hoverGrab.id) || this.panelHover || null;
-      vis.rigging.highlight(hid);
+      if (vis) vis.rigging.highlight(hid);   // (between sessions the boat may have no model yet)
       this.renderer.updateGrabMarkers(show ? vis.rigging.grabs() : [], hid, GRAB_PX);
       // what the automatic crew / weight / autopilot is working glows on deck and in the panel (js/autoglow.js); the
       // labels by the parts go with the coach's text
