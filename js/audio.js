@@ -121,8 +121,16 @@ export class Audio {
     if (!(k in this.vol)) return;
     this.vol[k] = Math.max(0, Math.min(1, +v || 0));
     if (!this.ctx) return;
-    const p = k === 'master' ? this.master.gain : this.bus[k].gain, g = (k === 'master' ? MASTER : 1) * volGain(this.vol[k]);
+    const p = k === 'master' ? this.master.gain : this.bus[k].gain, g = (k === 'master' ? (this.on ? MASTER : 0) : 1) * volGain(this.vol[k]);
     p.cancelScheduledValues(this.ctx.currentTime); p.setTargetAtTime(g, this.ctx.currentTime, 0.05);
+  }
+  // sound on or off: off mutes at the master (the per-frame update stops while it is off, and the gains it last set, a
+  // flogging sail's among them, would play on whenever the context was resumed: closing the menu, casting off)
+  setOn(v) {
+    this.on = !!v;
+    if (!this.ctx) { if (this.on) this.start(); return; }
+    this.setVolume('master', this.vol.master);
+    if (this.on) this.ctx.resume(); else this.ctx.suspend();
   }
 
   // called every frame; parameters glide at 10 Hz with long time constants. rain: the rain rate at the

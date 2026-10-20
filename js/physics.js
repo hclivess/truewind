@@ -596,7 +596,7 @@ export class Boat {
     // every line is held by something (js/linehandlers.js: cam, clam, jammer, horn, clutch, ratchet, winch...).
     // Released, a loaded line runs out by itself until it is made fast again (or held: the player is hauling it)
     initLines(this);
-    this.heave = 0; this.heaveV = 0; this.pitch = 0; this.pitchV = 0;
+    this.heave = 0; this.heaveV = 0; this.pitch = 0; this.pitchV = 0; this._fresh = true;
     this.capsized = false; this.capsizeT = 0; this.righting = false;
     this.aground = 0;
     this.reefPos = 0; this.reefSlack = 0; this.reefing = false;
@@ -972,6 +972,17 @@ export class Boat {
         }
         this._smith = smith;
       }
+      // the sea at each hull of a multihull (the trimaran's floats, a cat's hulls), station by station: js/hull.js hullEta
+      const hy0 = this.hydro, st0 = hy0.stations[0];
+      if (st0.polys.length > 1) {
+        const nh = st0.polys.length, HE = this._hE || (this._hE = Array.from({ length: nh }, () => new Float64Array(7))), tmp = this._hEs || (this._hEs = {});
+        const yq = this._hY || (this._hY = st0.polys.map((P, q) => { let y = 0, n = 0; for (const st of hy0.stations) { const Q = st.polys[q]; for (let i = 0; i < Q.length; i += 2) { y += Q[i]; n++; } } return n ? y / n : 0; }));
+        for (let q = 0; q < nh; q++) for (let i = 0; i < 7; i++) {
+          const xa = this.x + fx * xs7[i], za = this.z + fz * xs7[i];
+          HE[q][i] = env.waves.sample(xa + sx * yq[q], za + sz * yq[q], t, tmp).h;
+        }
+        this._hy.hullEta = (x, q) => { const f = clamp((x - C.sternX) / (C.bowX - C.sternX) * 6, 0, 5.999), i = Math.floor(f), w = f - i; return HE[q][i] * (1 - w) + HE[q][i + 1] * w; };
+      }
       wv = W7[3];
       waveH = wv.h;
       slopeAlong = wv.sx * fx + wv.sz * fz;
@@ -984,7 +995,17 @@ export class Boat {
       for (let i = 0; i < 7; i++) { const wt = i === 0 || i === 6 ? 1 / 12 : 1 / 6; ox += W7[i].vx * wt; oz += W7[i].vz * wt; }
       ox = ox * e1 + dr.x * e2; oz = oz * e1 + dr.z * e2;
       orbU = ox * fx + oz * fz; orbV = ox * sx + oz * sz;
-    } else for (let i = 0; i < 7; i++) { W7[i].h = 0; W7[i].sx = 0; W7[i].sz = 0; W7[i].vy = 0; this._slC[i] = 0; }
+      // a boat just put in the water (reset) sits on the sea under her, riding it: set at the still waterline in a sea she
+      // was dropped into a trough or held down in a crest (a trimaran with her floats in one displaced two and a half times
+      // her weight and was thrown up 1.7 m; a keelboat dropped into a trough shipped water over the deck)
+      if (this._fresh) {
+        let h = 0, vy = 0;
+        for (let i = 0; i < 7; i++) { const wt = i === 0 || i === 6 ? 1 / 12 : 1 / 6; h += W7[i].h * wt; vy += (W7[i].vy || 0) * wt; }
+        this.heave = h; this.heaveV = vy;
+        this.pitch = clamp((W7[6].h - W7[0].h) / Math.max(0.5, xs7[6] - xs7[0]), -0.3, 0.3); this.pitchV = 0;
+      }
+    } else { for (let i = 0; i < 7; i++) { W7[i].h = 0; W7[i].sx = 0; W7[i].sz = 0; W7[i].vy = 0; this._slC[i] = 0; } this._hy.hullEta = null; }
+    this._fresh = false;
 
     const vgx = this.u * fx + this.v * sx + cur.x, vgz = this.u * fz + this.v * sz + cur.z;
     this.vgx = vgx; this.vgz = vgz;
@@ -1178,7 +1199,7 @@ export class Boat {
       if (S.bulb && g.imm > 0.5 && (this.keelEff ?? 1) > 0.5) { const Db = bulbDrag(S.bulb, ul); X -= Db; d.bulbDrag = Db; }
       if (S.winglets && g.imm > 0.5 && (this.keelEff ?? 1) > 0.5) { const Dw = wingletDrag(S.winglets, ul); X -= Dw; d.wingletDrag = Dw; }
       d.Nkeel = g.x * kn * cphi; d.keelCl = fc.cl;
-      d.keelX = kx; d.keelY = kn * cphi; d.keelStall = fc.stalled; d.leeway = Math.atan2(this.v, Math.max(0.05, this.u));
+      d.keelX = kx; d.keelY = kn * cphi; d.keelStall = fc.stalled; d.leeway = Math.atan2(vw, Math.max(0.05, uw));   // (through the water she sails in: the orbital motion she rides on is not leeway)
       d.keelARe = g.ARe; d.keelImm = g.imm; d.keelVent = fc.vent; d.keelRe = fc.Re; d.keelStallA = fc.ast;
     }
     // ---- auxiliary engine: propeller thrust, prop walk, a stopped prop's drag, the outboard's leg and weight, propwash
@@ -1646,7 +1667,11 @@ export class Boat {
       let My = RHO_W * G * imm.Mx - W * this.xG - this.crewMass * G * crewXm + Mw + foilMy + (this.hfoils ? this._planeM || 0 : 0);
       My -= beta * (M35 * this.heaveV + M55 * this.pitchV - (wv ? imm.W35 : 0));
       // bow driven under: green water on the foredeck pushes it down (moment = x * Fz)
-      if (imm.deckSub > 0 && uw > 0) { const Fz = -0.5 * RHO_W * uw * uw * C.beam * 0.4 * imm.deckSub; My += C.bowX * 0.6 * Fz; X -= 0.5 * RHO_W * uw * uw * C.beam * 0.15 * imm.deckSub; }
+      // (across the bow that is under: a multihull's own hull, not her platform's overall beam: the Hobie's 2.4 m beam
+      // over a 0.42 m bow pressed a buried bow down at twice her weight, and she pitchpoled reaching in a 0.5 m chop; the
+      // trimaran's 15 m, a hundred tonnes)
+      const bowB = C.multihull || C.amas ? (C.hullBeam ?? C.beam) : C.beam;
+      if (imm.deckSub > 0 && uw > 0) { const Fz = -0.5 * RHO_W * uw * uw * bowB * 0.4 * imm.deckSub; My += C.bowX * 0.6 * Fz; X -= 0.5 * RHO_W * uw * uw * bowB * 0.15 * imm.deckSub; }
       d.myHs = My - foilMy; d.myFoil = foilMy;
       // (a foiler's: the drive at the sails' centre of effort, above her origin (this._ceZ): her foils' drags carry their own
       // moments; flying, there is no hull drag low down)
@@ -1665,6 +1690,9 @@ export class Boat {
       this.heave += this.heaveV * dt;
       this.pitchV += tdd * dt;
       this.pitch = clamp(this.pitch + this.pitchV * dt, -0.6, 0.6);
+      // (held at the stop, she does not keep the rate into it: carried on, it pinned the bow under at -34 deg while its
+      // buoyancy, twice her weight, threw the hull 2 m into the air)
+      if (Math.abs(this.pitch) >= 0.6 && this.pitchV * this.pitch > 0) this.pitchV = 0;
       if (!isFinite(this.heave) || !isFinite(this.heaveV)) { this.heave = 0; this.heaveV = 0; }
       if (!isFinite(this.pitch) || !isFinite(this.pitchV)) { this.pitch = 0; this.pitchV = 0; }
     }
@@ -2115,6 +2143,17 @@ function trimSails(boat, dt, aoaBias = 0, full = true) {
     // (nothing touched while there is no play: the trim's own value, clamped or not, stays as it was)
     if (tb.mp > 1e-4) { const m0 = c.main; c.main = clamp(c.main + tb.mp, 0, 1); tb.mpa = c.main - m0; } else tb.mpa = 0;
   }
+  // running, the boom is never let out past square: a main eased forward of abeam drives the rig to windward, the start
+  // of the death roll (a Laser at 160 deg in a 16 kn puff, the telltales asking for more ease, had her boom at 100 deg
+  // and rolled in over her windward side in two seconds). The crew stops the sheet where the boom came to 85 deg and
+  // gives it back only as the boom comes in again
+  const bm = boat.booms && boat.booms.main;
+  if (full && bm && boat.sailBy.main && boat.sailBy.main.boom !== false && awa > 110 * DEG) {
+    const tbm = boat._tt, a = Math.abs(bm.a);
+    if (a > 85 * DEG) tbm.mCap = Math.min(tbm.mCap ?? c.main, c.main) - dt * 0.6 * clamp((a - 85 * DEG) / (5 * DEG), 0, 1);
+    else if (tbm.mCap !== undefined) tbm.mCap += dt * (a < 80 * DEG ? 0.03 : 0);
+    if (tbm.mCap !== undefined && c.main > tbm.mCap) { const cut = c.main - Math.max(0, tbm.mCap); c.main -= cut; tbm.mpa = Math.max(0, (tbm.mpa || 0) - cut); }
+  } else if (boat._tt) boat._tt.mCap = undefined;
 }
 
 // ---------------------------------------------------------------------------------------------

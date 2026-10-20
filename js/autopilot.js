@@ -207,7 +207,11 @@ export class Autopilot {
     // across the reach. Upwind it follows within ~4 s (sailing to the telltales: the lifts and headers are the race);
     // reaching and running it keeps its heading through the puffs and follows a shift over ~20 s, as a wind-mode
     // autopilot's damping does (B&G, Raymarine: 10-30 s true-wind damping)
-    const tau = lerp(4, 20, clamp((A - up - 6 * DEG) / (20 * DEG), 0, 1));
+    let tau = lerp(4, 20, clamp((A - up - 6 * DEG) / (20 * DEG), 0, 1));
+    // (but a shift that takes her deeper than the angle it holds, toward a dead run and by the lee, it follows at once,
+    // as a helmsman heads up in the puff: held on the old heading for 20 s, a Laser at 140 deg had a 20 deg shift put
+    // her at 164 with the boom squared and she rolled in to windward)
+    if (A > 120 * DEG) { const deeper = Math.abs(wrap(twd - b.psi)) - A; tau = lerp(tau, 1.5, clamp((deeper - 5 * DEG) / (8 * DEG), 0, 1)); }
     this.twdF = this.twdF === undefined || this.vaneNew ? twd : this.twdF + wrap(twd - this.twdF) * clamp(dt / tau, 0, 1);
     this.vaneNew = false;
     let desired = this.twdF - this.vaneTwa;

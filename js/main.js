@@ -345,8 +345,7 @@ class Game {
   closeMenu() {
     $('#menu').hidden = true; document.body.classList.remove('menu-open');
     if (this.menuPaused) this.setPaused(false, true);
-    this.audio.on = this.settings.sound; this.syncTools();
-    this.audio.start();
+    this.audio.setOn(this.settings.sound); this.syncTools();
     document.activeElement && document.activeElement.blur();
   }
   // the boat's name and sail number: cleaned while typing, validated (RRS Appendix G for the number), kept
@@ -379,8 +378,7 @@ class Game {
     this.syncTeams();
   }
   async castOff() {
-    this.audio.on = this.settings.sound;
-    this.audio.start();
+    this.audio.setOn(this.settings.sound);
     $('#menu').hidden = true; $('#results').hidden = true; document.body.classList.remove('menu-open');
     document.activeElement && document.activeElement.blur();   // Space / Enter must not press Cast off again
     const { venue, ...rest } = this.settings;
@@ -408,9 +406,8 @@ class Game {
     if (this.helpPaused) { this.helpPaused = false; this.setPaused(false, true); }
   }
   toggleSound() {
-    this.settings.sound = this.audio.on = !this.audio.on;
+    this.settings.sound = !this.audio.on; this.audio.setOn(this.settings.sound);
     $('#opt-sound').checked = this.audio.on;
-    if (this.audio.on) this.audio.start(); else if (this.audio.ctx) this.audio.ctx.suspend();
     this.hud.toast(this.audio.on ? 'Sound on' : 'Sound off', 1);
     this.syncTools();
   }

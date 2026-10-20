@@ -191,9 +191,11 @@ export class HUD {
     set('twa', `${Math.abs(twaDeg)}`, twaDeg > 0 ? 'stbd' : 'port');
     // wind speeds are damped (~1.5 s) like a real display: the raw masthead reading swings with the roll
     // rate (a knockdown moves the masthead at 10+ kn); a new boat starts from its first reading
-    if (this._windB !== b) { this._windB = b; this._twsD = d.twsInst ?? 0; this._awsD = d.aws ?? 0; }
+    if (this._windB !== b) { this._windB = b; this._twsD = d.twsInst ?? 0; this._awsD = d.aws ?? 0; this._leeD = d.leeway ?? 0; }
     const kd = 1 - Math.exp(-0.1 / 1.5);
     this._twsD += ((d.twsInst ?? 0) - this._twsD) * kd; this._awsD += ((d.aws ?? 0) - this._awsD) * kd;
+    // (leeway too, over ~3 s as a log's: in a seaway the water's sideways surge swings it every wave)
+    this._leeD += ((d.leeway ?? 0) - this._leeD) * (1 - Math.exp(-0.1 / 3));
     set('tws', fmt(this._twsD / KT));
     const tgt = g.navTarget();
     let vmg;
@@ -204,7 +206,7 @@ export class HUD {
     set('awa', `${Math.abs(awaDeg)}`, awaDeg > 0 ? 'stbd' : 'port');
     set('aws', fmt(this._awsD / KT));
     set('heel', `${Math.abs(deg(b.phi))}`, Math.abs(b.phi) > C.targetHeel + 8 * DEG ? 'warn' : '');
-    set('lee', Math.abs(b.u) < 0.3 ? '–' : fmt(Math.abs(d.leeway ?? 0) / DEG));   // leeway is noise below ~0.6 kn
+    set('lee', Math.abs(b.u) < 0.3 ? '–' : fmt(Math.abs(this._leeD) / DEG));   // leeway is noise below ~0.6 kn
     const depth = g.world ? g.world.depthAt(b.x, b.z) : 99;
     set('depth', depth > 99 ? '99+' : fmt(depth), depth < C.draft + 1 ? 'bad' : depth < C.draft + 3 ? 'warn' : '');
     let perf = '–';

@@ -219,6 +219,8 @@ function buildStations(C, nStations) {
 // (o.v); W33, W35 = sum a33 w (1, x), the water's vertical velocity (o.w) weighted the same way, what the radiation
 // damping acts against. Each section feels the water at its own station, so waves shorter than the hull cancel
 // along it instead of being felt at one point.
+// a hull section's lateral centre (its points' mean y)
+function polyYc(P) { let y = 0; const n = P.length / 2; for (let i = 0; i < n; i++) y += P[2 * i]; return y / n; }
 function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt, accAt, ka = 0, smith = 1) {
   const cp = Math.cos(phi), sp = Math.sin(phi), ac = ACC;
   let V = 0, My = 0, Mx = 0, girthLen = 0, xmin = 1e9, xmax = -1e9, FKx = 0, FKy = 0, FKn = 0;
@@ -230,8 +232,15 @@ function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, sl
     const eta = etaAt(st.x), sl = slopeLatAt(st.x);
     const zw = eta - heave - st.x * pitch;
     let A = 0, Ay = 0, Az = 0, girth = 0;
+    // (each hull of a multihull in the sea where it is: the waterline plane through the water's height at that hull,
+    // out.hullEta(x, q, y), with the local slope. Extrapolated from the centreline the slope across one hull's waterline
+    // set a trimaran's float 6.7 m out a metre and a half too deep in a short chop: 7.5 t on one float, 1 t on the other)
+    const hE = out.hullEta && st.polys.length > 1 ? out.hullEta : null;
     for (let q = 0; q < st.polys.length; q++) {
-      const r = clipArea(st.polys[q], sp, cp, zw, sl * smith);
+      const P = st.polys[q];
+      let zq = zw;
+      if (hE) { const yq = P.yc ?? (P.yc = polyYc(P)); zq += hE(st.x, q, yq) - eta - sl * smith * yq; }
+      const r = clipArea(P, sp, cp, zq, sl * smith);
       A += r.A; Ay += r.Ay; Az += r.Az; girth += r.girth;
       Vh[q] += r.A * st.dx;
     }

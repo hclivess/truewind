@@ -384,6 +384,9 @@ The suite is honest about what does not yet match real boats; these are open:
 - **Gybes**: a crash gybe swings the boom at 130–200°/s on small boats but only 50–85°/s on the Swan 131 and the TP52 in light air, and from 45° by the lee only the sportboat goes across.
 - **Waves and ropes**: long waves in 30–50 m depth use the deep-water wavelength (14–23 % off); the orbital motion decays too fast with depth; the rope simulation stretches 2–5 % where a rope should not, and a free tail can gain energy.
 - **Stability**: no coachroof buoyancy, so the angle of vanishing stability is low (Contessa 32: 133° against a published 155°).
+- **Heavy weather** (`node test/conditions.mjs`): in 20–25 kn and an ocean sea the autopilot broaches or wanders ±20–27° running on most classes, the Dragon, the sportboat and the TP52 are knocked down past 50° close-hauled in 20 kn, and the dinghy capsizes close-hauled in 20 kn. Up to 14 kn (wind sea, swell, stream, puffs, squalls) every class holds her course without a broach or capsize.
+- **Waves upwind**: a 0.5 m chop costs a J/24 about 20% of her upwind speed (the waves' mean surge force, −140 N, on top of the added-resistance term, 100 N, which may count part of it twice); real boats lose nearer 10%. Leeway rises with it, as it should (about as 1/speed²).
+- **Shallow water**: a boat with a metre under her keel sails exactly as in deep water (no squat or shallow-water resistance).
 - **Others**: wind turbulence about twice its design value, the venue projection 0.7 % short north–south, the autopilot reefing on and off in gusts, AI starts 24–30 s late on average, l'Hydroptère at 32–37 kn on cloth sails against her 51 kn record.
 
 ## What is approximated
@@ -473,6 +476,7 @@ python3 -m http.server 8000
 Development tools:
 
 - `node test/vpp.mjs [class]` prints polars.
+- `node test/conditions.mjs` sails nine classes on the autopilot close-hauled, beam-on and broad reaching in every kind of water the game has (flat, light air, wind seas from 8 to 25 kn, an ocean swell, shallow water, a cross stream, puffs and squalls) and checks what a sailor would notice: no broach or capsize, the heading's wander, the speed a sea costs, leeway, heel (`CLS=`, `CONDS=`, `TWAS=` for a subset; about ten minutes on 16 cores).
 - `node test/race.mjs solent sportboat 6 25` runs a headless AI race on a real map.
 - `node test/vlm.mjs`, `node test/cloth.mjs` and `node test/sailshape.mjs [class]` check the vortex lattice, the sailcloth and the cloth sails' shapes. `node test/bench.mjs [class]` times one physics step per sail model, `node test/bench-fleet.mjs [class] [n]` a race fleet (for n > 6 also the game's cloth/strip mix). `NCLOTH=6 node test/race.mjs solent sportboat 24 25` races a big fleet as the game mixes it.
 - `node test/traffic.mjs [venue|all] [minutes] [density]` runs the harbour traffic on every venue: vessels stay on the water, nobody gets stuck, ferries finish their legs (`IMG=dir` draws a chart of each).
