@@ -1221,11 +1221,13 @@ export class Renderer {
     this.sdfTex.magFilter = THREE.LinearFilter; this.sdfTex.minFilter = THREE.LinearFilter; this.sdfTex.needsUpdate = true;
     U.uSdf.value = this.sdfTex;
     (this.seamarks || (this.seamarks = new SeamarkLayer(this.scene, { low: this.low }))).set(world, geo && geo.seamarks);   // lighthouses, buoys, beacons, lights
+    this.skySys.setGlowSources(null);                         // (the towns' glow on the night sky: set once the land is in)
     if (world.open) return;
     // terrain, buildings, streets and trees from the venue's OSM land data (built once it has loaded;
     // everything stands on the same height function, so buildings neither float nor sink)
     loadLand(world.venue.id, world).then(land => {
       if (this.world !== world) return;                       // the venue changed meanwhile
+      this.skySys.setGlowSources(land.places);
       const T = buildTerrain(world, land, { lat: world.venue.lat, low: this.low });
       const shadowed = new Set();
       const shade = (g, ground) => g.traverse(o => { const ms = Array.isArray(o.material) ? o.material : [o.material]; for (const m of ms) if (m && m.isMeshStandardMaterial && !shadowed.has(m)) { shadowed.add(m); withCloudShadows(m, this.skySys, { ground }); } });
@@ -1482,6 +1484,7 @@ export class Renderer {
     this.refl.setNight(this.sunDir.y < -0.08);
     const h = this._reflHide || (this._reflHide = []);
     h.length = 0; h.push(this.water, this.skySys.dome, this.rain);
+    if (this.skySys.stars) h.push(this.skySys.stars);
     for (const w of this.wakes.values()) h.push(w.mesh);
     for (const vis of this.boats.values()) if (vis.splash) h.push(vis.splash.foam, vis.splash.patches);
     if (this.grabRings) h.push(...this.grabRings);
