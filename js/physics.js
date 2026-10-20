@@ -374,8 +374,16 @@ export function reefTime(C) { return C.reefTime ?? (C.id === 'blackwatch' ? 70 :
 // ---------------------------------------------------------------------------------------------
 // Section coefficients from sail shape. a = |alpha| (rad, 0..pi/2), d = camber depth / chord,
 // f = draft position (0 = at luff .. 1 = at leech; ~0.4-0.5 typical).
+// A spinnaker's (s.kind 'spin') maximum lift is capped at SPIN_CLMAX whatever its depth: the depth law, fitted to mains and
+// jibs of 6-15% camber, gave a 20-25% deep kite section lift coefficients of 1.6-1.95 on every reach, its resultant
+// force coefficient 1.67 (the J/70's gennaker at 72 deg apparent), where ORC's asymmetric spinnaker tacked on the
+// centreline reaches C_L 1.04-1.075 at 60-75 deg with a viscous C_D0 of 0.39-0.48, a resultant of about 1.2 with its
+// induced drag (ORC VPP Documentation 2023, Table 5.7; the symmetric's, Table 5.6, is the same within 5%), and
+// twisted-flow wind-tunnel kites 1.1-1.4. At 1.2 the strip J/70's resultant is 1.19, and its reaching and running
+// speeds in 8-12 kn come within -7..+8% of its ORC certificate (they were 6-12% above it; the Etchells' within 5%).
+const SPIN_CLMAX = 1.2;
 export function shapeCoef(a, d, f, S, out) {
-  const clMax = clamp(0.42 + 7.8 * d, 0.7, 1.95);
+  const clMax = clamp(0.42 + 7.8 * d, 0.7, S.kind === 'spin' ? SPIN_CLMAX : 1.95);
   const ast = (9 + 85 * d + 8 * (0.55 - f)) * DEG;                       // deep + draft forward stalls later
   const alf = (0.6 + 28 * d * (0.9 + 0.9 * (0.55 - f))) * DEG;            // deep + round entry luffs sooner
   let cl;
