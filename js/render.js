@@ -52,6 +52,7 @@ uniform float uK2;   // second-order (Tayfun) coefficient k_m / 2: WaveField.upd
 // horizontal factor (A), direction and group speed (B), inverse window radii and on (C)
 uniform vec4 uRg[${MAXW}]; uniform vec4 uRgA[2]; uniform vec4 uRgB[2]; uniform vec4 uRgC[2];
 uniform vec4 uBrk; uniform vec2 uDm;   // breaking: (k-bar, S0, S1, lean), the sea's mean direction (WaveField.brk)
+uniform float uHs;                      // the sea's significant height (m): what may break (leanB)
 // a group's window here and now: (1 - u^2)^3 along its direction, across it and in time (env.js rgWin)
 float rgWin(int e, vec2 x0) {
   vec4 C = uRgC[e]; if (C.w < 0.5) return 0.0;
@@ -76,7 +77,11 @@ vec4 wcomp(int i, float C, float S, vec2 rw, vec2 rq) {
 // adds, breaking intensity B). e, hc: first-order height and Hilbert partner; g: grad e; T: Gerstner
 // compression tensor (xx, xz, zz); Bd: depth-limited breaking
 vec4 leanB(float e, float hc, vec2 g, vec3 T, float Bd) {
-  float Ea = sqrt(e * e + hc * hc), B = max(smoothstep(uBrk.y, uBrk.z, uBrk.x * Ea), Bd);
+  // (a crest breaks only where the wave is big enough to: steep for its length, a sheltered harbour's 8 cm chop drew
+  // breaking rollers, their translucent lips and their forward lean on one crest in ten. The sea's significant height
+  // gates the open-water breaking (Beaufort 2-3: glassy crests below Hs 0.2 m), the wave's own height both kinds)
+  float Ea = sqrt(e * e + hc * hc), bigB = smoothstep(0.03, 0.10, Ea);
+  float B = max(smoothstep(uBrk.y, uBrk.z, uBrk.x * Ea) * smoothstep(0.1, 0.35, uHs), Bd) * bigB;
   if (B <= 0.0 || e <= 0.0) return vec4(0.0, 0.0, 0.0, B);
   float ie = 1.0 / (Ea + 1e-3);
   float jd = 1.0 - (uDm.x * uDm.x * T.x + 2.0 * uDm.x * uDm.y * T.y + uDm.y * uDm.y * T.z);
@@ -308,7 +313,7 @@ export class Renderer {
       vertexShader: /* glsl */`
         ${this.cstDef}${WAVE_GLSL}
         ${HWDEF}
-        uniform vec2 uOffset; uniform vec3 uCam; uniform float uHs; attribute float spc;
+        uniform vec2 uOffset; uniform vec3 uCam; attribute float spc;
         varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore; varying float vBreak; varying vec2 vLim;
         void main(){
           vec2 x0 = position.xz + uOffset;
@@ -369,7 +374,7 @@ export class Renderer {
         ${REFL_GLSL}
         uniform vec3 uSunDir; uniform vec3 uSunCol; uniform samplerCube uEnv; uniform float uAmbF; uniform vec3 uLightDir; uniform sampler2D uSkyRT; uniform mat4 uSkyVP;
         uniform vec3 uCam; uniform sampler2D uGust; uniform vec2 uGustO; uniform float uGustS;
-        uniform vec2 uFlow; uniform float uWind; uniform float uHs; uniform float uJSig; uniform float uLmin;
+        uniform vec2 uFlow; uniform float uWind; uniform float uJSig; uniform float uLmin;
         uniform sampler2D uFoam; uniform vec2 uFoamC; uniform float uFoamS; uniform vec2 uFoamOff; uniform float uFoamOn; uniform float uFoamK;
         uniform vec3 uDeep; uniform vec3 uShallow; uniform vec3 fogColor; uniform float fogDensity;
         varying vec3 vPos; varying vec2 vX0; varying float vFade; varying float vShore; varying float vBreak; varying vec2 vLim;
@@ -766,6 +771,9 @@ export class Renderer {
             float lipc = 0.35 * smoothstep(0.6, 0.9, phJ) * (1.0 - smoothstep(1.4, 1.6, phJ));
             float plng = 0.75 * smoothstep(0.15, 0.45, phJ) * (1.0 - smoothstep(0.65, 0.95, phJ));
             float cov = max(max(roll, 0.35 * smoothstep(3.2, 2.0, phJ) * smoothstep(1.6, 1.9, phJ)), max(lipc, plng)) * (0.65 + 0.35 * alB) * lb.w;
+            // (white water needs a wave big enough to trap air, as the foam pass's sources: js/render.js bigW. Steep for
+            // its length, an 8 cm sea in Progreso's sheltered water drew a roller on one crest in ten)
+            cov *= smoothstep(0.03, 0.10, sqrt(e1 * e1 + eH * eH)) * smoothstep(0.1, 0.35, uHs);
             // (a constant stretch: a scale varying with the phase, multiplying coordinates kilometres from the origin,
             // squeezed the noise into contour lines)
             vec2 bp = vec2(acrB * 5.0, dot(x0, uDm) * sc * 0.75 + uTime * 0.05);
@@ -862,7 +870,7 @@ export class Renderer {
         const float uTexel = 1.0 / ${FOAM_N}.0;
         uniform vec4 uWake[6]; uniform vec4 uWakeW[6];          // stern paths this frame (x0a, z0a, x0b, z0b); (half-width, strength)
         uniform sampler2D uGust; uniform vec2 uGustO; uniform float uGustS; uniform vec2 uFlow; uniform float uWind;
-        uniform vec2 uFoamC; uniform float uFoamS; uniform vec2 uFoamOff; uniform float uFoamK; uniform float uHs;
+        uniform vec2 uFoamC; uniform float uFoamS; uniform vec2 uFoamOff; uniform float uFoamK;
         varying vec2 vUv;
         void main(){
           vec2 p = uFoamC + (vUv - 0.5) * uFoamS, cell = vec2(uFoamS * uTexel);
