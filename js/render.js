@@ -18,6 +18,7 @@ import { SeamarkLayer } from './seamark-render.js';
 import { PlanarReflection, REFL_GLSL } from './reflect.js';
 import { addNavLights, tickNavLights } from './navlights.js';
 import { ReflGovernor } from './governor.js';
+import { FlowViz } from './flowviz.js';
 
 const MAXW = 20;
 const FOAM_N = 512;   // persistent-foam map resolution (texels a side)
@@ -217,6 +218,7 @@ export class Renderer {
     this.markMeshes = [];
     this.forceArrows = null;
     this.showForces = false;
+    this.flowViz = null; this.showFlow = false;   // (Shift+F: the air over the sails, js/flowviz.js)
     this.hemi = hemi;
     // float textures filter linearly on nearly every GPU; where not, the coastal layers are blended by hand
     this.cstLin = !!r.extensions.get('OES_texture_float_linear');
@@ -1452,6 +1454,8 @@ export class Renderer {
     }
     if (this.showForces && player) this._updateForces(player);
     else if (this.forceArrows) this.forceArrows.visible = false;
+    if (this.showFlow && player) (this.flowViz || (this.flowViz = new FlowViz(this.scene))).update(player, dt, this.r.domElement.width, this.r.domElement.height);
+    else if (this.flowViz) this.flowViz.hide();
     if (this.seamarks) this.seamarks.update(dt, t, this.camera, env, this.sunDir.y, this.scene.fog.density || 0, this.r.getPixelRatio(), this.r.domElement.clientHeight || 800);
     if (this.hooks) for (const h of this.hooks) h(dt, t, sim);      // (js/gear-render.js: wrecks, rodes, lines, MOB marker)
     this._renderReflection();

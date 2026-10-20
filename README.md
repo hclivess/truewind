@@ -439,6 +439,7 @@ These are the honest limits:
 | `PgUp` `PgDn` / `]` `[` | Throttle ahead / astern, through a neutral detent (`]` `[` are the two keys right of `P`, matched by physical key on any layout) |
 | `1`–`7` | Cameras: chase, helm, bow, masthead, overhead, orbit, on deck |
 | `L` `K` `I` | Laylines, force vectors, physics readout |
+| `Shift` + `F` | Wind flow: streamlines of the apparent wind through the sails' vortex lattice (the air the cloth meets, bent by the sails), red where it speeds up, violet where it slows (`js/flowviz.js`; the cloth sails only) |
 | `Tab` | Chart (click or tap it for a waypoint) |
 | `Shift`+`O` | Autopilot on / off (**Pilot** on the toolbar and the touch pad): sails to the waypoint or round the race course, with a coach. Any touch of the helm hands her back |
 | `U` | Anchor: drop / weigh (keelboats) |

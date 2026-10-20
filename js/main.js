@@ -1311,6 +1311,7 @@ class Game {
     if (e.shiftKey && k === 'u') { this.hailKey(); return; }
     if (e.shiftKey && k === 'o') { this.toggleAutopilot(); return; }   // (autopilOt: O alone is the sound)
     if (e.shiftKey && k === 'l') { this.hud.layout.toggleEdit(); return; }   // (Layout: L alone is the laylines)
+    if (e.shiftKey && k === 'f') { const R = this.renderer; R.showFlow = !R.showFlow; this.hud.toast(R.showFlow ? (b.sailSys ? 'Wind flow on: the air over the sails (red: sped up, blue: slowed)' : 'Wind flow: the cloth sails only (not the strip model)') : 'Wind flow off', 2.5); return; }   // (F alone lets the jib fly)
     if (this.gear.onKey(k, e)) return;
     if (k === 'h') this.toggleAutoHike();
     else if (k === 't') this.toggleAutoTrim();
