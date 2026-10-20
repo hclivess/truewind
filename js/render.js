@@ -410,7 +410,10 @@ export class Renderer {
             float th = cw.x - a.w * uTime + b.z, sh = cw.w * vLim.x * vShore;
             float WAt = kw * b.x * sh, WA0 = WAt * vFade;
             float att = smoothstep(fp * 2.0, fp * 6.0, 6.2832 / kw);
-            lost += (1.0 - att) * WA0 * WA0 * 0.5;
+            // (all of the slope the normal does not draw becomes roughness: the footprint's filtered share and the
+            // distance fade's (vFade, 0.7-3.2 km), which went nowhere before: seen from aloft or far off the sea lost its
+            // waves and turned to a mirror for the clouds)
+            lost += (WAt * WAt - WA0 * WA0 * att * att) * 0.5;
             // (with the rogue groups' share: elevation, Hilbert partner, -, compression; the statistics below
             // stay the sea's own, so a group's crest stands out of them as the rare crest it is)
             vec4 w = wcomp(i, cos(th), sin(th), rw, rq); w.w *= qs;
