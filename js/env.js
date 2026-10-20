@@ -805,7 +805,10 @@ export class WaveField {
     const trNow = W ? W.trend(t) : tr;
     // grows toward the lagged wind; a falling wind lets the sea decay more slowly still
     const U = this.U0 * Math.max(tr.f, Math.min(trNow.f, tr.f) + 0.5 * Math.max(0, tr.f - trNow.f));
-    return this._amp(c, U, this.dir0 + tr.d);
+    // the wind over the water, not over the ground: the stream taken out (wind against tide raises a bigger sea)
+    const d = this.dir0 + tr.d, cu = this.cur;
+    if (cu && (cu.x || cu.z)) { const rx = -U * Math.sin(d) - cu.x, rz = U * Math.cos(d) - cu.z; return this._amp(c, Math.hypot(rx, rz), Math.atan2(-rx, rz)); }
+    return this._amp(c, U, d);
   }
   // Deterministic sea state at time t: each component answers to the wind it felt tau seconds ago.
   update(t) {
@@ -871,7 +874,14 @@ export class WaveField {
       const cph = c.omega / c.k, w = c.omega + c.k * Ud;
       if (t && c.omegaEff !== undefined) c.phase = (c.phase + (w - c.omegaEff) * t) % (2 * Math.PI);
       c.omegaEff = w;                                             // Doppler shift
-      c.curAmp = 1 / Math.sqrt(Math.max(0.35, 1 + 2 * Ud / cph)); // opposing current steepens the sea
+      // an opposing current steepens a swell that runs into it (wave action conserved over the change of current:
+      // Longuet-Higgins & Stewart 1961), but not the wind's own sea raised over the same stream: a sea grown over a
+      // uniform current is, in the water's frame, the still-water sea of the wind relative to the water (Galilean
+      // invariance; Holthuijsen 2007, "Waves in Oceanic and Coastal Waters" ch. 7: steepening needs a current gradient
+      // along the waves' path). Steepened as if it had come in from slack water, the Solent's 0.6 m chop in a
+      // 2.5 kn stream against the wind went to 0.75-1 m and the Dragons beating in it stalled every minute and a half.
+      // (Its relative wind is in _ampOf: against the tide it blows harder over the water, and the sea is bigger.)
+      c.curAmp = c.kind === 'sea' ? 1 : 1 / Math.sqrt(Math.max(0.35, 1 + 2 * Ud / cph));
     }
     this._rgE = new Map(); this._rgL = new Map();   // the groups' phases moved with the frequencies
   }

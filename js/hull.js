@@ -221,14 +221,17 @@ function buildStations(C, nStations) {
 // along it instead of being felt at one point.
 // a hull section's lateral centre (its points' mean y)
 function polyYc(P) { let y = 0; const n = P.length / 2; for (let i = 0; i < n; i++) y += P[2 * i]; return y / n; }
-function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt, accAt, ka = 0, smith = 1) {
+function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt, accAt, ka = 0, smith = 1, lp = 0) {
   const cp = Math.cos(phi), sp = Math.sin(phi), ac = ACC;
   let V = 0, My = 0, Mx = 0, girthLen = 0, xmin = 1e9, xmax = -1e9, FKx = 0, FKy = 0, FKn = 0;
   let FAx = 0, FAy = 0, FAn = 0, FAz = 0, FAm = 0, FAk = 0;
   let M33 = 0, M35 = 0, M55 = 0, F33 = 0, F35 = 0, W33 = 0, W35 = 0;   // heave added mass and its wave loads (see HullHydro)
   const Vh = out.Vh || (out.Vh = new Array(stations[0].polys.length).fill(0)); Vh.fill(0);   // volume per hull
   let deckSub = 0;
-  for (const st of stations) {
+  // (lp > 0: each section's immersed volume low-passed at that rate per call, for the surge Froude-Krylov load below)
+  const vLP = lp > 0 ? (out.vLP || (out.vLP = new Float64Array(stations.length).fill(NaN))) : null;
+  for (let j = 0; j < stations.length; j++) {
+    const st = stations[j];
     const eta = etaAt(st.x), sl = slopeLatAt(st.x);
     const zw = eta - heave - st.x * pitch;
     let A = 0, Ay = 0, Az = 0, girth = 0;
@@ -244,6 +247,8 @@ function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, sl
       A += r.A; Ay += r.Ay; Az += r.Az; girth += r.girth;
       Vh[q] += r.A * st.dx;
     }
+    let volM = 0;
+    if (vLP) { const v = A * st.dx; vLP[j] = Number.isFinite(vLP[j]) ? vLP[j] + (v - vLP[j]) * lp : v; volM = vLP[j]; }
     if (A <= 1e-6) continue;
     if (st.t > 0.6 && st.full > 0) deckSub += Math.max(0, A / st.full - 0.88) / 0.12 / 10;  // foredeck under water
     const vol = A * st.dx;
@@ -257,7 +262,17 @@ function immerseStations(stations, heave, pitch, phi, etaAt, slopeLatAt, out, sl
     // the section's heave added mass, as much of it as is in the water (a bow out of the water carries none)
     const am = st.am ? st.am * Math.min(1, A / st.A0) : 0;
     M33 += am; M35 += am * st.x; M55 += am * st.x * st.x;
-    if (slopeAlongAt) { const sa = slopeAlongAt(st.x), vd = vol * dec; FKx -= vd * sa; FKy -= vd * sl; FKn -= vd * sl * st.x; }
+    // The surge Froude-Krylov load on the section's mean immersion, not its instant one. Its instant volume rises in a
+    // crest and falls in a trough, and once the hull heaves and pitches out of phase with the sea that variation
+    // correlates with the slope: a steady force against her heading, the waterline (relative-elevation) term of the
+    // second-order mean drift force (Pinkster 1980, "Low-frequency second-order wave exciting forces on floating
+    // structures"; Faltinsen 1990, "Sea Loads on Ships and Offshore Structures" ch. 5). That mean is the added
+    // resistance in waves, which the hull's resistance already charges (Raw: Gerritsma & Beukelman 1972's radiated
+    // energy, js/physics.js), and taken alone, without the drift force's other terms that cancel much of it, the strip
+    // sum made it three times that: a Dragon close-hauled in the Solent's 0.6 m chop (14.7 kn, Tp 3.5 s) was pushed
+    // back 150 N on top of Raw's 55 N and beat at 2.6 kn instead of 4.6 (43% lost; real boats lose 5-15%). The
+    // first-order load, mean volume times slope (what surfs her down a wave face), is kept whole.
+    if (slopeAlongAt) { const sa = slopeAlongAt(st.x), vd = vol * dec; FKx -= (vLP ? volM * dec : vd) * sa; FKy -= vd * sl; FKn -= vd * sl * st.x; }
     if (accAt) {
       accAt(st.x, ac); const vd = vol * dec;
       FAx += vd * ac.a; FAy += vd * ac.l; FAn += vd * ac.l * st.x; FAz += vd * ac.v; FAm += vd * ac.v * st.x; FAk += vd * ac.l * zc;
@@ -305,8 +320,8 @@ export class HullHydro {
     this.restWetted = r.girthLen; this.restLwl = Math.max(0.5, r.lwl); this.restV = r.V;
     this.A33 = r.M33; this.A35 = r.M35; this.A55 = r.M55;          // at rest, level (kg, kg m, kg m^2)
   }
-  immerse(heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt = null, accAt = null, ka = 0, smith = 1) {
-    return immerseStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt, accAt, ka, smith);
+  immerse(heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt = null, accAt = null, ka = 0, smith = 1, lp = 0) {
+    return immerseStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt, out, slopeAlongAt, accAt, ka, smith, lp);
   }
   waterline(heave, pitch, phi, etaAt, slopeLatAt) { return waterlineStations(this.stations, heave, pitch, phi, etaAt, slopeLatAt); }
 }

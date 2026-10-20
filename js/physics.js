@@ -50,6 +50,9 @@ const hyp = (x, y) => Math.sqrt(x * x + y * y), hyp3 = (x, y, z) => Math.sqrt(x 
 export const RHO_A = 1.225, RHO_W = 1025, NU_W = 1.19e-6;
 const BRK_CS = 2.5;                      // slamming coefficient of a breaking crest's jet on the hull (see step)
 const D0 = Object.freeze({ x: 0, z: 0 });
+// the time over which a section's immersion is averaged for the surge Froude-Krylov load (js/hull.js immerseStations):
+// several periods of the chop a small boat meets, short against a change of heel or a lifted bow
+const FK_LP_T = 5;
 
 export const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 export const lerp = (a, b, t) => a + (b - a) * t;
@@ -1152,7 +1155,7 @@ export class Boat {
     // water's horizontal acceleration is -g grad eta, and averaged over the section as the slope is, not the point
     // value at the centreline, which the short waves' w^2 dominate; the lengthwise one from the samples)
     const accAt = wv ? (x, o) => { const ax = interp7(W7, 'ax', x), az = interp7(W7, 'az', x); o.a = ax * fx + az * fz; o.l = -G * slLat(x); o.v = interp7(W7, 'ay', x); o.w = interp7(W7, 'vy', x); } : null;
-    const imm = hy.immerse(this.heave, this.pitch, this.phi, etaAt, slLat, this._hy, slAl, accAt, wv ? env.waves.ka || 0 : 0, wv ? this._smith ?? 1 : 1);
+    const imm = hy.immerse(this.heave, this.pitch, this.phi, etaAt, slLat, this._hy, slAl, accAt, wv ? env.waves.ka || 0 : 0, wv ? this._smith ?? 1 : 1, wv ? clamp(dt / FK_LP_T, 0, 1) : 0);
     // the water at a foil (body station xb, depth zb < 0): the local orbital velocity there and the drift
     const wo = this._wo || (this._wo = { u: 0, v: 0 });
     const waterAt = (xb, zb) => {

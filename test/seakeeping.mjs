@@ -199,5 +199,35 @@ console.log('5. holding a beam reach in 14 kn, flat water (heading about its 20 
   }
 }
 
+// 6. close-hauled in a short chop: what the waves cost. The Solent's wind sea in 12-15 kn over 25 km (Hs 0.5-0.6 m,
+// Tp ~3.5 s), the boat held at 42 deg true by a competent helmsman (test/seatrial/trial.mjs Helmsman), the crew
+// trimming: the same run with the sea off is the reference. Racing keelboats of 7-9 m lose 5-15% of their upwind speed
+// there (Gerritsma & Beukelman 1972's added resistance, measured for yachts by Gerritsma, Keuning & Versluis 1993 and
+// sailed: the Cowes Week fleets beat within a few percent of their flat-water polars in such a chop, README "Real
+// races"). The waves' mean surge on the instantaneous immersion (the waterline term of the drift force) on top of the
+// added resistance once made it 20-45% (js/hull.js immerseStations).
+console.log('6. close-hauled at 42 deg in a 0.5-0.6 m chop (25 km fetch): speed lost to the waves');
+{
+  const { Helmsman } = await import('./seatrial/trial.mjs');
+  for (const [c, kn] of quick ? [['j24', 12]] : [['j24', 12], ['dragon', 14.7], ['etchells', 14.5], ['folkboat', 12]]) {
+    const run = (sea) => {
+      const env = new Environment({ tws: kn * KT, twd: 0, gust: 0, shift: 0, seed: 3, weather: 'steady', fetchKm: 25, swellH: 0, currentKt: 0, wavesOn: sea });
+      const b = new Boat(c, { sailModel: 'strip' }), psi = -42 * DEG;
+      b.auto.trim = true; b.auto.hike = true; b.reset(0, 0, psi);
+      for (let i = 0; i < 600; i++) { autoTrim(b, dt); b.step(dt, env, i * dt); b.x = 0; b.z = 0; b.psi = psi; b.r = 0; b.u = 2.5; b.v = 0; }
+      const H = new Helmsman(b, 2.5); let su = 0, n = 0;
+      for (let i = 0, t = 5; i < (quick ? 120 : 200) / dt; i++, t += dt) {
+        if (i % 12 === 0) { env.focus = { x: b.x, z: b.z }; env.tick(t); }
+        autoTrim(b, dt); H.step(dt, psi, 0.6); b.step(dt, env, t);
+        if (t > 65) { su += b.u; n++; }
+      }
+      return { u: su / n / KT, hs: env.waves.Hs };
+    };
+    const f = run(false), w = run(true), loss = 1 - w.u / f.u;
+    console.log(`   ${c.padEnd(9)} ${kn} kn, Hs ${w.hs.toFixed(2)} m: ${f.u.toFixed(2)} kn flat, ${w.u.toFixed(2)} kn in the chop (${(loss * 100).toFixed(0)}% lost)`);
+    check(loss > 0.04 && loss < 0.15, `${c} close-hauled in a ${w.hs.toFixed(2)} m chop: ${(loss * 100).toFixed(0)}% of her flat-water speed lost (expected 4-15%)`);
+  }
+}
+
 console.log(fail ? `${fail} FAILED` : 'all seakeeping checks pass');
 process.exit(fail ? 1 : 0);
