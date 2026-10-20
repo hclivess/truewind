@@ -1183,7 +1183,9 @@ export class Boat {
       this.flyIn = clamp(Math.min(vh[0], vh[1]) / Math.max(1e-6, Math.max(vh[0], vh[1])), 0, 1);
     } else this.flyIn = 1;
     d.flyIn = this.flyIn;
-    const lwlDyn = Math.max(0.3, imm.lwl) * (C.lwl / hy.restLwl);
+    // (on the class's sailing length where it declares one: the length its residuary table's slenderness is taken on,
+    // a long-overhang hull's waterline at speed and heel, which the drawn ends do not reach)
+    const lwlDyn = Math.max(0.3, imm.lwl) * ((C.sailLen ?? C.lwl) / hy.restLwl);
     const Fn = Math.abs(uw) / Math.sqrt(G * lwlDyn);
     d.lwl = lwlDyn; d.wetted = imm.girthLen; d.displaced = imm.V * RHO_W;
     this._etaAt = etaAt; this._slLat = slLat;
@@ -2175,7 +2177,9 @@ function trimSails(boat, dt, aoaBias = 0, full = true) {
     const tk = Math.sign(wrap((d.twd ?? 0) - boat.psi)) || 1, twaB = Math.abs(wrap((d.twd ?? 0) - boat.psi));
     // (as hard as the helm is put up: a helm held hard to bear away, at any speed, means the main is out-turning the
     // rudder; the steady weather helm upwind, ~0.15 of full, is no call to ease)
-    const hu = (boat.ctrl.helm ?? 0) * tk, need = clamp((hu - 0.4) / 0.4, 0, 1) * (1 - sstep(80 * DEG, 110 * DEG, twaB));
+    // (a positive helm turns her to starboard going ahead, to port going astern: in sternway the helm is reversed to
+    // turn her off the wind)
+    const hu = -(boat.ctrl.helm ?? 0) * tk * (boat.u < -0.2 ? -1 : 1), need = clamp((hu - 0.4) / 0.4, 0, 1) * (1 - sstep(80 * DEG, 110 * DEG, twaB));
     if (need > 0) c.main = Math.max(c.main, need * (0.5 + 0.35 * clamp(1 - boat.u / 3, 0, 1)));
   }
   // running, the boom is never let out past square: a main eased forward of abeam drives the rig to windward, the start

@@ -12,7 +12,9 @@
 import { DEG, rrTable, massProps } from './util.js';
 
 const LWL = 5.66, M = 1700, BAL = 1000;
-const MP = massProps([{ m: M - BAL - 45, z: 0.35, ry: 0.65, rx: 2.3 }, { m: BAL, z: -0.95, ry: 0.06, rx: 0.8 }, { m: 45, z: 5.5, rz: 2.9 }]);
+// (the ballast is a lead shoe under the long keel's wooden deadwood: a tonne of lead along its ~2.6 m foot, ~0.2 m deep,
+// its centre ~0.1 m above the 1.20 m draft)
+const MP = massProps([{ m: M - BAL - 45, z: 0.35, ry: 0.65, rx: 2.3 }, { m: BAL, z: -1.07, ry: 0.06, rx: 0.8 }, { m: 45, z: 5.5, rz: 2.9 }]);
 export default {
   id: 'dragon', name: 'Dragon', group: 'keelboat',
   blurb: "Johan Anker's 1929 design, Olympic from 1948 to 1972 and still raced by kings: 8.9 m of varnish-and-navy elegance on a 5.7 m waterline. Long overhangs that lengthen her as she heels, a long keel with the rudder on it, three crew, runners and a spinnaker on a pole.",
@@ -21,14 +23,18 @@ export default {
   massHull: M, zG: MP.zG, crewN: 3, crewEach: 90, crewZ: 0.75, crewMaxOut: 0.95, crewLee: -0.3, hikeRate: 0.6,
   gm: 0.8, bmForm: 0.5, Ixx: MP.Ixx, Izz: MP.Izz, amX: 0.05, amY: 0.8, amYaw: 0.55, amRoll: 0.3,
   // (her long, fine overhangs make her sailing length ~6.4 m, not her 5.66 m static waterline: the wave-making follows
-  // the sailing length's slenderness; the lines give the dynamic waterline the Froude number is taken on, js/hull.js)
+  // the sailing length, its slenderness and its Froude number. The drawn ends, clipped against the still sea, do not
+  // reach it: they give 5.4 m at rest and 5.3 m heeled, without the bow and quarter waves that climb the overhangs)
+  sailLen: 6.4,
   rr: rrTable(6.4, M + 270),
   // (a long keel is part of the lines: its skin friction is in the hull's, so the foil keeps only its form drag)
   keel: { x: -0.3, z: -0.8, area: 1.75, ARe: 1.4, stall: 20 * DEG, cd0: 0.003, span: 0.72, chord: 2.5, long: true },
   rudder: { x: -1.45, z: -0.75, area: 0.34, ARe: 2.2, stall: 20 * DEG, cd0: 0.012, max: 35 * DEG, span: 0.72, chord: 0.45, loadRef: 900 },
   hullLat: { area: 1.3, cd: 0.9, z: -0.2 },
   windage: { area: 2.7, z: 1.8, cd: 0.95 },
-  mastX: 1.0, mastHeight: 10.4, boomZ: 1.35, mastR: 0.055, keelBulb: false,
+  // (the forestay is 1.86 m ahead of the mast, the class's fixed J: the tuning guides measure the mast's station from it.
+  // At 2.7 m the rig stood 0.86 m too far aft and she carried 7 deg of weather helm close-hauled, test/helm.mjs; now 2)
+  mastX: 1.86, mastHeight: 10.4, boomZ: 1.35, mastR: 0.055, keelBulb: false,
   targetHeel: 22 * DEG, canCapsize: false, hasBackstay: true, hasBoard: false, sheetPower: 1100,
   engine: null,
   lines: { main: { handler: 'ratchetCam', n: 6, at: 'sole' }, trav: { handler: 'cam', n: 2, at: 'deck' }, jib: { handler: 'winchCam', at: 'winch' },
@@ -65,5 +71,5 @@ export default {
     backstay: { split: false, x: -4.3, z: 0.95 },
     runners: { x: -2.0, z: 8.7 },
   },
-  hw: { trav: [-1.05, 0.45, 0.42], boomS: 0.5, winch: [-1.1, 0.72], jibTrack: [0.55, -0.1, 0.55], helm: 'Tiller extension', winchR: 0.05 },
+  hw: { trav: [0.05, 0.45, 0.42], boomS: 0.5, winch: [-1.1, 0.72], jibTrack: [0.55, -0.1, 0.55], helm: 'Tiller extension', winchR: 0.05 },
 };
