@@ -816,6 +816,25 @@ export class Renderer {
     this.water = new THREE.Mesh(g, m);
     this.water.frustumCulled = false;
     this.scene.add(this.water);
+    // the sea out to the horizon: a skirt from the grid's square edge (6.5 km) to 28 km, its inner vertices the grid's own
+    // edge so the two meet without a seam, drawn with the same water. (The waves have faded out there; the skirt carries
+    // the far sea's colour, roughness, reflections and haze. Seen from aloft the grid's edge was a band of background
+    // below the horizon)
+    {
+      const Ro = 28000, k = Ro / R, ring = [];
+      const at = (i, j) => [pos[3 * (j * (N + 1) + i)], pos[3 * (j * (N + 1) + i) + 2]];
+      for (let i = 0; i < N; i++) ring.push(at(i, 0));
+      for (let j = 0; j < N; j++) ring.push(at(N, j));
+      for (let i = N; i > 0; i--) ring.push(at(i, N));
+      for (let j = N; j > 0; j--) ring.push(at(0, j));
+      const n = ring.length, sp = new Float32Array(n * 6), ss = new Float32Array(n * 2).fill(1e4), si = [];
+      ring.forEach(([x, z], q) => { sp.set([x, 0, z, x * k, 0, z * k], 6 * q); });
+      for (let q = 0; q < n; q++) { const a0 = 2 * q, b0 = 2 * ((q + 1) % n); si.push(a0, b0, a0 + 1, b0, b0 + 1, a0 + 1); }
+      const sg = new THREE.BufferGeometry();
+      sg.setAttribute('position', new THREE.BufferAttribute(sp, 3)); sg.setAttribute('spc', new THREE.BufferAttribute(ss, 1)); sg.setIndex(si);
+      this.waterSkirt = new THREE.Mesh(sg, m); this.waterSkirt.frustumCulled = false;
+      this.scene.add(this.waterSkirt);
+    }
     if (!this.low) this._buildFoam();
   }
 
@@ -1557,7 +1576,7 @@ export class Renderer {
     }
     this.refl.setNight(this.sunDir.y < -0.08);
     const h = this._reflHide || (this._reflHide = []);
-    h.length = 0; h.push(this.water, this.skySys.dome, this.rain, this.snow);
+    h.length = 0; h.push(this.water, this.waterSkirt, this.skySys.dome, this.rain, this.snow);
     if (this.skySys.stars) h.push(this.skySys.stars);
     for (const w of this.wakes.values()) h.push(w.mesh);
     for (const vis of this.boats.values()) if (vis.splash) h.push(vis.splash.foam, vis.splash.patches);
