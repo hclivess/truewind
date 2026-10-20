@@ -563,6 +563,8 @@ Development tools:
 
 ## Credits and licences
 
+- Runs offline: three.js r170 (MIT, `js/vendor/three.module.js`, licence in `js/vendor/LICENSE-three.txt`) and the Barlow, Barlow Condensed and Big Shoulders Display fonts (SIL Open Font License 1.1, `fonts/`) are bundled; only online racing, live wind and "anywhere on Earth" need the internet.
+
 - Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, available under the ODbL. It is fetched through the Overpass API.
 - Live weather is from [Open-Meteo](https://open-meteo.com).
 - Bathymetry: [EMODnet Bathymetry](https://emodnet.ec.europa.eu/en/bathymetry) DTM (CC BY 4.0); NOAA NCEI [CUDEM](https://www.ncei.noaa.gov/products/coastal-elevation-models) and [ETOPO 2022](https://www.ncei.noaa.gov/products/etopo-global-relief-model) (public domain), through NCEI's DEM mosaic service; [GMRT](https://www.gmrt.org) (Ryan et al. 2009, CC BY 4.0) with GEBCO 2025 and AusSeabed's surveys.
