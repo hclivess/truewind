@@ -627,15 +627,32 @@ export class World {
   updateShelter(dir) {
     if (this.windDir !== null && Math.abs(dir - this.windDir) < 0.05) return false;
     this.windDir = dir;
-    const M = 96, R = this.R, c = 2 * R / M;
-    const g = new Float32Array(M * M);
+    // (cells of about 250 m, 96 to 192 a side: at the old 96 a side the Solent's were 500 m, and a boat 100 m off
+    // Cowes with 2.5 km of open water upwind read 0.68 of the wind, interpolated with the land cells beside her)
+    const R = this.R, M = Math.max(96, Math.min(192, Math.ceil(2 * R / 250))), c = 2 * R / M;
+    const g = new Float32Array(M * M), wet = new Uint8Array(M * M);
     // (a venue's land can shelter less than the general half: a low bare sand spit (venue.shelter: the most it takes
     // off the wind) hardly slows a wind blowing over it)
     const sh = (this.venue && this.venue.shelter) ?? 0.5;
     for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) {
       const x = -R + (i + 0.5) * c, z = -R + (j + 0.5) * c;
+      wet[j * M + i] = this.open || this.sdfAt(x, z) > 0 ? 1 : 0;
       const f = this.open ? 99999 : this.fetchAt(x, z, dir, 2500);
       g[j * M + i] = 1 - sh + sh * (1 - Math.exp(-f / 700));
+    }
+    // a land cell takes its wet neighbours' wind (the most of them): the grid is read between cell centres, and the
+    // shelter of the land itself (its fetch is nil) bled half a cell out over the water whatever the wind's direction
+    if (!this.open) {
+      const g0 = g.slice();
+      for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) {
+        const k = j * M + i; if (wet[k]) continue;
+        let m = -1;
+        for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+          const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= M || jj >= M) continue;
+          const q = jj * M + ii; if (wet[q] && g0[q] > m) m = g0[q];
+        }
+        if (m >= 0) g[k] = m;
+      }
     }
     this.shelter = g; this.shelterM = M;
     return true;
