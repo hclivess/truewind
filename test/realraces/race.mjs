@@ -148,7 +148,7 @@ export async function runRealRace(job) {
   const out = { id: R.id, cls: R.sim, est: est.t, estDist: est.dist, finished: null, marks: [], tacks: 0, gybes: 0, aground: 0, minUK: Infinity, events: [], capsized: false, nan: false, trace: [] };
   const maxT = job.maxT ?? Math.max(2 * R.results.median, R.results.worst + 1800);
   const rMark = Math.max(2 * L + 5, 20);
-  let gi = 0, t = 0, sailed = 0, px = b.x, pz = b.z, side = 0, lx = b.x, lz = b.z;
+  let gi = 0, t = 0, sailed = 0, px = b.x, pz = b.z, side = 0, boomSide = 0, lx = b.x, lz = b.z;
   for (let i = 0; t < maxT; i++, t += DT) {
     if (i % 12 === 0) { env.focus.x = b.x; env.focus.z = b.z; env.tick(t); }
     if (i % 7200 === 0) {          // each minute: the shelter for the wind's direction now, the autopilot's angles for its speed
@@ -174,8 +174,13 @@ export async function runRealRace(job) {
     if (i % 60 === 0) out.minUK = Math.min(out.minUK, world.depthAt(b.x, b.z) - C.draft);
     if (b.capsized || Math.abs(b.phi) > 85 * DEG) out.capsized = true;
     const twdNow = wind(t).deg * DEG, s = Math.sign(wrap(twdNow - b.psi)) || side;
-    if (side && s !== side) { if (Math.abs(wrap(twdNow - b.psi)) < Math.PI / 2) out.tacks++; else out.gybes++; }
+    // (a tack: the wind across the bow; a gybe: the main's boom across, not the heading swinging past dead downwind,
+    // which counted every by-the-lee roll on a run as a gybe)
+    if (side && s !== side && Math.abs(wrap(twdNow - b.psi)) < Math.PI / 2) out.tacks++;
     side = s;
+    const bs = b.booms.main ? Math.sign(b.booms.main.a) : 0;
+    if (bs && boomSide && bs !== boomSide && Math.abs(wrap(twdNow - b.psi)) > Math.PI / 2) out.gybes++;
+    if (bs) boomSide = bs;
     // rounding a mark: within two boat lengths (and 5 m) of it; finishing: across the line, or at the finishing mark
     const last = gi === goals.length - 1;
     if (i % 12 === 0) {
