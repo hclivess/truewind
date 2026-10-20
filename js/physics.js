@@ -2148,7 +2148,12 @@ function trimSails(boat, dt, aoaBias = 0, full = true) {
   // traded against the telltales, left a Laser or a Sunfish sheeted hard in through the gusts in 18 kn: heeled 28-45 deg
   // with the boom at 10 deg, the sail's heeling moment 1.4-1.6 kN m against ~1 kN m of righting, the spar overloaded and
   // the Sunfish over in 25 kn)
-  if (C.canCapsize && !boat.hfoils && boat.sailBy.main && !boat.capsized) {
+  // (and every boat's mainsheet trimmer does the same in a puff, as fast as the sheet can be run: a hand on a dinghy's
+  // sheet in ~0.3 s, a keelboat's trimmer easing the traveller and main in ~1 s, a big yacht's winches in a few. Kept to
+  // the dinghies, a J/24 hit by a 33 kn squall close-hauled had her main held hard in while she heeled to 62 deg and
+  // rounded up into irons, went astern, fell off and did it again: the slow depower above builds over ~10 s)
+  if (!boat.hfoils && boat.sailBy.main && !boat.capsized) {
+    const easeT = C.canCapsize ? 0.3 : clamp(0.3 + 0.12 * (C.loa - 4), 0.3, 3);
     const ls = -Math.sign(d.awaMid ?? 0) || 1, h = boat.phi * ls, rate = (boat.p || 0) * ls;
     const on = 1 - sstep(110 * DEG, 150 * DEG, awa);
     // (only once she is well past her target, 5 deg, and has been heeled 2 deg past it over the last ~2 s: a roll of a boat
@@ -2157,7 +2162,7 @@ function trimSails(boat, dt, aoaBias = 0, full = true) {
     // (nor in her first seconds, the heel a start from rest throws her to: eased then, a Laser's cloth trim settled in a
     // slower state in 12 kn, 4.49 kn close-hauled against 4.90)
     const want = tb.age > 8 && h > C.targetHeel + 5 * DEG && tb.hS > C.targetHeel + 2 * DEG ? clamp((h - C.targetHeel - 5 * DEG) / (10 * DEG) + rate * 0.35 / (10 * DEG), 0, 1) * 0.55 * on : 0;
-    tb.mp = lerp(tb.mp ?? 0, want, clamp(dt / (want > (tb.mp ?? 0) ? 0.3 : 1.0), 0, 1));
+    tb.mp = lerp(tb.mp ?? 0, want, clamp(dt / (want > (tb.mp ?? 0) ? easeT : Math.max(1.0, 2 * easeT)), 0, 1));
     // (nothing touched while there is no play: the trim's own value, clamped or not, stays as it was)
     if (tb.mp > 1e-4) { const m0 = c.main; c.main = clamp(c.main + tb.mp, 0, 1); tb.mpa = c.main - m0; } else tb.mpa = 0;
   }
