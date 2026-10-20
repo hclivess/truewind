@@ -12,6 +12,18 @@ A browser sailing simulator where the boat is not animated — it is computed. E
 
 It runs in any modern browser with WebGL, with no install and no build step.
 
+### Gallery
+
+| | |
+|---|---|
+| [![The Sydney Opera House and the Harbour Bridge from the water, a Contessa 32 reaching across the harbour](docs/img/sydney-opera-bridge.jpg)](https://hclivess.github.io/truewind/) | [![The Golden Gate Bridge at golden hour, a J/24 sailing under it toward the sun's glitter](docs/img/golden-gate.jpg)](https://hclivess.github.io/truewind/) |
+| Sydney Harbour: the Opera House and the Harbour Bridge (`sydney`) | San Francisco Bay: the Golden Gate at golden hour (`sfbay`) |
+| [![Sydney Harbour at night: the floodlit Opera House, the bridge's lights, the city's windows and their reflections, a Blackwatch with her navigation lights](docs/img/sydney-night.jpg)](https://hclivess.github.io/truewind/) | [![A Folkboat sailing in falling snow on a grey January day in Kiel Fjord](docs/img/kiel-snow.jpg)](https://hclivess.github.io/truewind/) |
+| The real night sky over Sydney: catalogue stars, the moon, the city's lights | Kiel in January: snow where and when the climate has it |
+| [![The wind flow overlay: streamlines of the apparent wind bending through the Blackwatch's rig, coloured by speed](docs/img/wind-flow.jpg)](https://hclivess.github.io/truewind/) | |
+| Shift+F: the air over the sails, as the vortex lattice solves it | |
+
+
 ## Sponsorship
 
 **Put your brand on the sails.** True Wind is looking for sponsors. For a monthly fee your logo or name is carried on the sails of boats in the game: on the AI racing fleets, the harbour traffic, or a boat of your choice. It is seen up close, under sail, in every venue from the Solent to Sydney Harbour, by players who love sailing.
