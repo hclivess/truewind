@@ -731,7 +731,10 @@ export class SkySystem {
     }
     // exposure follows the light like an eye does (a moonlit night reads as a dark blue night)
     const adapt = lum(up) * 3.0 + (useMoon ? light.intensity * 0.5 : light.intensity * Math.max(0.15, L.y)) * 0.35;
-    const target = Math.max(0.55, Math.min(16, 0.95 * Math.pow(0.62 / Math.max(1e-5, adapt), 0.72)));
+    // (the eye adapts only so far: night stays night. Let up to 16x, a moonlit harbour read as a grey dusk with the land
+    // lit, and every light, window and its reflection blew out to white: a sheet of glare on the water, a white band
+    // along the shore. ~3.5x keeps the land dark under the moon and the lights as points)
+    const target = Math.max(0.55, Math.min(3.5, 0.95 * Math.pow(0.62 / Math.max(1e-5, adapt), 0.72)));
     // (Math.max/min pass NaN through, and a NaN exposure, once blended in, stays: the whole picture went black
     // for good with no error; a bad sample is skipped and a poisoned exposure starts again)
     if (Number.isFinite(target)) this.exposure += (target - this.exposure) * 0.05;
