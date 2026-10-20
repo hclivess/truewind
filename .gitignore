@@ -5,3 +5,4 @@ verify/tiles/
 verify/*.ppm
 verify/*-tiles.json
 test/out/
+.claude/
