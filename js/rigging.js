@@ -417,6 +417,10 @@ export class Rigging {
       hw.travX = C.sternX + 0.25; hw.travZ = dH(C.sternX + 0.25, 0) + 0.05; hw.travHalf = bw(C.sternX + 0.25) * 0.8; hw.boomS = M.foot * 0.97;
       hw.ratchetX = C.mastX - 1.55; hw.ratchetZ = vis.ck.sole + 0.12;
     }
+    // a monohull's horse stays inside her rail (with its end posts: the track is 0.1 m longer than the span): a class
+    // table's half-span wider than the deck there stuck out over the side (Jolie Brise's 1.6 m horse on her counter,
+    // 1.53 m to the sheer; the Westsail's 0.55 m over her canoe stern's 0.38). The multihulls' and trimarans' span the beams.
+    if (!C.multihull && !C.amas) hw.travHalf = Math.max(0.05, Math.min(hw.travHalf, bw(hw.travX) - 0.15));
     // traveler track + car
     if (M.trav || isDinghy(C)) {
       const track = new THREE.Mesh(new THREE.BoxGeometry(hw.travHalf * 2 + 0.1, 0.025, 0.04), mTrack());
