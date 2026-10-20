@@ -25,7 +25,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const G = 9.81, D2R = Math.PI / 180;
-const SPONGE = 6, VMAX = 5;                       // sponge width (cells); a velocity no tide here reaches (a guard, m/s)
+const SPONGE = 6, VMAX = 5;                       // sponge width (cells; a model's own: M.sponge); a velocity no tide here reaches (a guard, m/s)
 const argv = process.argv.slice(2);
 const opt = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? +argv[i + 1] : d; };
 const DAYS = opt('--days', 15.5), SPIN = opt('--spin', 1.2), CALN = opt('--cal', 2), CALD = opt('--caldays', 2.6);
@@ -52,8 +52,17 @@ export const MODELS = {
   // the East River through Hell Gate open into Long Island Sound at Throgs Neck, which runs three hours behind and
   // twice the range — the head that drives the East River; Newark Bay, the Kill Van Kull, the Arthur Kill and Raritan
   // Bay inside. A side may be open along several stretches, each with its own anchors.)
-  newyork: { box: [-74.28, 40.45, -73.77, 40.88], fine: [-74.13, 40.58, -73.92, 40.79], dx: 150, grow: 1.08, dmax: 450, n: 0.025, date: '2026-06-01',
+  newyork: { box: [-74.28, 40.45, -73.77, 40.88], fine: [-74.13, 40.58, -73.78, 40.81], dx: 150, grow: 1.08, dmax: 450, n: 0.022, date: '2026-06-01',
     cal: { 'Sandy Hook': 'Sandy Hook', 'Willets Point': 'Willets Point', 'Dyckman Street': 'Dyckman Street' },
+    // (a narrow sponge: the Hudson's boundary is a river's cross-section, and the tidal prism of the 240 km of river
+    // above it passes through it; damped over six cells it was choked, and the streams at the Battery and in the
+    // Narrows came out at half NOAA's)
+    sponge: 2,
+    // (the Kill Van Kull, 300-400 m between its bulkheads, its channel dredged to 50 ft below MLLW, and the East River's
+    // channels either side of Roosevelt Island, 250-350 m: at 150 m the cells' banks closed them, and Newark Bay's tide
+    // came out at half its range, three hours late; the lines from the CUDEM survey's deepest water)
+    channels: [{ name: 'Kill Van Kull', depth: 13, w: 200, pts: [[40.6436, -74.150], [40.6430, -74.134], [40.6438, -74.122], [40.6468, -74.110], [40.6475, -74.098], [40.6495, -74.090], [40.6510, -74.083], [40.6500, -74.072], [40.6490, -74.064]] },
+      { name: 'East River', depth: 12, w: 150, pts: [[40.705, -73.9965], [40.712, -73.9727], [40.720, -73.9693], [40.730, -73.9668], [40.740, -73.9674], [40.748, -73.9628], [40.755, -73.9598], [40.762, -73.9532], [40.768, -73.9478], [40.773, -73.9412], [40.778, -73.9370], [40.784, -73.9203], [40.790, -73.9147]] }],
     sides: { S: { a: ['Sandy Hook'] }, E: [{ a: ['Sandy Hook'], lat: [40.40, 40.578] }, { a: ['Willets Point'], lat: [40.74, 40.90] }], N: { a: ['Dyckman Street'], lon: [-73.96, -73.90] } },
     check: [['The Narrows', 40.6066, -74.0460], ['Hudson River entrance', 40.7050, -74.0230], ['East River (Brooklyn Bridge)', 40.7055, -73.9960], ['Buttermilk Channel', 40.6860, -74.0100],
       ['Kill Van Kull', 40.6470, -74.0900], ['Anchorage Channel (Liberty)', 40.6780, -74.0480], ['Hell Gate', 40.7790, -73.9370]] },
@@ -120,6 +129,22 @@ class Model {
       if (wet >= 5 && h[j * nx + i] < 0.3) h[j * nx + i] = 0.3;          // a mostly wet cell stays wet at MSL
     }
     this.h = h;
+    // dredged channels narrower than a few model cells, which the cells' averaging over their banks would choke
+    // (M.channels: [{ depth (m below MSL, the cell's mean), w (m), pts: [[lat, lon], ...] }])
+    for (const c of this.M.channels || []) {
+      const pts = c.pts.map(([la, lo]) => this.P.fwd(la, lo));
+      let n = 0;
+      for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+        const x = xc[i], z = zc[j], reach = c.w / 2 + 0.5 * Math.max(this.xe[i + 1] - this.xe[i], this.ze[j + 1] - this.ze[j]);
+        let dd = Infinity;
+        for (let q = 0; q + 1 < pts.length; q++) {
+          const [ax, az] = pts[q], [bx, bz] = pts[q + 1], ex = bx - ax, ez = bz - az, t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez || 1)));
+          dd = Math.min(dd, Math.hypot(ax + ex * t - x, az + ez * t - z));
+        }
+        if (dd <= reach && h[j * nx + i] < c.depth && h[j * nx + i] > -3) { h[j * nx + i] = c.depth; n++; }
+      }
+      console.log(`  ${c.name}: ${n} cells deepened to ${c.depth} m`);
+    }
     // a survey grid too coarse for a harbour (ETOPO's 450 m cells across Port Jackson's reaches): the OpenStreetMap
     // shoreline over the whole model domain says where the water is, and inside it the depth is at least the
     // shelving estimate (M.carve: the reaches' typical depth, m)
@@ -261,7 +286,7 @@ class Model {
     // per-face tables: neighbour flags (1 west/north upstream face, 2 east/south, 4 cross-lower, 8 cross-upper) and spacings
     const nU = uf.length, nV = vf.length;
     const uFl = new Uint8Array(nU), uA = new Float64Array(nU * 6), vFl = new Uint8Array(nV), vA = new Float64Array(nV * 6);
-    const dist = this.dist, SP = SPONGE, spong = (d) => d < SP ? 2e-3 * (1 - d / SP) ** 2 : 0;
+    const dist = this.dist, SP = this.M.sponge ?? SPONGE, spong = (d) => d < SP ? 2e-3 * (1 - d / SP) ** 2 : 0;
     const uR = new Float64Array(nU), vR = new Float64Array(nV);
     for (let q = 0; q < nU; q++) {
       const k = uf[q], i = k % nx, j = (k / nx) | 0;
