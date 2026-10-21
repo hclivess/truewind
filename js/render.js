@@ -806,10 +806,16 @@ export class Renderer {
           // foam; Frouin, Schwindling & Deschamps 1996): the old foam and the streaks drawn at 45 % of a crest's white
           vec3 foamCol = vec3(0.9, 0.94, 0.96) * fshade * (uAmbF * (0.72 + 0.2 * shadow) + uSunCol * 0.25 * NdL * shadow);
           col = mix(col, foamCol, clamp(max(foamC, 0.45 * foamFlat), 0.0, 0.9));
-          // shoreline surf
+          // shoreline surf: over the last 9 m of water, ending at the waterline. (smoothstep(9, 0, sd) alone is 1 on all of
+          // the land, sd < 0: wherever the terrain was not drawn over it, a custom place's whose land query was slow or
+          // failed, the land showed as sea striped white with surf in bands along the coast)
           if (uHasMap > 0.5) {
-            float band = smoothstep(9.0, 0.0, sd) * (0.55 + 0.45 * sin(sd * 1.2 - uTime * 1.6 + vnoise(x0 * 0.1) * 6.0));
+            float band = smoothstep(9.0, 0.0, sd) * smoothstep(-2.0, 0.0, sd) * (0.55 + 0.45 * sin(sd * 1.2 - uTime * 1.6 + vnoise(x0 * 0.1) * 6.0));
             col = mix(col, vec3(0.92, 0.95, 0.96) * uAmbF, clamp(band * 0.8, 0.0, 0.85));
+            // and on the land itself plain ground, lit by the sun and the sky, not sea: the terrain covers it once it has
+            // loaded (it stands above the sea's surface), and until then, or if it never comes, the land reads as land
+            vec3 ground = vec3(0.40, 0.45, 0.29) * (uAmbF * 0.85 + uSunCol * 0.55 * max(uLightDir.y, 0.0) * shadow);
+            col = mix(col, ground, smoothstep(-1.5, -5.0, sd));
           }
           float fogF = 1.0 - exp(-pow(fogDensity * dist, 2.0));
           col = mix(col, skyColor(normalize(vec3(-V.x, 0.02, -V.z))), clamp(fogF, 0.0, 1.0));
