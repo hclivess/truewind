@@ -171,8 +171,16 @@ export function engineSpec(spec, C = null) {
     if (spec.exhaust) S.exhaust = [px, spec.exhaust[1], spec.exhaust[2]];
   }
   if (S.tilts) S.lift = spec.lift ?? Math.max(0.3, -S.pos[2] + 0.14);
-  // shaft drives walk harder the steeper the shaft (the blades' inflow is asymmetric)
-  if (S.type === 'inboard' && spec.walkR === undefined) { S.walkR = 0.04 + 0.4 * Math.sin(S.shaftAngle); S.walkA = 0.3 * S.walkR; }
+  // shaft drives walk harder the steeper the shaft (the blades' inflow is asymmetric). Astern from rest, the side thrust
+  // measured on a load cell behind a 21 hp Yanmar shaft drive is 9-16% of the astern thrust (Hisse et Oh's propeller
+  // test: a standard fixed three-blade 13.9%, folding and feathering props 9-10%, one feathering two-blade 15.8%): a
+  // fixed prop 14%, a folding one 10% on a typical 10 deg shaft, scaled by the shaft's angle from there. (The angle
+  // alone gave 9.6% on an 8 deg shaft, and once a broadside keel's flow separated at once, as it does, a yacht going
+  // astern from rest swung 2.4 deg in 8 s where the real ones kick their sterns round tens of degrees)
+  if (S.type === 'inboard' && spec.walkR === undefined) {
+    const k = (0.04 + 0.4 * Math.sin(S.shaftAngle)) / (0.04 + 0.4 * Math.sin(10 * Math.PI / 180));
+    S.walkR = (S.prop.folding ? 0.10 : 0.14) * k; S.walkA = 0.3 * S.walkR;
+  }
   return S;
 }
 
