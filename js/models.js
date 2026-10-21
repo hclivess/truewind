@@ -437,23 +437,40 @@ function clinkerSection(sec, n, zKeel) {
 }
 
 // deck surface with crown and a cockpit well lowered into it
+// (ck.pits: wheel pits, slots let into the deck where a wheel's rim reaches below it, [{ x0, x1, y0, y1, z }]: from x0
+// to x1 along the hull, y0 to y1 out from the centreline on both sides, their floor at z. Rows of the deck are added at
+// each pit's ends and the columns are finer, so its walls stand up straight; on the stations' own rows, ~0.3 m apart,
+// a pit came out as a soft dent)
+const inPit = (pits, x, y, z) => { for (const p of pits || []) if (x >= p.x0 && x <= p.x1 && Math.abs(y) >= p.y0 && Math.abs(y) <= p.y1) z = Math.min(z, p.z); return z; };
+function deckRows(stations, pits) {
+  const NS = stations.length - 1, rows = stations.map((st, s) => ({ x: st[0][0], b: st[0][1], sh: st[0][2], t: s / NS }));
+  const at = (x) => {
+    let k = 0; while (k < NS - 1 && rows[k + 1].x < x) k++;
+    const A = rows[k], B = rows[k + 1], f = clamp((x - A.x) / Math.max(1e-6, B.x - A.x), 0, 1);
+    return { x, b: A.b + (B.b - A.b) * f, sh: A.sh + (B.sh - A.sh) * f, t: A.t + (B.t - A.t) * f };
+  };
+  const extra = [];
+  for (const p of pits || []) extra.push(at(p.x0 - 0.003), at(p.x0), at(p.x1), at(p.x1 + 0.003));
+  return extra.length ? [...rows.map((r) => ({ ...r })), ...extra].sort((a, b) => a.x - b.x) : rows;
+}
 function deckGeometry(C, Lx, stations, ck) {
-  const NU = 26, NS = stations.length - 1;
+  const pits = ck && ck.pits, NU = pits ? 104 : 26, rows = deckRows(stations, pits), NS = rows.length - 1;
   const pos = [], uv = [], idx = [];
   const crown = Lx.H.crown;
   for (let s = 0; s <= NS; s++) {
-    const t = s / NS, [x, b, sh] = stations[s][0];
+    const { t, x, b, sh } = rows[s];
     for (let j = 0; j <= NU; j++) {
       const u = j / NU * 2 - 1;
       const hb = (C.amas ? C.hullBeam : C.beam) / 2;
       let z = sh + crown * (1 - u * u) * Math.min(1, b / hb) * hb * 0.35;
       let y = u * b * 0.992;
       if (ck) {
-        const e = 1.2 / NS, eu = 2.4 / NU;
+        const e = 1.2 / (stations.length - 1), eu = 2.4 / 26;   // (the well's edge as on the stations' own grid, whatever rows a pit adds)
         const m = sstep(ck.t0 - e, ck.t0, t) * (1 - sstep(ck.t1, ck.t1 + e, t)) * (1 - sstep(ck.w, ck.w + eu, Math.abs(u)));
         z = lerp(z, ck.sole, m);
         if (m > 0.5) y = u * b * 0.992;
       }
+      z = inPit(pits, x, y, z);
       pos.push(y, z, -x); uv.push(y * 1.6, x * 1.6);
     }
   }
@@ -497,6 +514,7 @@ function deckHeightFn(C, Lx, ck, stations = null) {
     if (ck) {
       if (stations) { const e = 1.2 / NS, eu = 2.4 / 26, m = sstep(ck.t0 - e, ck.t0, t) * (1 - sstep(ck.t1, ck.t1 + e, t)) * (1 - sstep(ck.w, ck.w + eu, Math.abs(u))); z = lerp(z, ck.sole, m); }
       else if (t > ck.t0 && t < ck.t1 && Math.abs(u) < ck.w) z = ck.sole;
+      z = inPit(ck.pits, x, y, z);
     }
     return z;
   };;

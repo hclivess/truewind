@@ -96,7 +96,7 @@ function buildDetailed(boat, opts = {}) {
   }
   // ---- deck, cockpit well
   const ckD = D.cockpit || { t0: 0.1, t1: 0.35, w: 0.55, sole: C.freeboard * 0.5 };
-  const ck = { t0: ckD.t0, t1: ckD.t1, w: ckD.w, sole: ckD.sole };
+  const ck = { t0: ckD.t0, t1: ckD.t1, w: ckD.w, sole: ckD.sole, pits: ckD.pits };
   const deckH0 = deckHeightFn(C, Lx, D.cockpit ? ck : null, C.multihull ? null : stations);
   const houses = (D.cabins || []).map(h => houseShape(C, Lx, deckH0, bx, h));
   const deckH = (x, y) => {
@@ -413,6 +413,8 @@ function buildDetailed(boat, opts = {}) {
   }
   inner.add(rudderPivot);
   const wheels = [];
+  // wheel pits (D.cockpit.pits, let into the deck by deckGeometry): a dark rubber floor, so the slot reads as a slot
+  for (const pt of ck.pits || []) for (const sd of [-1, 1]) kit.box(M.black(), pt.y1 - pt.y0, 0.012, pt.x1 - pt.x0, V((pt.x0 + pt.x1) / 2, sd * (pt.y0 + pt.y1) / 2, pt.z + 0.007));
   if (ST.kind === 'wheel' || ST.kind === 'twin') {
     const ys = ST.kind === 'twin' ? [-ST.y, ST.y] : [0];
     for (const y of ys) {

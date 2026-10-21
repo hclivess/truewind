@@ -215,7 +215,9 @@ export default {
   hull: { color: 0xf2f3f1, stripe: 0x1d2a44, deck: 0xb4b9be, boot: 0x2b2e33, levels: [-9, -9, -9, -9] },
   model: {
     // the cockpit aft of 8.75 m from the stem (E.5.4), open at the transom, its floor 0.45 m below the sheer aft
-    cockpit: { t0: 0.0, t1: (LOA - 8.75) / LOA, w: 0.64, sole: 0.8, seats: false, coaming: 0 },
+    // (each wheel stands in a pit let into the side deck, as on the real boats: the 1.4 m rim reaches out past the
+    // cockpit floor's edge and down below the deck there)
+    cockpit: { t0: 0.0, t1: (LOA - 8.75) / LOA, w: 0.64, sole: 0.8, seats: false, coaming: 0, pits: [{ x0: -5.16, x1: -4.84, y0: 1.0, y1: 1.86, z: 0.8 }] },
     deck: 'nonskid', deckTint: '#b4b9be', toerail: 'none', cleats: false,
     lifelines: { t0: 0.04, t1: 0.93, h: 0.6, spacing: 1.9, pushpit: false },
     steering: { kind: 'twin', x: -5.0, y: 1.05, r: 0.7, hub: 0.8, mat: 'carbon', spokes: 3 },
