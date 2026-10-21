@@ -1,0 +1,64 @@
+// Map downloads in progress, for the loading bars (the chart overlay and the "Anywhere on Earth" panel). Every fetch
+// of map data goes through trackedFetch: it reads the reply as it streams in, counting the bytes against its
+// Content-Length, and hands back an ordinary Response built from them. A reply without a length (Overpass's, which
+// spends most of its time thinking before it sends anything) counts as a file of unknown size: the bar then shows
+// that work is going on rather than a percentage it cannot know.
+const tasks = new Set(), subs = new Set();
+let queued = false;
+function notify() {
+  if (queued || !subs.size) return;
+  queued = true;
+  setTimeout(() => { queued = false; const s = progressState(); for (const f of subs) f(s); }, 50);
+}
+export function onProgress(fn) { subs.add(fn); fn(progressState()); return () => subs.delete(fn); }
+// forget the finished downloads: a new load starts its bar from empty (those still running stay on it)
+export function resetProgress() { for (const T of tasks) if (T.done) tasks.delete(T); notify(); }
+
+// { n, done, frac 0..1, bytes, unknown (a running download of unknown size), items: [{ label, loaded, total, done, failed }] }
+export function progressState() {
+  let n = 0, done = 0, f = 0, bytes = 0, unknown = false;
+  const items = [];
+  for (const T of tasks) {
+    n++; bytes += T.loaded;
+    if (T.done) { done++; f += 1; }
+    // (a compressed reply's length is the compressed size and the bytes counted are the unpacked ones: short of 1
+    // until it is in. Of unknown size it creeps toward nine tenths with what has come)
+    else if (T.total) f += Math.min(0.95, T.loaded / T.total);
+    else { unknown = true; f += 0.9 * (1 - Math.exp(-T.loaded / 4e5)); }
+    items.push({ label: T.label, loaded: T.loaded, total: T.total, done: T.done, failed: !!T.failed });
+  }
+  return { n, done, frac: n ? f / n : 0, bytes, unknown, items };
+}
+
+export async function trackedFetch(url, opts, label = 'Map data') {
+  const T = { label, loaded: 0, total: 0, done: false };
+  tasks.add(T); notify();
+  try {
+    const r = await fetch(url, opts);
+    T.total = +(r.headers.get('content-length') || 0);
+    if (!r.ok || !r.body || !r.body.getReader) { T.done = true; T.failed = !r.ok; notify(); return r; }
+    const rd = r.body.getReader(), parts = [];
+    for (;;) {
+      const { done, value } = await rd.read();
+      if (done) break;
+      parts.push(value); T.loaded += value.length; notify();
+    }
+    const buf = new Uint8Array(T.loaded);
+    let o = 0; for (const p of parts) { buf.set(p, o); o += p.length; }
+    T.done = true; notify();
+    return new Response(buf, { status: r.status, statusText: r.statusText, headers: r.headers });
+  } catch (e) { T.done = true; T.failed = true; notify(); throw e; }
+}
+
+const mb = (b) => b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1e3))} kB`;
+// draws the state into a bar (an element holding an <i>, its width the fraction) and a line of text under it
+export function bindProgress(bar, line) {
+  const fill = bar.querySelector('i');
+  return onProgress((s) => {
+    fill.style.width = `${Math.round(s.frac * 100)}%`;
+    bar.classList.toggle('busy', s.unknown);
+    if (!line) return;
+    const now = s.items.filter((t) => !t.done).map((t) => t.loaded ? `${t.label} ${mb(t.loaded)}${t.total ? ' of ' + mb(t.total) : ''}` : `${t.label}…`);
+    line.textContent = s.n ? `${s.done} of ${s.n} files · ${mb(s.bytes)}${now.length ? ' · ' + now.join(' · ') : ''}` : '';
+  });
+}

@@ -1321,12 +1321,16 @@ export class Renderer {
     const onStructure = LM ? (x, z, r) => structMask(x, z, r) || LM.mask(x, z) : structMask;
     (this.seamarks || (this.seamarks = new SeamarkLayer(this.scene, { low: this.low }))).set(world, geo && geo.seamarks, LM ? LM.replace : null);   // lighthouses, buoys, beacons, lights
     this.skySys.setGlowSources(null);                         // (the towns' glow on the night sky: set once the land is in)
+    this.landReady = null;
     if (world.open) return;
     // terrain, buildings, streets and trees from the venue's OSM land data (built once it has loaded;
     // everything stands on the same height function, so buildings neither float nor sink)
-    loadLand(world.venue.id, world).then(land => {
+    this.landReady = loadLand(world.venue.id, world).then(land => {
       if (this.world !== world) return;                       // the venue changed meanwhile
-      this.skySys.setGlowSources(land.places);
+      // (no land data, a custom place whose Overpass query failed or timed out: the terrain is still built, from the
+      // coastline alone, plain ground with no towns. Reading land.places of nothing threw here, no terrain was built
+      // at all, and the sea's surface ran on over the land, its shallows' foam painting the fields white)
+      this.skySys.setGlowSources(land ? land.places : null);
       const T = buildTerrain(world, land, { lat: world.venue.lat, low: this.low });
       const shadowed = new Set();
       const shade = (g, ground) => g.traverse(o => { const ms = Array.isArray(o.material) ? o.material : [o.material]; for (const m of ms) if (m && m.isMeshStandardMaterial && !shadowed.has(m)) { shadowed.add(m); withCloudShadows(m, this.skySys, { ground }); } });

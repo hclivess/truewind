@@ -5,6 +5,7 @@
 // m), ... }, pad to 2, Int16 data
 // (row j = z, south-going; positive = water depth below MSL, negative = height above MSL).
 // For custom locations fetchBathy() reads the NCEI DEM mosaic live (it sends CORS headers).
+import { trackedFetch } from './progress.js';
 
 export class Bathy {
   constructor(h, data) {
@@ -46,7 +47,7 @@ export function decodeBathy(buf) {
 export async function fetchNCEI(bbox, w, h, service = 'DEM_global_mosaic') {
   const url = `https://gis.ngdc.noaa.gov/arcgis/rest/services/DEM_mosaics/${service}/ImageServer/exportImage?bbox=${bbox.join(',')}` +
     `&bboxSR=4326&imageSR=4326&size=${w},${h}&format=bsq&pixelType=F32&interpolation=RSP_BilinearInterpolation&adjustAspectRatio=false&f=image`;   // (else the server widens the box to square pixels)
-  const r = await fetch(url, typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(60000) } : undefined);
+  const r = await trackedFetch(url, typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(60000) } : undefined, 'Depths (NOAA)');
   if (!r.ok) throw new Error('NCEI DEM ' + r.status);
   const buf = await r.arrayBuffer();
   if (buf.byteLength < w * h * 4) throw new Error('NCEI DEM: short reply');

@@ -2,6 +2,7 @@
 // compact local records; light characters (Fl(2) W 10s, Q(6)+LFl 15s, Oc(3), Mo(A), Al.WR...) parsed into
 // on/off timing; sector lights; IALA buoyage regions A / B. Pure logic (no three.js): shared by the browser, the
 // venue baker (tools/fetch-venues.mjs --seamarks) and the tests (test/seamarks.mjs).
+import { trackedFetch } from './progress.js';
 
 const D2R = Math.PI / 180;
 
@@ -24,7 +25,7 @@ export async function fetchSeamarks(lat, lon, R = 6600) {
   let err;
   for (const u of ['https://overpass-api.de/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter', 'https://overpass.private.coffee/api/interpreter']) {
     try {
-      const r = await fetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' } });
+      const r = await trackedFetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' } }, 'Seamarks (OpenStreetMap)');
       if (!r.ok) throw new Error('Overpass ' + r.status);
       return processSeamarks(await r.json(), lat, lon, R);
     } catch (e) { err = e; }

@@ -144,6 +144,7 @@
           <label for="custom-latlon">Anywhere on Earth</label>
           <div class="row"><input id="custom-latlon" placeholder="lat, lon  e.g. 21.29, -89.67" autocomplete="off"><button id="custom-go" class="btn ghost">Load map</button></div>
           <p id="custom-status" class="muted small"></p>
+          <div id="custom-progress" class="pbar" hidden><i></i></div><p id="custom-detail" class="muted small pdetail" hidden></p>
         </div>
       </section>
       <section>
@@ -258,7 +259,7 @@
   </div>
 </div>
 
-<div id="loading" class="overlay" hidden><div class="panel"><div class="eyebrow">Preparing</div><div id="loading-text" class="big-ish">Loading chart…</div></div></div>
+<div id="loading" class="overlay" hidden><div class="panel"><div class="eyebrow">Preparing</div><div id="loading-text" class="big-ish">Loading chart…</div><div id="loading-bar" class="pbar"><i></i></div><div id="loading-detail" class="muted small pdetail"></div></div></div>
 
 <script type="module" src="js/main.js"></script>
 </body>

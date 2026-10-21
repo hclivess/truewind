@@ -9,6 +9,7 @@
 import { makeProjection, MAP_RADIUS } from './world.js';
 import { mulberry32, KT, DEG } from './env.js';
 import { fleetIdentities, VENUE_NATION } from './boatid.js';
+import { trackedFetch } from './progress.js';
 
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 const wrap = (a) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
@@ -120,7 +121,7 @@ export async function fetchTrafficGeo(lat, lon) {
   let lastErr;
   for (const u of urls) {
     try {
-      const r = await fetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' } });
+      const r = await trackedFetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' } }, 'Harbours (OpenStreetMap)');
       if (!r.ok) throw new Error('Overpass ' + r.status);
       return processTraffic(await r.json(), lat, lon);
     } catch (e) { lastErr = e; }

@@ -4,6 +4,7 @@
 // Shared by the browser (live "custom location" fetch) and tools/fetch-venues.mjs (baked venues).
 
 import { noise2 } from './env.js';
+import { trackedFetch } from './progress.js';
 
 export const VENUES = [
   { id: 'progreso', features: true, name: 'Puerto Progreso', place: 'Progreso, Yucatán, Mexico', lat: 21.315, lon: -89.668, R: 8000, wind: 70, windKt: 14, depth: 6.5, shelf: 1400,
@@ -713,7 +714,7 @@ export async function fetchVenueGeo(lat, lon) {
   let lastErr;
   for (const u of urls) {
     try {
-      const r = await fetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+      const r = await trackedFetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }, 'Coastline (OpenStreetMap)');
       if (!r.ok) throw new Error('Overpass ' + r.status);
       const j = await r.json();
       return processOSM(j, lat, lon);
@@ -982,7 +983,7 @@ async function overpassLive(q) {
     try {
       // (a stalled server must not hold the terrain up: the next mirror, then nothing)
       const signal = typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(90000) : undefined;
-      const r = await fetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal });
+      const r = await trackedFetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal });
       if (!r.ok) throw new Error('Overpass ' + r.status);
       return await r.json();
     } catch (e) { lastErr = e; }

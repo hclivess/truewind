@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { noise2 } from './env.js';
 import { LAND_KINDS, PLACE_KINDS, LAND_CHUNK, TOWN_CELL, decodeLandBin, fetchLandLive } from './world.js';
+import { trackedFetch } from './progress.js';
 
 const K = Object.fromEntries(LAND_KINDS.map((k, i) => [k, i]).filter(([k]) => k));
 const PK = Object.fromEntries(PLACE_KINDS.map((k, i) => [k, i]).filter(([k]) => k));
@@ -27,11 +28,11 @@ export async function loadLand(venueId, world = null) {
       const L = await fetchLandLive(world);
       return { decoded: true, id: 'custom', lat: world.venue.lat, live: true, ...L };
     }
-    const r = await fetch(`data/venues/${venueId}.land.json`);
+    const r = await trackedFetch(`data/venues/${venueId}.land.json`, undefined, 'Coast and towns');
     if (!r.ok) return null;
     const j = await r.json();
     if (!j.v) return decodeLand(j);
-    const b = await fetch(`data/venues/${venueId}.land.bin`);
+    const b = await trackedFetch(`data/venues/${venueId}.land.bin`, undefined, 'Coast and towns');
     if (!b.ok) return null;
     const base = decodeLandBin(await b.arrayBuffer());
     const chunks = Object.entries(j.chunks || {}).map(([key, [bytes, nB]]) => ({ key, bytes, nB, load: async () => {

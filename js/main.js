@@ -37,6 +37,7 @@ import { GearVis } from './gear-render.js';
 import { WildlifeView } from './wildlife-render.js';   // birds, dolphins, whales, turtles and sharks (visual only)
 import { Autopilot } from './autopilot.js';
 import { DEMO, ITCH, boatOpen, venueOpen, modeOpen, NUDGE_MIN, fullLink, DEMO_BOATS, DEMO_VENUES } from './edition.js';   // the browser demo's limits       // the smart autopilot and its coach (a learning aid)
+import { trackedFetch, resetProgress, bindProgress } from './progress.js';   // (the loading bars: every map download counted as it streams in)
 
 // every boat's sail model: cloth (cloth shaped by the wind and the rig, forces from a vortex lattice over it; the
 // default), ?sails=strip (three strips per sail: the light fallback) or ?sails=vlm (vortex lattice on the rig-set
@@ -299,7 +300,11 @@ class Game {
     const st = $('#custom-status');
     if (!m) { st.textContent = 'Type a latitude and longitude, like 50.77, -1.29'; return; }
     const lat = +m[1], lon = +m[2];
-    st.textContent = 'Downloading coastline from OpenStreetMap… (can take ~20 s)';
+    st.textContent = 'Downloading the coastline from OpenStreetMap… (can take ~20 s)';
+    const bar = $('#custom-progress'), det = $('#custom-detail');
+    resetProgress(); bar.hidden = false; det.hidden = false;
+    const unbind = bindProgress(bar, det);
+    const hideBar = () => { unbind(); bar.hidden = true; det.hidden = true; };
     try {
       const marks = fetchSeamarks(lat, lon).catch(() => null);        // (in parallel; a failure only costs the seamarks)
       const bathy = fetchBathy(lat, lon, 6000, makeProjection(lat, lon)).catch(() => null);   // (ETOPO 2022 from NOAA NCEI; else estimated)
@@ -311,9 +316,10 @@ class Game {
       fetchTrafficGeo(lat, lon).then(d => this.geoCache.set('custom-traffic', d)).catch(() => {});   // (harbour traffic: if it comes)
       this.settings.venue = 'custom';
       this.venueTouched = true;
+      hideBar();
       st.textContent = `Loaded ${geo.coast.length} coastline pieces, ${geo.water.length} water areas${geo.seamarks ? `, ${geo.seamarks.marks.length} seamarks` : ''}. Press Cast off.`;
       this.refreshMenu();
-    } catch (e) { st.textContent = 'Could not reach OpenStreetMap (offline or blocked). Try a built-in venue.'; }
+    } catch (e) { hideBar(); st.textContent = 'Could not reach OpenStreetMap (offline or blocked). Try a built-in venue.'; }
   }
   // where on Earth we are (for the sun and moon); open water is somewhere in the North Atlantic
   skyPlace() { const v = this.currentVenueDef(); return !v || (v.open && !v.preset) ? { lat: 32, lon: -40 } : { lat: v.lat, lon: v.lon }; }
@@ -515,12 +521,12 @@ class Game {
   async loadGeo(v) {
     if (v.open) return null;
     if (this.geoCache.has(v.id)) return this.geoCache.get(v.id);
-    const r = await fetch(`data/venues/${v.id}.json`);
+    const r = await trackedFetch(`data/venues/${v.id}.json`, undefined, 'Chart');
     const g = await r.json();
     const [marks, bathy, tideJ] = await Promise.all([
-      fetch(`data/venues/${v.id}.seamarks.json`).then(r => r.ok ? r.json() : null).catch(() => null),   // lights, buoys, beacons
-      v.lake ? null : fetch(`data/venues/${v.id}.bathy.bin`).then(r => r.ok ? r.arrayBuffer() : null).then(b => b ? decodeBathy(b) : null).catch(() => null),   // the surveyed bottom
-      v.lake ? null : fetch(`data/venues/${v.id}.tide.json`).then(r => r.ok ? r.json() : null).catch(() => null),         // harmonic constants, stream maps
+      trackedFetch(`data/venues/${v.id}.seamarks.json`, undefined, 'Seamarks').then(r => r.ok ? r.json() : null).catch(() => null),   // lights, buoys, beacons
+      v.lake ? null : trackedFetch(`data/venues/${v.id}.bathy.bin`, undefined, 'Depths').then(r => r.ok ? r.arrayBuffer() : null).then(b => b ? decodeBathy(b) : null).catch(() => null),   // the surveyed bottom
+      v.lake ? null : trackedFetch(`data/venues/${v.id}.tide.json`, undefined, 'Tides').then(r => r.ok ? r.json() : null).catch(() => null),         // harmonic constants, stream maps
     ]);
     g.seamarks = marks; g.bathy = bathy; g.tideJ = tideJ;
     this.geoCache.set(v.id, g);
@@ -532,7 +538,7 @@ class Game {
     if (v.open) return null;
     if (v.id === 'custom') return this.geoCache.get('custom-traffic') || null;
     const key = v.id + '-traffic';
-    if (!this.geoCache.has(key)) this.geoCache.set(key, await fetch(`data/venues/${v.id}.traffic.json`).then(r => r.ok ? r.json() : null).catch(() => null));
+    if (!this.geoCache.has(key)) this.geoCache.set(key, await trackedFetch(`data/venues/${v.id}.traffic.json`, undefined, 'Harbours').then(r => r.ok ? r.json() : null).catch(() => null));
     return this.geoCache.get(key);
   }
   // background traffic: moored and anchored boats, ferries on their routes, boats under way (kept off a race course)
@@ -555,12 +561,16 @@ class Game {
     // takes a token; one that finds a newer token after an await stops there)
     const tok = this._sessTok = (this._sessTok || 0) + 1;
     const v = this.currentVenueDef();
-    if (!idle) { $('#loading').hidden = false; $('#loading-text').textContent = `Loading chart: ${v.name}`; }
+    let unbindBar = null;
+    if (!idle) {
+      $('#loading').hidden = false; $('#loading-text').textContent = `Loading chart: ${v.name}`;
+      resetProgress(); unbindBar = bindProgress($('#loading-bar'), $('#loading-detail'));
+    }
     await new Promise(r => setTimeout(r, 30));
     if (tok !== this._sessTok) return;   // (a newer start has taken over: this one stops, adding nothing)
     const geo = await this.loadGeo(v).catch(() => null);
     if (tok !== this._sessTok) return;   // (a newer start has taken over: this one stops, adding nothing)
-    const manifest = v.open || !v.features ? null : await fetch(`data/venues/${v.id}.features.json`).then(r => r.ok ? r.json() : null).catch(() => null);
+    const manifest = v.open || !v.features ? null : await trackedFetch(`data/venues/${v.id}.features.json`, undefined, 'Landmarks').then(r => r.ok ? r.json() : null).catch(() => null);
     if (tok !== this._sessTok) return;   // (a newer start has taken over: this one stops, adding nothing)
     this.venue = v; this.geo = geo; this.manifest = manifest;
     this.obstacles = null;
@@ -748,6 +758,11 @@ class Game {
       const E = env.waves.forceEvent({ x: player.x + Math.sin(player.psi) * 90 * player.u, z: player.z - Math.cos(player.psi) * 90 * player.u, t: 90, crestHs: 1.3 });
       if (E) setTimeout(() => this.hud.toast(`A rogue group is gathering: ${E.crest.toFixed(0)} m crest in 90 s`, 4), 4000);
     }
+    // (the coast, the terrain and the towns load behind the chart: held for, with the bar, so they do not appear
+    // under her a few seconds after she is afloat; a slow Overpass reply for a custom place is not waited out)
+    if (!idle && this.renderer.landReady) await Promise.race([this.renderer.landReady, new Promise((r) => setTimeout(r, 20000))]);
+    if (tok !== this._sessTok) return;   // (a newer start has taken over: this one stops, adding nothing)
+    if (unbindBar) unbindBar();
     $('#loading').hidden = true;
     if (!idle) {
       $('#hud').hidden = false;
