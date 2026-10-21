@@ -204,7 +204,9 @@ export class Engine {
   start() {
     if (this.stowed) return 'stowed';
     if (this.running || this.starting) return 'running';
-    this.throttle = 0;                               // the lever goes to neutral: no starting in gear
+    // (the lever stays where the skipper put it: the gearbox engages only once she is running, at idle, through
+    // neutral (step, below), which is what keeps her from starting in gear. Pulled back to neutral here, a lever moved
+    // ahead with the start, or just before it, snapped back to N and she sat there in neutral)
     this.starting = true; this.cranking = 0; this.stalled = false;
     return 'starting';
   }
