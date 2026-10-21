@@ -28,7 +28,7 @@ export async function loadLand(venueId, world = null) {
       const L = await fetchLandLive(world);
       return { decoded: true, id: 'custom', lat: world.venue.lat, live: true, ...L };
     }
-    const r = await trackedFetch(`data/venues/${venueId}.land.json`, undefined, 'Coast and towns');
+    const r = await trackedFetch(`data/venues/${venueId}.land.json`, undefined, 'Land index');
     if (!r.ok) return null;
     const j = await r.json();
     if (!j.v) return decodeLand(j);

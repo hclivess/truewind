@@ -303,7 +303,8 @@ class Game {
     st.textContent = 'Downloading the coastline from OpenStreetMap… (can take ~20 s)';
     const bar = $('#custom-progress'), det = $('#custom-detail');
     resetProgress(); bar.hidden = false; det.hidden = false;
-    const unbind = bindProgress(bar, det);
+    // (what Load map waits for: the harbours' query goes on behind, and is no part of it)
+    const unbind = bindProgress(bar, det, ['Coastline (OpenStreetMap)', 'Depths (NOAA)', 'Seamarks (OpenStreetMap)']);
     const hideBar = () => { unbind(); bar.hidden = true; det.hidden = true; };
     try {
       const marks = fetchSeamarks(lat, lon).catch(() => null);        // (in parallel; a failure only costs the seamarks)
@@ -564,7 +565,17 @@ class Game {
     let unbindBar = null;
     if (!idle) {
       $('#loading').hidden = false; $('#loading-text').textContent = `Loading chart: ${v.name}`;
-      resetProgress(); unbindBar = bindProgress($('#loading-bar'), $('#loading-detail'));
+      // (the files this start will wait for, known before any is asked for: what is cached already is not on the list,
+      // nor the streets that stream in while she sails)
+      const exp = [];
+      if (v.id === 'custom') exp.push('Land cover (OpenStreetMap)', 'Towns (OpenStreetMap)');
+      else if (!v.open) {
+        if (!this.geoCache.has(v.id)) exp.push('Chart', 'Seamarks', ...(v.lake ? [] : ['Depths', 'Tides']));
+        if (v.features) exp.push('Landmarks');
+        if (!this.geoCache.has(v.id + '-traffic')) exp.push('Harbours');
+        exp.push('Land index', 'Coast and towns');
+      }
+      resetProgress(); unbindBar = bindProgress($('#loading-bar'), $('#loading-detail'), exp);
     }
     await new Promise(r => setTimeout(r, 30));
     if (tok !== this._sessTok) return;   // (a newer start has taken over: this one stops, adding nothing)
