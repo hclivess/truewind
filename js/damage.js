@@ -788,7 +788,12 @@ export class Damage {
   materialOf(s) {
     const C = this.C;
     const k = s.kind === 'spin' ? 'nylon' : C.id === 'blackwatch' ? 'dacronCruise' : C.id === 'dinghy' ? 'dacronDinghy' : C.cloth || (C.massHull > 600 ? 'dacronCruise' : 'laminate');
-    return { key: k, ...(CLOTH_STRENGTH[s.cloth || k] || CLOTH_STRENGTH.dacronCruise) };
+    const M = { key: k, ...(CLOTH_STRENGTH[s.cloth || k] || CLOTH_STRENGTH.dacronCruise) };
+    // a kite's cloth is chosen for its size: the tension in it is the pressure times the radius of its curvature, which
+    // grows with the sail, so sailmakers go from 0.75 oz on a dinghy's or a 24-footer's kite (to ~40 m2) to 1.5-2.2 oz on
+    // a 50-footer's. As 0.75 oz, a TP52's reaching kite tore the moment it filled on a beam reach in 14 kn
+    if (s.kind === 'spin' && !s.cloth) { const kS = Math.max(1, Math.sqrt((s.area || 40) / 40)); M.S *= kS; M.T0 *= kS; }
+    return M;
   }
   sailName(s) { return { main: 'Mainsail', jib: 'Jib', stay: 'Staysail', gennaker: this.C.id === 'cat' ? 'Spinnaker' : 'Gennaker' }[s.key] || s.key; }
 
