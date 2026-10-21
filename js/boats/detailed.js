@@ -169,14 +169,28 @@ function buildDetailed(boat, opts = {}) {
     else {
     // (painted on: a strip that follows the topsides, which curve in toward a bow or a canoe stern within the name's
     // length — a flat board there sank its forward letters into the hull)
+    // (each point laid onto the hull as it is drawn, by a ray in from outside: the section's own half-breadth at a
+    // height is not where the drawn topsides are on every hull, and on Gipsy Moth IV's quarters the name sank into
+    // them, a few dashes of its letters showing through)
     const x0 = bx(N.t), len = N.len ?? 1.2, hh = len / 8, S = 16, mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.4 });
+    const rc = new THREE.Raycaster(), dir = new THREE.Vector3();
+    for (const m of hullMeshes) m.updateMatrixWorld(true);
+    const skin = (x, z, side, t) => {
+      rc.set(V(x, side * 6, z), dir.set(-side, 0, 0)); rc.far = 6;
+      const h = rc.intersectObjects(hullMeshes, false)[0];
+      return h ? Math.abs(h.point.x) : hullHalfBreadth(Lx, t, z);
+    };
+    // (in rows up the strip too: a strip of two rows, its foot and its head, cut inside a hull that bulges out between
+    // them, and the letters in its middle were under the paint)
+    const RZ = 8;
     for (const side of [-1, 1]) {
       const pos = [], uv = [], idx = [];
       for (let i = 0; i <= S; i++) {
         const f = i / S, x = x0 + (f - 0.5) * len, t = tAt(x);
-        for (const [j, z] of [[0, N.z - hh], [1, N.z + hh]]) { pos.push(side * (hullHalfBreadth(Lx, t, z) + 0.01), z, -x); uv.push(side > 0 ? f : 1 - f, j); }
+        for (let j = 0; j <= RZ; j++) { const z = N.z - hh + 2 * hh * j / RZ; pos.push(side * (skin(x, z, side, t) + 0.012), z, -x); uv.push(side > 0 ? f : 1 - f, j / RZ); }
       }
-      for (let i = 0; i < S; i++) { const a = 2 * i; side > 0 ? idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3) : idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      const W = RZ + 1;
+      for (let i = 0; i < S; i++) for (let j = 0; j < RZ; j++) { const a = i * W + j, c = a + W; side > 0 ? idx.push(a, c, a + 1, a + 1, c, c + 1) : idx.push(a, a + 1, c, a + 1, c + 1, c); }
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
       g.setIndex(idx); g.computeVertexNormals(); inner.add(new THREE.Mesh(g, mat));
     }

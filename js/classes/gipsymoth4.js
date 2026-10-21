@@ -91,7 +91,7 @@ export default {
       mizzen: { mat: 'alu', r: 0.07, spreaders: [{ f: 0.55, len: 0.6, sweep: 0 }], stayTo: -7.9, stayToZ: 1.2, triatic: 19.6 },
     },
     backstay: false, windex: true, noNumber: true,
-    hullName: { text: 'GIPSY MOTH IV', t: 0.07, z: 0.7, len: 2.0, color: '#1c2433', font: '700 64px Georgia, "Times New Roman", serif' },
+    hullName: { text: 'GIPSY MOTH IV', t: 0.15, z: 0.75, len: 2.2, color: '#1c2433', font: '700 64px Georgia, "Times New Roman", serif' },
     extras: ['vaneGear'],
   },
   hw: { trav: [-1.2, 0.7], boomS: 0.6, winch: [-4.0, 1.15], jibTrack: [2.6, 1.0, 1.15], helm: 'Tiller', winchR: 0.07 },
