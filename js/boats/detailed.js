@@ -106,6 +106,9 @@ function buildDetailed(boat, opts = {}) {
   };
   const deckMat = D.deck === 'teak' && D.deckPlank ? plankTeak(D.deckPlank) : D.deck === 'teak' ? M.teak() : D.deck === 'paint' ? paint(D.deckColor ?? 0xe8e4d8, 0.7) : nonskid(D.deckTint || '#e9e6dc');
   const deck = new THREE.Mesh(deckGeometry(C, Lx, stations, D.cockpit ? ck : null), deckMat);
+  // the sea kept out of the cockpit: a lid over the well, depth only, after the boat and before the sea (render.js
+  // draws the sea at renderOrder 2); no shadow, and no pick (the lines in the cockpit are grabbed through it)
+  if (D.cockpit) { const lid = new THREE.Mesh(deckGeometry(C, Lx, stations, ck, true), mat('waterlid', () => new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide }))); lid.renderOrder = 1; lid.raycast = () => {}; lid.userData.waterLid = true; inner.add(lid); }
   deck.receiveShadow = true; deck.castShadow = true; inner.add(deck);
   const sheerPts = (side, dz = 0.02) => stations.map(st => { const [x, y, z] = st[0]; return V(x, side * y, z + dz); });
   // ---- toerail / bulwark

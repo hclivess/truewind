@@ -453,9 +453,12 @@ function deckRows(stations, pits) {
   for (const p of pits || []) extra.push(at(p.x0 - 0.003), at(p.x0), at(p.x1), at(p.x1 + 0.003));
   return extra.length ? [...rows.map((r) => ({ ...r })), ...extra].sort((a, b) => a.x - b.x) : rows;
 }
-function deckGeometry(C, Lx, stations, ck) {
+// (lid: the deck as if the well were not cut in it, over the well only: drawn in depth alone between the boat and the
+// sea, it keeps the sea's surface out of the cockpit, js/boats/detailed.js. A dinghy's footwell lies a few centimetres
+// above the water, and heeled, loaded or in a chop the sea's surface stood above its floor and its waves ran through it)
+function deckGeometry(C, Lx, stations, ck, lid = false) {
   const pits = ck && ck.pits, NU = pits ? 104 : 26, rows = deckRows(stations, pits), NS = rows.length - 1;
-  const pos = [], uv = [], idx = [];
+  const pos = [], uv = [], idx = [], inWell = [];
   const crown = Lx.H.crown;
   for (let s = 0; s <= NS; s++) {
     const { t, x, b, sh } = rows[s];
@@ -467,15 +470,18 @@ function deckGeometry(C, Lx, stations, ck) {
       if (ck) {
         const e = 1.2 / (stations.length - 1), eu = 2.4 / 26;   // (the well's edge as on the stations' own grid, whatever rows a pit adds)
         const m = sstep(ck.t0 - e, ck.t0, t) * (1 - sstep(ck.t1, ck.t1 + e, t)) * (1 - sstep(ck.w, ck.w + eu, Math.abs(u)));
-        z = lerp(z, ck.sole, m);
+        if (!lid) z = lerp(z, ck.sole, m);
         if (m > 0.5) y = u * b * 0.992;
+        inWell.push(m > 0.001);
       }
-      z = inPit(pits, x, y, z);
+      if (!lid) z = inPit(pits, x, y, z);
       pos.push(y, z, -x); uv.push(y * 1.6, x * 1.6);
     }
   }
   for (let s = 0; s < NS; s++) for (let j = 0; j < NU; j++) {
     const a = s * (NU + 1) + j;
+    // (the lid: only the quads over the well, and a column of the deck round it)
+    if (lid && !(inWell[a] || inWell[a + 1] || inWell[a + NU + 1] || inWell[a + NU + 2])) continue;
     idx.push(a, a + NU + 1, a + 1, a + 1, a + NU + 1, a + NU + 2);
   }
   const g = new THREE.BufferGeometry();

@@ -823,6 +823,9 @@ export class Renderer {
     });
     this.water = new THREE.Mesh(g, m);
     this.water.frustumCulled = false;
+    // (after the boats and their cockpits' depth-only lids, renderOrder 1, js/boats/detailed.js: the sea's surface is not
+    // drawn inside a cockpit whose floor it stands above)
+    this.water.renderOrder = 2;
     this.scene.add(this.water);
     // the sea out to the horizon: a skirt from the grid's square edge (6.5 km) to 28 km, its inner vertices the grid's own
     // edge so the two meet without a seam, drawn with the same water. (The waves have faded out there; the skirt carries
