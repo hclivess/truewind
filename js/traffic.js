@@ -9,7 +9,7 @@
 import { makeProjection, MAP_RADIUS } from './world.js';
 import { mulberry32, KT, DEG } from './env.js';
 import { fleetIdentities, VENUE_NATION } from './boatid.js';
-import { trackedFetch } from './progress.js';
+import { overpass } from './overpass.js';
 
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 const wrap = (a) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
@@ -116,17 +116,7 @@ export function processTraffic(osm, lat0, lon0, R = MAP_RADIUS + 600) {
 
 // Live fetch for a custom location (the baked venues have data/venues/<id>.traffic.json)
 export async function fetchTrafficGeo(lat, lon) {
-  const q = trafficQuery(lat, lon);
-  const urls = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
-  let lastErr;
-  for (const u of urls) {
-    try {
-      const r = await trackedFetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' } }, 'Harbours (OpenStreetMap)');
-      if (!r.ok) throw new Error('Overpass ' + r.status);
-      return processTraffic(await r.json(), lat, lon);
-    } catch (e) { lastErr = e; }
-  }
-  throw lastErr;
+  return processTraffic(await overpass(trafficQuery(lat, lon), 'Harbours (OpenStreetMap)'), lat, lon);
 }
 
 // ------------------------------------------------------------------ navigation grid

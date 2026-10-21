@@ -4,7 +4,7 @@
 // Shared by the browser (live "custom location" fetch) and tools/fetch-venues.mjs (baked venues).
 
 import { noise2 } from './env.js';
-import { trackedFetch } from './progress.js';
+import { overpass } from './overpass.js';
 
 export const VENUES = [
   { id: 'progreso', features: true, name: 'Puerto Progreso', place: 'Progreso, Yucatán, Mexico', lat: 21.315, lon: -89.668, R: 8000, wind: 70, windKt: 14, depth: 6.5, shelf: 1400,
@@ -709,18 +709,7 @@ export class World {
 
 // Live fetch for any location (works on GitHub Pages; blocked in sandboxes without network)
 export async function fetchVenueGeo(lat, lon) {
-  const q = overpassQuery(lat, lon);
-  const urls = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
-  let lastErr;
-  for (const u of urls) {
-    try {
-      const r = await trackedFetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }, 'Coastline (OpenStreetMap)');
-      if (!r.ok) throw new Error('Overpass ' + r.status);
-      const j = await r.json();
-      return processOSM(j, lat, lon);
-    } catch (e) { lastErr = e; }
-  }
-  throw lastErr;
+  return processOSM(await overpass(overpassQuery(lat, lon), 'Coastline (OpenStreetMap)'), lat, lon);
 }
 
 // Live wind at a location from Open-Meteo (free, no key)
@@ -976,23 +965,10 @@ export function decodeLandBin(buf) {
 // Live land data for a custom location, the same shape as the baked files: land cover and places first (the
 // terrain needs them), then buildings and streets chunk by chunk, nearest the centre first.
 // Returns { areas, places, town: null, chunks: [{ key, box, load() -> { buildings, roads } }] }.
-const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
-async function overpassLive(q) {
-  let lastErr;
-  for (const u of OVERPASS) {
-    try {
-      // (a stalled server must not hold the terrain up: the next mirror, then nothing)
-      const signal = typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(90000) : undefined;
-      const r = await trackedFetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal });
-      if (!r.ok) throw new Error('Overpass ' + r.status);
-      return await r.json();
-    } catch (e) { lastErr = e; }
-  }
-  throw lastErr;
-}
+const overpassLive = (q, label) => overpass(q, label);   // (js/overpass.js: two at a time, round the mirrors, retried)
 export async function fetchLandLive(world) {
   const v = world.venue, R = world.R, C = LAND_CHUNK, Q = landQueries(v.lat, v.lon, R);
-  const [areas, places] = await Promise.all([overpassLive(Q.areas).catch(() => null), overpassLive(Q.places).catch(() => null)]);
+  const [areas, places] = await Promise.all([overpassLive(Q.areas, 'Land cover (OpenStreetMap)').catch(() => null), overpassLive(Q.places, 'Towns (OpenStreetMap)').catch(() => null)]);
   const base = processLand({ areas, places }, v.lat, v.lon, world);
   const nc = Math.ceil(2 * R / C), chunks = [];
   for (let j = 0; j < nc; j++) for (let i = 0; i < nc; i++) {
@@ -1002,7 +978,7 @@ export async function fetchLandLive(world) {
     for (let b = 0; b <= 8 && !land; b++) for (let a = 0; a <= 8; a++) if (world.sdfAt(box[0] + (box[2] - box[0]) * a / 8, box[1] + (box[3] - box[1]) * b / 8) < 300) { land = true; break; }
     if (!land) continue;
     chunks.push({ key: i + ',' + j, box, load: async () => {
-      const osm = await overpassLive(landBoxQuery(v.lat, v.lon, ...box));
+      const osm = await overpassLive(landBoxQuery(v.lat, v.lon, ...box), 'Buildings and roads (OpenStreetMap)');
       const out = processLand({ buildings: osm }, v.lat, v.lon, world, { box });
       return { buildings: out.buildings, roads: out.roads };
     } });

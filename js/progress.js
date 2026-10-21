@@ -25,18 +25,23 @@ export function progressState() {
     // until it is in. Of unknown size it creeps toward nine tenths with what has come)
     else if (T.total) f += Math.min(0.95, T.loaded / T.total);
     else { unknown = true; f += 0.9 * (1 - Math.exp(-T.loaded / 4e5)); }
-    items.push({ label: T.label, loaded: T.loaded, total: T.total, done: T.done, failed: !!T.failed });
+    items.push({ label: T.label, loaded: T.loaded, total: T.total, done: T.done, failed: !!T.failed, note: T.note || '' });
   }
   return { n, done, frac: n ? f / n : 0, bytes, unknown, items };
 }
 
+// a download that may take several requests (js/overpass.js: its retries round the mirrors), counted as one file
+export function newTask(label) { const T = { label, loaded: 0, total: 0, done: false, note: '', touch: notify }; tasks.add(T); notify(); return T; }
+export function endTask(T, failed) { T.done = true; T.failed = !!failed; T.note = ''; notify(); }
+
+// label: the file's name on the bar, or a task from newTask (whose end is then the caller's to say)
 export async function trackedFetch(url, opts, label = 'Map data') {
-  const T = { label, loaded: 0, total: 0, done: false };
-  tasks.add(T); notify();
+  const own = typeof label !== 'object', T = own ? newTask(label) : label;
+  T.loaded = 0; T.total = 0;
   try {
     const r = await fetch(url, opts);
     T.total = +(r.headers.get('content-length') || 0);
-    if (!r.ok || !r.body || !r.body.getReader) { T.done = true; T.failed = !r.ok; notify(); return r; }
+    if (!r.ok || !r.body || !r.body.getReader) { if (own) endTask(T, !r.ok); return r; }
     const rd = r.body.getReader(), parts = [];
     for (;;) {
       const { done, value } = await rd.read();
@@ -45,9 +50,9 @@ export async function trackedFetch(url, opts, label = 'Map data') {
     }
     const buf = new Uint8Array(T.loaded);
     let o = 0; for (const p of parts) { buf.set(p, o); o += p.length; }
-    T.done = true; notify();
+    if (own) endTask(T, false); else notify();
     return new Response(buf, { status: r.status, statusText: r.statusText, headers: r.headers });
-  } catch (e) { T.done = true; T.failed = true; notify(); throw e; }
+  } catch (e) { if (own) endTask(T, true); else { T.loaded = 0; notify(); } throw e; }
 }
 
 const mb = (b) => b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1e3))} kB`;
@@ -58,7 +63,7 @@ export function bindProgress(bar, line) {
     fill.style.width = `${Math.round(s.frac * 100)}%`;
     bar.classList.toggle('busy', s.unknown);
     if (!line) return;
-    const now = s.items.filter((t) => !t.done).map((t) => t.loaded ? `${t.label} ${mb(t.loaded)}${t.total ? ' of ' + mb(t.total) : ''}` : `${t.label}…`);
+    const now = s.items.filter((t) => !t.done).map((t) => (t.loaded ? `${t.label} ${mb(t.loaded)}${t.total ? ' of ' + mb(t.total) : ''}` : `${t.label}…`) + (t.note ? ` (${t.note})` : ''));
     line.textContent = s.n ? `${s.done} of ${s.n} files · ${mb(s.bytes)}${now.length ? ' · ' + now.join(' · ') : ''}` : '';
   });
 }
